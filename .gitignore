@@ -68,3 +68,6 @@ CLAUDE.local.md
 data/
 .codex
 .roomodes
+
+# Local patch payloads
+dkceshi-align-changed-files.zip
