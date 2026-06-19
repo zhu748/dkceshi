@@ -150,7 +150,7 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 		defer h.Auth.Release(lease.Auth)
 	}
 	if lease.Auth != nil {
-		h.autoDeleteRemoteSession(r.Context(), lease.Auth, lease.SessionID)
+		h.autoDeleteRemoteSession(r.Context(), lease.Auth, lease.SessionID, lease.Standard.ResolvedModel)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }

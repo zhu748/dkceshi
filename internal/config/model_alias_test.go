@@ -126,6 +126,90 @@ func TestResolveModelDirectDeepSeekExpert(t *testing.T) {
 	}
 }
 
+// --- -autodelete suffix model tests ---
+
+func TestResolveModelDirectDeepSeekAutoDelete(t *testing.T) {
+	got, ok := ResolveModel(nil, "deepseek-v4-flash-autodelete")
+	if !ok || got != "deepseek-v4-flash-autodelete" {
+		t.Fatalf("expected deepseek-v4-flash-autodelete, got ok=%v model=%q", ok, got)
+	}
+}
+
+func TestResolveModelAliasWithAutoDeleteSuffix(t *testing.T) {
+	// gpt-4.1 alias + -autodelete suffix should resolve to deepseek-v4-flash-autodelete
+	got, ok := ResolveModel(nil, "gpt-4.1-autodelete")
+	if !ok || got != "deepseek-v4-flash-autodelete" {
+		t.Fatalf("expected alias gpt-4.1-autodelete -> deepseek-v4-flash-autodelete, got ok=%v model=%q", ok, got)
+	}
+}
+
+func TestResolveModelClaudeAliasWithAutoDeleteSuffix(t *testing.T) {
+	got, ok := ResolveModel(nil, "claude-sonnet-4-6-autodelete")
+	if !ok || got != "deepseek-v4-flash-autodelete" {
+		t.Fatalf("expected alias claude-sonnet-4-6-autodelete -> deepseek-v4-flash-autodelete, got ok=%v model=%q", ok, got)
+	}
+}
+
+func TestIsAutoDeleteModel(t *testing.T) {
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"deepseek-v4-flash-autodelete", true},
+		{"deepseek-v4-pro-search-autodelete", true},
+		{"deepseek-v4-flash", false},
+		{"deepseek-v4-flash-nothinking", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := IsAutoDeleteModel(tc.model); got != tc.want {
+			t.Fatalf("IsAutoDeleteModel(%q)=%v want=%v", tc.model, got, tc.want)
+		}
+	}
+}
+
+func TestGetModelConfigStripsAutoDeleteSuffix(t *testing.T) {
+	thinking, search, ok := GetModelConfig("deepseek-v4-flash-autodelete")
+	if !ok || !thinking || search {
+		t.Fatalf("expected deepseek-v4-flash-autodelete to behave as flash (thinking=true, search=false), got thinking=%v search=%v ok=%v", thinking, search, ok)
+	}
+	thinking, search, ok = GetModelConfig("deepseek-v4-pro-search-autodelete")
+	if !ok || !thinking || !search {
+		t.Fatalf("expected deepseek-v4-pro-search-autodelete to behave as pro-search (thinking=true, search=true), got thinking=%v search=%v ok=%v", thinking, search, ok)
+	}
+}
+
+func TestGetModelTypeStripsAutoDeleteSuffix(t *testing.T) {
+	mt, ok := GetModelType("deepseek-v4-flash-autodelete")
+	if !ok || mt != "default" {
+		t.Fatalf("expected deepseek-v4-flash-autodelete -> default, got mt=%q ok=%v", mt, ok)
+	}
+	mt, ok = GetModelType("deepseek-v4-pro-autodelete")
+	if !ok || mt != "expert" {
+		t.Fatalf("expected deepseek-v4-pro-autodelete -> expert, got mt=%q ok=%v", mt, ok)
+	}
+}
+
+func TestDeepSeekModelsIncludesAutoDeleteVariants(t *testing.T) {
+	// 验证 /v1/models 列表包含 -autodelete 变体
+	expected := []string{
+		"deepseek-v4-flash-autodelete",
+		"deepseek-v4-pro-autodelete",
+		"deepseek-v4-flash-search-autodelete",
+		"deepseek-v4-pro-search-autodelete",
+		"deepseek-v4-vision-autodelete",
+	}
+	seen := map[string]bool{}
+	for _, m := range DeepSeekModels {
+		seen[m.ID] = true
+	}
+	for _, id := range expected {
+		if !seen[id] {
+			t.Fatalf("expected %q in DeepSeekModels, got: %v", id, seen)
+		}
+	}
+}
+
 func TestResolveModelCustomAliasToExpert(t *testing.T) {
 	got, ok := ResolveModel(mockModelAliasReader{
 		"my-expert-model": "deepseek-v4-pro-search",

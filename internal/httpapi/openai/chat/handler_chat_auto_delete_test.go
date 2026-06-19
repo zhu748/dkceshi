@@ -130,12 +130,77 @@ func TestAutoDeleteRemoteSessionIgnoresCanceledParentContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	h.autoDeleteRemoteSession(ctx, a, "session-id")
+	h.autoDeleteRemoteSession(ctx, a, "session-id", "deepseek-v4-flash")
 
 	if ds.singleCalls != 1 {
 		t.Fatalf("single delete calls=%d want=1", ds.singleCalls)
 	}
 	if ds.lastCtxErr != nil {
 		t.Fatalf("delete ctx should not inherit cancellation, got %v", ds.lastCtxErr)
+	}
+}
+
+// TestAutoDeleteRemoteSessionSuffixModelOverridesNone 验证 -autodelete 后缀模型
+// 在全局 mode=none 时降级为删除本次对话，对应 App 抓包里的
+// POST /api/v0/chat_session/delete 动作。
+func TestAutoDeleteRemoteSessionSuffixModelOverridesNone(t *testing.T) {
+	tests := []struct {
+		name          string
+		globalMode    string
+		resolvedModel string
+		wantSingle    int
+		wantAll       int
+	}{
+		{
+			name:          "none + suffix model -> single delete",
+			globalMode:    "none",
+			resolvedModel: "deepseek-v4-flash-autodelete",
+			wantSingle:    1,
+		},
+		{
+			name:          "single + suffix model -> still single (no double delete)",
+			globalMode:    "single",
+			resolvedModel: "deepseek-v4-flash-autodelete",
+			wantSingle:    1,
+		},
+		{
+			name:          "all + suffix model -> all (global wins)",
+			globalMode:    "all",
+			resolvedModel: "deepseek-v4-flash-autodelete",
+			wantAll:       1,
+		},
+		{
+			name:          "none + plain model -> no delete",
+			globalMode:    "none",
+			resolvedModel: "deepseek-v4-flash",
+		},
+		{
+			name:          "none + alias-resolved suffix model -> single delete",
+			globalMode:    "none",
+			resolvedModel: "deepseek-v4-pro-search-autodelete",
+			wantSingle:    1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ds := &autoDeleteModeDSStub{}
+			h := &Handler{
+				Store: mockOpenAIConfig{
+					autoDeleteMode: tc.globalMode,
+				},
+				DS: ds,
+			}
+			a := &auth.RequestAuth{DeepSeekToken: "token", AccountID: "acct"}
+
+			h.autoDeleteRemoteSession(context.Background(), a, "session-id", tc.resolvedModel)
+
+			if ds.singleCalls != tc.wantSingle {
+				t.Fatalf("single delete calls=%d want=%d", ds.singleCalls, tc.wantSingle)
+			}
+			if ds.allCalls != tc.wantAll {
+				t.Fatalf("all delete calls=%d want=%d", ds.allCalls, tc.wantAll)
+			}
+		})
 	}
 }

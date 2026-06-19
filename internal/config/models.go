@@ -28,6 +28,7 @@ type ModelAliasReader interface {
 }
 
 const noThinkingModelSuffix = "-nothinking"
+const autoDeleteModelSuffix = "-autodelete"
 
 var deepSeekBaseModels = []ModelInfo{
 	{ID: "deepseek-v4-flash", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
@@ -48,6 +49,11 @@ var OllamaCapabilitiesModels = []OllamaCapabilitiesModelInfo{
 	{ID: "deepseek-v4-flash-search-nothinking", Capabilities: []string{"tools"}},
 	{ID: "deepseek-v4-pro-search-nothinking", Capabilities: []string{"tools"}},
 	{ID: "deepseek-v4-vision-nothinking", Capabilities: []string{"tools", "vision"}},
+	{ID: "deepseek-v4-flash-autodelete", Capabilities: []string{"tools", "thinking"}},
+	{ID: "deepseek-v4-pro-autodelete", Capabilities: []string{"tools", "thinking"}},
+	{ID: "deepseek-v4-flash-search-autodelete", Capabilities: []string{"tools", "thinking"}},
+	{ID: "deepseek-v4-pro-search-autodelete", Capabilities: []string{"tools", "thinking"}},
+	{ID: "deepseek-v4-vision-autodelete", Capabilities: []string{"tools", "thinking", "vision"}},
 }
 
 var DeepSeekModels = appendNoThinkingVariants(deepSeekBaseModels)
@@ -86,6 +92,7 @@ var ClaudeModels = appendNoThinkingVariants(claudeBaseModels)
 
 func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
 	baseModel, noThinking := splitNoThinkingModel(model)
+	baseModel, _ = splitAutoDeleteModel(baseModel)
 	if baseModel == "" {
 		return false, false, false
 	}
@@ -101,6 +108,7 @@ func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
 
 func GetModelType(model string) (modelType string, ok bool) {
 	baseModel, _ := splitNoThinkingModel(model)
+	baseModel, _ = splitAutoDeleteModel(baseModel)
 	switch baseModel {
 	case "deepseek-v4-flash", "deepseek-v4-flash-search":
 		return "default", true
@@ -121,6 +129,15 @@ func IsSupportedDeepSeekModel(model string) bool {
 func IsNoThinkingModel(model string) bool {
 	_, noThinking := splitNoThinkingModel(model)
 	return noThinking
+}
+
+// IsAutoDeleteModel 判断模型 ID 是否带 -autodelete 后缀。
+// 调用方在响应完成后据此触发 chat_session/delete 删除本次对话，
+// 与全局 auto_delete.mode 联动：suffix 模型仅当全局 mode=none 时生效，
+// 全局 mode=single/all 时保持全局策略不变。
+func IsAutoDeleteModel(model string) bool {
+	_, autoDelete := splitAutoDeleteModel(model)
+	return autoDelete
 }
 
 func DefaultModelAliases() map[string]string {
@@ -240,8 +257,14 @@ func ResolveModel(store ModelAliasReader, requested string) (string, bool) {
 		return mapped, true
 	}
 	baseModel, noThinking := splitNoThinkingModel(model)
-	if mapped, ok := aliases[baseModel]; ok && IsSupportedDeepSeekModel(mapped) {
-		return withNoThinkingVariant(mapped, noThinking), true
+	baseModel, autoDelete := splitAutoDeleteModel(baseModel)
+	if baseModel != model {
+		// 用户传入了带后缀的形式（如 gpt-4.1-nothinking 或 gpt-4.1-autodelete）
+		if mapped, ok := aliases[baseModel]; ok && IsSupportedDeepSeekModel(mapped) {
+			mapped = withNoThinkingVariant(mapped, noThinking)
+			mapped = withAutoDeleteVariant(mapped, autoDelete)
+			return mapped, true
+		}
 	}
 	return "", false
 }
@@ -304,12 +327,19 @@ func ClaudeModelsResponse() map[string]any {
 }
 
 func appendNoThinkingVariants(models []ModelInfo) []ModelInfo {
-	out := make([]ModelInfo, 0, len(models)*2)
+	// 为每个 base model 生成 -nothinking 与 -autodelete 两个后缀变体。
+	// -nothinking：禁用 thinking 字段
+	// -autodelete：响应完成后自动调用 chat_session/delete 删除本次对话
+	// 注意：两个后缀不叠加，避免组合爆炸。
+	out := make([]ModelInfo, 0, len(models)*3)
 	for _, model := range models {
 		out = append(out, model)
-		variant := model
-		variant.ID = withNoThinkingVariant(model.ID, true)
-		out = append(out, variant)
+		noThinkingVariant := model
+		noThinkingVariant.ID = withNoThinkingVariant(model.ID, true)
+		out = append(out, noThinkingVariant)
+		autoDeleteVariant := model
+		autoDeleteVariant.ID = withAutoDeleteVariant(model.ID, true)
+		out = append(out, autoDeleteVariant)
 	}
 	return out
 }
@@ -348,6 +378,29 @@ func withNoThinkingVariant(model string, enabled bool) string {
 		return ""
 	}
 	return baseModel + noThinkingModelSuffix
+}
+
+// splitAutoDeleteModel 剥离 -autodelete 后缀。
+// 注意：只剥最外层，且不会同时识别 -nothinking-autodelete 组合（设计上不支持叠加）。
+func splitAutoDeleteModel(model string) (string, bool) {
+	model = lower(strings.TrimSpace(model))
+	if strings.HasSuffix(model, autoDeleteModelSuffix) {
+		return strings.TrimSuffix(model, autoDeleteModelSuffix), true
+	}
+	return model, false
+}
+
+// withAutoDeleteVariant 在 base model 上追加 -autodelete 后缀（若 enabled=true）。
+// 若 base model 已经带 -autodelete 后缀，不会重复追加。
+func withAutoDeleteVariant(model string, enabled bool) string {
+	baseModel, _ := splitAutoDeleteModel(model)
+	if !enabled {
+		return baseModel
+	}
+	if baseModel == "" {
+		return ""
+	}
+	return baseModel + autoDeleteModelSuffix
 }
 
 func loadModelAliases(store ModelAliasReader) map[string]string {

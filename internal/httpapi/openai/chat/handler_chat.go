@@ -48,8 +48,9 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var sessionID string
+	var resolvedModel string
 	defer func() {
-		h.autoDeleteRemoteSession(r.Context(), a, sessionID)
+		h.autoDeleteRemoteSession(r.Context(), a, sessionID, resolvedModel)
 		h.Auth.Release(a)
 	}()
 
@@ -74,6 +75,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	resolvedModel = stdReq.ResolvedModel
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
 		status, message := mapCurrentInputFileError(err)
@@ -121,9 +123,28 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	h.handleStreamWithRetry(w, r, a, start.Response, start.Payload, start.Pow, sessionID, &sessionID, streamReq, streamReq.ResponseModel, streamReq.PromptTokenText, refFileTokens, streamReq.Thinking, streamReq.Search, streamReq.ToolNames, streamReq.ToolsRaw, streamReq.ToolChoice, historySession)
 }
 
-func (h *Handler) autoDeleteRemoteSession(ctx context.Context, a *auth.RequestAuth, sessionID string) {
+// autoDeleteRemoteSession 在请求结束后按全局 auto_delete.mode 与模型后缀策略
+// 清理远端会话。
+//
+// 策略组合：
+//   - 全局 mode=single：删除本次会话（无条件，等价于既有行为）
+//   - 全局 mode=all：清空账号全部会话（无条件，等价于既有行为）
+//   - 全局 mode=none + 模型带 -autodelete 后缀：降级为删除本次会话
+//   - 全局 mode=none + 普通模型：不删除
+//
+// 设计意图：-autodelete 后缀模型让用户可以在全局关闭删除策略的前提下，
+// 对个别请求按需启用「仅删除本次对话」，对应 App 抓包里的
+// POST /api/v0/chat_session/delete 动作。
+func (h *Handler) autoDeleteRemoteSession(ctx context.Context, a *auth.RequestAuth, sessionID string, resolvedModel string) {
 	mode := h.Store.AutoDeleteMode()
-	if mode == "none" || a.DeepSeekToken == "" {
+	suffixAutoDelete := config.IsAutoDeleteModel(resolvedModel)
+
+	// 计算最终生效模式
+	effectiveMode := mode
+	if mode == "none" && suffixAutoDelete {
+		effectiveMode = "single"
+	}
+	if effectiveMode == "none" || a.DeepSeekToken == "" {
 		return
 	}
 
@@ -131,26 +152,26 @@ func (h *Handler) autoDeleteRemoteSession(ctx context.Context, a *auth.RequestAu
 	deleteCtx, cancel := context.WithTimeout(deleteBaseCtx, 10*time.Second)
 	defer cancel()
 
-	switch mode {
+	switch effectiveMode {
 	case "single":
 		if sessionID == "" {
-			config.Logger.Warn("[auto_delete_sessions] skipped single-session delete because session_id is empty", "account", a.AccountID)
+			config.Logger.Warn("[auto_delete_sessions] skipped single-session delete because session_id is empty", "account", a.AccountID, "model", resolvedModel)
 			return
 		}
 		_, err := h.DS.DeleteSessionForToken(deleteCtx, a.DeepSeekToken, sessionID)
 		if err != nil {
-			config.Logger.Warn("[auto_delete_sessions] failed", "account", a.AccountID, "mode", mode, "session_id", sessionID, "error", err)
+			config.Logger.Warn("[auto_delete_sessions] failed", "account", a.AccountID, "mode", mode, "effective_mode", effectiveMode, "model", resolvedModel, "session_id", sessionID, "error", err)
 			return
 		}
-		config.Logger.Debug("[auto_delete_sessions] success", "account", a.AccountID, "mode", mode, "session_id", sessionID)
+		config.Logger.Debug("[auto_delete_sessions] success", "account", a.AccountID, "mode", mode, "effective_mode", effectiveMode, "model", resolvedModel, "session_id", sessionID)
 	case "all":
 		if err := h.DS.DeleteAllSessionsForToken(deleteCtx, a.DeepSeekToken); err != nil {
-			config.Logger.Warn("[auto_delete_sessions] failed", "account", a.AccountID, "mode", mode, "error", err)
+			config.Logger.Warn("[auto_delete_sessions] failed", "account", a.AccountID, "mode", mode, "model", resolvedModel, "error", err)
 			return
 		}
-		config.Logger.Debug("[auto_delete_sessions] success", "account", a.AccountID, "mode", mode)
+		config.Logger.Debug("[auto_delete_sessions] success", "account", a.AccountID, "mode", mode, "model", resolvedModel)
 	default:
-		config.Logger.Warn("[auto_delete_sessions] unknown mode", "account", a.AccountID, "mode", mode)
+		config.Logger.Warn("[auto_delete_sessions] unknown mode", "account", a.AccountID, "mode", mode, "model", resolvedModel)
 	}
 }
 
