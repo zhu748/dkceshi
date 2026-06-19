@@ -14,12 +14,27 @@ import (
 
 	"ds2api/internal/auth"
 	dsclient "ds2api/internal/deepseek/client"
+	"ds2api/internal/promptcompat"
 )
+
+// asMap 将 payload (OrderedJSONMap 或 map[string]any) 转为 map[string]any 视图，便于测试中按 key 读取。
+func asMap(payload any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	if m, ok := payload.(*promptcompat.OrderedJSONMap); ok {
+		return m.AsMap()
+	}
+	if m, ok := payload.(map[string]any); ok {
+		return m
+	}
+	return nil
+}
 
 type inlineUploadDSStub struct {
 	uploadCalls    []dsclient.UploadFileRequest
 	lastCtx        context.Context
-	completionReq  map[string]any
+	completionReq  any
 	createSession  string
 	uploadErr      error
 	completionResp *http.Response
@@ -55,7 +70,7 @@ func (m *inlineUploadDSStub) UploadFile(ctx context.Context, _ *auth.RequestAuth
 	}, nil
 }
 
-func (m *inlineUploadDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
+func (m *inlineUploadDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
 	m.completionReq = payload
 	if m.completionResp != nil {
 		return m.completionResp, nil
@@ -177,9 +192,9 @@ func TestChatCompletionsUploadsInlineFilesBeforeCompletion(t *testing.T) {
 	if ds.completionReq == nil {
 		t.Fatal("expected completion payload to be captured")
 	}
-	refIDs, _ := ds.completionReq["ref_file_ids"].([]any)
+	refIDs, _ := asMap(ds.completionReq)["ref_file_ids"].([]any)
 	if len(refIDs) != 1 || refIDs[0] != "file-inline-1" {
-		t.Fatalf("unexpected completion ref_file_ids: %#v", ds.completionReq["ref_file_ids"])
+		t.Fatalf("unexpected completion ref_file_ids: %#v", asMap(ds.completionReq)["ref_file_ids"])
 	}
 }
 
@@ -205,9 +220,9 @@ func TestResponsesUploadsInlineFilesBeforeCompletion(t *testing.T) {
 	if ds.uploadCalls[0].ModelType != "expert" {
 		t.Fatalf("expected expert model type for pro request, got %q", ds.uploadCalls[0].ModelType)
 	}
-	refIDs, _ := ds.completionReq["ref_file_ids"].([]any)
+	refIDs, _ := asMap(ds.completionReq)["ref_file_ids"].([]any)
 	if len(refIDs) != 1 || refIDs[0] != "file-inline-1" {
-		t.Fatalf("unexpected completion ref_file_ids: %#v", ds.completionReq["ref_file_ids"])
+		t.Fatalf("unexpected completion ref_file_ids: %#v", asMap(ds.completionReq)["ref_file_ids"])
 	}
 }
 

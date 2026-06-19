@@ -14,6 +14,7 @@ import (
 
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
+	"ds2api/internal/promptcompat"
 )
 
 const defaultAutoContinueLimit = 8
@@ -32,11 +33,18 @@ type continueState struct {
 // AUTO_CONTINUE), ds2api will automatically call the DeepSeek continue
 // endpoint and splice the continuation SSE stream onto the original.
 // The caller sees a single, seamless SSE stream.
-func (c *Client) wrapCompletionWithAutoContinue(ctx context.Context, a *auth.RequestAuth, payload map[string]any, powResp string, resp *http.Response) *http.Response {
+func (c *Client) wrapCompletionWithAutoContinue(ctx context.Context, a *auth.RequestAuth, payload any, powResp string, resp *http.Response) *http.Response {
 	if resp == nil || resp.Body == nil {
 		return resp
 	}
-	sessionID, _ := payload["chat_session_id"].(string)
+	// 从 payload 中读取 chat_session_id，支持 *OrderedJSONMap 与 map[string]any 两种载体
+	var sessionID string
+	switch v := payload.(type) {
+	case *promptcompat.OrderedJSONMap:
+		sessionID, _ = v.M["chat_session_id"].(string)
+	case map[string]any:
+		sessionID, _ = v["chat_session_id"].(string)
+	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return resp

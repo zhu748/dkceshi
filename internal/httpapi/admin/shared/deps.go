@@ -54,7 +54,7 @@ type DeepSeekCaller interface {
 	Login(ctx context.Context, acc config.Account) (string, error)
 	CreateSession(ctx context.Context, a *auth.RequestAuth, maxAttempts int) (string, error)
 	GetPow(ctx context.Context, a *auth.RequestAuth, maxAttempts int) (string, error)
-	CallCompletion(ctx context.Context, a *auth.RequestAuth, payload map[string]any, powResp string, maxAttempts int) (*http.Response, error)
+	CallCompletion(ctx context.Context, a *auth.RequestAuth, payload any, powResp string, maxAttempts int) (*http.Response, error)
 	GetSessionCountForToken(ctx context.Context, token string) (*dsclient.SessionStats, error)
 	DeleteAllSessionsForToken(ctx context.Context, token string) error
 }

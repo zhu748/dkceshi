@@ -54,7 +54,7 @@ func (m streamStatusDSStub) UploadFile(_ context.Context, _ *auth.RequestAuth, _
 	return &dsclient.UploadFileResult{ID: "file-id", Filename: "file.txt", Bytes: 1, Status: "uploaded"}, nil
 }
 
-func (m streamStatusDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
+func (m streamStatusDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
 	return m.resp, nil
 }
 
@@ -68,7 +68,7 @@ func (m streamStatusDSStub) DeleteAllSessionsForToken(_ context.Context, _ strin
 
 type streamStatusDSSeqStub struct {
 	resps    []*http.Response
-	payloads []map[string]any
+	payloads []any
 }
 
 func (m *streamStatusDSSeqStub) CreateSession(_ context.Context, _ *auth.RequestAuth, _ int) (string, error) {
@@ -83,12 +83,9 @@ func (m *streamStatusDSSeqStub) UploadFile(_ context.Context, _ *auth.RequestAut
 	return &dsclient.UploadFileResult{ID: "file-id", Filename: "file.txt", Bytes: 1, Status: "uploaded"}, nil
 }
 
-func (m *streamStatusDSSeqStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
-	clone := make(map[string]any, len(payload))
-	for k, v := range payload {
-		clone[k] = v
-	}
-	m.payloads = append(m.payloads, clone)
+func (m *streamStatusDSSeqStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
+	// 保留 payload 原值（OrderedJSONMap 或 map[string]any），存为 any
+	m.payloads = append(m.payloads, payload)
 	idx := len(m.payloads) - 1
 	if idx >= len(m.resps) {
 		idx = len(m.resps) - 1
@@ -306,16 +303,16 @@ func TestChatCompletionsStreamRetriesEmptyOutputOnSameSession(t *testing.T) {
 	if len(ds.payloads) != 2 {
 		t.Fatalf("expected one synthetic retry call, got %d", len(ds.payloads))
 	}
-	if ds.payloads[0]["chat_session_id"] != ds.payloads[1]["chat_session_id"] {
+	if asMap(ds.payloads[0])["chat_session_id"] != asMap(ds.payloads[1])["chat_session_id"] {
 		t.Fatalf("expected retry to reuse session, payloads=%#v", ds.payloads)
 	}
-	retryPrompt := asString(ds.payloads[1]["prompt"])
+	retryPrompt := asString(asMap(ds.payloads[1])["prompt"])
 	if !strings.Contains(retryPrompt, "Previous reply had no visible output. Please regenerate the visible final answer or tool call now.") {
 		t.Fatalf("expected retry suffix in prompt, got %q", retryPrompt)
 	}
 	// Verify multi-turn chaining: retry must set parent_message_id from first call's response_message_id.
-	if parentID, ok := ds.payloads[1]["parent_message_id"].(int); !ok || parentID != 42 {
-		t.Fatalf("expected retry parent_message_id=42, got %#v", ds.payloads[1]["parent_message_id"])
+	if parentID, ok := asMap(ds.payloads[1])["parent_message_id"].(int); !ok || parentID != 42 {
+		t.Fatalf("expected retry parent_message_id=42, got %#v", asMap(ds.payloads[1])["parent_message_id"])
 	}
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
@@ -367,8 +364,8 @@ func TestChatCompletionsNonStreamRetriesThinkingOnlyOutput(t *testing.T) {
 		t.Fatalf("expected one synthetic retry call, got %d", len(ds.payloads))
 	}
 	// Verify multi-turn chaining.
-	if parentID, ok := ds.payloads[1]["parent_message_id"].(int); !ok || parentID != 99 {
-		t.Fatalf("expected retry parent_message_id=99, got %#v", ds.payloads[1]["parent_message_id"])
+	if parentID, ok := asMap(ds.payloads[1])["parent_message_id"].(int); !ok || parentID != 99 {
+		t.Fatalf("expected retry parent_message_id=99, got %#v", asMap(ds.payloads[1])["parent_message_id"])
 	}
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
@@ -479,8 +476,8 @@ func TestResponsesStreamRetriesThinkingOnlyOutput(t *testing.T) {
 		t.Fatalf("expected one synthetic retry call, got %d", len(ds.payloads))
 	}
 	// Verify multi-turn chaining.
-	if parentID, ok := ds.payloads[1]["parent_message_id"].(int); !ok || parentID != 77 {
-		t.Fatalf("expected retry parent_message_id=77, got %#v", ds.payloads[1]["parent_message_id"])
+	if parentID, ok := asMap(ds.payloads[1])["parent_message_id"].(int); !ok || parentID != 77 {
+		t.Fatalf("expected retry parent_message_id=77, got %#v", asMap(ds.payloads[1])["parent_message_id"])
 	}
 	body := rec.Body.String()
 	if strings.Contains(body, "response.failed") {
@@ -518,8 +515,8 @@ func TestResponsesNonStreamRetriesThinkingOnlyOutput(t *testing.T) {
 		t.Fatalf("expected one synthetic retry call, got %d", len(ds.payloads))
 	}
 	// Verify multi-turn chaining.
-	if parentID, ok := ds.payloads[1]["parent_message_id"].(int); !ok || parentID != 88 {
-		t.Fatalf("expected retry parent_message_id=88, got %#v", ds.payloads[1]["parent_message_id"])
+	if parentID, ok := asMap(ds.payloads[1])["parent_message_id"].(int); !ok || parentID != 88 {
+		t.Fatalf("expected retry parent_message_id=88, got %#v", asMap(ds.payloads[1])["parent_message_id"])
 	}
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {

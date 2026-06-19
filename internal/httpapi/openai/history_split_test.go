@@ -1,4 +1,4 @@
-﻿package openai
+package openai
 
 import (
 	"context"
@@ -532,16 +532,16 @@ func TestChatCompletionsCurrentInputFileUploadsContextAndKeepsNeutralPrompt(t *t
 	if ds.completionReq == nil {
 		t.Fatal("expected completion payload to be captured")
 	}
-	promptText, _ := ds.completionReq["prompt"].(string)
+	promptText, _ := asMap(ds.completionReq)["prompt"].(string)
 	if !strings.Contains(promptText, "Resume from the latest snapshot in chat_context.txt.") {
 		t.Fatalf("expected continuation-oriented prompt, got %s", promptText)
 	}
 	if strings.Contains(promptText, "first user turn") || strings.Contains(promptText, "latest user turn") {
 		t.Fatalf("expected prompt to hide original turns, got %s", promptText)
 	}
-	refIDs, _ := ds.completionReq["ref_file_ids"].([]any)
+	refIDs, _ := asMap(ds.completionReq)["ref_file_ids"].([]any)
 	if len(refIDs) == 0 || refIDs[0] != "file-inline-1" {
-		t.Fatalf("expected uploaded current input file to be first ref_file_id, got %#v", ds.completionReq["ref_file_ids"])
+		t.Fatalf("expected uploaded current input file to be first ref_file_id, got %#v", asMap(ds.completionReq)["ref_file_ids"])
 	}
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -591,7 +591,7 @@ func TestResponsesCurrentInputFileUploadsContextAndKeepsNeutralPrompt(t *testing
 	if ds.completionReq == nil {
 		t.Fatal("expected completion payload to be captured")
 	}
-	promptText, _ := ds.completionReq["prompt"].(string)
+	promptText, _ := asMap(ds.completionReq)["prompt"].(string)
 	if !strings.Contains(promptText, "Resume from the latest snapshot in chat_context.txt.") {
 		t.Fatalf("expected continuation-oriented prompt, got %s", promptText)
 	}
@@ -660,16 +660,16 @@ func TestResponsesCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 	if !strings.Contains(toolsText, "# Callable Surface") || !strings.Contains(toolsText, "Callable: search") || !strings.Contains(toolsText, "Synopsis: search docs") {
 		t.Fatalf("expected tools transcript to include schema, got %q", toolsText)
 	}
-	promptText, _ := ds.completionReq["prompt"].(string)
+	promptText, _ := asMap(ds.completionReq)["prompt"].(string)
 	if !strings.Contains(promptText, "tool_schema.txt") || !strings.Contains(promptText, "FUNCTION INVOCATION CONTRACT") {
 		t.Fatalf("expected live prompt to reference tools file and retain format instructions, got %q", promptText)
 	}
 	if strings.Contains(promptText, "Synopsis: search docs") {
 		t.Fatalf("live prompt should not inline tool descriptions, got %q", promptText)
 	}
-	refIDs, _ := ds.completionReq["ref_file_ids"].([]any)
+	refIDs, _ := asMap(ds.completionReq)["ref_file_ids"].([]any)
 	if len(refIDs) < 2 || refIDs[0] != "file-inline-1" || refIDs[1] != "file-inline-2" {
-		t.Fatalf("expected history and tools ref ids first, got %#v", ds.completionReq["ref_file_ids"])
+		t.Fatalf("expected history and tools ref ids first, got %#v", asMap(ds.completionReq)["ref_file_ids"])
 	}
 }
 
@@ -800,7 +800,7 @@ func TestCurrentInputFileWorksAcrossAutoDeleteModes(t *testing.T) {
 			if ds.completionReq == nil {
 				t.Fatalf("expected completion payload for mode=%s", mode)
 			}
-			promptText, _ := ds.completionReq["prompt"].(string)
+			promptText, _ := asMap(ds.completionReq)["prompt"].(string)
 			if !strings.Contains(promptText, "Resume from the latest snapshot in chat_context.txt.") || strings.Contains(promptText, "first user turn") || strings.Contains(promptText, "latest user turn") {
 				t.Fatalf("unexpected prompt for mode=%s: %s", mode, promptText)
 			}

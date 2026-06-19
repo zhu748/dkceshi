@@ -59,6 +59,26 @@ func NewWithDialContext(timeout time.Duration, dialContext DialContextFunc) *Cli
 	return &Client{http: &http.Client{Timeout: timeout, Transport: base}}
 }
 
+// NewFramedH2WithDialContext 创建一个使用自定义 HTTP/2 framing 的 Client，
+// 可精确控制 header 顺序与 HPACK 编码行为，对齐真实 Android OkHttp App 抓包。
+// dialContext 用于注入 utls fingerprint dialer，与 NewWithDialContext 共用。
+//
+// timeout=0 表示无超时（用于流式响应）。
+func NewFramedH2WithDialContext(timeout time.Duration, dialContext DialContextFunc) *H2FramedClient {
+	if dialContext == nil {
+		dialContext = (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	}
+	// 用 utls fingerprint dialer 包装 raw dialer，得到已握手的 utls conn
+	fpDialer := fingerprintTLSDialer(dialContext, defaultTLSFingerprintProfiles)
+	return &H2FramedClient{
+		Timeout: timeout,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// fingerprintTLSDialer 签名是 func(ctx, network, addr) (net.Conn, error)
+			return fpDialer(ctx, network, addr)
+		},
+	}
+}
+
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.http.Do(req)
 }

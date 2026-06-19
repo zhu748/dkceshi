@@ -16,7 +16,22 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
 	dsclient "ds2api/internal/deepseek/client"
+	"ds2api/internal/promptcompat"
 )
+
+// asMap 将 payload (OrderedJSONMap 或 map[string]any) 转为 map[string]any 视图，便于测试中按 key 读取。
+func asMap(payload any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	if m, ok := payload.(*promptcompat.OrderedJSONMap); ok {
+		return m.AsMap()
+	}
+	if m, ok := payload.(map[string]any); ok {
+		return m
+	}
+	return nil
+}
 
 type testGeminiConfig struct{}
 
@@ -51,7 +66,7 @@ type testGeminiDS struct {
 	resp        *http.Response
 	err         error
 	uploadCalls []dsclient.UploadFileRequest
-	payloads    []map[string]any
+	payloads    []any
 }
 
 //nolint:unused // reserved test double for native Gemini DS-call path coverage.
@@ -75,7 +90,7 @@ func (m *testGeminiDS) UploadFile(_ context.Context, _ *auth.RequestAuth, req ds
 }
 
 //nolint:unused // reserved test double for native Gemini DS-call path coverage.
-func (m *testGeminiDS) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
+func (m *testGeminiDS) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
 	m.payloads = append(m.payloads, payload)
 	if m.err != nil {
 		return nil, m.err
@@ -172,11 +187,11 @@ func TestGeminiDirectAppliesCurrentInputFile(t *testing.T) {
 	if len(ds.payloads) != 1 {
 		t.Fatalf("expected one completion payload, got %d", len(ds.payloads))
 	}
-	refIDs, _ := ds.payloads[0]["ref_file_ids"].([]any)
+	refIDs, _ := asMap(ds.payloads[0])["ref_file_ids"].([]any)
 	if len(refIDs) != 1 || refIDs[0] != "file-gemini-history" {
-		t.Fatalf("expected uploaded history ref id, got %#v", ds.payloads[0]["ref_file_ids"])
+		t.Fatalf("expected uploaded history ref id, got %#v", asMap(ds.payloads[0])["ref_file_ids"])
 	}
-	prompt, _ := ds.payloads[0]["prompt"].(string)
+	prompt, _ := asMap(ds.payloads[0])["prompt"].(string)
 	if !strings.Contains(prompt, "Resume from the latest snapshot in chat_context.txt.") {
 		t.Fatalf("expected continuation prompt, got %q", prompt)
 	}
@@ -215,9 +230,9 @@ func TestGeminiCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 		DS:    ds,
 	}
 	reqBody := `{
-		"contents":[{"role":"user","parts":[{"text":"run code"}]}],
-		"tools":[{"functionDeclarations":[{"name":"eval_javascript","description":"eval","parameters":{"type":"object","properties":{"code":{"type":"string"}}}}]}]
-	}`
+                "contents":[{"role":"user","parts":[{"text":"run code"}]}],
+                "tools":[{"functionDeclarations":[{"name":"eval_javascript","description":"eval","parameters":{"type":"object","properties":{"code":{"type":"string"}}}}]}]
+        }`
 	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent", strings.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -243,11 +258,11 @@ func TestGeminiCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 	if !strings.Contains(toolsText, "# Callable Surface") || !strings.Contains(toolsText, "Callable: eval_javascript") || !strings.Contains(toolsText, "Synopsis: eval") {
 		t.Fatalf("expected tools transcript to include Gemini tool schema, got %q", toolsText)
 	}
-	refIDs, _ := ds.payloads[0]["ref_file_ids"].([]any)
+	refIDs, _ := asMap(ds.payloads[0])["ref_file_ids"].([]any)
 	if len(refIDs) < 2 || refIDs[0] != "file-gemini-history" || refIDs[1] != "file-gemini-tools" {
-		t.Fatalf("expected history and tools ref ids first, got %#v", ds.payloads[0]["ref_file_ids"])
+		t.Fatalf("expected history and tools ref ids first, got %#v", asMap(ds.payloads[0])["ref_file_ids"])
 	}
-	prompt, _ := ds.payloads[0]["prompt"].(string)
+	prompt, _ := asMap(ds.payloads[0])["prompt"].(string)
 	if !strings.Contains(prompt, "tool_schema.txt") || !strings.Contains(prompt, "FUNCTION INVOCATION CONTRACT") {
 		t.Fatalf("expected live prompt to reference tools file and retain format instructions, got %q", prompt)
 	}
@@ -291,9 +306,9 @@ func TestGenerateContentReturnsFunctionCallParts(t *testing.T) {
 	RegisterRoutes(r, h)
 
 	body := `{
-		"contents":[{"role":"user","parts":[{"text":"call tool"}]}],
-		"tools":[{"functionDeclarations":[{"name":"eval_javascript","description":"eval","parameters":{"type":"object","properties":{"code":{"type":"string"}}}}]}]
-	}`
+                "contents":[{"role":"user","parts":[{"text":"call tool"}]}],
+                "tools":[{"functionDeclarations":[{"name":"eval_javascript","description":"eval","parameters":{"type":"object","properties":{"code":{"type":"string"}}}}]}]
+        }`
 	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -328,9 +343,9 @@ func TestGenerateContentMixedToolSnippetAlsoTriggersFunctionCall(t *testing.T) {
 	RegisterRoutes(r, h)
 
 	body := `{
-		"contents":[{"role":"user","parts":[{"text":"call tool"}]}],
-		"tools":[{"functionDeclarations":[{"name":"eval_javascript","description":"eval","parameters":{"type":"object","properties":{"code":{"type":"string"}}}}]}]
-	}`
+                "contents":[{"role":"user","parts":[{"text":"call tool"}]}],
+                "tools":[{"functionDeclarations":[{"name":"eval_javascript","description":"eval","parameters":{"type":"object","properties":{"code":{"type":"string"}}}}]}]
+        }`
 	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)

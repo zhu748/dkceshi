@@ -61,7 +61,8 @@ func (c *Client) CreateSession(ctx context.Context, a *auth.RequestAuth, maxAtte
 	refreshed := false
 	for attempts < maxAttempts {
 		headers := c.authHeadersForAuth(a)
-		resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekCreateSessionURL, headers, map[string]any{"agent": "chat"})
+		// 真实 Android App 发送空 body（content-length: 0），项目对齐
+		resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekCreateSessionURL, headers, nil)
 		if err != nil {
 			config.Logger.Warn("[create_session] request error", "error", err, "account", a.AccountID)
 			attempts++
@@ -98,6 +99,37 @@ func (c *Client) GetPow(ctx context.Context, a *auth.RequestAuth, maxAttempts in
 }
 
 func (c *Client) GetPowForTarget(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
+	if maxAttempts <= 0 {
+		maxAttempts = c.maxRetries
+	}
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" {
+		targetPath = dsprotocol.DeepSeekCompletionTargetPath
+	}
+	// 1. 先查 PoW 预取缓存（复刻 App 行为：completion 后异步预取的 PoW）
+	if a != nil {
+		if pow, ok := c.powCache.Get(a.AccountID, targetPath); ok {
+			config.Logger.Debug("[get_pow] cache hit", "account", a.AccountID, "target_path", targetPath)
+			// 命中后异步触发下一次预取，复刻 App「取走即预取」行为
+			c.powCache.SchedulePrefetch(ctx, a, targetPath, maxAttempts)
+			return pow, nil
+		}
+	}
+	// 2. 缓存 miss：同步获取
+	pow, err := c.fetchPowSync(ctx, a, targetPath, maxAttempts)
+	if err != nil {
+		return "", err
+	}
+	// 3. 同步获取成功后也异步触发下一次预取（与 App 行为一致）
+	if a != nil {
+		c.powCache.SchedulePrefetch(ctx, a, targetPath, maxAttempts)
+	}
+	return pow, nil
+}
+
+// fetchPowSync 是真实的同步 PoW 获取实现（原本就是 GetPowForTarget 的主体逻辑）。
+// 抽出来供 powPrefetchCache.fetcher 调用，避免循环依赖。
+func (c *Client) fetchPowSync(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
 	if maxAttempts <= 0 {
 		maxAttempts = c.maxRetries
 	}

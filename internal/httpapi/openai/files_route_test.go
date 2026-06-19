@@ -76,7 +76,7 @@ func (m *filesRouteDSStub) FetchUploadedFile(_ context.Context, _ *auth.RequestA
 	return &dsclient.UploadFileResult{ID: fileID, Filename: "notes.txt", Bytes: 11, Purpose: "assistants", Status: "processed"}, nil
 }
 
-func (m *filesRouteDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
+func (m *filesRouteDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
 	return nil, errors.New("not implemented")
 }
 

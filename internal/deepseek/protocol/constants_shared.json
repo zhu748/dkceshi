@@ -8,7 +8,6 @@
     "timezone_offset": "28800"
   },
   "base_headers": {
-    "Host": "chat.deepseek.com",
     "Accept": "application/json",
     "Content-Type": "application/json",
     "accept-charset": "UTF-8",

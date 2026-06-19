@@ -14,10 +14,11 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
 	dsclient "ds2api/internal/deepseek/client"
+	"ds2api/internal/promptcompat"
 )
 
 type responsesHistoryDS struct {
-	payload map[string]any
+	payload any
 }
 
 func (d *responsesHistoryDS) CreateSession(context.Context, *auth.RequestAuth, int) (string, error) {
@@ -32,13 +33,26 @@ func (d *responsesHistoryDS) UploadFile(context.Context, *auth.RequestAuth, dscl
 	return &dsclient.UploadFileResult{ID: "file-id"}, nil
 }
 
-func (d *responsesHistoryDS) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
+func (d *responsesHistoryDS) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
 	d.payload = payload
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader("data: {\"p\":\"response/content\",\"v\":\"ok\"}\n")),
 	}, nil
+}
+
+func (d *responsesHistoryDS) payloadMap() map[string]any {
+	if d.payload == nil {
+		return nil
+	}
+	if m, ok := d.payload.(*promptcompat.OrderedJSONMap); ok {
+		return m.AsMap()
+	}
+	if m, ok := d.payload.(map[string]any); ok {
+		return m
+	}
+	return nil
 }
 
 func (d *responsesHistoryDS) DeleteSessionForToken(context.Context, string, string) (*dsclient.DeleteSessionResult, error) {

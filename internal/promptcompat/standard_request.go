@@ -60,7 +60,19 @@ func (p ToolChoicePolicy) Allows(name string) bool {
 	return ok
 }
 
-func (r StandardRequest) CompletionPayload(sessionID string) map[string]any {
+// CompletionPayload 构建发往 DeepSeek /api/v0/chat/completion 的请求体。
+//
+// 字段顺序严格对齐真实 Android App 抓包结果：
+//
+//	{"chat_session_id":...,"parent_message_id":null,"prompt":...,"ref_file_ids":[],
+//	 "thinking_enabled":true,"search_enabled":true,"audio_id":null,"preempt":false,
+//	 "model_type":"default","action":null}
+//
+// 返回 *OrderedJSONMap 而非 map[string]any，以保留字段顺序；同时通过
+// json.Marshal 时按插入顺序输出，对齐 App 行为。
+//
+// 兼容说明：调用方若需按 key 读取，可使用 .Get(key) 或 .AsMap()[key]。
+func (r StandardRequest) CompletionPayload(sessionID string) any {
 	modelID := r.ResolvedModel
 	if modelID == "" {
 		modelID = r.RequestedModel
@@ -76,17 +88,21 @@ func (r StandardRequest) CompletionPayload(sessionID string) map[string]any {
 		}
 		refFileIDs = append(refFileIDs, fileID)
 	}
-	payload := map[string]any{
-		"chat_session_id":   sessionID,
-		"model_type":        modelType,
-		"parent_message_id": nil,
-		"prompt":            r.FinalPrompt,
-		"ref_file_ids":      refFileIDs,
-		"thinking_enabled":  r.Thinking,
-		"search_enabled":    r.Search,
-	}
+	m := NewOrderedJSONMap()
+	// 严格按 App 抓包顺序写入
+	m.Set("chat_session_id", sessionID)
+	m.Set("parent_message_id", nil)
+	m.Set("prompt", r.FinalPrompt)
+	m.Set("ref_file_ids", refFileIDs)
+	m.Set("thinking_enabled", r.Thinking)
+	m.Set("search_enabled", r.Search)
+	m.Set("audio_id", nil)
+	m.Set("preempt", false)
+	m.Set("model_type", modelType)
+	m.Set("action", nil)
+	// passthrough 字段（如 temperature）追加在末尾
 	for k, v := range r.PassThrough {
-		payload[k] = v
+		m.Set(k, v)
 	}
-	return payload
+	return m
 }

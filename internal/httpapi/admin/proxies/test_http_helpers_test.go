@@ -28,7 +28,7 @@ func (m *testingDSMock) CreateSession(_ context.Context, _ *auth.RequestAuth, _ 
 func (m *testingDSMock) GetPow(_ context.Context, _ *auth.RequestAuth, _ int) (string, error) {
 	return "pow", nil
 }
-func (m *testingDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
+func (m *testingDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
 	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 }
 func (m *testingDSMock) DeleteAllSessionsForToken(_ context.Context, _ string) error { return nil }

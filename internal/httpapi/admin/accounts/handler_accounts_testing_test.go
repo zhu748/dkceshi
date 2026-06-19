@@ -14,6 +14,7 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
 	dsclient "ds2api/internal/deepseek/client"
+	"ds2api/internal/promptcompat"
 )
 
 type testingDSMock struct {
@@ -41,7 +42,7 @@ func (m *testingDSMock) GetPow(_ context.Context, _ *auth.RequestAuth, _ int) (s
 	return "", errors.New("should not call GetPow in this test")
 }
 
-func (m *testingDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
+func (m *testingDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
 	m.callCompletionCalls++
 	return nil, errors.New("should not call CallCompletion in this test")
 }
@@ -136,7 +137,7 @@ func TestDeleteAllSessions_RetryWithReloginOnDeleteFailure(t *testing.T) {
 }
 
 type completionPayloadDSMock struct {
-	payload map[string]any
+	payload any
 }
 
 func (m *completionPayloadDSMock) Login(_ context.Context, _ config.Account) (string, error) {
@@ -151,12 +152,25 @@ func (m *completionPayloadDSMock) GetPow(_ context.Context, _ *auth.RequestAuth,
 	return "pow-ok", nil
 }
 
-func (m *completionPayloadDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
+func (m *completionPayloadDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
 	m.payload = payload
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(strings.NewReader("data: {\"v\":\"ok\"}\n\ndata: [DONE]\n\n")),
 	}, nil
+}
+
+func (m *completionPayloadDSMock) payloadMap() map[string]any {
+	if m.payload == nil {
+		return nil
+	}
+	if o, ok := m.payload.(*promptcompat.OrderedJSONMap); ok {
+		return o.AsMap()
+	}
+	if mp, ok := m.payload.(map[string]any); ok {
+		return mp
+	}
+	return nil
 }
 
 func (m *completionPayloadDSMock) DeleteAllSessionsForToken(_ context.Context, _ string) error {
@@ -182,10 +196,10 @@ func TestTestAccount_MessageModeUsesExpertModelTypeForExpertModel(t *testing.T) 
 	if ok, _ := result["success"].(bool); !ok {
 		t.Fatalf("expected success=true, got %#v", result)
 	}
-	if got := ds.payload["model_type"]; got != "expert" {
+	if got := ds.payloadMap()["model_type"]; got != "expert" {
 		t.Fatalf("expected model_type expert, got %#v", got)
 	}
-	if got := ds.payload["chat_session_id"]; got != "session-id" {
+	if got := ds.payloadMap()["chat_session_id"]; got != "session-id" {
 		t.Fatalf("unexpected chat_session_id: %#v", got)
 	}
 }
@@ -205,7 +219,7 @@ func TestTestAccount_MessageModeUsesVisionModelTypeForVisionModel(t *testing.T) 
 	if ok, _ := result["success"].(bool); !ok {
 		t.Fatalf("expected success=true, got %#v", result)
 	}
-	if got := ds.payload["model_type"]; got != "vision" {
+	if got := ds.payloadMap()["model_type"]; got != "vision" {
 		t.Fatalf("expected model_type vision, got %#v", got)
 	}
 }

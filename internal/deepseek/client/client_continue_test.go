@@ -29,6 +29,8 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestCallContinuePropagatesPowHeaderToFallbackRequest(t *testing.T) {
+	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	var seenPow string
 	var seenURL string
 
@@ -66,6 +68,8 @@ func TestCallContinuePropagatesPowHeaderToFallbackRequest(t *testing.T) {
 }
 
 func TestCallCompletionAutoContinueThreadsPowHeader(t *testing.T) {
+	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	var seenPow string
 	var seenContinueURL string
 
@@ -126,6 +130,8 @@ func TestCallCompletionAutoContinueThreadsPowHeader(t *testing.T) {
 }
 
 func TestAutoContinueDoesNotTriggerOnPlainWIPWithoutExplicitContinuationSignal(t *testing.T) {
+	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	initialBody := strings.Join([]string{
 		`data: {"response_message_id":321,"v":{"response":{"message_id":321,"status":"WIP","auto_continue":false}}}`,
 		`data: [DONE]`,
@@ -151,6 +157,8 @@ func TestAutoContinueDoesNotTriggerOnPlainWIPWithoutExplicitContinuationSignal(t
 }
 
 func TestAutoContinuePassesThroughLongSingleSSELine(t *testing.T) {
+	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	payload := strings.Repeat("x", 2*1024*1024+4096)
 	initialBody := `data: {"p":"response/content","v":"` + payload + `"}` + "\n" +
 		`data: [DONE]` + "\n"
@@ -173,6 +181,8 @@ func TestAutoContinuePassesThroughLongSingleSSELine(t *testing.T) {
 }
 
 func TestAutoContinueTriggersOnDirectQuasiStatusIncomplete(t *testing.T) {
+	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	initialBody := strings.Join([]string{
 		`data: {"response_message_id":321,"p":"response/content","v":"<tool_calls><invoke name=\"write_file\"><parameter name=\"content\"><![CDATA[part-one"}`,
 		`data: {"p":"response/quasi_status","v":"INCOMPLETE"}`,
@@ -207,6 +217,8 @@ func TestAutoContinueTriggersOnDirectQuasiStatusIncomplete(t *testing.T) {
 }
 
 func TestAutoContinueTriggersOnResponseBatchQuasiStatusIncomplete(t *testing.T) {
+	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	initialBody := strings.Join([]string{
 		`data: {"response_message_id":321,"v":{"response":{"message_id":321,"status":"WIP","auto_continue":false}}}`,
 		`data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":2413},{"p":"quasi_status","v":"INCOMPLETE"}]}`,
@@ -240,6 +252,8 @@ func TestAutoContinueTriggersOnResponseBatchQuasiStatusIncomplete(t *testing.T) 
 }
 
 func TestAutoContinueDoesNotTriggerWhenResponseBatchQuasiStatusFinished(t *testing.T) {
+	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	initialBody := strings.Join([]string{
 		`data: {"response_message_id":321,"v":{"response":{"message_id":321,"status":"WIP","auto_continue":false}}}`,
 		`data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":2413},{"p":"quasi_status","v":"FINISHED"}]}`,
@@ -277,6 +291,8 @@ func (d failingOrCompletionDoer) Do(req *http.Request) (*http.Response, error) {
 }
 
 func TestAutoContinuePreservesIncompleteStateWhenNextChunkOmitsStatus(t *testing.T) {
+	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	initialBody := strings.Join([]string{
 		`data: {"response_message_id":321,"v":{"response":{"message_id":321,"status":"INCOMPLETE"}}}`,
 		`data: {"p":"response/content","v":{"text":"continued"}}`,

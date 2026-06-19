@@ -12,6 +12,7 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
 	dsclient "ds2api/internal/deepseek/client"
+	"ds2api/internal/promptcompat"
 )
 
 type claudeCurrentInputAuth struct{}
@@ -80,7 +81,7 @@ func (claudeCurrentInputAuth) Release(*auth.RequestAuth) {}
 
 type claudeCurrentInputDS struct {
 	uploads []dsclient.UploadFileRequest
-	payload map[string]any
+	payload any
 }
 
 func (d *claudeCurrentInputDS) CreateSession(context.Context, *auth.RequestAuth, int) (string, error) {
@@ -100,13 +101,27 @@ func (d *claudeCurrentInputDS) UploadFile(_ context.Context, _ *auth.RequestAuth
 	return &dsclient.UploadFileResult{ID: id}, nil
 }
 
-func (d *claudeCurrentInputDS) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
+func (d *claudeCurrentInputDS) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
 	d.payload = payload
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader("data: {\"p\":\"response/content\",\"v\":\"ok\"}\n")),
 	}, nil
+}
+
+// payloadMap 将存储的 payload 转为 map[string]any 视图，便于测试中按 key 读取。
+func (d *claudeCurrentInputDS) payloadMap() map[string]any {
+	if d.payload == nil {
+		return nil
+	}
+	if m, ok := d.payload.(*promptcompat.OrderedJSONMap); ok {
+		return m.AsMap()
+	}
+	if m, ok := d.payload.(map[string]any); ok {
+		return m
+	}
+	return nil
 }
 
 func TestClaudeDirectAppliesCurrentInputFile(t *testing.T) {
@@ -134,11 +149,11 @@ func TestClaudeDirectAppliesCurrentInputFile(t *testing.T) {
 	if ds.uploads[0].Filename != "chat_context.txt" {
 		t.Fatalf("unexpected upload filename: %q", ds.uploads[0].Filename)
 	}
-	refIDs, _ := ds.payload["ref_file_ids"].([]any)
+	refIDs, _ := ds.payloadMap()["ref_file_ids"].([]any)
 	if len(refIDs) != 1 || refIDs[0] != "file-claude-history" {
-		t.Fatalf("expected uploaded history ref id, got %#v", ds.payload["ref_file_ids"])
+		t.Fatalf("expected uploaded history ref id, got %#v", ds.payloadMap()["ref_file_ids"])
 	}
-	prompt, _ := ds.payload["prompt"].(string)
+	prompt, _ := ds.payloadMap()["prompt"].(string)
 	if !strings.Contains(prompt, "Resume from the latest snapshot in chat_context.txt.") {
 		t.Fatalf("expected continuation prompt, got %q", prompt)
 	}
@@ -192,11 +207,11 @@ func TestClaudeCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 	if !strings.Contains(toolsText, "# Callable Surface") || !strings.Contains(toolsText, "Callable: search") || !strings.Contains(toolsText, "Synopsis: Search docs") {
 		t.Fatalf("expected tools transcript to include tool schema, got %q", toolsText)
 	}
-	refIDs, _ := ds.payload["ref_file_ids"].([]any)
+	refIDs, _ := ds.payloadMap()["ref_file_ids"].([]any)
 	if len(refIDs) < 2 || refIDs[0] != "file-claude-history" || refIDs[1] != "file-claude-tools" {
-		t.Fatalf("expected history and tools ref ids first, got %#v", ds.payload["ref_file_ids"])
+		t.Fatalf("expected history and tools ref ids first, got %#v", ds.payloadMap()["ref_file_ids"])
 	}
-	prompt, _ := ds.payload["prompt"].(string)
+	prompt, _ := ds.payloadMap()["prompt"].(string)
 	if !strings.Contains(prompt, "tool_schema.txt") || !strings.Contains(prompt, "FUNCTION INVOCATION CONTRACT") {
 		t.Fatalf("expected live prompt to reference tools file and retain format instructions, got %q", prompt)
 	}

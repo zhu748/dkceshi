@@ -99,7 +99,7 @@ func (m streamStatusDSStub) UploadFile(_ context.Context, _ *auth.RequestAuth, _
 	return &dsclient.UploadFileResult{ID: "file-id", Filename: "file.txt", Bytes: 1, Status: "uploaded"}, nil
 }
 
-func (m streamStatusDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
+func (m streamStatusDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
 	return m.resp, nil
 }
 
@@ -126,7 +126,7 @@ func makeOpenAISSEHTTPResponse(lines ...string) *http.Response {
 type inlineUploadDSStub struct {
 	uploadCalls    []dsclient.UploadFileRequest
 	lastCtx        context.Context
-	completionReq  map[string]any
+	completionReq  any
 	createSession  string
 	uploadErr      error
 	completionResp *http.Response
@@ -162,7 +162,7 @@ func (m *inlineUploadDSStub) UploadFile(ctx context.Context, _ *auth.RequestAuth
 	}, nil
 }
 
-func (m *inlineUploadDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
+func (m *inlineUploadDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
 	m.completionReq = payload
 	if m.completionResp != nil {
 		return m.completionResp, nil
