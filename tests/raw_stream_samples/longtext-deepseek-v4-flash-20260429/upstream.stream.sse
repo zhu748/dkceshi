@@ -1,0 +1,4592 @@
+﻿{"code":0,"msg":"","data":{"biz_code":0,"biz_msg":"","biz_data":{"id":"file-b10a2aca-39e9-4a38-be9d-9f22e398cb62","status":"PENDING","file_name":"chat_context.txt","from_share":false,"file_size":732,"model_kind":"NORMAL","token_usage":null,"error_code":null,"inserted_at":1777485015.255,"updated_at":1777485015.255,"is_image":false,"audit_result":null}}}
+event: ready
+data: {"request_message_id":1,"response_message_id":2,"model_type":"default"}
+
+event: update_session
+data: {"updated_at":1777485019.550396}
+
+data: {"v":{"response":{"message_id":2,"parent_id":1,"model":"","role":"ASSISTANT","thinking_enabled":true,"ban_edit":false,"ban_regenerate":false,"status":"WIP","incomplete_message":null,"accumulated_token_usage":0,"feedback":null,"inserted_at":1777485019.542662,"search_enabled":false,"fragments":[{"id":2,"type":"THINK","content":"鎴戜滑","elapsed_secs":null,"references":[],"stage_id":1}],"conversation_mode":"DEFAULT","has_pending_fragment":false,"auto_continue":false}}}
+
+data: {"p":"response/fragments/-1/content","o":"APPEND","v":"琚?}
+
+data: {"v":"瑕佹眰"}
+
+data: {"v":"鍐?}
+
+data: {"v":"涓€绡?}
+
+data: {"v":"120"}
+
+data: {"v":"0"}
+
+data: {"v":"瀛?}
+
+data: {"v":"鐨勪腑"}
+
+data: {"v":"鏂?}
+
+data: {"v":"璇存槑"}
+
+data: {"v":"锛?}
+
+data: {"v":"姣旇緝"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"涓?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鍦?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"娴?}
+
+data: {"v":"寮?}
+
+data: {"v":"杈撳嚭"}
+
+data: {"v":"涓殑"}
+
+data: {"v":"澶氫釜"}
+
+data: {"v":"鏂归潰"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍙潬鎬?}
+
+data: {"v":"銆?}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"銆?}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"銆?}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鍏煎"}
+
+data: {"v":"鎬?}
+
+data: {"v":"銆?}
+
+data: {"v":"鎴愭湰鍜?}
+
+data: {"v":"鍙?}
+
+data: {"v":"瑙傛祴"}
+
+data: {"v":"鎬?}
+
+data: {"v":"锛?}
+
+data: {"v":"骞?}
+
+data: {"v":"缁欏嚭"}
+
+data: {"v":"鍒嗗眰"}
+
+data: {"v":"鏋舵瀯"}
+
+data: {"v":"寤鸿"}
+
+data: {"v":"銆?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"闈炲父"}
+
+data: {"v":"褰诲簳"}
+
+data: {"v":"锛?}
+
+data: {"v":"涓嶈兘"}
+
+data: {"v":"璧?}
+
+data: {"v":"鎹峰緞"}
+
+data: {"v":"銆?}
+
+data: {"v":"鎴戜滑灏?}
+
+data: {"v":"閫愭"}
+
+data: {"v":"鎬濊€?}
+
+data: {"v":"骞?}
+
+data: {"v":"鍐欏嚭"}
+
+data: {"v":"瀹屾暣"}
+
+data: {"v":"鏂囩珷"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"棣栧厛"}
+
+data: {"v":"鐞嗚В"}
+
+data: {"v":"鑳屾櫙"}
+
+data: {"v":"锛?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"娴?}
+
+data: {"v":"寮?}
+
+data: {"v":"杈撳嚭"}
+
+data: {"v":"锛?}
+
+data: {"v":"姣斿"}
+
+data: {"v":"澶?}
+
+data: {"v":"璇█"}
+
+data: {"v":"妯″瀷"}
+
+data: {"v":"鐢熸垚"}
+
+data: {"v":"鏂囨湰"}
+
+data: {"v":"鏃?}
+
+data: {"v":"閫?}
+
+data: {"v":"瀛?}
+
+data: {"v":"鎴?}
+
+data: {"v":"閫?}
+
+data: {"v":"鍙?}
+
+data: {"v":"杈撳嚭"}
+
+data: {"v":"銆?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":" ("}
+
+data: {"v":"Server"}
+
+data: {"v":"-S"}
+
+data: {"v":"ent"}
+
+data: {"v":" Events"}
+
+data: {"v":")"}
+
+data: {"v":" "}
+
+data: {"v":"鍜?}
+
+data: {"v":" Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":" "}
+
+data: {"v":"鏄?}
+
+data: {"v":"涓ょ"}
+
+data: {"v":"甯歌"}
+
+data: {"v":"鎶€鏈?}
+
+data: {"v":"銆?}
+
+data: {"v":"鎴戜滑闇€瑕?}
+
+data: {"v":"姣旇緝"}
+
+data: {"v":"瀹冧滑鍦?}
+
+data: {"v":"涓婅堪"}
+
+data: {"v":"缁村害"}
+
+data: {"v":"涓婄殑"}
+
+data: {"v":"浼樺姡"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"1"}
+
+data: {"v":"."}
+
+data: {"v":" "}
+
+data: {"v":"鍙潬鎬?}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鍩轰簬"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍗曞悜"}
+
+data: {"v":"浠?}
+
+data: {"v":"鏈嶅姟鍣?}
+
+data: {"v":"鍒?}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"锛?}
+
+data: {"v":"鏈?}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"鏈哄埗"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍐呯疆"}
+
+data: {"v":"Event"}
+
+data: {"v":"Source"}
+
+data: {"v":"鑷姩"}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"浣?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"鎵嬪姩"}
+
+data: {"v":"澶勭悊"}
+
+data: {"v":"涓婃"}
+
+data: {"v":"鎺ユ敹"}
+
+data: {"v":"浣嶇疆"}
+
+data: {"v":"銆?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鍏?}
+
+data: {"v":"鍙?}
+
+data: {"v":"宸?}
+
+data: {"v":"锛?}
+
+data: {"v":"浣?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"鑷繁"}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"蹇冭烦"}
+
+data: {"v":"鍜?}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"閫昏緫"}
+
+data: {"v":"銆?}
+
+data: {"v":"鍙潬鎬?}
+
+data: {"v":"涓?}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"绠€鍗?}
+
+data: {"v":"鑷姩"}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"锛?}
+
+data: {"v":"浣?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鍙互"}
+
+data: {"v":"鏇?}
+
+data: {"v":"鐏垫椿"}
+
+data: {"v":"鎺у埗"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"2"}
+
+data: {"v":"."}
+
+data: {"v":" "}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鍙互閫氳繃"}
+
+data: {"v":"Last"}
+
+data: {"v":"-"}
+
+data: {"v":"Event"}
+
+data: {"v":"-ID"}
+
+data: {"v":"澶?}
+
+data: {"v":"鏉?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"涓㈠け"}
+
+data: {"v":"鐨勬秷鎭?}
+
+data: {"v":"銆?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"娌℃湁"}
+
+data: {"v":"鍐呯疆"}
+
+data: {"v":"鏈哄埗"}
+
+data: {"v":"锛?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"搴旂敤"}
+
+data: {"v":"灞?}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"搴忓垪"}
+
+data: {"v":"鍙峰拰"}
+
+data: {"v":"纭"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"3"}
+
+data: {"v":"."}
+
+data: {"v":" "}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鏄?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"闀?}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"锛?}
+
+data: {"v":"澶у鏁?}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"鍣?}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"锛?}
+
+data: {"v":"浣?}
+
+data: {"v":"闇€瑕佹敞鎰?}
+
+data: {"v":"瓒?}
+
+data: {"v":"鏃?}
+
+data: {"v":"璁剧疆"}
+
+data: {"v":"銆?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"鍣?}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"鍗囩骇"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"NG"}
+
+data: {"v":"IN"}
+
+data: {"v":"X"}
+
+data: {"v":"銆?}
+
+data: {"v":"HA"}
+
+data: {"v":"Proxy"}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"涓?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"浼氳瘽"}
+
+data: {"v":"淇濇寔"}
+
+data: {"v":"锛?}
+
+data: {"v":"st"}
+
+data: {"v":"icky"}
+
+data: {"v":" session"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"鍥犱负"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鏄湁"}
+
+data: {"v":"鐘舵€佺殑"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"4"}
+
+data: {"v":"."}
+
+data: {"v":" "}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鍏煎"}
+
+data: {"v":"鎬?}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鍏煎"}
+
+data: {"v":"鎬уソ"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍥犱负"}
+
+data: {"v":"灏辨槸"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"锛?}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鍜?}
+
+data: {"v":"CD"}
+
+data: {"v":"N"}
+
+data: {"v":"閮?}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"銆?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鍙兘"}
+
+data: {"v":"琚?}
+
+data: {"v":"涓€浜?}
+
+data: {"v":"鑰?}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"闃诲"}
+
+data: {"v":"锛?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"鏄庣‘"}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"5"}
+
+data: {"v":"."}
+
+data: {"v":" "}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"寮€閿€"}
+
+data: {"v":"灏?}
+
+data: {"v":"锛?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"澶?}
+
+data: {"v":"锛?}
+
+data: {"v":"浣?}
+
+data: {"v":"姣忎釜"}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"鍗犵敤"}
+
+data: {"v":"鏈嶅姟鍣?}
+
+data: {"v":"璧勬簮"}
+
+data: {"v":"銆?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鏈?}
+
+data: {"v":"棰濆鐨?}
+
+data: {"v":"甯?}
+
+data: {"v":"寮€閿€"}
+
+data: {"v":"锛?}
+
+data: {"v":"浣?}
+
+data: {"v":"鏇?}
+
+data: {"v":"楂樻晥"}
+
+data: {"v":"鐨勫弻"}
+
+data: {"v":"鍚?}
+
+data: {"v":"浼犺緭"}
+
+data: {"v":"銆?}
+
+data: {"v":"瀵逛簬"}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"锛?}
+
+data: {"v":"涓昏鏄?}
+
+data: {"v":"鏈嶅姟鍣?}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"锛?}
+
+data: {"v":"涓よ€?}
+
+data: {"v":"绫讳技"}
+
+data: {"v":"銆?}
+
+data: {"v":"浣?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鍙兘"}
+
+data: {"v":"澧炲姞"}
+
+data: {"v":"澶嶆潅搴?}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"6"}
+
+data: {"v":"."}
+
+data: {"v":" "}
+
+data: {"v":"鍙?}
+
+data: {"v":"瑙傛祴"}
+
+data: {"v":"鎬?}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"浣滀负"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍙互鐢?}
+
+data: {"v":"鏍囧噯"}
+
+data: {"v":"鐩戞帶"}
+
+data: {"v":"宸ュ叿"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"鏃ュ織"}
+
+data: {"v":"銆?}
+
+data: {"v":"鎸囨爣"}
+
+data: {"v":"锛夈€?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鑷畾涔?}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"锛?}
+
+data: {"v":"鐩戞帶"}
+
+data: {"v":"杈?}
+
+data: {"v":"闅?}
+
+data: {"v":"锛?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"涓撻棬"}
+
+data: {"v":"宸ュ叿"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"鏈€鍚?}
+
+data: {"v":"缁欏嚭"}
+
+data: {"v":"鍒嗗眰"}
+
+data: {"v":"鏋舵瀯"}
+
+data: {"v":"寤鸿"}
+
+data: {"v":"锛?}
+
+data: {"v":"渚嬪"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀵逛簬"}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"娴?}
+
+data: {"v":"寮?}
+
+data: {"v":"杈撳嚭"}
+
+data: {"v":"锛?}
+
+data: {"v":"寤鸿"}
+
+data: {"v":"浣跨敤"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"浣滀负"}
+
+data: {"v":"涓昏"}
+
+data: {"v":"鏂瑰紡"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍥犱负"}
+
+data: {"v":"绠€鍗?}
+
+data: {"v":"銆?}
+
+data: {"v":"鍏煎"}
+
+data: {"v":"鎬уソ"}
+
+data: {"v":"锛?}
+
+data: {"v":"涓?}
+
+data: {"v":"鍗曞悜"}
+
+data: {"v":"娴?}
+
+data: {"v":"瓒冲"}
+
+data: {"v":"銆?}
+
+data: {"v":"浣?}
+
+data: {"v":"濡傛灉鏈?}
+
+data: {"v":"鍙屽悜"}
+
+data: {"v":"浜や簰"}
+
+data: {"v":"闇€姹?}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"鐢ㄦ埛"}
+
+data: {"v":"鎵撴柇"}
+
+data: {"v":"鐢熸垚"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"鍒?}
+
+data: {"v":"鑰冭檻"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"銆?}
+
+data: {"v":"涔熷彲浠?}
+
+data: {"v":"娣峰悎"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍓嶇"}
+
+data: {"v":"鐢?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍚庣"}
+
+data: {"v":"鐢?}
+
+data: {"v":"娑堟伅"}
+
+data: {"v":"闃熷垪"}
+
+data: {"v":"绛?}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"鏂囩珷"}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"120"}
+
+data: {"v":"0"}
+
+data: {"v":"瀛?}
+
+data: {"v":"锛?}
+
+data: {"v":"缁撴瀯"}
+
+data: {"v":"娓呮櫚"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍒?}
+
+data: {"v":"鐐?}
+
+data: {"v":"璁鸿堪"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏈€鍚?}
+
+data: {"v":"鎬荤粨"}
+
+data: {"v":"鍜屽缓璁?}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"鎴戜滑"}
+
+data: {"v":"鍐欏嚭"}
+
+data: {"v":"瀹屾暣"}
+
+data: {"v":"鏂囩珷"}
+
+data: {"v":"銆?}
+
+data: {"p":"response/fragments/-1/elapsed_secs","o":"SET","v":11.374845301}
+
+data: {"p":"response/fragments","o":"APPEND","v":[{"id":3,"type":"RESPONSE","content":"##","references":[],"stage_id":1}]}
+
+data: {"p":"response/fragments/-1/content","v":" "}
+
+data: {"v":"姣旇緝"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"涓?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鍦?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"娴?}
+
+data: {"v":"寮?}
+
+data: {"v":"杈撳嚭"}
+
+data: {"v":"涓殑"}
+
+data: {"v":"鍏抽敭"}
+
+data: {"v":"鐗规€?}
+
+data: {"v":"涓?}
+
+data: {"v":"鍒嗗眰"}
+
+data: {"v":"鏋舵瀯"}
+
+data: {"v":"寤鸿"}
+
+data: {"v":"\n\n"}
+
+data: {"v":"鍦?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"澶?}
+
+data: {"v":"璇█"}
+
+data: {"v":"妯″瀷"}
+
+data: {"v":"娴?}
+
+data: {"v":"寮?}
+
+data: {"v":"鐢熸垚"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍦烘櫙"}
+
+data: {"v":"涓?}
+
+data: {"v":"锛?}
+
+data: {"v":"鏈嶅姟"}
+
+data: {"v":"绔?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"灏?}
+
+data: {"v":"璁＄畻缁撴灉"}
+
+data: {"v":"浠?}
+
+data: {"v":"澧為噺"}
+
+data: {"v":"鏂瑰紡"}
+
+data: {"v":"鎸佺画"}
+
+data: {"v":"鎺?}
+
+data: {"v":"閫佺粰"}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"銆?}
+
+data: {"v":"Server"}
+
+data: {"v":"-S"}
+
+data: {"v":"ent"}
+
+data: {"v":" Events"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"锛?}
+
+data: {"v":"涓?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鏄?}
+
+data: {"v":"涓ょ"}
+
+data: {"v":"涓绘祦"}
+
+data: {"v":"鐨勬妧鏈?}
+
+data: {"v":"鏂规"}
+
+data: {"v":"銆?}
+
+data: {"v":"鏈枃"}
+
+data: {"v":"灏嗕粠"}
+
+data: {"v":"鍙潬鎬?}
+
+data: {"v":"銆?}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"銆?}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"銆?}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鍏煎"}
+
+data: {"v":"鎬?}
+
+data: {"v":"銆?}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"鍙?}
+
+data: {"v":"鍙?}
+
+data: {"v":"瑙傛祴"}
+
+data: {"v":"鎬?}
+
+data: {"v":"鍏釜"}
+
+data: {"v":"缁村害"}
+
+data: {"v":"杩涜"}
+
+data: {"v":"绯荤粺"}
+
+data: {"v":"姣旇緝"}
+
+data: {"v":"锛?}
+
+data: {"v":"骞?}
+
+data: {"v":"缁欏嚭"}
+
+data: {"v":"闈㈠悜"}
+
+data: {"v":"瀹為檯"}
+
+data: {"v":"鐢熶骇"}
+
+data: {"v":"鐜"}
+
+data: {"v":"鐨勫垎"}
+
+data: {"v":"灞?}
+
+data: {"v":"鏋舵瀯"}
+
+data: {"v":"寤鸿"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"###"}
+
+data: {"v":" "}
+
+data: {"v":"涓€"}
+
+data: {"v":"銆?}
+
+data: {"v":"鍙潬鎬?}
+
+data: {"v":"\n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍩轰簬"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"/"}
+
+data: {"v":"1"}
+
+data: {"v":"."}
+
+data: {"v":"1"}
+
+data: {"v":"鎴?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"/"}
+
+data: {"v":"2"}
+
+data: {"v":"锛?}
+
+data: {"v":"閲囩敤"}
+
+data: {"v":"鏍囧噯鐨?}
+
+data: {"v":"`"}
+
+data: {"v":"text"}
+
+data: {"v":"/"}
+
+data: {"v":"event"}
+
+data: {"v":"-stream"}
+
+data: {"v":"`"}
+
+data: {"v":"鍐呭"}
+
+data: {"v":"绫诲瀷"}
+
+data: {"v":"銆?}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"鐢?}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"鍙戣捣"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏈嶅姟鍣?}
+
+data: {"v":"鍗曞悜"}
+
+data: {"v":"鎺ㄩ€?}
+
+data: {"v":"銆?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"瑙勮寖"}
+
+data: {"v":"鍐呯疆"}
+
+data: {"v":"浜?}
+
+data: {"v":"鑷姩"}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"鏈哄埗"}
+
+data: {"v":"鈥斺€?}
+
+data: {"v":"褰?}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"鎰忓"}
+
+data: {"v":"涓柇"}
+
+data: {"v":"鏃?}
+
+data: {"v":"锛?}
+
+data: {"v":"`"}
+
+data: {"v":"Event"}
+
+data: {"v":"Source"}
+
+data: {"v":"`"}
+
+data: {"v":" API"}
+
+data: {"v":"浼氳嚜鍔?}
+
+data: {"v":"灏濊瘯"}
+
+data: {"v":"閲嶆柊"}
+
+data: {"v":"寤虹珛"}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"锛?}
+
+data: {"v":"骞?}
+
+data: {"v":"鍙€氳繃"}
+
+data: {"v":"`"}
+
+data: {"v":"Last"}
+
+data: {"v":"-"}
+
+data: {"v":"Event"}
+
+data: {"v":"-ID"}
+
+data: {"v":"`"}
+
+data: {"v":"澶?}
+
+data: {"v":"浼犻€?}
+
+data: {"v":"鏈€鍚?}
+
+data: {"v":"鏀跺埌鐨?}
+
+data: {"v":"娑堟伅"}
+
+data: {"v":"ID"}
+
+data: {"v":"銆?}
+
+data: {"v":"杩欑"}
+
+data: {"v":"鏈哄埗"}
+
+data: {"v":"浣垮緱"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鍦?}
+
+data: {"v":"绾?}
+
+data: {"v":"鎺ㄩ€?}
+
+data: {"v":"鍦烘櫙"}
+
+data: {"v":"涓?}
+
+data: {"v":"鍏锋湁"}
+
+data: {"v":"杈冮珮鐨?}
+
+data: {"v":"鍩虹"}
+
+data: {"v":"鍙潬鎬?}
+
+data: {"v":"銆?}
+
+data: {"v":"浣?}
+
+data: {"v":"闇€"}
+
+data: {"v":"娉ㄦ剰"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"涓嶆敮鎸?}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"涓诲姩"}
+
+data: {"v":"鍙戦€?}
+
+data: {"v":"鏁版嵁"}
+
+data: {"v":"锛?}
+
+data: {"v":"鑻?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"杩囩▼"}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"鎻愪緵"}
+
+data: {"v":"棰濆"}
+
+data: {"v":"涓婁笅鏂?}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"鐢ㄦ埛"}
+
+data: {"v":"鎵撴柇"}
+
+data: {"v":"鐢熸垚"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"鍒?}
+
+data: {"v":"蹇呴』"}
+
+data: {"v":"閫氳繃"}
+
+data: {"v":"鍙︿竴涓?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"璇锋眰"}
+
+data: {"v":"瀹屾垚"}
+
+data: {"v":"锛?}
+
+data: {"v":"澧炲姞浜?}
+
+data: {"v":"浜や簰"}
+
+data: {"v":"澶嶆潅鎬?}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍏?}
+
+data: {"v":"鍙?}
+
+data: {"v":"宸?}
+
+data: {"v":"銆?}
+
+data: {"v":"鎸佷箙"}
+
+data: {"v":"鍖栫殑"}
+
+data: {"v":"浜岃繘鍒?}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"锛?}
+
+data: {"v":"閫氳繃"}
+
+data: {"v":"HTTP"}
+
+data: {"v":" Upgrade"}
+
+data: {"v":"鎻℃墜"}
+
+data: {"v":"寤虹珛"}
+
+data: {"v":"銆?}
+
+data: {"v":"鍏?}
+
+data: {"v":"鍙潬鎬?}
+
+data: {"v":"瀹屽叏"}
+
+data: {"v":"渚濊禆"}
+
+data: {"v":"搴旂敤"}
+
+data: {"v":"灞?}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"锛?}
+
+data: {"v":"蹇冭烦"}
+
+data: {"v":"鏈哄埗"}
+
+data: {"v":"锛?}
+
+data: {"v":"P"}
+
+data: {"v":"ing"}
+
+data: {"v":"/P"}
+
+data: {"v":"ong"}
+
+data: {"v":"锛?}
+
+data: {"v":"闇€"}
+
+data: {"v":"鑷"}
+
+data: {"v":"璁捐"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"妫€娴?}
+
+data: {"v":"鍜?}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"閫昏緫"}
+
+data: {"v":"锛?}
+
+data: {"v":"鎸囨暟"}
+
+data: {"v":"閫€"}
+
+data: {"v":"閬?}
+
+data: {"v":"銆?}
+
+data: {"v":"闅忔満"}
+
+data: {"v":"鎶栧姩"}
+
+data: {"v":"锛?}
+
+data: {"v":"涔?}
+
+data: {"v":"闇€"}
+
+data: {"v":"缂栫爜"}
+
+data: {"v":"瀹屾垚"}
+
+data: {"v":"銆?}
+
+data: {"v":"濂藉"}
+
+data: {"v":"鏄?}
+
+data: {"v":"鐏垫椿"}
+
+data: {"v":"搴﹂珮"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍙?}
+
+data: {"v":"閽堝"}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"娴?}
+
+data: {"v":"瀹氬埗"}
+
+data: {"v":"纭"}
+
+data: {"v":"閲?}
+
+data: {"v":"浼?}
+
+data: {"v":"銆?}
+
+data: {"v":"娴侀噺"}
+
+data: {"v":"鎺у埗"}
+
+data: {"v":"绛?}
+
+data: {"v":"绛栫暐"}
+
+data: {"v":"銆?}
+
+data: {"v":"鍧?}
+
+data: {"v":"澶?}
+
+data: {"v":"鏄?}
+
+data: {"v":"鍘熺敓"}
+
+data: {"v":"缂哄皯"}
+
+data: {"v":"鏍囧噯"}
+
+data: {"v":"鍖栫殑"}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"涓?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"璇箟"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"涓嶅綋"}
+
+data: {"v":"鏄?}
+
+data: {"v":"瀵艰嚧"}
+
+data: {"v":"鏁版嵁"}
+
+data: {"v":"涓㈠け"}
+
+data: {"v":"鎴?}
+
+data: {"v":"閲嶅"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"缁撹"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀵逛簬"}
+
+data: {"v":"鈥?}
+
+data: {"v":"浠?}
+
+data: {"v":"鏈嶅姟鍣?}
+
+data: {"v":"鎺ㄩ€?}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"缁撴灉"}
+
+data: {"v":"鈥?}
+
+data: {"v":"鐨?}
+
+data: {"v":"鍏稿瀷"}
+
+data: {"v":"鍦烘櫙"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鐨?}
+
+data: {"v":"榛樿"}
+
+data: {"v":"鍙潬"}
+
+data: {"v":"琛屼负"}
+
+data: {"v":"鏇?}
+
+data: {"v":"绠€鍗?}
+
+data: {"v":"绋冲仴"}
+
+data: {"v":"锛?}
+
+data: {"v":"鑻?}
+
+data: {"v":"闇€"}
+
+data: {"v":"澶嶆潅"}
+
+data: {"v":"鍙屽悜"}
+
+data: {"v":"鎺у埗"}
+
+data: {"v":"锛?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鍙€氳繃"}
+
+data: {"v":"绮惧績"}
+
+data: {"v":"璁捐"}
+
+data: {"v":"杈惧埌"}
+
+data: {"v":"鏇撮珮"}
+
+data: {"v":"鍙潬鎬?}
+
+data: {"v":"锛?}
+
+data: {"v":"浣?}
+
+data: {"v":"寮€鍙?}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"鏄捐憲"}
+
+data: {"v":"涓婂崌"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"###"}
+
+data: {"v":" "}
+
+data: {"v":"浜?}
+
+data: {"v":"銆?}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"\n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍒╃敤"}
+
+data: {"v":"`"}
+
+data: {"v":"Last"}
+
+data: {"v":"-"}
+
+data: {"v":"Event"}
+
+data: {"v":"-ID"}
+
+data: {"v":"`"}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"澶╃劧"}
+
+data: {"v":"鏂?}
+
+data: {"v":"鐐?}
+
+data: {"v":"缁?}
+
+data: {"v":"浼?}
+
+data: {"v":"銆?}
+
+data: {"v":"鏈嶅姟鍣?}
+
+data: {"v":"涓?}
+
+data: {"v":"姣忎釜"}
+
+data: {"v":"鎺ㄩ€?}
+
+data: {"v":"浜嬩欢"}
+
+data: {"v":"鍒嗛厤"}
+
+data: {"v":"鍗曡皟"}
+
+data: {"v":"閫掑"}
+
+data: {"v":"ID"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"鏃?}
+
+data: {"v":"鑷姩"}
+
+data: {"v":"鎼哄甫"}
+
+data: {"v":"鏈€鍚?}
+
+data: {"v":"鏀跺埌"}
+
+data: {"v":"ID"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏈嶅姟"}
+
+data: {"v":"绔?}
+
+data: {"v":"鎹"}
+
+data: {"v":"鍥?}
+
+data: {"v":"琛?}
+
+data: {"v":"涓㈠け"}
+
+data: {"v":"娑堟伅"}
+
+data: {"v":"銆?}
+
+data: {"v":"杩欎娇寰?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"涓棿"}
+
+data: {"v":"鏂紑"}
+
+data: {"v":"鍚?}
+
+data: {"v":"鑳藉"}
+
+data: {"v":"鏃?}
+
+data: {"v":"閬楁紡"}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"杈撳嚭"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀵?}
+
+data: {"v":"鐢ㄦ埛浣撻獙"}
+
+data: {"v":"鑷冲叧閲嶈"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏃?}
+
+data: {"v":"浠讳綍"}
+
+data: {"v":"鍐?}
+
+data: {"v":"寤?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"鏈哄埗"}
+
+data: {"v":"銆?}
+
+data: {"v":"闇€瑕佸湪"}
+
+data: {"v":"搴旂敤"}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"涓?}
+
+data: {"v":"鑷"}
+
+data: {"v":"璁捐"}
+
+data: {"v":"搴忓垪"}
+
+data: {"v":"鍙?}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"姣忎釜"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"token"}
+
+data: {"v":"甯?}
+
+data: {"v":"搴忓彿"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍜?}
+
+data: {"v":"纭"}
+
+data: {"v":"搴旂瓟"}
+
+data: {"v":"锛?}
+
+data: {"v":"ACK"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"鍚?}
+
+data: {"v":"鍙戦€?}
+
+data: {"v":"宸?}
+
+data: {"v":"纭"}
+
+data: {"v":"搴忓彿"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏈嶅姟"}
+
+data: {"v":"绔?}
+
+data: {"v":"閲?}
+
+data: {"v":"鏀?}
+
+data: {"v":"涓㈠け"}
+
+data: {"v":"閮ㄥ垎"}
+
+data: {"v":"銆?}
+
+data: {"v":"杩?}
+
+data: {"v":"澧炲姞浜?}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"璁捐"}
+
+data: {"v":"璐熸媴"}
+
+data: {"v":"锛?}
+
+data: {"v":"涓?}
+
+data: {"v":"闇€"}
+
+data: {"v":"澶勭悊"}
+
+data: {"v":"娑堟伅"}
+
+data: {"v":"杈圭晫"}
+
+data: {"v":"涓?}
+
+data: {"v":"缂撳瓨"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"缁撹"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鍦?}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"涓?}
+
+data: {"v":"鑳?}
+
+data: {"v":"鍑?}
+
+data: {"v":"鈥斺€?}
+
+data: {"v":"寮€"}
+
+data: {"v":"绠?}
+
+data: {"v":"鍗?}
+
+data: {"v":"鐢?}
+
+data: {"v":"锛?}
+
+data: {"v":"閫傚悎"}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"杩欑被"}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"杩炵画"}
+
+data: {"v":"杈撳嚭"}
+
+data: {"v":"涓?}
+
+data: {"v":"涓嶅厑璁?}
+
+data: {"v":"璺?}
+
+data: {"v":"甯?}
+
+data: {"v":"鐨勫満鏅?}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"###"}
+
+data: {"v":" "}
+
+data: {"v":"涓?}
+
+data: {"v":"銆?}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"\n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏈川"}
+
+data: {"v":"鏄?}
+
+data: {"v":"闀?}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"璇锋眰"}
+
+data: {"v":"銆?}
+
+data: {"v":"澶у鏁?}
+
+data: {"v":"涓?}
+
+data: {"v":"灞?}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"鍣?}
+
+data: {"v":"锛?}
+
+data: {"v":"NG"}
+
+data: {"v":"IN"}
+
+data: {"v":"X"}
+
+data: {"v":"銆?}
+
+data: {"v":"HA"}
+
+data: {"v":"Proxy"}
+
+data: {"v":"銆?}
+
+data: {"v":"AWS"}
+
+data: {"v":" AL"}
+
+data: {"v":"B"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀵?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"闀?}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"鎴愮啛"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍙渶"}
+
+data: {"v":"閰嶇疆"}
+
+data: {"v":"杈?}
+
+data: {"v":"闀跨殑"}
+
+data: {"v":"`"}
+
+data: {"v":"keep"}
+
+data: {"v":"al"}
+
+data: {"v":"ive"}
+
+data: {"v":"_time"}
+
+data: {"v":"out"}
+
+data: {"v":"`"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"300"}
+
+data: {"v":"绉?}
+
+data: {"v":"锛?}
+
+data: {"v":"鍜?}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"鏁?}
+
+data: {"v":"闄愬埗"}
+
+data: {"v":"銆?}
+
+data: {"v":"鐢变簬"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"鍙?}
+
+data: {"v":"璇嗗埆"}
+
+data: {"v":"涓?}
+
+data: {"v":"鏅€?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"娴?}
+
+data: {"v":"锛?}
+
+data: {"v":"涓?}
+
+data: {"v":"瑕佹眰"}
+
+data: {"v":"浼氳瘽"}
+
+data: {"v":"淇濇寔"}
+
+data: {"v":"锛?}
+
+data: {"v":"session"}
+
+data: {"v":" persistence"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"鍣?}
+
+data: {"v":"鍙?}
+
+data: {"v":"鑷敱"}
+
+data: {"v":"鍒嗛厤"}
+
+data: {"v":"璇锋眰"}
+
+data: {"v":"锛?}
+
+data: {"v":"鎵╁睍"}
+
+data: {"v":"鎬уソ"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"瑕佹眰"}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"鍣?}
+
+data: {"v":"鏄?}
+
+data: {"v":"寮?}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"鍗囩骇"}
+
+data: {"v":"鍜?}
+
+data: {"v":"闅ч亾"}
+
+data: {"v":"浼犺緭"}
+
+data: {"v":"銆?}
+
+data: {"v":"閫氬父"}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"寮€鍚?}
+
+data: {"v":"鈥?}
+
+data: {"v":"st"}
+
+data: {"v":"icky"}
+
+data: {"v":" session"}
+
+data: {"v":"鈥濓紙"}
+
+data: {"v":"鍩轰簬"}
+
+data: {"v":"IP"}
+
+data: {"v":"鍝堝笇"}
+
+data: {"v":"鎴?}
+
+data: {"v":"Cookie"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"鍥犱负"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"寤虹珛"}
+
+data: {"v":"鍚?}
+
+data: {"v":"鐘舵€?}
+
+data: {"v":"鍥哄畾"}
+
+data: {"v":"浜?}
+
+data: {"v":"鏌?}
+
+data: {"v":"鍙?}
+
+data: {"v":"鍚庣"}
+
+data: {"v":"鏈嶅姟鍣?}
+
+data: {"v":"锛?}
+
+data: {"v":"涓€鏃?}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"鍙兘"}
+
+data: {"v":"琚?}
+
+data: {"v":"璺敱"}
+
+data: {"v":"鍒?}
+
+data: {"v":"涓嶅悓"}
+
+data: {"v":"鑺傜偣"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀵艰嚧"}
+
+data: {"v":"浼氳瘽"}
+
+data: {"v":"涓㈠け"}
+
+data: {"v":"銆?}
+
+data: {"v":"杩欏"}
+
+data: {"v":"姘村钩"}
+
+data: {"v":"浼哥缉"}
+
+data: {"v":"鍜?}
+
+data: {"v":"鏁呴殰"}
+
+data: {"v":"杞Щ"}
+
+data: {"v":"甯︽潵"}
+
+data: {"v":"鎸戞垬"}
+
+data: {"v":"锛?}
+
+data: {"v":"闇€"}
+
+data: {"v":"閰嶅悎"}
+
+data: {"v":"鍏变韩"}
+
+data: {"v":"瀛樺偍"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"Redis"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀛樺偍"}
+
+data: {"v":"浼氳瘽"}
+
+data: {"v":"鐘舵€?}
+
+data: {"v":"锛?}
+
+data: {"v":"鎴?}
+
+data: {"v":"閲囩敤"}
+
+data: {"v":"涓€鑷存€?}
+
+data: {"v":"鍝堝笇"}
+
+data: {"v":"璺敱"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"缁撹"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鍦?}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"灞傞潰"}
+
+data: {"v":"鏇?}
+
+data: {"v":"绠€鍗?}
+
+data: {"v":"銆?}
+
+data: {"v":"鏇?}
+
+data: {"v":"鏃?}
+
+data: {"v":"鐘舵€?}
+
+data: {"v":"锛?}
+
+data: {"v":"鏇撮€傚悎"}
+
+data: {"v":"浜?}
+
+data: {"v":"鍘熺敓"}
+
+data: {"v":"鐜涓?}
+
+data: {"v":"棰戠箒"}
+
+data: {"v":"鎵?}
+
+data: {"v":"缂?}
+
+data: {"v":"瀹?}
+
+data: {"v":"鐨?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"鏈嶅姟"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"###"}
+
+data: {"v":" "}
+
+data: {"v":"鍥?}
+
+data: {"v":"銆?}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鍏煎"}
+
+data: {"v":"鎬?}
+
+data: {"v":"\n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍑犱箮"}
+
+data: {"v":"100"}
+
+data: {"v":"%"}
+
+data: {"v":"鍏煎"}
+
+data: {"v":"鎵€鏈?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"銆?}
+
+data: {"v":"CD"}
+
+data: {"v":"N"}
+
+data: {"v":"銆?}
+
+data: {"v":"缃戝叧"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍖呮嫭"}
+
+data: {"v":"浼佷笟"}
+
+data: {"v":"闃茬伀澧?}
+
+data: {"v":"锛夈€?}
+
+data: {"v":"鍥?}
+
+data: {"v":"瀹?}
+
+data: {"v":"鍙槸"}
+
+data: {"v":"鍒?}
+
+data: {"v":"鍧?}
+
+data: {"v":"浼犺緭"}
+
+data: {"v":"鐨?}
+
+data: {"v":"鏅€?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"鍝嶅簲"}
+
+data: {"v":"锛?}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"涓嶄細"}
+
+data: {"v":"鐗规畩"}
+
+data: {"v":"澶勭悊"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍙渶"}
+
+data: {"v":"娉ㄦ剰"}
+
+data: {"v":"鍏抽棴"}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鐨?}
+
+data: {"v":"鍝嶅簲"}
+
+data: {"v":"缂撳啿"}
+
+data: {"v":"锛?}
+
+data: {"v":"`"}
+
+data: {"v":"X"}
+
+data: {"v":"-A"}
+
+data: {"v":"cc"}
+
+data: {"v":"el"}
+
+data: {"v":"-B"}
+
+data: {"v":"uff"}
+
+data: {"v":"ering"}
+
+data: {"v":":"}
+
+data: {"v":" no"}
+
+data: {"v":"`"}
+
+data: {"v":"鎴?}
+
+data: {"v":"`"}
+
+data: {"v":"proxy"}
+
+data: {"v":"_b"}
+
+data: {"v":"uff"}
+
+data: {"v":"ering"}
+
+data: {"v":" off"}
+
+data: {"v":"`"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍗冲彲"}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"瀹炴椂"}
+
+data: {"v":"娴佷紶"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"瀹屽叏"}
+
+data: {"v":"鐞嗚В"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鎻℃墜"}
+
+data: {"v":"鍜?}
+
+data: {"v":"甯?}
+
+data: {"v":"鏍煎紡"}
+
+data: {"v":"銆?}
+
+data: {"v":"閮ㄥ垎"}
+
+data: {"v":"鑰佹棫"}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"銆?}
+
+data: {"v":"鍙嶅悜"}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鎴?}
+
+data: {"v":"CD"}
+
+data: {"v":"N"}
+
+data: {"v":"鍙兘"}
+
+data: {"v":"涓嶆敮鎸?}
+
+data: {"v":"鎴?}
+
+data: {"v":"閿欒"}
+
+data: {"v":"鎷︽埅"}
+
+data: {"v":"Up"}
+
+data: {"v":"grade"}
+
+data: {"v":"璇锋眰"}
+
+data: {"v":"銆?}
+
+data: {"v":"鍗充娇"}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"锛?}
+
+data: {"v":"涔?}
+
+data: {"v":"寰€寰€"}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"鍗曠嫭"}
+
+data: {"v":"閰嶇疆"}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"鍗囩骇"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"NG"}
+
+data: {"v":"IN"}
+
+data: {"v":"X"}
+
+data: {"v":"鐨?}
+
+data: {"v":"`"}
+
+data: {"v":"Up"}
+
+data: {"v":"grade"}
+
+data: {"v":":"}
+
+data: {"v":" webs"}
+
+data: {"v":"ocket"}
+
+data: {"v":"`"}
+
+data: {"v":"澶?}
+
+data: {"v":"锛夈€?}
+
+data: {"v":"姝ゅ"}
+
+data: {"v":"锛?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"娴侀噺"}
+
+data: {"v":"缁忚繃"}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鏃?}
+
+data: {"v":"锛?}
+
+data: {"v":"鏌愪簺"}
+
+data: {"v":"瓒?}
+
+data: {"v":"鏃?}
+
+data: {"v":"璁剧疆"}
+
+data: {"v":"涓?}
+
+data: {"v":"鍖归厤"}
+
+data: {"v":"浼氬鑷?}
+
+data: {"v":"闈?}
+
+data: {"v":"榛?}
+
+data: {"v":"鏂?}
+
+data: {"v":"杩?}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"缁撹"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鐨?}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鍏煎"}
+
+data: {"v":"鎬?}
+
+data: {"v":"鏄捐憲"}
+
+data: {"v":"浼樹簬"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"锛?}
+
+data: {"v":"灏ゅ叾鍦?}
+
+data: {"v":"娣峰悎"}
+
+data: {"v":"缃戠粶"}
+
+data: {"v":"鐜"}
+
+data: {"v":"锛?}
+
+data: {"v":"绉诲姩"}
+
+data: {"v":"缃戠粶"}
+
+data: {"v":"銆?}
+
+data: {"v":"鍏徃"}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"锛?}
+
+data: {"v":"涓?}
+
+data: {"v":"鏇翠负"}
+
+data: {"v":"鍙潬"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"###"}
+
+data: {"v":" "}
+
+data: {"v":"浜?}
+
+data: {"v":"銆?}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"\n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"寮€閿€"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鐨?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"澶撮儴"}
+
+data: {"v":"姣?}
+
+data: {"v":"璇锋眰"}
+
+data: {"v":"绾?}
+
+data: {"v":"200"}
+
+data: {"v":"~"}
+
+data: {"v":"500"}
+
+data: {"v":"瀛楄妭"}
+
+data: {"v":"锛?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鎻℃墜"}
+
+data: {"v":"鍚?}
+
+data: {"v":"甯?}
+
+data: {"v":"澶?}
+
+data: {"v":"浠?}
+
+data: {"v":"2"}
+
+data: {"v":"~"}
+
+data: {"v":"14"}
+
+data: {"v":"瀛楄妭"}
+
+data: {"v":"锛?}
+
+data: {"v":"涓?}
+
+data: {"v":"鏃?}
+
+data: {"v":"姣忔"}
+
+data: {"v":"鎺ㄩ€?}
+
+data: {"v":"鐨?}
+
+data: {"v":"閲嶅"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"澶?}
+
+data: {"v":"銆?}
+
+data: {"v":"瀵逛簬"}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"涓?}
+
+data: {"v":"楂橀"}
+
+data: {"v":"閫?}
+
+data: {"v":"token"}
+
+data: {"v":"杈撳嚭"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏁扮櫨"}
+
+data: {"v":"鑷?}
+
+data: {"v":"鏁板崈"}
+
+data: {"v":"娆?}
+
+data: {"v":"鎺ㄩ€?}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"鐨?}
+
+data: {"v":"甯﹀"}
+
+data: {"v":"鏁堢巼"}
+
+data: {"v":"鐣?}
+
+data: {"v":"楂?}
+
+data: {"v":"銆俓n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"鏈嶅姟鍣?}
+
+data: {"v":"璧勬簮"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"姣忎釜"}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"鍗犵敤"}
+
+data: {"v":"涓€涓?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"/"}
+
+data: {"v":"1"}
+
+data: {"v":"."}
+
+data: {"v":"1"}
+
+data: {"v":"绾跨▼"}
+
+data: {"v":"鎴?}
+
+data: {"v":"浜嬩欢"}
+
+data: {"v":"寰幆"}
+
+data: {"v":"涓殑"}
+
+data: {"v":"鏂囦欢"}
+
+data: {"v":"鎻忚堪"}
+
+data: {"v":"绗?}
+
+data: {"v":"锛?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"绫讳技"}
+
+data: {"v":"浣?}
+
+data: {"v":"鏃?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"瑙ｆ瀽"}
+
+data: {"v":"璐熸媴"}
+
+data: {"v":"銆?}
+
+data: {"v":"鐜颁唬"}
+
+data: {"v":"寮傛"}
+
+data: {"v":"妗嗘灦"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"Net"}
+
+data: {"v":"ty"}
+
+data: {"v":"銆?}
+
+data: {"v":"Node"}
+
+data: {"v":".js"}
+
+data: {"v":"锛?}
+
+data: {"v":"涓?}
+
+data: {"v":"涓よ€?}
+
+data: {"v":"璧勬簮"}
+
+data: {"v":"娑堣€?}
+
+data: {"v":"鐩歌繎"}
+
+data: {"v":"銆俓n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"寮€鍙?}
+
+data: {"v":"涓?}
+
+data: {"v":"杩愮淮"}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"绠€鍗?}
+
+data: {"v":"锛?}
+
+data: {"v":"鏃犻渶"}
+
+data: {"v":"鑷畾涔?}
+
+data: {"v":"蹇冭烦"}
+
+data: {"v":"銆?}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"銆?}
+
+data: {"v":"搴忓垪"}
+
+data: {"v":"鍙?}
+
+data: {"v":"锛?}
+
+data: {"v":"澶у箙"}
+
+data: {"v":"闄嶄綆"}
+
+data: {"v":"缂栫爜"}
+
+data: {"v":"涓?}
+
+data: {"v":"璋冭瘯"}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"銆?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"闇€"}
+
+data: {"v":"棰濆"}
+
+data: {"v":"澶勭悊"}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"銆?}
+
+data: {"v":"浼氳瘽"}
+
+data: {"v":"杩佺Щ"}
+
+data: {"v":"銆?}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"绮?}
+
+data: {"v":"鎬?}
+
+data: {"v":"绛?}
+
+data: {"v":"锛?}
+
+data: {"v":"鎬讳綋"}
+
+data: {"v":"鎷ユ湁"}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"锛?}
+
+data: {"v":"T"}
+
+data: {"v":"CO"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏇撮珮"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"缁撹"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀵逛簬"}
+
+data: {"v":"澶у鏁?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"涓氬姟"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鐨勫紑鍙?}
+
+data: {"v":"杩愮淮"}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"杩?}
+
+data: {"v":"浣庝簬"}
+
+data: {"v":"鍏?}
+
+data: {"v":"寰皬"}
+
+data: {"v":"甯﹀"}
+
+data: {"v":"娴垂"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍥犳"}
+
+data: {"v":"鎬讳綋"}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"鏇?}
+
+data: {"v":"浼?}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"###"}
+
+data: {"v":" "}
+
+data: {"v":"鍏?}
+
+data: {"v":"銆?}
+
+data: {"v":"鍙?}
+
+data: {"v":"瑙傛祴"}
+
+data: {"v":"鎬?}
+
+data: {"v":"\n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍩轰簬"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"鏍囧噯"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍙洿鎺?}
+
+data: {"v":"鍒╃敤"}
+
+data: {"v":"鐜版湁"}
+
+data: {"v":"鐩戞帶"}
+
+data: {"v":"浣撶郴"}
+
+data: {"v":"锛?}
+
+data: {"v":"閫氳繃"}
+
+data: {"v":"缃戝叧"}
+
+data: {"v":"鏃ュ織"}
+
+data: {"v":"鑾峰彇"}
+
+data: {"v":"璇锋眰"}
+
+data: {"v":"鑰楁椂"}
+
+data: {"v":"銆?}
+
+data: {"v":"鐘舵€?}
+
+data: {"v":"鐮?}
+
+data: {"v":"銆?}
+
+data: {"v":"鍝嶅簲"}
+
+data: {"v":"澶у皬"}
+
+data: {"v":"锛?}
+
+data: {"v":"閫氳繃"}
+
+data: {"v":"杩借釜"}
+
+data: {"v":"ID"}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"鍒嗗竷寮?}
+
+data: {"v":"閾捐矾"}
+
+data: {"v":"杩借釜"}
+
+data: {"v":"锛?}
+
+data: {"v":"Open"}
+
+data: {"v":"Tele"}
+
+data: {"v":"metry"}
+
+data: {"v":"鑷姩"}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"锛夛紱"}
+
+data: {"v":"閿欒"}
+
+data: {"v":"鐜?}
+
+data: {"v":"銆?}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"娆℃暟"}
+
+data: {"v":"绛?}
+
+data: {"v":"鎸囨爣"}
+
+data: {"v":"鍧囧彲"}
+
+data: {"v":"浠?}
+
+data: {"v":"鏍囧噯"}
+
+data: {"v":"鎸囨爣"}
+
+data: {"v":"閲囬泦"}
+
+data: {"v":"鍣?}
+
+data: {"v":"鑾峰緱"}
+
+data: {"v":"銆?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鐨?}
+
+data: {"v":"姣忎釜"}
+
+data: {"v":"浜嬩欢"}
+
+data: {"v":"澶╃劧"}
+
+data: {"v":"鏄?}
+
+data: {"v":"缁撴瀯鍖?}
+
+data: {"v":"鏂囨湰"}
+
+data: {"v":"锛?}
+
+data: {"v":"渚夸簬"}
+
+data: {"v":"璁板綍"}
+
+data: {"v":"鍜屽垎鏋?}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"-"}
+
+data: {"v":" **"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鑷畾涔?}
+
+data: {"v":"浜岃繘鍒?}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"浣垮緱"}
+
+data: {"v":"閫氱敤"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"鐩戞帶"}
+
+data: {"v":"宸ュ叿"}
+
+data: {"v":"澶辨晥"}
+
+data: {"v":"銆?}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"涓撻棬"}
+
+data: {"v":"鍩?}
+
+data: {"v":"鐐?}
+
+data: {"v":"锛?}
+
+data: {"v":"璁板綍"}
+
+data: {"v":"娑堟伅"}
+
+data: {"v":"鍙戦€?}
+
+data: {"v":"閫熺巼"}
+
+data: {"v":"銆?}
+
+data: {"v":"寤惰繜"}
+
+data: {"v":"銆?}
+
+data: {"v":"閲?}
+
+data: {"v":"杩?}
+
+data: {"v":"璁℃暟"}
+
+data: {"v":"銆?}
+
+data: {"v":"寮傚父"}
+
+data: {"v":"鍏抽棴"}
+
+data: {"v":"鐮?}
+
+data: {"v":"銆?}
+
+data: {"v":"閾捐矾"}
+
+data: {"v":"杩借釜"}
+
+data: {"v":"闇€"}
+
+data: {"v":"鍦?}
+
+data: {"v":"搴旂敤"}
+
+data: {"v":"灞?}
+
+data: {"v":"鎵嬪姩"}
+
+data: {"v":"娉ㄥ叆"}
+
+data: {"v":"涓婁笅鏂?}
+
+data: {"v":"锛?}
+
+data: {"v":"鏃犳硶"}
+
+data: {"v":"渚濊禆"}
+
+data: {"v":"浠ｇ悊"}
+
+data: {"v":"鑷姩"}
+
+data: {"v":"鐢熸垚"}
+
+data: {"v":"銆?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"鐨勭敓鍛?}
+
+data: {"v":"鍛ㄦ湡"}
+
+data: {"v":"浜嬩欢"}
+
+data: {"v":"锛?}
+
+data: {"v":"鎵撳紑"}
+
+data: {"v":"銆?}
+
+data: {"v":"鍏抽棴"}
+
+data: {"v":"銆?}
+
+data: {"v":"ping"}
+
+data: {"v":"/p"}
+
+data: {"v":"ong"}
+
+data: {"v":"锛?}
+
+data: {"v":"涔?}
+
+data: {"v":"闇€"}
+
+data: {"v":"棰濆"}
+
+data: {"v":"鏆撮湶"}
+
+data: {"v":"涓?}
+
+data: {"v":"鎸囨爣"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"缁撹"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鐨勫彲"}
+
+data: {"v":"瑙傛祴"}
+
+data: {"v":"鎬?}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"鏋?}
+
+data: {"v":"浣?}
+
+data: {"v":"涓?}
+
+data: {"v":"鏍囧噯鍖?}
+
+data: {"v":"锛?}
+
+data: {"v":"鑰?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"闇€"}
+
+data: {"v":"澶ч噺"}
+
+data: {"v":"瀹氬埗"}
+
+data: {"v":"浠ｇ爜"}
+
+data: {"v":"鎵嶈兘"}
+
+data: {"v":"杈惧埌"}
+
+data: {"v":"鍚岀瓑"}
+
+data: {"v":"鍙"}
+
+data: {"v":"鎬?}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"###"}
+
+data: {"v":" "}
+
+data: {"v":"鍒嗗眰"}
+
+data: {"v":"鏋舵瀯"}
+
+data: {"v":"寤鸿"}
+
+data: {"v":"\n\n"}
+
+data: {"v":"鍩轰簬"}
+
+data: {"v":"浠ヤ笂"}
+
+data: {"v":"鍒嗘瀽"}
+
+data: {"v":"锛?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"娴?}
+
+data: {"v":"寮?}
+
+data: {"v":"杈撳嚭鐨?}
+
+data: {"v":"鏈€浣?}
+
+data: {"v":"瀹炶返"}
+
+data: {"v":"寤鸿"}
+
+data: {"v":"閲囩敤"}
+
+data: {"v":"**"}
+
+data: {"v":"鍒嗗眰"}
+
+data: {"v":"娣峰悎"}
+
+data: {"v":"鏋舵瀯"}
+
+data: {"v":"**"}
+
+data: {"v":"锛歕n\n"}
+
+data: {"v":"1"}
+
+data: {"v":"."}
+
+data: {"v":" **"}
+
+data: {"v":"鎺ュ叆"}
+
+data: {"v":"灞?}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"浣跨敤"}
+
+data: {"v":"鏀寔"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"/"}
+
+data: {"v":"2"}
+
+data: {"v":"鎴?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"/"}
+
+data: {"v":"1"}
+
+data: {"v":"."}
+
+data: {"v":"1"}
+
+data: {"v":"鐨?}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"鍣?}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"AL"}
+
+data: {"v":"B"}
+
+data: {"v":"銆?}
+
+data: {"v":"NG"}
+
+data: {"v":"IN"}
+
+data: {"v":"X"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"寮€鍚?}
+
+data: {"v":"鍝嶅簲"}
+
+data: {"v":"缂撳啿"}
+
+data: {"v":"鍏抽棴"}
+
+data: {"v":"锛?}
+
+data: {"v":"`"}
+
+data: {"v":"proxy"}
+
+data: {"v":"_b"}
+
+data: {"v":"uff"}
+
+data: {"v":"ering"}
+
+data: {"v":" off"}
+
+data: {"v":"`"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍜?}
+
+data: {"v":"闀?}
+
+data: {"v":"杩炴帴"}
+
+data: {"v":"瓒?}
+
+data: {"v":"鏃?}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"600"}
+
+data: {"v":"绉?}
+
+data: {"v":"锛夈€俓n"}
+
+data: {"v":"2"}
+
+data: {"v":"."}
+
+data: {"v":" **"}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"灞?}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"**"}
+
+data: {"v":"浼樺厛"}
+
+data: {"v":"閫夋嫨"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"**"}
+
+data: {"v":"浣滀负"}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"涓庢湇鍔?}
+
+data: {"v":"绔?}
+
+data: {"v":"涔嬮棿鐨?}
+
+data: {"v":"涓昏"}
+
+data: {"v":"娴?}
+
+data: {"v":"寮?}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鐞嗙敱"}
+
+data: {"v":"濡備笅"}
+
+data: {"v":"锛歕n"}
+
+data: {"v":"  "}
+
+data: {"v":" -"}
+
+data: {"v":" AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"鏄?}
+
+data: {"v":"鍏稿瀷鐨?}
+
+data: {"v":"鏈嶅姟鍣?}
+
+data: {"v":"鍚?}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"鎺ㄩ€?}
+
+data: {"v":"鍗曞悜"}
+
+data: {"v":"娴?}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"澶╃劧"}
+
+data: {"v":"鍖归厤"}
+
+data: {"v":"銆俓n"}
+
+data: {"v":"  "}
+
+data: {"v":" -"}
+
+data: {"v":" "}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"鍐呯疆"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏋佸ぇ"}
+
+data: {"v":"鎻愬崌"}
+
+data: {"v":"鐢ㄦ埛浣撻獙"}
+
+data: {"v":"锛?}
+
+data: {"v":"灏ゅ叾"}
+
+data: {"v":"閫傚悎"}
+
+data: {"v":"鐢?}
+
+data: {"v":"鎴愰暱"}
+
+data: {"v":"搴?}
+
+data: {"v":"鍙揪"}
+
+data: {"v":"鏁板崈"}
+
+data: {"v":"token"}
+
+data: {"v":"鐨?}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"浠诲姟"}
+
+data: {"v":"銆俓n"}
+
+data: {"v":"  "}
+
+data: {"v":" -"}
+
+data: {"v":" "}
+
+data: {"v":"鏃犻渶"}
+
+data: {"v":"鑷畾涔?}
+
+data: {"v":"绮?}
+
+data: {"v":"鎬?}
+
+data: {"v":"浼氳瘽"}
+
+data: {"v":"锛?}
+
+data: {"v":"姘村钩"}
+
+data: {"v":"鎵╁睍"}
+
+data: {"v":"绠€鍗?}
+
+data: {"v":"銆俓n"}
+
+data: {"v":"  "}
+
+data: {"v":" -"}
+
+data: {"v":" "}
+
+data: {"v":"杩愮淮"}
+
+data: {"v":"涓?}
+
+data: {"v":"鐩戞帶"}
+
+data: {"v":"鍙洿鎺?}
+
+data: {"v":"澶嶇敤"}
+
+data: {"v":"鐜版湁"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"鐢熸€?}
+
+data: {"v":"銆俓n"}
+
+data: {"v":"3"}
+
+data: {"v":"."}
+
+data: {"v":" **"}
+
+data: {"v":"鍙屽悜"}
+
+data: {"v":"浜や簰"}
+
+data: {"v":"琛ュ厖"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡傛灉"}
+
+data: {"v":"涓氬姟"}
+
+data: {"v":"鐨勭‘"}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"鐢ㄦ埛"}
+
+data: {"v":"鎵撴柇"}
+
+data: {"v":"鐢熸垚"}
+
+data: {"v":"鎴?}
+
+data: {"v":"瀹炴椂"}
+
+data: {"v":"璋冩暣"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"鍙傛暟"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"娓╁害"}
+
+data: {"v":"銆?}
+
+data: {"v":"top"}
+
+data: {"v":"_p"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"鍙€氳繃"}
+
+data: {"v":"浠ヤ笅"}
+
+data: {"v":"涓ょ"}
+
+data: {"v":"鏂瑰紡"}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"锛歕n"}
+
+data: {"v":"  "}
+
+data: {"v":" -"}
+
+data: {"v":" **"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":" +"}
+
+data: {"v":" "}
+
+data: {"v":"鐙珛"}
+
+data: {"v":"HTTP"}
+
+data: {"v":" POST"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀹㈡埛绔?}
+
+data: {"v":"鍙?}
+
+data: {"v":"鍙戣捣"}
+
+data: {"v":"涓€涓?}
+
+data: {"v":"HTTP"}
+
+data: {"v":"璇锋眰"}
+
+data: {"v":"鍙戦€?}
+
+data: {"v":"鎺у埗"}
+
+data: {"v":"鎸囦护"}
+
+data: {"v":"锛?}
+
+data: {"v":"鏈嶅姟"}
+
+data: {"v":"绔?}
+
+data: {"v":"閫氳繃"}
+
+data: {"v":"鍏变韩"}
+
+data: {"v":"浼氳瘽"}
+
+data: {"v":"ID"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"`"}
+
+data: {"v":"X"}
+
+data: {"v":"-S"}
+
+data: {"v":"ession"}
+
+data: {"v":"-"}
+
+data: {"v":"Id"}
+
+data: {"v":"`"}
+
+data: {"v":"澶?}
+
+data: {"v":"锛?}
+
+data: {"v":"褰卞搷"}
+
+data: {"v":"宸叉湁"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"娴?}
+
+data: {"v":"銆?}
+
+data: {"v":"杩?}
+
+data: {"v":"淇濇寔浜?}
+
+data: {"v":"鏋舵瀯"}
+
+data: {"v":"绠€鍗?}
+
+data: {"v":"銆俓n"}
+
+data: {"v":"  "}
+
+data: {"v":" -"}
+
+data: {"v":" **"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"锛?}
+
+data: {"v":"浠?}
+
+data: {"v":"褰?}
+
+data: {"v":"棰戠箒"}
+
+data: {"v":"鍙屽悜"}
+
+data: {"v":"浜や簰"}
+
+data: {"v":"锛?}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"鍙湁鍦?}
+
+data: {"v":"瑕佹眰"}
+
+data: {"v":"鍏?}
+
+data: {"v":"鍙?}
+
+data: {"v":"宸?}
+
+data: {"v":"姣?}
+
+data: {"v":"绉?}
+
+data: {"v":"绾?}
+
+data: {"v":"浜や簰"}
+
+data: {"v":"锛?}
+
+data: {"v":"濡?}
+
+data: {"v":"瀹炴椂"}
+
+data: {"v":"瀵硅瘽"}
+
+data: {"v":"涓?}
+
+data: {"v":"鐢ㄦ埛"}
+
+data: {"v":"棰戠箒"}
+
+data: {"v":"鎻?}
+
+data: {"v":"璇?}
+
+data: {"v":"锛?}
+
+data: {"v":"鏃舵墠"}
+
+data: {"v":"寮曞叆"}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"锛?}
+
+data: {"v":"浣?}
+
+data: {"v":"蹇呴』"}
+
+data: {"v":"鑷"}
+
+data: {"v":"瀹炵幇"}
+
+data: {"v":"涓婅堪"}
+
+data: {"v":"璐熻浇"}
+
+data: {"v":"鍧囪　"}
+
+data: {"v":"浜插拰"}
+
+data: {"v":"銆?}
+
+data: {"v":"鏂?}
+
+data: {"v":"绾?}
+
+data: {"v":"鎭㈠"}
+
+data: {"v":"鍜?}
+
+data: {"v":"鐩戞帶"}
+
+data: {"v":"銆俓n"}
+
+data: {"v":"4"}
+
+data: {"v":"."}
+
+data: {"v":" **"}
+
+data: {"v":"鍚庣"}
+
+data: {"v":"鍐呴儴"}
+
+data: {"v":"閫氫俊"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"寮曟搸"}
+
+data: {"v":"涓?}
+
+data: {"v":"缃戝叧"}
+
+data: {"v":"涔嬮棿"}
+
+data: {"v":"鍙噰鐢?}
+
+data: {"v":"g"}
+
+data: {"v":"R"}
+
+data: {"v":"PC"}
+
+data: {"v":"娴?}
+
+data: {"v":"寮?}
+
+data: {"v":"锛?}
+
+data: {"v":"鍩轰簬"}
+
+data: {"v":"HTTP"}
+
+data: {"v":"/"}
+
+data: {"v":"2"}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"鍒╃敤"}
+
+data: {"v":"鍏?}
+
+data: {"v":"鍐呯疆"}
+
+data: {"v":"娴?}
+
+data: {"v":"鎺?}
+
+data: {"v":"鍜?}
+
+data: {"v":"鍙屽悜"}
+
+data: {"v":"鐗规€?}
+
+data: {"v":"锛?}
+
+data: {"v":"浣?}
+
+data: {"v":"瀵瑰"}
+
+data: {"v":"灞?}
+
+data: {"v":"浠?}
+
+data: {"v":"鍙€氳繃"}
+
+data: {"v":"鍗忚"}
+
+data: {"v":"閫傞厤"}
+
+data: {"v":"鍣?}
+
+data: {"v":"杞崲涓?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"銆俓n\n"}
+
+data: {"v":"**"}
+
+data: {"v":"鎬荤粨"}
+
+data: {"v":"**"}
+
+data: {"v":"锛?}
+
+data: {"v":"瀵逛簬"}
+
+data: {"v":"缁濆ぇ澶氭暟"}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"娴?}
+
+data: {"v":"寮?}
+
+data: {"v":"杈撳嚭"}
+
+data: {"v":"鍦烘櫙"}
+
+data: {"v":"锛?}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"鍑€?}
+
+data: {"v":"鍏?}
+
+data: {"v":"绠€鍗?}
+
+data: {"v":"銆?}
+
+data: {"v":"鍙潬"}
+
+data: {"v":"銆?}
+
+data: {"v":"鏄?}
+
+data: {"v":"瑙傛祴"}
+
+data: {"v":"銆?}
+
+data: {"v":"楂?}
+
+data: {"v":"鍏煎"}
+
+data: {"v":"鎬х殑"}
+
+data: {"v":"浼樺娍"}
+
+data: {"v":"锛?}
+
+data: {"v":"搴?}
+
+data: {"v":"浣滀负"}
+
+data: {"v":"鏍囧噯"}
+
+data: {"v":"閫?}
+
+data: {"v":"鍨?}
+
+data: {"v":"銆?}
+
+data: {"v":"Web"}
+
+data: {"v":"Socket"}
+
+data: {"v":"浠呭湪"}
+
+data: {"v":"闇€瑕?}
+
+data: {"v":"澶嶆潅"}
+
+data: {"v":"鍙屽悜"}
+
+data: {"v":"瀹炴椂"}
+
+data: {"v":"鎺у埗"}
+
+data: {"v":"涓?}
+
+data: {"v":"鑳?}
+
+data: {"v":"鎵挎媴"}
+
+data: {"v":"棰濆"}
+
+data: {"v":"宸ョ▼"}
+
+data: {"v":"鎴愭湰"}
+
+data: {"v":"鏃?}
+
+data: {"v":"鎵嶆湁"}
+
+data: {"v":"绔炰簤鍔?}
+
+data: {"v":"銆?}
+
+data: {"v":"閫氳繃"}
+
+data: {"v":"鍒嗗眰"}
+
+data: {"v":"璁捐"}
+
+data: {"v":"锛?}
+
+data: {"v":"鎺ュ叆"}
+
+data: {"v":"灞?}
+
+data: {"v":"+"}
+
+data: {"v":"SS"}
+
+data: {"v":"E"}
+
+data: {"v":"浼氳瘽"}
+
+data: {"v":"灞?}
+
+data: {"v":"+"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"寮曟搸"}
+
+data: {"v":"灞?}
+
+data: {"v":"锛夛紝"}
+
+data: {"v":"鍙互"}
+
+data: {"v":"鏋勫缓"}
+
+data: {"v":"楂?}
+
+data: {"v":"鍙潬鐨?}
+
+data: {"v":"AI"}
+
+data: {"v":"鎺ㄧ悊"}
+
+data: {"v":"鏈嶅姟"}
+
+data: {"v":"銆?}
+
+data: {"p":"response/fragments","v":[{"id":4,"type":"TIP","content":"鏈洖绛旂敱 AI 鐢熸垚锛屽唴瀹逛粎渚涘弬鑰冿紝璇蜂粩缁嗙攧鍒€?,"style":"WARNING","hide_on_wip":true}]}
+
+data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":2024},{"p":"quasi_status","v":"FINISHED"}]}
+
+data: {"p":"response/status","o":"SET","v":"FINISHED"}
+
+event: update_session
+data: {"updated_at":1777485073.9337459}
+
+event: title
+data: {"content":"SSE涓嶹ebSocket姣旇緝涓庢灦鏋勫缓璁?}
+
+event: close
+data: {"click_behavior":"none","auto_resume":false}
+
