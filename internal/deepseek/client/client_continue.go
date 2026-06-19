@@ -64,11 +64,12 @@ func (c *Client) callContinue(ctx context.Context, a *auth.RequestAuth, sessionI
 	clients := c.requestClientsForAuth(ctx, a)
 	headers := c.authHeadersForAuth(a)
 	headers["x-ds-pow-response"] = powResp
-	payload := map[string]any{
-		"chat_session_id":    sessionID,
-		"message_id":         responseMessageID,
-		"fallback_to_resume": true,
-	}
+	// 与 chat/completion 对齐：使用 OrderedJSONMap 保留字段顺序，
+	// 避免 json.Marshal 对 map[string]any 按 key 字典序输出导致字段顺序与 App 不一致。
+	payload := promptcompat.NewOrderedJSONMap()
+	payload.Set("chat_session_id", sessionID)
+	payload.Set("message_id", responseMessageID)
+	payload.Set("fallback_to_resume", true)
 	config.Logger.Info("[auto_continue] calling continue", "session_id", sessionID, "message_id", responseMessageID)
 	captureSession := c.capture.Start("deepseek_continue", dsprotocol.DeepSeekContinueURL, a.AccountID, payload)
 	resp, err := c.streamPost(ctx, clients.stream, dsprotocol.DeepSeekContinueURL, headers, payload)

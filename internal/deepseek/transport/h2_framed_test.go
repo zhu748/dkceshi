@@ -202,26 +202,65 @@ func TestBuildOrderedHeaders_PassthroughHeadersAppended(t *testing.T) {
 	}
 }
 
-// TestBuildOrderedHeaders_EmptyBodyNoContentLength 验证 body=0 时不追加 content-length
-func TestBuildOrderedHeaders_EmptyBodyNoContentLength(t *testing.T) {
+// TestBuildOrderedHeaders_EmptyBodyHasContentLengthZero 验证 body=0 时
+// 仍追加 content-length: 0，对齐真实 Android App（OkHttp）行为——
+// 例如 chat_session/create 接口的空 body 请求也会显式发送 content-length: 0。
+func TestBuildOrderedHeaders_EmptyBodyHasContentLengthZero(t *testing.T) {
 	headers := map[string]string{
 		"x-ds-pow-response": "eyJhbGc...",
 	}
 	ordered := BuildOrderedHeaders(headers, 0)
+	var foundContentLength bool
+	var contentLengthValue string
 	for _, h := range ordered {
 		if h.Name == "content-length" {
-			t.Fatalf("expected no content-length for empty body, got %q", h.Value)
+			foundContentLength = true
+			contentLengthValue = h.Value
+			break
 		}
+	}
+	if !foundContentLength {
+		t.Fatalf("expected content-length: 0 for empty body (aligns with OkHttp), but content-length is missing")
+	}
+	if contentLengthValue != "0" {
+		t.Fatalf("expected content-length=0, got %q", contentLengthValue)
 	}
 }
 
-// TestUseFramedH2_DefaultOff 验证默认未设置环境变量时关闭
+// TestUseFramedH2_DefaultOff 验证默认未设置任何环境变量时关闭
 func TestUseFramedH2_DefaultOff(t *testing.T) {
-	// 注意：cachedUseFramedH2 是 sync.Once 缓存，第一次调用决定结果
-	// 在测试环境下，DS2API_DEEPSEEK_USE_FRAMED_H2 未设置
-	// 但因为 sync.Once 已经在其它测试中被触发，这里只验证一致性
-	v := UseFramedH2()
-	_ = v // 不严格断言 false，因为 env 可能在 CI 中被设置
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "")
+	t.Setenv("VERCEL", "")
+	if UseFramedH2() {
+		t.Fatal("expected UseFramedH2()=false when no env vars are set")
+	}
+}
+
+// TestUseFramedH2_VercelAutoEnable 验证 Vercel 部署环境（VERCEL=1）下自动启用
+func TestUseFramedH2_VercelAutoEnable(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "")
+	t.Setenv("VERCEL", "1")
+	if !UseFramedH2() {
+		t.Fatal("expected UseFramedH2()=true when VERCEL=1 and no explicit override")
+	}
+}
+
+// TestUseFramedH2_ExplicitOffOverridesVercel 验证显式关闭优先于 Vercel 自动启用
+func TestUseFramedH2_ExplicitOffOverridesVercel(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
+	t.Setenv("VERCEL", "1")
+	if UseFramedH2() {
+		t.Fatal("expected UseFramedH2()=false when DS2API_DEEPSEEK_USE_FRAMED_H2=0 overrides VERCEL=1")
+	}
+}
+
+// TestUseFramedH2_ExplicitOnWins 验证显式启用始终生效
+func TestUseFramedH2_ExplicitOnWins(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "1")
+	t.Setenv("VERCEL", "")
+	if !UseFramedH2() {
+		t.Fatal("expected UseFramedH2()=true when DS2API_DEEPSEEK_USE_FRAMED_H2=1")
+	}
 }
 
 // TestReflectHelpers 验证反射辅助函数

@@ -88,7 +88,9 @@ func BuildOrderedHeaders(headers map[string]string, bodyLen int) []OrderedHeader
 			}
 		}
 	}
-	// 2. 追加 content-length（若需要且未提供）
+	// 2. 追加 content-length（若未提供）
+	// 真实 Android App（OkHttp）即使 body 为空也会显式发送 content-length: 0，
+	// 例如 chat_session/create 接口。这里对齐 App 行为：bodyLen==0 时也补 0。
 	hasContentLength := false
 	for _, h := range out {
 		if h.Name == "content-length" {
@@ -96,7 +98,7 @@ func BuildOrderedHeaders(headers map[string]string, bodyLen int) []OrderedHeader
 			break
 		}
 	}
-	if !hasContentLength && bodyLen > 0 {
+	if !hasContentLength {
 		out = append(out, OrderedHeader{
 			Name:      "content-length",
 			Value:     fmt.Sprintf("%d", bodyLen),
