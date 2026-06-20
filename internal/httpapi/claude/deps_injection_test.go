@@ -3,12 +3,19 @@ package claude
 import "testing"
 
 type mockClaudeConfig struct {
-	aliases map[string]string
+	aliases        map[string]string
+	autoDeleteMode string
 }
 
 func (m mockClaudeConfig) ModelAliases() map[string]string { return m.aliases }
 func (mockClaudeConfig) CurrentInputFileEnabled() bool     { return true }
 func (mockClaudeConfig) CurrentInputFileMinChars() int     { return 0 }
+func (m mockClaudeConfig) AutoDeleteMode() string {
+	if m.autoDeleteMode == "" {
+		return "none"
+	}
+	return m.autoDeleteMode
+}
 
 func TestNormalizeClaudeRequestUsesGlobalAliasMapping(t *testing.T) {
 	req := map[string]any{

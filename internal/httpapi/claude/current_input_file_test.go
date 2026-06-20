@@ -24,6 +24,7 @@ type claudeHistoryConfig struct {
 func (m claudeHistoryConfig) ModelAliases() map[string]string { return m.aliases }
 func (claudeHistoryConfig) CurrentInputFileEnabled() bool     { return false }
 func (claudeHistoryConfig) CurrentInputFileMinChars() int     { return 0 }
+func (claudeHistoryConfig) AutoDeleteMode() string            { return "none" }
 
 func (claudeCurrentInputAuth) Determine(*http.Request) (*auth.RequestAuth, error) {
 	return &auth.RequestAuth{
@@ -108,6 +109,14 @@ func (d *claudeCurrentInputDS) CallCompletion(_ context.Context, _ *auth.Request
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader("data: {\"p\":\"response/content\",\"v\":\"ok\"}\n")),
 	}, nil
+}
+
+func (d *claudeCurrentInputDS) DeleteSessionForToken(_ context.Context, _ string, sessionID string) (*dsclient.DeleteSessionResult, error) {
+	return &dsclient.DeleteSessionResult{SessionID: sessionID, Success: true}, nil
+}
+
+func (d *claudeCurrentInputDS) DeleteAllSessionsForToken(_ context.Context, _ string) error {
+	return nil
 }
 
 // payloadMap 将存储的 payload 转为 map[string]any 视图，便于测试中按 key 读取。

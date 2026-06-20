@@ -81,13 +81,21 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 		writeClaudeError(w, http.StatusUnauthorized, err.Error())
 		return true
 	}
-	defer h.Auth.Release(a)
+	// sessionID / resolvedModel 由 stream / non-stream 路径回写，
+	// defer 统一触发 auto-delete（按全局 mode 与 -autodelete 后缀策略联动）。
+	var sessionID string
+	var resolvedModel string
+	defer func() {
+		h.autoDeleteRemoteSession(r.Context(), a, sessionID, resolvedModel)
+		h.Auth.Release(a)
+	}()
 	stdReq, err := h.applyCurrentInputFile(r.Context(), a, norm.Standard)
 	if err != nil {
 		status, message := mapCurrentInputFileError(err)
 		writeClaudeError(w, status, message)
 		return true
 	}
+	resolvedModel = stdReq.ResolvedModel
 	historySession := responsehistory.Start(responsehistory.StartParams{
 		Store:    h.ChatHistory,
 		Request:  r,
@@ -96,7 +104,7 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 		Standard: stdReq,
 	})
 	if stdReq.Stream {
-		h.handleClaudeDirectStream(w, r, a, stdReq, historySession)
+		h.handleClaudeDirectStream(w, r, a, stdReq, historySession, &sessionID)
 		return true
 	}
 	result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
@@ -110,6 +118,7 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 		writeClaudeError(w, outErr.Status, outErr.Message)
 		return true
 	}
+	sessionID = result.SessionID
 	if historySession != nil {
 		historySession.SuccessTurn(http.StatusOK, result.Turn, responsehistory.GenericUsage(result.Turn))
 	}
@@ -133,7 +142,7 @@ func mapCurrentInputFileError(err error) (int, string) {
 	return history.MapError(err)
 }
 
-func (h *Handler) handleClaudeDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session) {
+func (h *Handler) handleClaudeDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session, sessionIDOut *string) {
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		CurrentInputFile: h.Store,
 	})
@@ -143,6 +152,9 @@ func (h *Handler) handleClaudeDirectStream(w http.ResponseWriter, r *http.Reques
 		}
 		writeClaudeError(w, outErr.Status, outErr.Message)
 		return
+	}
+	if sessionIDOut != nil {
+		*sessionIDOut = start.SessionID
 	}
 	streamReq := start.Request
 	h.handleClaudeStreamRealtimeWithRetry(w, r, a, start.Response, start.Payload, start.Pow, streamReq, streamReq.ResponseModel, streamReq.Messages, streamReq.Thinking, streamReq.Search, streamReq.ToolNames, streamReq.ToolsRaw, streamReq.PromptTokenText, historySession)
