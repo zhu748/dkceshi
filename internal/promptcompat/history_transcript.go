@@ -13,7 +13,7 @@ const CurrentInputContextFilename = "chat_context.txt"
 // 早期实现使用了 "# Session Snapshot" / "Aggregated dialogue state and prior function-call results."
 // 这种固定标题作为文件内容首行，是极强的内容指纹。现在改为更自然的引导句，
 // 每次请求时还会拼接一个时间戳变化的尾巴，避免文件首部哈希稳定。
-const historyTranscriptIntro = "Conversation so far. Continue from the most recent user message."
+const historyTranscriptIntro = "The dialogue up to this point. Pick up from the most recent user message."
 
 func BuildOpenAIHistoryTranscript(messages []any) string {
         return buildOpenAIHistoryTranscript(messages)
@@ -82,10 +82,10 @@ func buildToolHistoryContent(msg map[string]any) string {
         content := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
         parts := make([]string, 0, 2)
         if name := strings.TrimSpace(asString(msg["name"])); name != "" {
-                parts = append(parts, "name="+name)
+                parts = append(parts, "function="+name)
         }
         if callID := strings.TrimSpace(asString(msg["tool_call_id"])); callID != "" {
-                parts = append(parts, "tool_call_id="+callID)
+                parts = append(parts, "invocation_id="+callID)
         }
         header := ""
         if len(parts) > 0 {

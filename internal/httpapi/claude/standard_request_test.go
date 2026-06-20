@@ -84,7 +84,7 @@ func TestNormalizeClaudeRequestInjectsToolsIntoExistingSystemMessage(t *testing.
 		t.Fatalf("normalize failed: %v", err)
 	}
 
-	if !containsStr(norm.Standard.FinalPrompt, "You can call the following functions in this turn") {
+	if !containsStr(norm.Standard.FinalPrompt, "The functions listed below are available for you to invoke during this turn") {
 		t.Fatalf("expected tool prompt injected into final prompt, got=%q", norm.Standard.FinalPrompt)
 	}
 	if !containsStr(norm.Standard.FinalPrompt, "baseline rule") {
@@ -114,7 +114,7 @@ func TestNormalizeClaudeRequestInjectsToolsIntoTopLevelSystem(t *testing.T) {
 	if !containsStr(norm.Standard.FinalPrompt, "top-level system") {
 		t.Fatalf("expected top-level system preserved, got=%q", norm.Standard.FinalPrompt)
 	}
-	if !containsStr(norm.Standard.FinalPrompt, "You can call the following functions in this turn") {
+	if !containsStr(norm.Standard.FinalPrompt, "The functions listed below are available for you to invoke during this turn") {
 		t.Fatalf("expected tool prompt injected, got=%q", norm.Standard.FinalPrompt)
 	}
 }

@@ -74,18 +74,18 @@ func TestBuildToolCallInstructions_HasCoreRules(t *testing.T) {
                 "<|DSML|tool_calls>",
                 "<|DSML|invoke name=\"FUNCTION_NAME\">",
                 "<![CDATA[VALUE]]>",
-                "end your response with this XML block",
-                "You may write explanatory text before the block",
-                "the block must be the last thing in your response",
-                "Do not add any text, explanation, or greeting after </|DSML|tool_calls>",
-                "The block itself must be bare XML",
-                "Do NOT wrap it in markdown fences",
+                "end your response with the following XML block",
+                "You may include explanatory text before the block",
+                "the block must be the final element of your response",
+                "Do not append any text, explanation, or greeting after </|DSML|tool_calls>",
+                "The block itself must be raw XML",
+                "Do NOT enclose it in markdown fences",
                 "The first non-whitespace characters of the block must be exactly <|DSML|tool_calls>",
                 "Strings go inside <![CDATA[",
-                "Only use parameter names declared in the function schema",
+                "Use only parameter names declared in the function schema",
                 "never emit empty or whitespace-only parameter values",
-                "Never output tool calls as JSON, Markdown, or prose",
-                "If you are not calling a function, answer the user normally",
+                "Never emit tool calls as JSON, Markdown, or prose",
+                "If you are not invoking a function, answer the user normally",
         } {
                 if !strings.Contains(out, want) {
                         t.Fatalf("expected core rule %q in output, got: %s", want, out)
@@ -136,18 +136,18 @@ func TestBuildToolCallInstructions_FallbackExampleForUnknownTool(t *testing.T) {
 func TestBuildToolCallInstructions_HasIncorrectExamples(t *testing.T) {
         out := BuildToolCallInstructions([]string{"Bash"})
         for _, want := range []string{
-                "Avoid these incorrect patterns:",
-                "Incorrect 1 — text after the block:",
+                "Steer clear of the following incorrect patterns:",
+                "Incorrect 1 — text trailing the block:",
                 "I hope this helps.",
-                "Incorrect 2 — wrapped in markdown fences:",
+                "Incorrect 2 — enclosed within markdown fences:",
                 "```xml",
-                "Incorrect 3 — missing opening tag:",
-                "Incorrect 4 — empty parameter value:",
+                "Incorrect 3 — opening tag omitted:",
+                "Incorrect 4 — parameter value left empty:",
                 `<|DSML|parameter name="input"></|DSML|parameter>`,
-                "Incorrect 5 — JSON or Markdown invocation instead of DSML:",
+                "Incorrect 5 — invocation rendered as JSON or Markdown rather than DSML:",
                 "**Calling:**",
                 `{"input": "..."}`,
-                "Correct example:",
+                "Valid example:",
         } {
                 if !strings.Contains(out, want) {
                         t.Fatalf("expected incorrect example %q in output, got: %s", want, out)
@@ -170,10 +170,10 @@ func TestBuildToolCallInstructions_IncorrectExampleUsesActualToolName(t *testing
         }
 }
 
-// findInvokeBlocks 只在 "Correct example:" 之后的正确示例段里查找 invoke 块，
-// 避免把 "Avoid these incorrect patterns" 段里的反例 invoke 块也算进来。
+// findInvokeBlocks 只在 "Valid example:" 之后的正确示例段里查找 invoke 块，
+// 避免把 "Steer clear of the following incorrect patterns" 段里的反例 invoke 块也算进来。
 func findInvokeBlocks(text, name string) []string {
-        correctMarker := "Correct example:"
+        correctMarker := "Valid example:"
         idx := strings.Index(text, correctMarker)
         if idx < 0 {
                 return nil

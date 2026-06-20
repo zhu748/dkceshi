@@ -79,7 +79,7 @@ func TestBuildOpenAIFinalPrompt_VercelPreparePathKeepsFinalAnswerInstruction(t *
         if !strings.Contains(finalPrompt, "<|DSML|tool_calls>") {
                 t.Fatalf("vercel prepare finalPrompt missing DSML tool_calls tag: %q", finalPrompt)
         }
-        if !strings.Contains(finalPrompt, "Never output tool calls as JSON, Markdown, or prose") {
+        if !strings.Contains(finalPrompt, "Never emit tool calls as JSON, Markdown, or prose") {
                 t.Fatalf("vercel prepare finalPrompt missing no-fence xml instruction: %q", finalPrompt)
         }
         if strings.Contains(finalPrompt, "```json") {
@@ -109,14 +109,14 @@ func TestBuildOpenAIPromptWithToolInstructionsOnlyOmitsSchemas(t *testing.T) {
         if len(toolNames) != 1 || toolNames[0] != "search" {
                 t.Fatalf("unexpected tool names: %#v", toolNames)
         }
-        if strings.Contains(finalPrompt, "You can call the following functions in this turn:") || strings.Contains(finalPrompt, "description: search docs") || strings.Contains(finalPrompt, "schema:") {
+        if strings.Contains(finalPrompt, "The functions listed below are available for you to invoke during this turn:") || strings.Contains(finalPrompt, "description: search docs") || strings.Contains(finalPrompt, "schema:") {
                 t.Fatalf("function descriptions should be externalized, got: %q", finalPrompt)
         }
         // 瘦身后不再字面提到 tool_schema.txt，改为更自然的引导句。
-        if !strings.Contains(finalPrompt, "The attached file lists the invokable function definitions") {
+        if !strings.Contains(finalPrompt, "The attached file enumerates the function definitions") {
                 t.Fatalf("expected instructions-only prompt to point model at tools file, got: %q", finalPrompt)
         }
-        if !strings.Contains(finalPrompt, "<|DSML|tool_calls>") || !strings.Contains(finalPrompt, "Never output tool calls as JSON, Markdown, or prose") {
+        if !strings.Contains(finalPrompt, "<|DSML|tool_calls>") || !strings.Contains(finalPrompt, "Never emit tool calls as JSON, Markdown, or prose") {
                 t.Fatalf("expected function-call format instructions to remain in live prompt, got: %q", finalPrompt)
         }
 }
@@ -140,8 +140,8 @@ func TestBuildOpenAIToolsContextTranscriptContainsOnlyDescriptions(t *testing.T)
                 t.Fatalf("unexpected tool names: %#v", toolNames)
         }
         // 风控优化后，工具描述文件不再使用 "You can call the following functions in this turn." 这种结构化标题，
-// 改为更自然的引导句 "You can call the following functions in this turn."。
-        for _, want := range []string{"You can call the following functions in this turn.", "name: search", "description: search docs", `schema: {"type":"object"}`} {
+// 改为更自然的引导句 "The functions listed below are available for you to invoke during this turn."。
+        for _, want := range []string{"The functions listed below are available for you to invoke during this turn.", "name: search", "description: search docs", `schema: {"type":"object"}`} {
                 if !strings.Contains(transcript, want) {
                         t.Fatalf("expected tools transcript to contain %q, got: %q", want, transcript)
                 }
@@ -200,10 +200,10 @@ func TestBuildOpenAIFinalPromptReadLikeToolIncludesCacheGuard(t *testing.T) {
         if !strings.Contains(finalPrompt, "Read-style cache guard") {
                 t.Fatalf("read-like tool prompt missing cache guard: %q", finalPrompt)
         }
-        if !strings.Contains(finalPrompt, "treat that result as missing content") {
+        if !strings.Contains(finalPrompt, "treat that outcome as missing content") {
                 t.Fatalf("read-like tool prompt missing no-body handling: %q", finalPrompt)
         }
-        if !strings.Contains(finalPrompt, "Do not keep re-issuing the same read for the missing body") {
+        if !strings.Contains(finalPrompt, "Do not repeatedly issue the same read for the absent body") {
                 t.Fatalf("read-like tool prompt missing loop guard: %q", finalPrompt)
         }
 }

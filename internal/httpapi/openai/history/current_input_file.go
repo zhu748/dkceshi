@@ -248,9 +248,9 @@ func currentInputFilePrompt(hasToolsFile bool) string {
         // 早期实现直接字面提到 "chat_context.txt" / "tool_schema.txt" 这种结构化文件名，
         // 真实 App 用户从不会写出这种 prompt。现在改为更自然的引导句，
         // 不暴露内部使用的文件命名约定。
-        prompt := "The attached file contains the prior conversation. Read it and answer the most recent user request directly."
+        prompt := "The attached file holds the earlier conversation. Read it and respond to the most recent user request directly."
         if hasToolsFile {
-                prompt += " The other attached file lists available function definitions and parameter contracts; only use those tools and follow the function-call contract described below."
+                prompt += " The other attached file enumerates the available function definitions and parameter contracts; use only those tools and adhere to the function-call contract described below."
         }
         return prompt
 }

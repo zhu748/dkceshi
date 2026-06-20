@@ -163,7 +163,7 @@ func TestClaudeDirectAppliesCurrentInputFile(t *testing.T) {
 		t.Fatalf("expected uploaded history ref id, got %#v", ds.payloadMap()["ref_file_ids"])
 	}
 	prompt, _ := ds.payloadMap()["prompt"].(string)
-	if !strings.Contains(prompt, "The attached file contains the prior conversation.") {
+	if !strings.Contains(prompt, "The attached file holds the earlier conversation.") {
 		t.Fatalf("expected continuation prompt, got %q", prompt)
 	}
 	snapshot, err := historyStore.Snapshot()
@@ -180,7 +180,7 @@ func TestClaudeDirectAppliesCurrentInputFile(t *testing.T) {
 	if full.HistoryText != string(ds.uploads[0].Data) {
 		t.Fatalf("expected uploaded current input file to be persisted in history text")
 	}
-	if len(full.Messages) != 1 || !strings.Contains(full.Messages[0].Content, "The attached file contains the prior conversation.") {
+	if len(full.Messages) != 1 || !strings.Contains(full.Messages[0].Content, "The attached file holds the earlier conversation.") {
 		t.Fatalf("expected persisted message to match upstream continuation prompt, got %#v", full.Messages)
 	}
 }
@@ -209,11 +209,11 @@ func TestClaudeCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 		t.Fatalf("unexpected upload filenames: %#v", ds.uploads)
 	}
 	historyText := string(ds.uploads[0].Data)
-	if strings.Contains(historyText, "You can call the following functions in this turn") || strings.Contains(historyText, "description: Search docs") {
+	if strings.Contains(historyText, "The functions listed below are available for you to invoke during this turn") || strings.Contains(historyText, "description: Search docs") {
 		t.Fatalf("history transcript should not embed tool descriptions, got %q", historyText)
 	}
 	toolsText := string(ds.uploads[1].Data)
-	if !strings.Contains(toolsText, "You can call the following functions in this turn.") || !strings.Contains(toolsText, "name: search") || !strings.Contains(toolsText, "description: Search docs") {
+	if !strings.Contains(toolsText, "The functions listed below are available for you to invoke during this turn.") || !strings.Contains(toolsText, "name: search") || !strings.Contains(toolsText, "description: Search docs") {
 		t.Fatalf("expected tools transcript to include tool schema, got %q", toolsText)
 	}
 	refIDs, _ := ds.payloadMap()["ref_file_ids"].([]any)
@@ -221,7 +221,7 @@ func TestClaudeCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 		t.Fatalf("expected history and tools ref ids first, got %#v", ds.payloadMap()["ref_file_ids"])
 	}
 	prompt, _ := ds.payloadMap()["prompt"].(string)
-	if !strings.Contains(prompt, "attached file") || !strings.Contains(prompt, "When you decide to call a function") {
+	if !strings.Contains(prompt, "attached file") || !strings.Contains(prompt, "When you choose to invoke a function") {
 		t.Fatalf("expected live prompt to reference tools file and retain format instructions, got %q", prompt)
 	}
 	if strings.Contains(prompt, "description: Search docs") {

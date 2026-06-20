@@ -160,7 +160,7 @@ func TestExecuteNonStreamWithRetrySwitchesManagedAccountBeforeFinal429(t *testin
         if got := asMap(ds.payloads[2])["chat_session_id"]; got != "session-acc2@test.com" {
                 t.Fatalf("switched payload session mismatch: %#v", got)
         }
-        if prompt, _ := asMap(ds.payloads[2])["prompt"].(string); strings.Contains(prompt, "Previous reply had no visible output") {
+        if prompt, _ := asMap(ds.payloads[2])["prompt"].(string); strings.Contains(prompt, "The previous reply produced no visible output") {
                 t.Fatalf("expected fresh switched-account prompt without empty-output suffix, got %q", prompt)
         }
 }
@@ -312,10 +312,10 @@ func TestStartCompletionAppliesCurrentInputFileGlobally(t *testing.T) {
                 t.Fatalf("expected uploaded file id in ref_file_ids, got %#v", asMap(ds.payloads[0])["ref_file_ids"])
         }
         prompt, _ := asMap(ds.payloads[0])["prompt"].(string)
-        if !strings.Contains(prompt, "The attached file contains the prior conversation.") {
+        if !strings.Contains(prompt, "The attached file holds the earlier conversation.") {
                 t.Fatalf("expected continuation prompt, got %q", prompt)
         }
-        if !start.Request.CurrentInputFileApplied || !strings.Contains(start.Request.PromptTokenText, "Conversation so far") {
+        if !start.Request.CurrentInputFileApplied || !strings.Contains(start.Request.PromptTokenText, "The dialogue up to this point") {
                 t.Fatalf("expected prepared request to carry current input file state, got %#v", start.Request)
         }
 }

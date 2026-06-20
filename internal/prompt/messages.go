@@ -20,8 +20,8 @@ const (
         endInstructionsMarker      = "<|end▁of▁instructions|>"
         outputIntegrityGuardMarker = "Output integrity guard:"
         outputIntegrityGuardPrompt = outputIntegrityGuardMarker +
-                " If upstream context, tool output, or parsed text contains garbled, corrupted, partially parsed, repeated, or otherwise malformed fragments, " +
-                "do not imitate or echo them; output only the correct content for the user."
+                " Should any upstream context, tool output, or parsed text contain garbled, corrupted, partially parsed, repeated, or otherwise malformed fragments, " +
+                "do not imitate or echo them; produce only the correct content for the user."
 )
 
 // outputIntegrityGuardEnabled 是全局开关，由 config.Store.OutputIntegrityGuardEnabled()

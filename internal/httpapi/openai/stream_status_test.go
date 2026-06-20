@@ -307,7 +307,7 @@ func TestChatCompletionsStreamRetriesEmptyOutputOnSameSession(t *testing.T) {
 		t.Fatalf("expected retry to reuse session, payloads=%#v", ds.payloads)
 	}
 	retryPrompt := asString(asMap(ds.payloads[1])["prompt"])
-	if !strings.Contains(retryPrompt, "Previous reply had no visible output. Please regenerate the visible final answer or tool call now.") {
+	if !strings.Contains(retryPrompt, "The previous reply produced no visible output. Please regenerate the visible final answer or tool call now.") {
 		t.Fatalf("expected retry suffix in prompt, got %q", retryPrompt)
 	}
 	// Verify multi-turn chaining: retry must set parent_message_id from first call's response_message_id.

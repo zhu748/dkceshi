@@ -332,7 +332,7 @@ func TestBuildClaudeToolPromptSingleTool(t *testing.T) {
 	if !containsStr(prompt, "<|DSML|tool_calls>") {
 		t.Fatalf("expected DSML tool_calls format in prompt")
 	}
-	if !containsStr(prompt, "When you decide to call a function") {
+	if !containsStr(prompt, "When you choose to invoke a function") {
 		t.Fatalf("expected tool call format header in prompt")
 	}
 }

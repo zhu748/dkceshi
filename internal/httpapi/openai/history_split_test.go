@@ -67,12 +67,12 @@ func TestBuildOpenAICurrentInputContextTranscriptUsesNumberedHistorySections(t *
         if strings.Contains(transcript, "[file content end]") || strings.Contains(transcript, "[file content begin]") || strings.Contains(transcript, "[file name]:") {
                 t.Fatalf("expected transcript without file wrapper tags, got %q", transcript)
         }
-        if !strings.Contains(transcript, "Conversation so far") {
+        if !strings.Contains(transcript, "The dialogue up to this point") {
                 t.Fatalf("expected history transcript header, got %q", transcript)
         }
         // 风控优化后，history transcript 不再使用 "Aggregated dialogue state..." 这种
-        // 结构化副标题，改为更自然的引导句 "Continue from the most recent user message."
-        if !strings.Contains(transcript, "Continue from the most recent user message.") {
+        // 结构化副标题，改为更自然的引导句 "Pick up from the most recent user message."
+        if !strings.Contains(transcript, "Pick up from the most recent user message.") {
                 t.Fatalf("expected history transcript guidance, got %q", transcript)
         }
         for _, want := range []string{
@@ -255,7 +255,7 @@ func TestApplyCurrentInputFileUploadsFirstTurnWithNumberedHistoryTranscript(t *t
                 t.Fatalf("expected uploaded transcript without file wrapper tags, got %q", uploadedText)
         }
         for _, want := range []string{
-                "Conversation so far",
+                "The dialogue up to this point",
                 "[user]",
                 "first turn content that is long enough",
         } {
@@ -273,7 +273,7 @@ func TestApplyCurrentInputFileUploadsFirstTurnWithNumberedHistoryTranscript(t *t
         if strings.Contains(out.FinalPrompt, "CURRENT_USER_INPUT.txt") || strings.Contains(out.FinalPrompt, "Read that file") {
                 t.Fatalf("expected live prompt not to instruct file reads, got %s", out.FinalPrompt)
         }
-        if !strings.Contains(out.FinalPrompt, "The attached file contains the prior conversation.") {
+        if !strings.Contains(out.FinalPrompt, "The attached file holds the earlier conversation.") {
                 t.Fatalf("expected continuation-oriented prompt in live prompt, got %s", out.FinalPrompt)
         }
         if len(out.RefFileIDs) != 1 || out.RefFileIDs[0] != "file-inline-1" {
@@ -282,7 +282,7 @@ func TestApplyCurrentInputFileUploadsFirstTurnWithNumberedHistoryTranscript(t *t
         if !strings.Contains(out.PromptTokenText, "first turn content that is long enough") {
                 t.Fatalf("expected prompt token text to preserve original full context, got %q", out.PromptTokenText)
         }
-        if !strings.Contains(out.PromptTokenText, "Conversation so far") || !strings.Contains(out.PromptTokenText, "[user]") {
+        if !strings.Contains(out.PromptTokenText, "The dialogue up to this point") || !strings.Contains(out.PromptTokenText, "[user]") {
                 t.Fatalf("expected prompt token text to include numbered history transcript, got %q", out.PromptTokenText)
         }
 }
@@ -321,10 +321,10 @@ func TestApplyCurrentInputFilePreservesFullContextPromptForTokenCounting(t *test
         if strings.Contains(out.PromptTokenText, "[file content end]") || strings.Contains(out.PromptTokenText, "[file name]:") {
                 t.Fatalf("expected prompt token text to omit file wrapper tags, got %q", out.PromptTokenText)
         }
-        if !strings.Contains(out.PromptTokenText, "Conversation so far") || !strings.Contains(out.PromptTokenText, "[system]") {
+        if !strings.Contains(out.PromptTokenText, "The dialogue up to this point") || !strings.Contains(out.PromptTokenText, "[system]") {
                 t.Fatalf("expected prompt token text to include numbered history transcript, got %q", out.PromptTokenText)
         }
-        if !strings.Contains(out.PromptTokenText, "The attached file contains the prior conversation.") {
+        if !strings.Contains(out.PromptTokenText, "The attached file holds the earlier conversation.") {
                 t.Fatalf("expected prompt token text to also include continuation prompt, got %q", out.PromptTokenText)
         }
         if strings.Contains(out.FinalPrompt, "first user turn") || strings.Contains(out.FinalPrompt, "latest user turn") {
@@ -369,7 +369,7 @@ func TestApplyCurrentInputFileUploadsFullContextFile(t *testing.T) {
                 t.Fatalf("expected vision model type for vision request, got %q", upload.ModelType)
         }
         uploadedText := string(upload.Data)
-        for _, want := range []string{"Conversation so far", "[system]", "[user]", "[assistant]", "[tool]", "[user]", "system instructions", "first user turn", "hidden reasoning", "tool result", "latest user turn", promptcompat.ThinkingInjectionMarker} {
+        for _, want := range []string{"The dialogue up to this point", "[system]", "[user]", "[assistant]", "[tool]", "[user]", "system instructions", "first user turn", "hidden reasoning", "tool result", "latest user turn", promptcompat.ThinkingInjectionMarker} {
                 if !strings.Contains(uploadedText, want) {
                         t.Fatalf("expected full context file to contain %q, got %q", want, uploadedText)
                 }
@@ -377,7 +377,7 @@ func TestApplyCurrentInputFileUploadsFullContextFile(t *testing.T) {
         if strings.Contains(out.FinalPrompt, "first user turn") || strings.Contains(out.FinalPrompt, "latest user turn") || strings.Contains(out.FinalPrompt, "CURRENT_USER_INPUT.txt") || strings.Contains(out.FinalPrompt, "Read that file") {
                 t.Fatalf("expected live prompt to use only a continuation instruction, got %s", out.FinalPrompt)
         }
-        if !strings.Contains(out.FinalPrompt, "The attached file contains the prior conversation.") {
+        if !strings.Contains(out.FinalPrompt, "The attached file holds the earlier conversation.") {
                 t.Fatalf("expected continuation-oriented prompt in live prompt, got %s", out.FinalPrompt)
         }
 }
@@ -426,32 +426,32 @@ func TestApplyCurrentInputFileUploadsToolsContextSeparately(t *testing.T) {
                 t.Fatalf("expected second upload to be .txt, got %q", ds.uploadCalls[1].Filename)
         }
         historyText := string(ds.uploadCalls[0].Data)
-        if strings.Contains(historyText, "You can call the following functions in this turn") || strings.Contains(historyText, "description: search docs") {
+        if strings.Contains(historyText, "The functions listed below are available for you to invoke during this turn") || strings.Contains(historyText, "description: search docs") {
                 t.Fatalf("history transcript should not embed tool descriptions, got %q", historyText)
         }
         toolsText := string(ds.uploadCalls[1].Data)
         // 风控优化后工具描述文件使用 "name: X\ndescription: Y\nschema: Z" 而非 "Callable: X\nSynopsis: Y\nContract: Z"。
-        for _, want := range []string{"You can call the following functions in this turn.", "name: search", "description: search docs", `schema: {"type":"object"}`} {
+        for _, want := range []string{"The functions listed below are available for you to invoke during this turn.", "name: search", "description: search docs", `schema: {"type":"object"}`} {
                 if !strings.Contains(toolsText, want) {
                         t.Fatalf("expected tools transcript to contain %q, got %q", want, toolsText)
                 }
         }
-        if strings.Contains(toolsText, "When you decide to call a function") {
+        if strings.Contains(toolsText, "When you choose to invoke a function") {
                 t.Fatalf("tools transcript should not duplicate function-call format instructions, got %q", toolsText)
         }
-        if !strings.Contains(out.FinalPrompt, "The attached file contains the prior conversation.") || !strings.Contains(out.FinalPrompt, "attached file") {
+        if !strings.Contains(out.FinalPrompt, "The attached file holds the earlier conversation.") || !strings.Contains(out.FinalPrompt, "attached file") {
                 t.Fatalf("expected live prompt to reference both context files, got %q", out.FinalPrompt)
         }
-        if !strings.Contains(out.FinalPrompt, "When you decide to call a function") || !strings.Contains(out.FinalPrompt, "Never output tool calls as JSON, Markdown, or prose") {
+        if !strings.Contains(out.FinalPrompt, "When you choose to invoke a function") || !strings.Contains(out.FinalPrompt, "Never emit tool calls as JSON, Markdown, or prose") {
                 t.Fatalf("expected live prompt to retain function-call format instructions, got %q", out.FinalPrompt)
         }
-        if strings.Contains(out.FinalPrompt, "You can call the following functions in this turn") || strings.Contains(out.FinalPrompt, "description: search docs") || strings.Contains(out.FinalPrompt, "Contract:") {
+        if strings.Contains(out.FinalPrompt, "The functions listed below are available for you to invoke during this turn") || strings.Contains(out.FinalPrompt, "description: search docs") || strings.Contains(out.FinalPrompt, "Contract:") {
                 t.Fatalf("expected live prompt to omit function descriptions after tools upload, got %q", out.FinalPrompt)
         }
         if len(out.RefFileIDs) < 2 || out.RefFileIDs[0] != "file-inline-1" || out.RefFileIDs[1] != "file-inline-2" {
                 t.Fatalf("expected history and tools file ids first, got %#v", out.RefFileIDs)
         }
-        if !strings.Contains(out.PromptTokenText, "Conversation so far") || !strings.Contains(out.PromptTokenText, "You can call the following functions in this turn.") || !strings.Contains(out.PromptTokenText, "description: search docs") {
+        if !strings.Contains(out.PromptTokenText, "The dialogue up to this point") || !strings.Contains(out.PromptTokenText, "The functions listed below are available for you to invoke during this turn.") || !strings.Contains(out.PromptTokenText, "description: search docs") {
                 t.Fatalf("expected prompt token text to include uploaded history and tools content, got %q", out.PromptTokenText)
         }
 }
@@ -483,7 +483,7 @@ func TestApplyCurrentInputFileCarriesHistoryText(t *testing.T) {
         if out.HistoryText != string(ds.uploadCalls[0].Data) {
                 t.Fatalf("expected current input file flow to preserve uploaded text in history, got %q", out.HistoryText)
         }
-        if !strings.Contains(out.HistoryText, "Conversation so far") || !strings.Contains(out.HistoryText, "[system]") {
+        if !strings.Contains(out.HistoryText, "The dialogue up to this point") || !strings.Contains(out.HistoryText, "[system]") {
                 t.Fatalf("expected history text to use numbered transcript format, got %q", out.HistoryText)
         }
 }
@@ -526,7 +526,7 @@ func TestChatCompletionsCurrentInputFileUploadsContextAndKeepsNeutralPrompt(t *t
         if strings.Contains(historyText, "[file content end]") || strings.Contains(historyText, "[file content begin]") || strings.Contains(historyText, "[file name]:") {
                 t.Fatalf("expected history transcript without file wrapper tags, got %s", historyText)
         }
-        if !strings.Contains(historyText, "Conversation so far") || !strings.Contains(historyText, "[system]") {
+        if !strings.Contains(historyText, "The dialogue up to this point") || !strings.Contains(historyText, "[system]") {
                 t.Fatalf("expected history transcript to use numbered sections, got %s", historyText)
         }
         if !strings.Contains(historyText, "latest user turn") {
@@ -536,7 +536,7 @@ func TestChatCompletionsCurrentInputFileUploadsContextAndKeepsNeutralPrompt(t *t
                 t.Fatal("expected completion payload to be captured")
         }
         promptText, _ := asMap(ds.completionReq)["prompt"].(string)
-        if !strings.Contains(promptText, "The attached file contains the prior conversation.") {
+        if !strings.Contains(promptText, "The attached file holds the earlier conversation.") {
                 t.Fatalf("expected continuation-oriented prompt, got %s", promptText)
         }
         if strings.Contains(promptText, "first user turn") || strings.Contains(promptText, "latest user turn") {
@@ -588,14 +588,14 @@ func TestResponsesCurrentInputFileUploadsContextAndKeepsNeutralPrompt(t *testing
                 t.Fatalf("expected 1 upload call, got %d", len(ds.uploadCalls))
         }
         historyText := string(ds.uploadCalls[0].Data)
-        if !strings.Contains(historyText, "Conversation so far") || !strings.Contains(historyText, "[system]") {
+        if !strings.Contains(historyText, "The dialogue up to this point") || !strings.Contains(historyText, "[system]") {
                 t.Fatalf("expected uploaded history text to use numbered transcript format, got %s", historyText)
         }
         if ds.completionReq == nil {
                 t.Fatal("expected completion payload to be captured")
         }
         promptText, _ := asMap(ds.completionReq)["prompt"].(string)
-        if !strings.Contains(promptText, "The attached file contains the prior conversation.") {
+        if !strings.Contains(promptText, "The attached file holds the earlier conversation.") {
                 t.Fatalf("expected continuation-oriented prompt, got %s", promptText)
         }
         if strings.Contains(promptText, "first user turn") || strings.Contains(promptText, "latest user turn") {
@@ -664,11 +664,11 @@ func TestResponsesCurrentInputFileUploadsToolsSeparately(t *testing.T) {
         toolsText := string(ds.uploadCalls[1].Data)
         // 风控优化后，工具描述文件不再使用 "Callable: X\nSynopsis: Y\nContract: Z" 这种结构化前缀，
         // 改为更自然的 "name: X\ndescription: Y\nschema: Z"。
-        if !strings.Contains(toolsText, "You can call the following functions in this turn.") || !strings.Contains(toolsText, "name: search") || !strings.Contains(toolsText, "description: search docs") {
+        if !strings.Contains(toolsText, "The functions listed below are available for you to invoke during this turn.") || !strings.Contains(toolsText, "name: search") || !strings.Contains(toolsText, "description: search docs") {
                 t.Fatalf("expected tools transcript to include schema, got %q", toolsText)
         }
         promptText, _ := asMap(ds.completionReq)["prompt"].(string)
-        if !strings.Contains(promptText, "attached file") || !strings.Contains(promptText, "When you decide to call a function") {
+        if !strings.Contains(promptText, "attached file") || !strings.Contains(promptText, "When you choose to invoke a function") {
                 t.Fatalf("expected live prompt to reference tools file and retain format instructions, got %q", promptText)
         }
         if strings.Contains(promptText, "description: search docs") {
@@ -801,14 +801,14 @@ func TestCurrentInputFileWorksAcrossAutoDeleteModes(t *testing.T) {
                                 t.Fatalf("expected current input upload for mode=%s, got %d", mode, len(ds.uploadCalls))
                         }
                         historyText := string(ds.uploadCalls[0].Data)
-                        if !strings.Contains(historyText, "Conversation so far") || !strings.Contains(historyText, "[system]") {
+                        if !strings.Contains(historyText, "The dialogue up to this point") || !strings.Contains(historyText, "[system]") {
                                 t.Fatalf("expected uploaded history text to use numbered transcript format, got %s", historyText)
                         }
                         if ds.completionReq == nil {
                                 t.Fatalf("expected completion payload for mode=%s", mode)
                         }
                         promptText, _ := asMap(ds.completionReq)["prompt"].(string)
-                        if !strings.Contains(promptText, "The attached file contains the prior conversation.") || strings.Contains(promptText, "first user turn") || strings.Contains(promptText, "latest user turn") {
+                        if !strings.Contains(promptText, "The attached file holds the earlier conversation.") || strings.Contains(promptText, "first user turn") || strings.Contains(promptText, "latest user turn") {
                                 t.Fatalf("unexpected prompt for mode=%s: %s", mode, promptText)
                         }
                 })

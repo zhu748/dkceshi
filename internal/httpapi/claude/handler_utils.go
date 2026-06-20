@@ -165,7 +165,7 @@ func buildClaudeToolPrompt(tools []any) string {
                 return ""
         }
         // 同样对齐 promptcompat 的引导句，避免 Claude 与 OpenAI 路径文字不一致形成额外指纹。
-        return "You can call the following functions in this turn:\n\n" +
+        return "The functions listed below are available for you to invoke during this turn:\n\n" +
                 strings.Join(toolSchemas, "\n\n") + "\n\n" +
                 toolcall.BuildToolCallInstructions(names)
 }

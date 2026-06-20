@@ -135,7 +135,7 @@ func TestHandleVercelStreamPrepareAppliesCurrentInputFile(t *testing.T) {
                 t.Fatalf("expected payload object, got %#v", body["payload"])
         }
         promptText, _ := payload["prompt"].(string)
-        if !strings.Contains(promptText, "The attached file contains the prior conversation.") {
+        if !strings.Contains(promptText, "The attached file holds the earlier conversation.") {
                 t.Fatalf("expected continuation prompt, got %s", promptText)
         }
         if strings.Contains(promptText, "first user turn") || strings.Contains(promptText, "latest user turn") {
@@ -202,7 +202,7 @@ func TestHandleVercelStreamPrepareUsesHalfwidthDSMLToolPrompt(t *testing.T) {
                 // 风控优化后，DSML 工具说明从 17 条 CONTRACT 瘦身为 5 条核心规则。
                 // 不再断言 "Tag punctuation alphabet..." 这种细节字符串，改为验证核心 DSML 标签
                 // 和"halfwidth pipe |"的存在（DSML 标签语法本身就使用半角 |）。
-                if !strings.Contains(promptText, "<|DSML|tool_calls>") || !strings.Contains(promptText, "Never output tool calls as JSON, Markdown, or prose") {
+                if !strings.Contains(promptText, "<|DSML|tool_calls>") || !strings.Contains(promptText, "Never emit tool calls as JSON, Markdown, or prose") {
                         t.Fatalf("expected %s to contain halfwidth DSML tool instructions, got %q", label, promptText)
                 }
                 if strings.Contains(promptText, "\uff5c") || strings.Contains(promptText, "full"+"width vertical bar") {
@@ -374,7 +374,7 @@ func TestHandleVercelStreamPrepareUploadsToolsSeparately(t *testing.T) {
         payload, _ := body["payload"].(map[string]any)
         payloadPrompt, _ := payload["prompt"].(string)
         for label, promptText := range map[string]string{"final_prompt": finalPrompt, "payload.prompt": payloadPrompt} {
-                if !strings.Contains(promptText, "attached file") || !strings.Contains(promptText, "When you decide to call a function") {
+                if !strings.Contains(promptText, "attached file") || !strings.Contains(promptText, "When you choose to invoke a function") {
                         t.Fatalf("expected %s to reference tools file and retain tool instructions, got %q", label, promptText)
                 }
                 if strings.Contains(promptText, "description: search docs") {
@@ -456,9 +456,9 @@ func TestHandleVercelStreamSwitchReuploadsCurrentInputFile(t *testing.T) {
                 ResolvedModel:           "deepseek-v4-flash",
                 ResponseModel:           "deepseek-v4-flash",
                 // 风控优化后，模式 B 的 FinalPrompt 不再字面提到 chat_context.txt / tool_schema.txt。
-                FinalPrompt:             "The attached file contains the prior conversation. Read it and answer the most recent user request directly. The other attached file lists available function definitions and parameter contracts; only use those tools and follow the function-call contract described below.",
-                PromptTokenText:         "Conversation so far. Continue from the most recent user message.\n\n[user]\nhello\n\nYou can call the following functions in this turn.\n\nYou can call the following functions in this turn:\n\nname: search\ndescription: search docs\nschema: {\"type\":\"object\"}\n",
-                HistoryText:             "Conversation so far. Continue from the most recent user message.\n\n[user]\nhello\n",
+                FinalPrompt:             "The attached file holds the earlier conversation. Read it and respond to the most recent user request directly. The other attached file enumerates the available function definitions and parameter contracts; use only those tools and adhere to the function-call contract described below.",
+                PromptTokenText:         "The dialogue up to this point. Pick up from the most recent user message.\n\n[user]\nhello\n\nThe functions listed below are available for you to invoke during this turn.\n\nThe functions listed below are available for you to invoke during this turn:\n\nname: search\ndescription: search docs\nschema: {\"type\":\"object\"}\n",
+                HistoryText:             "The dialogue up to this point. Pick up from the most recent user message.\n\n[user]\nhello\n",
                 CurrentInputFileApplied: true,
                 CurrentInputFileID:      "file-old",
                 CurrentToolsFileID:      "file-old-tools",

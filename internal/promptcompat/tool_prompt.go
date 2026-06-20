@@ -15,7 +15,7 @@ const CurrentToolsContextFilename = "tool_schema.txt"
 
 // 早期实现使用 "# Callable Surface" / "Catalogue of invokable functions..." 这种
 // 固定标题作为工具描述文件首行，是极强的内容指纹。现在改为更自然的引导句。
-const toolsTranscriptIntro = "You can call the following functions in this turn."
+const toolsTranscriptIntro = "The functions listed below are available for you to invoke during this turn."
 
 type toolPromptParts struct {
         Descriptions string
@@ -42,11 +42,11 @@ func injectToolPromptWithDescriptions(messages []map[string]any, tools []any, po
         toolPrompt := parts.Instructions
         if includeDescriptions && parts.Descriptions != "" {
                 // 模式 A：工具描述直接内联在 system 消息里，需要加引导句告诉模型这些是可用工具。
-                toolPrompt = "You can call the following functions in this turn:\n\n" + parts.Descriptions + "\n\n" + toolPrompt
+                toolPrompt = "The functions listed below are available for you to invoke during this turn:\n\n" + parts.Descriptions + "\n\n" + toolPrompt
         } else if !includeDescriptions && parts.Descriptions != "" {
                 // 模式 B 路径下，工具描述已单独上传为文件，这里只在 system 里追加一句
                 // 引导语，避免再字面提到具体文件名（如 tool_schema.txt），降低文字指纹。
-                toolPrompt = "The attached file lists the invokable function definitions and parameter contracts for this turn. Trust exclusively the functions and parameter shapes enumerated there and do not improvise any that are not declared.\n\n" + toolPrompt
+                toolPrompt = "The attached file enumerates the function definitions and parameter contracts available for this turn. Rely solely on the functions and parameter shapes documented therein; do not fabricate or invoke any that are not listed.\n\n" + toolPrompt
         }
 
         for i := range messages {
@@ -103,14 +103,14 @@ func buildToolPromptParts(tools []any, policy ToolChoicePolicy) toolPromptParts 
         descriptions := strings.Join(toolSchemas, "\n\n")
         instructions := toolcall.BuildToolCallInstructions(names)
         if hasReadLikeTool(names) {
-                instructions += "\n\nRead-style cache guard: when a Read/read_file-style tool result reports the file is unchanged, already present in prior context, or otherwise provides no fresh file body, treat that result as missing content. Do not keep re-issuing the same read for the missing body. Ask for a full-content read if the tool supports it, or tell the user the file contents need to be supplied again."
+                instructions += "\n\nRead-style cache guard: when a Read/read_file-style tool result reports the file is unchanged, already present in earlier context, or otherwise yields no fresh file body, treat that outcome as missing content. Do not repeatedly issue the same read for the absent body. Request a full-content read if the tool supports it, or inform the user that the file contents must be supplied again."
         }
         if policy.Mode == ToolChoiceRequired {
-                instructions += "\n7) For this response, you MUST make at least one call to a tool from the allowed list."
+                instructions += "\n7) For this response, you MUST issue at least one call to a tool from the permitted list."
         }
         if policy.Mode == ToolChoiceForced && strings.TrimSpace(policy.ForcedName) != "" {
-                instructions += "\n7) For this response, you MUST make exactly this call to a tool named: " + strings.TrimSpace(policy.ForcedName)
-                instructions += "\n8) Do not make any other tool call."
+                instructions += "\n7) For this response, you MUST issue exactly one call to the tool named: " + strings.TrimSpace(policy.ForcedName)
+                instructions += "\n8) Do not issue any other tool call."
         }
         return toolPromptParts{
                 Descriptions: descriptions,
