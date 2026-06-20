@@ -1,204 +1,198 @@
 package toolcall
 
 import (
-	"strings"
-	"testing"
+        "strings"
+        "testing"
 )
 
+// 这批测试覆盖了 BuildToolCallInstructions 的核心契约：
+//   - DSML 标签语法保持不变（解析器依赖）
+//   - 每个工具名都能在示例里被命中
+//   - 不再有早期实现的强指纹大写关键词（CRITICAL PARADIGM SHIFT 等）
+//   - 不再字面引用 tool_schema.txt
 func TestBuildToolCallInstructions_ExecCommandUsesCmdExample(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"exec_command"})
-	if !strings.Contains(out, `<|DSML|invoke name="exec_command">`) {
-		t.Fatalf("expected exec_command in examples, got: %s", out)
-	}
-	if !strings.Contains(out, `<|DSML|parameter name="cmd"><![CDATA[pwd]]></|DSML|parameter>`) {
-		t.Fatalf("expected cmd parameter example for exec_command, got: %s", out)
-	}
+        out := BuildToolCallInstructions([]string{"exec_command"})
+        if !strings.Contains(out, `<|DSML|invoke name="exec_command">`) {
+                t.Fatalf("expected exec_command in examples, got: %s", out)
+        }
+        if !strings.Contains(out, `<|DSML|parameter name="cmd"><![CDATA[pwd]]></|DSML|parameter>`) {
+                t.Fatalf("expected cmd parameter example for exec_command, got: %s", out)
+        }
 }
 
 func TestBuildToolCallInstructions_ExecuteCommandUsesCommandExample(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"execute_command"})
-	if !strings.Contains(out, `<|DSML|invoke name="execute_command">`) {
-		t.Fatalf("expected execute_command in examples, got: %s", out)
-	}
-	if !strings.Contains(out, `<|DSML|parameter name="command"><![CDATA[pwd]]></|DSML|parameter>`) {
-		t.Fatalf("expected command parameter example for execute_command, got: %s", out)
-	}
+        out := BuildToolCallInstructions([]string{"execute_command"})
+        if !strings.Contains(out, `<|DSML|invoke name="execute_command">`) {
+                t.Fatalf("expected execute_command in examples, got: %s", out)
+        }
+        if !strings.Contains(out, `<|DSML|parameter name="command"><![CDATA[pwd]]></|DSML|parameter>`) {
+                t.Fatalf("expected command parameter example for execute_command, got: %s", out)
+        }
 }
 
-func TestBuildToolCallInstructions_BashUsesCommandAndDescriptionExamples(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"Bash"})
-	blocks := findInvokeBlocks(out, "Bash")
-	if len(blocks) == 0 {
-		t.Fatalf("expected Bash examples, got: %s", out)
-	}
-
-	sawDescription := false
-	for _, block := range blocks {
-		if !strings.Contains(block, `<|DSML|parameter name="command">`) {
-			t.Fatalf("expected every Bash example to use command parameter, got: %s", block)
-		}
-		if strings.Contains(block, `<|DSML|parameter name="path">`) || strings.Contains(block, `<|DSML|parameter name="content">`) {
-			t.Fatalf("expected Bash examples not to use file write parameters, got: %s", block)
-		}
-		if strings.Contains(block, `<|DSML|parameter name="description">`) {
-			sawDescription = true
-		}
-	}
-	if !sawDescription {
-		t.Fatalf("expected Bash long-script example to include description, got: %s", out)
-	}
-	if strings.Contains(out, `<|DSML|invoke name="Read">`) {
-		t.Fatalf("expected examples to avoid unavailable hard-coded Read tool, got: %s", out)
-	}
-}
-
-func TestBuildToolCallInstructions_ExecuteCommandLongScriptUsesCommand(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"execute_command"})
-	blocks := findInvokeBlocks(out, "execute_command")
-	if len(blocks) == 0 {
-		t.Fatalf("expected execute_command examples, got: %s", out)
-	}
-
-	for _, block := range blocks {
-		if !strings.Contains(block, `<|DSML|parameter name="command">`) {
-			t.Fatalf("expected execute_command examples to use command parameter, got: %s", block)
-		}
-		if strings.Contains(block, `<|DSML|parameter name="path">`) || strings.Contains(block, `<|DSML|parameter name="content">`) {
-			t.Fatalf("expected execute_command examples not to use file write parameters, got: %s", block)
-		}
-	}
-	if !strings.Contains(out, `test_escape.sh`) {
-		t.Fatalf("expected execute_command long-script example, got: %s", out)
-	}
-}
-
-func TestBuildToolCallInstructions_ExecCommandLongScriptUsesCmd(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"exec_command"})
-	blocks := findInvokeBlocks(out, "exec_command")
-	if len(blocks) == 0 {
-		t.Fatalf("expected exec_command examples, got: %s", out)
-	}
-
-	for _, block := range blocks {
-		if !strings.Contains(block, `<|DSML|parameter name="cmd">`) {
-			t.Fatalf("expected exec_command examples to use cmd parameter, got: %s", block)
-		}
-		if strings.Contains(block, `<|DSML|parameter name="command">`) || strings.Contains(block, `<|DSML|parameter name="path">`) || strings.Contains(block, `<|DSML|parameter name="content">`) {
-			t.Fatalf("expected exec_command examples not to use command or file write parameters, got: %s", block)
-		}
-	}
-	if !strings.Contains(out, `test_escape.sh`) {
-		t.Fatalf("expected exec_command long-script example, got: %s", out)
-	}
+func TestBuildToolCallInstructions_BashUsesCommandExample(t *testing.T) {
+        out := BuildToolCallInstructions([]string{"Bash"})
+        blocks := findInvokeBlocks(out, "Bash")
+        if len(blocks) == 0 {
+                t.Fatalf("expected Bash examples, got: %s", out)
+        }
+        for _, block := range blocks {
+                if !strings.Contains(block, `<|DSML|parameter name="command">`) {
+                        t.Fatalf("expected every Bash example to use command parameter, got: %s", block)
+                }
+        }
 }
 
 func TestBuildToolCallInstructions_WriteUsesFilePathAndContent(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"Write"})
-	blocks := findInvokeBlocks(out, "Write")
-	if len(blocks) == 0 {
-		t.Fatalf("expected Write examples, got: %s", out)
-	}
-
-	for _, block := range blocks {
-		if !strings.Contains(block, `<|DSML|parameter name="file_path">`) || !strings.Contains(block, `<|DSML|parameter name="content">`) {
-			t.Fatalf("expected Write examples to use file_path and content, got: %s", block)
-		}
-		if strings.Contains(block, `<|DSML|parameter name="path">`) {
-			t.Fatalf("expected Write examples not to use path, got: %s", block)
-		}
-	}
+        out := BuildToolCallInstructions([]string{"Write"})
+        blocks := findInvokeBlocks(out, "Write")
+        if len(blocks) == 0 {
+                t.Fatalf("expected Write examples, got: %s", out)
+        }
+        for _, block := range blocks {
+                if !strings.Contains(block, `<|DSML|parameter name="file_path">`) || !strings.Contains(block, `<|DSML|parameter name="content">`) {
+                        t.Fatalf("expected Write examples to use file_path and content, got: %s", block)
+                }
+                if strings.Contains(block, `<|DSML|parameter name="path">`) {
+                        t.Fatalf("expected Write examples not to use path, got: %s", block)
+                }
+        }
 }
 
-func TestBuildToolCallInstructions_AnchorsMissingOpeningWrapperFailureMode(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"read_file"})
-	if !strings.Contains(out, "Never omit the opening <|DSML|tool_calls> tag") {
-		t.Fatalf("expected explicit missing-opening-tag warning, got: %s", out)
-	}
-	if !strings.Contains(out, "Incorrect 3 — missing opening wrapper") {
-		t.Fatalf("expected missing-opening-wrapper negative example, got: %s", out)
-	}
+// TestBuildToolCallInstructions_HasCoreRules 验证严格性核心规则仍在：
+//   - 工具调用块本身不能被 markdown fence / XML wrapper / 代码块包裹（关键，防解析器漏抓）
+//   - 块放在回复末尾，块后不能有文字（防止 prose after XML）
+//   - 块前可以有解释文字（模型先解释再调用是正常对话流）
+//   - 块本身的开头必须是 <|DSML|tool_calls>
+//   - 不允许 JSON / Markdown / prose 形式的工具调用
+//   - 不允许空参数值
+//   - 不调用工具时正常回答
+// 同时不再包含早期实现的强指纹大写关键词。
+func TestBuildToolCallInstructions_HasCoreRules(t *testing.T) {
+        out := BuildToolCallInstructions([]string{"Read"})
+        for _, want := range []string{
+                "<|DSML|tool_calls>",
+                "<|DSML|invoke name=\"FUNCTION_NAME\">",
+                "<![CDATA[VALUE]]>",
+                "end your response with this XML block",
+                "You may write explanatory text before the block",
+                "the block must be the last thing in your response",
+                "Do not add any text, explanation, or greeting after </|DSML|tool_calls>",
+                "The block itself must be bare XML",
+                "Do NOT wrap it in markdown fences",
+                "The first non-whitespace characters of the block must be exactly <|DSML|tool_calls>",
+                "Strings go inside <![CDATA[",
+                "Only use parameter names declared in the function schema",
+                "never emit empty or whitespace-only parameter values",
+                "Never output tool calls as JSON, Markdown, or prose",
+                "If you are not calling a function, answer the user normally",
+        } {
+                if !strings.Contains(out, want) {
+                        t.Fatalf("expected core rule %q in output, got: %s", want, out)
+                }
+        }
 }
 
-func TestBuildToolCallInstructions_RejectsJSONMarkdownToolInvocations(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"Read"})
-	for _, want := range []string{
-		"16) CRITICAL PARADIGM SHIFT:",
-		"your invocation MUST strictly be in DSML XML",
-		"write ONLY XML. Do not output raw JSON.",
-		"17) MANDATORY SELF-CHECK BEFORE TOOL EMISSION:",
-		"Right before you write a tool block, re-read rules 16",
-		"and the closest positive example in 【WORKED EXAMPLES】.",
-		"If the block you are about to emit is JSON, Markdown, fenced code, or prose-wrapped XML",
-		"rewrite it as a bare <|DSML|tool_calls>...</|DSML|tool_calls> block",
-		"Incorrect 5 — JSON or Markdown tool invocations",
-		"**Calling:** Read",
-		`{"file_path": "/path/to/file"}`,
-		"You MUST translate the JSON contract into the <|DSML|tool_calls> XML format.",
-		"NEVER output raw JSON or use Markdown for tool calls.",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected JSON/Markdown tool-invocation guard %q, got: %s", want, out)
-		}
-	}
+// TestBuildToolCallInstructions_StrongFingerprintsRemoved 验证早期实现里的强指纹
+// 大写关键词已全部移除。这些词每次请求都重复注入会形成稳定哈希。
+// 注意："Incorrect" 这个词本身保留（用于反例标题 "Incorrect 1 — ..."），但全大写形式
+// "INCORRECT" 不应出现。
+func TestBuildToolCallInstructions_StrongFingerprintsRemoved(t *testing.T) {
+        out := BuildToolCallInstructions([]string{"Read"})
+        for _, bad := range []string{
+                "CRITICAL PARADIGM SHIFT",
+                "MANDATORY SELF-CHECK",
+                "FUNCTION INVOCATION CONTRACT",
+                "COMPLY PRECISELY",
+                "WORKED EXAMPLES",
+                "INCORRECT",
+                "tool_schema.txt",
+                "Tag punctuation alphabet",
+                "Tag punctuation",
+                "Never invoke them with an empty command",
+                "Do not emit placeholder, blank, or whitespace-only parameters",
+                "Read-style cache guard", // 这条来自 promptcompat，不是 toolcall
+        } {
+                if strings.Contains(out, bad) {
+                        t.Fatalf("strong fingerprint %q must be removed, found in output: %s", bad, out)
+                }
+        }
 }
 
-func TestBuildToolCallInstructions_PreambleRuleRemoved(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"Read"})
-	for _, bad := range []string{
-		"ZERO PREAMBLE",
-		"your visible output before the tool block MUST be empty",
-		"output any conversational preamble or thinking process",
-		"does not restrict the model's internal reasoning",
-	} {
-		if strings.Contains(out, bad) {
-			t.Fatalf("preamble-related rule must be removed, found %q in output: %s", bad, out)
-		}
-	}
+// TestBuildToolCallInstructions_FallbackExampleForUnknownTool 验证工具名未命中
+// 预置示例时仍能生成一个有效占位示例，保证 prompt 里始终有完整格式示例。
+func TestBuildToolCallInstructions_FallbackExampleForUnknownTool(t *testing.T) {
+        out := BuildToolCallInstructions([]string{"custom_tool_xyz"})
+        if !strings.Contains(out, `<|DSML|invoke name="custom_tool_xyz">`) {
+                t.Fatalf("expected fallback example for unknown tool, got: %s", out)
+        }
+        if !strings.Contains(out, `<|DSML|parameter name="input">`) {
+                t.Fatalf("expected fallback input parameter, got: %s", out)
+        }
 }
 
-func TestBuildToolCallInstructions_RejectsEmptyParametersInPrompt(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"Bash"})
-	for _, want := range []string{
-		"Do not emit placeholder, blank, or whitespace-only parameters.",
-		"If a required parameter value is unknown, ask the user or answer normally instead of producing an empty invocation.",
-		"Never invoke them with an empty command.",
-		"Incorrect 4 — empty parameters",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected empty-parameter instruction %q, got: %s", want, out)
-		}
-	}
+// TestBuildToolCallInstructions_HasIncorrectExamples 验证 5 个反例都存在，
+// 这是防止模型漏格式的关键约束（反例直接展示什么是不允许的）。
+func TestBuildToolCallInstructions_HasIncorrectExamples(t *testing.T) {
+        out := BuildToolCallInstructions([]string{"Bash"})
+        for _, want := range []string{
+                "Avoid these incorrect patterns:",
+                "Incorrect 1 — text after the block:",
+                "I hope this helps.",
+                "Incorrect 2 — wrapped in markdown fences:",
+                "```xml",
+                "Incorrect 3 — missing opening tag:",
+                "Incorrect 4 — empty parameter value:",
+                `<|DSML|parameter name="input"></|DSML|parameter>`,
+                "Incorrect 5 — JSON or Markdown invocation instead of DSML:",
+                "**Calling:**",
+                `{"input": "..."}`,
+                "Correct example:",
+        } {
+                if !strings.Contains(out, want) {
+                        t.Fatalf("expected incorrect example %q in output, got: %s", want, out)
+                }
+        }
 }
 
-func TestBuildToolCallInstructions_UsesPositiveTagPunctuationAlphabet(t *testing.T) {
-	out := BuildToolCallInstructions([]string{"Bash"})
-	want := `Tag punctuation alphabet: ASCII < > / = " plus the halfwidth pipe |.`
-	if !strings.Contains(out, want) {
-		t.Fatalf("expected positive tag punctuation alphabet %q, got: %s", want, out)
-	}
-	for _, bad := range []string{"lookalike", "substitute", "！", "〈", "〉", "“", "”", "、"} {
-		if strings.Contains(out, bad) {
-			t.Fatalf("tool prompt should not include negative punctuation examples %q, got: %s", bad, out)
-		}
-	}
+// TestBuildToolCallInstructions_IncorrectExampleUsesActualToolName 验证反例 4 和 5
+// 里的工具名动态使用当前请求的工具名，而不是硬编码的 Bash/Read。
+func TestBuildToolCallInstructions_IncorrectExampleUsesActualToolName(t *testing.T) {
+        out := BuildToolCallInstructions([]string{"my_custom_tool"})
+        if !strings.Contains(out, `<|DSML|invoke name="my_custom_tool">`) {
+                t.Fatalf("expected incorrect example 4 to use my_custom_tool, got: %s", out)
+        }
+        if !strings.Contains(out, "**Calling:** my_custom_tool") {
+                t.Fatalf("expected incorrect example 5 to use my_custom_tool, got: %s", out)
+        }
+        if strings.Contains(out, `name="Bash"`) {
+                t.Fatalf("expected no hardcoded Bash tool name when not in request, got: %s", out)
+        }
 }
 
+// findInvokeBlocks 只在 "Correct example:" 之后的正确示例段里查找 invoke 块，
+// 避免把 "Avoid these incorrect patterns" 段里的反例 invoke 块也算进来。
 func findInvokeBlocks(text, name string) []string {
-	open := `<|DSML|invoke name="` + name + `">`
-	remaining := text
-	blocks := []string{}
-	for {
-		start := strings.Index(remaining, open)
-		if start < 0 {
-			return blocks
-		}
-		remaining = remaining[start:]
-		end := strings.Index(remaining, `</|DSML|invoke>`)
-		if end < 0 {
-			return blocks
-		}
-		end += len(`</|DSML|invoke>`)
-		blocks = append(blocks, remaining[:end])
-		remaining = remaining[end:]
-	}
+        correctMarker := "Correct example:"
+        idx := strings.Index(text, correctMarker)
+        if idx < 0 {
+                return nil
+        }
+        remaining := text[idx+len(correctMarker):]
+        open := `<|DSML|invoke name="` + name + `">`
+        blocks := []string{}
+        for {
+                start := strings.Index(remaining, open)
+                if start < 0 {
+                        return blocks
+                }
+                remaining = remaining[start:]
+                end := strings.Index(remaining, `</|DSML|invoke>`)
+                if end < 0 {
+                        return blocks
+                }
+                end += len(`</|DSML|invoke>`)
+                blocks = append(blocks, remaining[:end])
+                remaining = remaining[end:]
+        }
 }

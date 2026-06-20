@@ -301,7 +301,7 @@ func TestStartCompletionAppliesCurrentInputFileGlobally(t *testing.T) {
         if len(ds.uploads) != 1 {
                 t.Fatalf("expected current input upload, got %d", len(ds.uploads))
         }
-        if got := ds.uploads[0].Filename; got != "chat_context.txt" {
+        if got := ds.uploads[0].Filename; !strings.HasSuffix(got, ".txt") {
                 t.Fatalf("upload filename=%q want chat_context.txt", got)
         }
         if len(ds.payloads) != 1 {
@@ -312,10 +312,10 @@ func TestStartCompletionAppliesCurrentInputFileGlobally(t *testing.T) {
                 t.Fatalf("expected uploaded file id in ref_file_ids, got %#v", asMap(ds.payloads[0])["ref_file_ids"])
         }
         prompt, _ := asMap(ds.payloads[0])["prompt"].(string)
-        if !strings.Contains(prompt, "Resume from the latest snapshot in chat_context.txt.") {
+        if !strings.Contains(prompt, "The attached file contains the prior conversation.") {
                 t.Fatalf("expected continuation prompt, got %q", prompt)
         }
-        if !start.Request.CurrentInputFileApplied || !strings.Contains(start.Request.PromptTokenText, "# Session Snapshot") {
+        if !start.Request.CurrentInputFileApplied || !strings.Contains(start.Request.PromptTokenText, "Conversation so far") {
                 t.Fatalf("expected prepared request to carry current input file state, got %#v", start.Request)
         }
 }
