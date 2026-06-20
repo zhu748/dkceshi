@@ -148,8 +148,10 @@ func (s *Store) AutoDeleteSessions() bool {
 func (s *Store) CurrentInputFileEnabled() bool {
         s.mu.RLock()
         defer s.mu.RUnlock()
+        // 默认关闭：历史拆分（current_input_file）作为高级功能，需要用户显式开启，
+        // 或通过 -forcehistory 模型后缀按需触发，避免新部署实例默认就走文件上传路径。
         if s.cfg.CurrentInputFile.Enabled == nil {
-                return true
+                return false
         }
         return *s.cfg.CurrentInputFile.Enabled
 }

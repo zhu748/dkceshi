@@ -50,7 +50,14 @@ type Service struct {
 }
 
 func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
-        if stdReq.CurrentInputFileApplied || s.DS == nil || s.Store == nil || a == nil || !s.Store.CurrentInputFileEnabled() {
+        if stdReq.CurrentInputFileApplied || s.DS == nil || s.Store == nil || a == nil {
+                return stdReq, nil
+        }
+        // forcehistory 模型绕过全局 current_input_file.enabled 开关：
+        // 只要本次请求的 ResolvedModel 带 -forcehistory 后缀，无论全局开关是否打开，
+        // 都强制启用历史拆分（上传历史为文件）。
+        forceHistory := config.IsForceHistoryModel(stdReq.ResolvedModel)
+        if !forceHistory && !s.Store.CurrentInputFileEnabled() {
                 return stdReq, nil
         }
         // 降级机制：该账号近期上传失败次数过多时，本次请求自动降级到模式 A

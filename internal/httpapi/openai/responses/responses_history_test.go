@@ -1,114 +1,114 @@
 package responses
 
 import (
-	"context"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"path/filepath"
-	"strings"
-	"testing"
+        "context"
+        "io"
+        "net/http"
+        "net/http/httptest"
+        "path/filepath"
+        "strings"
+        "testing"
 
-	"github.com/go-chi/chi/v5"
+        "github.com/go-chi/chi/v5"
 
-	"ds2api/internal/auth"
-	"ds2api/internal/chathistory"
-	dsclient "ds2api/internal/deepseek/client"
-	"ds2api/internal/promptcompat"
+        "ds2api/internal/auth"
+        "ds2api/internal/chathistory"
+        dsclient "ds2api/internal/deepseek/client"
+        "ds2api/internal/promptcompat"
 )
 
 type responsesHistoryDS struct {
-	payload any
+        payload any
 }
 
 func (d *responsesHistoryDS) CreateSession(context.Context, *auth.RequestAuth, int) (string, error) {
-	return "session-id", nil
+        return "session-id", nil
 }
 
 func (d *responsesHistoryDS) GetPow(context.Context, *auth.RequestAuth, int) (string, error) {
-	return "pow", nil
+        return "pow", nil
 }
 
 func (d *responsesHistoryDS) UploadFile(context.Context, *auth.RequestAuth, dsclient.UploadFileRequest, int) (*dsclient.UploadFileResult, error) {
-	return &dsclient.UploadFileResult{ID: "file-id"}, nil
+        return &dsclient.UploadFileResult{ID: "file-id"}, nil
 }
 
 func (d *responsesHistoryDS) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
-	d.payload = payload
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader("data: {\"p\":\"response/content\",\"v\":\"ok\"}\n")),
-	}, nil
+        d.payload = payload
+        return &http.Response{
+                StatusCode: http.StatusOK,
+                Header:     make(http.Header),
+                Body:       io.NopCloser(strings.NewReader("data: {\"p\":\"response/content\",\"v\":\"ok\"}\n")),
+        }, nil
 }
 
 func (d *responsesHistoryDS) payloadMap() map[string]any {
-	if d.payload == nil {
-		return nil
-	}
-	if m, ok := d.payload.(*promptcompat.OrderedJSONMap); ok {
-		return m.AsMap()
-	}
-	if m, ok := d.payload.(map[string]any); ok {
-		return m
-	}
-	return nil
+        if d.payload == nil {
+                return nil
+        }
+        if m, ok := d.payload.(*promptcompat.OrderedJSONMap); ok {
+                return m.AsMap()
+        }
+        if m, ok := d.payload.(map[string]any); ok {
+                return m
+        }
+        return nil
 }
 
 func (d *responsesHistoryDS) DeleteSessionForToken(context.Context, string, string) (*dsclient.DeleteSessionResult, error) {
-	return &dsclient.DeleteSessionResult{Success: true}, nil
+        return &dsclient.DeleteSessionResult{Success: true}, nil
 }
 
 func (d *responsesHistoryDS) DeleteAllSessionsForToken(context.Context, string) error {
-	return nil
+        return nil
 }
 
 func TestResponsesRecordsResponseHistory(t *testing.T) {
-	store, resolver := newDirectTokenResolver(t)
-	historyStore := chathistory.New(filepath.Join(t.TempDir(), "history.json"))
-	ds := &responsesHistoryDS{}
-	h := &Handler{
-		Store:       store,
-		Auth:        resolver,
-		DS:          ds,
-		ChatHistory: historyStore,
-	}
-	r := chi.NewRouter()
-	RegisterRoutes(r, h)
+        store, resolver := newDirectTokenResolver(t)
+        historyStore := chathistory.New(filepath.Join(t.TempDir(), "history.json"))
+        ds := &responsesHistoryDS{}
+        h := &Handler{
+                Store:       store,
+                Auth:        resolver,
+                DS:          ds,
+                ChatHistory: historyStore,
+        }
+        r := chi.NewRouter()
+        RegisterRoutes(r, h)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"deepseek-v4-flash","input":"hello responses"}`))
-	req.Header.Set("Authorization", "Bearer direct-token")
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
+        req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"deepseek-v4-flash-forcehistory","input":"hello responses"}`))
+        req.Header.Set("Authorization", "Bearer direct-token")
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	if ds.payload == nil {
-		t.Fatalf("expected upstream payload to be sent")
-	}
-	snapshot, err := historyStore.Snapshot()
-	if err != nil {
-		t.Fatalf("snapshot history: %v", err)
-	}
-	if len(snapshot.Items) != 1 {
-		t.Fatalf("expected one history item, got %d", len(snapshot.Items))
-	}
-	item, err := historyStore.Get(snapshot.Items[0].ID)
-	if err != nil {
-		t.Fatalf("get history item: %v", err)
-	}
-	if item.Surface != "openai.responses" {
-		t.Fatalf("unexpected surface: %q", item.Surface)
-	}
-	if !strings.Contains(item.UserInput, "The attached file holds the earlier conversation.") {
-		t.Fatalf("unexpected user input: %q", item.UserInput)
-	}
-	if !strings.Contains(item.HistoryText, "hello responses") {
-		t.Fatalf("expected original input in persisted history text, got %q", item.HistoryText)
-	}
-	if item.Content != "ok" {
-		t.Fatalf("expected raw upstream content, got %q", item.Content)
-	}
+        if rec.Code != http.StatusOK {
+                t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+        }
+        if ds.payload == nil {
+                t.Fatalf("expected upstream payload to be sent")
+        }
+        snapshot, err := historyStore.Snapshot()
+        if err != nil {
+                t.Fatalf("snapshot history: %v", err)
+        }
+        if len(snapshot.Items) != 1 {
+                t.Fatalf("expected one history item, got %d", len(snapshot.Items))
+        }
+        item, err := historyStore.Get(snapshot.Items[0].ID)
+        if err != nil {
+                t.Fatalf("get history item: %v", err)
+        }
+        if item.Surface != "openai.responses" {
+                t.Fatalf("unexpected surface: %q", item.Surface)
+        }
+        if !strings.Contains(item.UserInput, "The attached file holds the earlier conversation.") {
+                t.Fatalf("unexpected user input: %q", item.UserInput)
+        }
+        if !strings.Contains(item.HistoryText, "hello responses") {
+                t.Fatalf("expected original input in persisted history text, got %q", item.HistoryText)
+        }
+        if item.Content != "ok" {
+                t.Fatalf("expected raw upstream content, got %q", item.Content)
+        }
 }
