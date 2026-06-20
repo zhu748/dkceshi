@@ -240,3 +240,35 @@ func TestClaudeModelsResponsePaginationFields(t *testing.T) {
 		t.Fatalf("expected has_more in response: %#v", resp)
 	}
 }
+
+// TestClaudeModelsIncludesDeepSeekDirectVariants 验证 Anthropic /v1/messages 入口
+// 直接接受 deepseek-v4-* 系列模型（含 -nothinking / -autodelete 变体），
+// 让 Anthropic SDK 用户也能用 deepseek-v4-flash-autodelete 等模型名触发 auto-delete。
+func TestClaudeModelsIncludesDeepSeekDirectVariants(t *testing.T) {
+	expected := []string{
+		"deepseek-v4-flash",
+		"deepseek-v4-flash-nothinking",
+		"deepseek-v4-flash-autodelete",
+		"deepseek-v4-pro",
+		"deepseek-v4-pro-nothinking",
+		"deepseek-v4-pro-autodelete",
+		"deepseek-v4-flash-search",
+		"deepseek-v4-flash-search-nothinking",
+		"deepseek-v4-flash-search-autodelete",
+		"deepseek-v4-pro-search",
+		"deepseek-v4-pro-search-nothinking",
+		"deepseek-v4-pro-search-autodelete",
+		"deepseek-v4-vision",
+		"deepseek-v4-vision-nothinking",
+		"deepseek-v4-vision-autodelete",
+	}
+	seen := map[string]bool{}
+	for _, m := range ClaudeModels {
+		seen[m.ID] = true
+	}
+	for _, id := range expected {
+		if !seen[id] {
+			t.Fatalf("expected %q in ClaudeModels (so /v1/messages accepts direct DeepSeek model names), got missing", id)
+		}
+	}
+}

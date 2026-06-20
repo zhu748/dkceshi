@@ -120,6 +120,31 @@ func TestClaudeAutoDeleteSuffixModelOverridesNone(t *testing.T) {
 			wantSingle: 1,
 		},
 		{
+			// 用户用 Anthropic SDK 直接传 DeepSeek 后缀模型也应当生效
+			name:       "none + deepseek-v4-flash-autodelete (direct) -> single delete",
+			globalMode: "none",
+			model:      "deepseek-v4-flash-autodelete",
+			wantSingle: 1,
+		},
+		{
+			name:       "none + deepseek-v4-pro-autodelete (direct) -> single delete",
+			globalMode: "none",
+			model:      "deepseek-v4-pro-autodelete",
+			wantSingle: 1,
+		},
+		{
+			name:       "none + deepseek-v4-pro-search-autodelete (direct) -> single delete",
+			globalMode: "none",
+			model:      "deepseek-v4-pro-search-autodelete",
+			wantSingle: 1,
+		},
+		{
+			// 普通 deepseek 模型直传，全局 none 时不删除（与 claude-* base 行为一致）
+			name:       "none + deepseek-v4-flash (direct, plain) -> no delete",
+			globalMode: "none",
+			model:      "deepseek-v4-flash",
+		},
+		{
 			name:       "single + plain model -> single delete",
 			globalMode: "single",
 			model:      "claude-sonnet-4-6",
