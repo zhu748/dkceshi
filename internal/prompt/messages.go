@@ -27,6 +27,9 @@ const (
 // outputIntegrityGuardEnabled 是全局开关，由 config.Store.OutputIntegrityGuardEnabled()
 // 在启动时通过 SetOutputIntegrityGuardEnabled 注入。默认 true（开启）：
 // 该 guard 是质量保障的关键，防止模型回显上游乱码/重复片段。
+// 但在“本次请求无工具且历史不含 tool/function 消息”时，guard 没有实际作用，
+// 反而会多注入一条 system 消息形成指纹。MessagesPrepareWithThinkingAndToolHint
+// 会按场景按需注入。
 var outputIntegrityGuardEnabled = true
 
 // SetOutputIntegrityGuardEnabled 由 main/router 启动时调用，把 config 中的开关注入到 prompt 包。
@@ -39,7 +42,20 @@ func MessagesPrepare(messages []map[string]any) string {
 }
 
 func MessagesPrepareWithThinking(messages []map[string]any, _ bool) string {
-        if outputIntegrityGuardEnabled {
+        // 旧入口保守起见默认认为有工具，保留向后兼容。
+        return MessagesPrepareWithThinkingAndToolHint(messages, false, true)
+}
+
+// MessagesPrepareWithThinkingAndToolHint 在准备 prompt 前根据本次请求是否真的在调用
+// 工具、以及历史是否含 tool/function 消息，决定是否注入 Output integrity guard。
+// 场景：
+//   - hasTools=true：注入 guard，防止模型回显 DSML 解析残留。
+//   - hasTools=false 但 messages 含 tool/function 角色：注入 guard，防止回显历史
+//     tool 输出乱码。
+//   - hasTools=false 且 messages 无 tool/function 角色：跳过 guard，避免多余的
+//     system 消息成为指纹。
+func MessagesPrepareWithThinkingAndToolHint(messages []map[string]any, _ bool, hasTools bool) string {
+        if outputIntegrityGuardEnabled && (hasTools || messagesContainToolHistory(messages)) {
                 messages = prependOutputIntegrityGuard(messages)
         }
 
@@ -120,6 +136,27 @@ func hasOutputIntegrityGuard(msg map[string]any) bool {
         }
         content := strings.TrimSpace(NormalizeContent(msg["content"]))
         return strings.Contains(content, outputIntegrityGuardMarker)
+}
+
+// messagesContainToolHistory 判断 messages 里是否含有 tool/function 角色的消息，
+// 或者 assistant 历史里已渲染过 DSML tool_calls 块。任一命中即说明本次上下文
+// 含工具调用残留，需要 Output integrity guard 保护。
+func messagesContainToolHistory(messages []map[string]any) bool {
+        for _, m := range messages {
+                if m == nil {
+                        continue
+                }
+                role, _ := m["role"].(string)
+                switch strings.ToLower(strings.TrimSpace(role)) {
+                case "tool", "function":
+                        return true
+                case "assistant":
+                        if strings.Contains(NormalizeContent(m["content"]), "<|DSML|tool_calls>") {
+                                return true
+                        }
+                }
+        }
+        return false
 }
 
 // formatRoleBlock produces a single concatenated block: marker + text + endMarker.
