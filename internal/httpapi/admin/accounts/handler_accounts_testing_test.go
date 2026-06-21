@@ -58,6 +58,10 @@ func (m *testingDSMock) DeleteAllSessionsForToken(_ context.Context, _ string) e
 	}
 	return nil
 }
+func (m *testingDSMock) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 func (m *testingDSMock) GetSessionCountForToken(_ context.Context, _ string) (*dsclient.SessionStats, error) {
 	return &dsclient.SessionStats{Success: true}, nil
@@ -176,6 +180,10 @@ func (m *completionPayloadDSMock) payloadMap() map[string]any {
 func (m *completionPayloadDSMock) DeleteAllSessionsForToken(_ context.Context, _ string) error {
 	return nil
 }
+func (m *completionPayloadDSMock) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 func (m *completionPayloadDSMock) GetSessionCountForToken(_ context.Context, _ string) (*dsclient.SessionStats, error) {
 	return &dsclient.SessionStats{Success: true}, nil

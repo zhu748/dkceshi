@@ -452,6 +452,10 @@ func (h *Handler) handleEditReuseNonStream(w http.ResponseWriter, r *http.Reques
 
         if resp.StatusCode != http.StatusOK {
                 body, _ := io.ReadAll(resp.Body)
+                config.Logger.Warn("[edit_reuse] upstream non-OK status, falling back to new session",
+                        "account", a.AccountID,
+                        "status", resp.StatusCode,
+                        "body", string(body))
                 h.handleFallbackNewSession(w, r, a, stdReq, sessionIDPtr)
                 return
         }

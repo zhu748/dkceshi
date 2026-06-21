@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"errors"
 	"context"
 	"io"
 	"net/http"
@@ -118,6 +119,10 @@ func (d *claudeCurrentInputDS) DeleteSessionForToken(_ context.Context, _ string
 func (d *claudeCurrentInputDS) DeleteAllSessionsForToken(_ context.Context, _ string) error {
 	return nil
 }
+func (d *claudeCurrentInputDS) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 // payloadMap 将存储的 payload 转为 map[string]any 视图，便于测试中按 key 读取。
 func (d *claudeCurrentInputDS) payloadMap() map[string]any {

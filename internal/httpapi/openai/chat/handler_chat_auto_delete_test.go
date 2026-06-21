@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,10 @@ func (m *autoDeleteModeDSStub) DeleteAllSessionsForToken(_ context.Context, _ st
 	m.allCalls++
 	return nil
 }
+func (m *autoDeleteModeDSStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 func (m *autoDeleteModeDSStub) DeleteSessionForTokenCtx(ctx context.Context, _ string, sessionID string) (*dsclient.DeleteSessionResult, error) {
 	m.singleCalls++
@@ -117,6 +122,10 @@ func (m *autoDeleteCtxDSStub) DeleteAllSessionsForToken(_ context.Context, _ str
 	m.allCalls++
 	return nil
 }
+func (m *autoDeleteCtxDSStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 func TestAutoDeleteRemoteSessionIgnoresCanceledParentContext(t *testing.T) {
 	ds := &autoDeleteCtxDSStub{}

@@ -1,6 +1,7 @@
 package chat
 
 import (
+    "errors"
         "context"
         "encoding/json"
         "net/http"
@@ -256,6 +257,10 @@ func (m *vercelReleaseAutoDeleteDSStub) DeleteSessionForToken(_ context.Context,
 func (m *vercelReleaseAutoDeleteDSStub) DeleteAllSessionsForToken(_ context.Context, _ string) error {
         return nil
 }
+func (m *vercelReleaseAutoDeleteDSStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+    return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 type vercelReleaseAuthStub struct {
         events *[]string

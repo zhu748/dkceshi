@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"errors"
 	"context"
 	"io"
 	"net/http"
@@ -64,6 +65,10 @@ func (s *claudeAutoDeleteDSStub) DeleteAllSessionsForToken(_ context.Context, _ 
 	s.allDeleteCalls++
 	return nil
 }
+func (s *claudeAutoDeleteDSStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 func (s *claudeAutoDeleteDSStub) stats() (int, int) {
 	s.mu.Lock()

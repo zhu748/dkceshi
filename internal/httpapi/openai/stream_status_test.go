@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"errors"
 	"context"
 	"encoding/json"
 	"io"
@@ -65,6 +66,10 @@ func (m streamStatusDSStub) DeleteSessionForToken(_ context.Context, _ string, _
 func (m streamStatusDSStub) DeleteAllSessionsForToken(_ context.Context, _ string) error {
 	return nil
 }
+func (m streamStatusDSStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 type streamStatusDSSeqStub struct {
 	resps    []*http.Response
@@ -100,6 +105,10 @@ func (m *streamStatusDSSeqStub) DeleteSessionForToken(_ context.Context, _ strin
 func (m *streamStatusDSSeqStub) DeleteAllSessionsForToken(_ context.Context, _ string) error {
 	return nil
 }
+func (m *streamStatusDSSeqStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 func makeOpenAISSEHTTPResponse(lines ...string) *http.Response {
 	body := strings.Join(lines, "\n")

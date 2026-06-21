@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"context"
 	"net/http"
 	"testing"
@@ -74,6 +75,10 @@ func (m *testingDSMock) DeleteAllSessionsForToken(_ context.Context, _ string) e
 	}
 	return nil
 }
+func (m *testingDSMock) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("CallEditMessage not implemented in stub")
+}
+
 
 func (m *testingDSMock) GetSessionCountForToken(_ context.Context, _ string) (*dsclient.SessionStats, error) {
 	if m.sessionCount != nil {

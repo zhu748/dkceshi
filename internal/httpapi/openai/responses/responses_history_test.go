@@ -2,6 +2,7 @@ package responses
 
 import (
         "context"
+        "errors"
         "io"
         "net/http"
         "net/http/httptest"
@@ -61,6 +62,10 @@ func (d *responsesHistoryDS) DeleteSessionForToken(context.Context, string, stri
 
 func (d *responsesHistoryDS) DeleteAllSessionsForToken(context.Context, string) error {
         return nil
+}
+
+func (d *responsesHistoryDS) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+        return nil, errors.New("CallEditMessage not implemented in stub")
 }
 
 func TestResponsesRecordsResponseHistory(t *testing.T) {
