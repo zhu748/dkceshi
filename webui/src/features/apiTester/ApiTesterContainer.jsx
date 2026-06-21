@@ -8,7 +8,12 @@ import ConfigPanel from './ConfigPanel'
 import ChatPanel from './ChatPanel'
 
 function describeModel(t, modelID) {
-    const noThinking = modelID.endsWith('-nothinking')
+    // 后缀可任意叠加（-nothinking / -forcehistory / -autodelete / -thinkinginject），用正则一次识别。
+    // 规范顺序：base[-nothinking][-forcehistory][-autodelete][-thinkinginject]，但用户输入顺序不一致也能识别。
+    const noThinking = /-nothinking(?:-|$)/.test(modelID)
+    const forceHistory = /-forcehistory(?:-|$)/.test(modelID)
+    const autoDelete = /-autodelete(?:-|$)/.test(modelID)
+    const thinkingInject = /-thinkinginject(?:-|$)/.test(modelID)
 
     let description = t('apiTester.models.generic')
     if (modelID.includes('vision')) {
@@ -23,8 +28,14 @@ function describeModel(t, modelID) {
         description = t('apiTester.models.flash')
     }
 
-    if (noThinking) {
-        return `${description} · ${t('apiTester.models.noThinking')}`
+    // 按 nothinking -> forcehistory -> autodelete -> thinkinginject 的顺序追加行为描述
+    const tags = []
+    if (noThinking) tags.push(t('apiTester.models.noThinking'))
+    if (forceHistory) tags.push(t('apiTester.models.forceHistory'))
+    if (autoDelete) tags.push(t('apiTester.models.autoDelete'))
+    if (thinkingInject) tags.push(t('apiTester.models.thinkingInject'))
+    if (tags.length > 0) {
+        return `${description} · ${tags.join(' · ')}`
     }
     return description
 }

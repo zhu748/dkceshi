@@ -225,7 +225,10 @@
             "proSearch": "v4 Pro (with search)",
             "vision": "v4 Vision (thinking on by default)",
             "generic": "Compatible model",
-            "noThinking": "thinking forced off"
+            "noThinking": "thinking forced off",
+            "forceHistory": "history split forced",
+            "autoDelete": "auto-delete session",
+            "thinkingInject": "thinking injection forced"
         },
         "missingApiKey": "Please provide an API key.",
         "requestFailed": "Request failed.",

@@ -225,7 +225,10 @@
             "proSearch": "v4 Pro（带搜索）",
             "vision": "v4 Vision（默认开启思考）",
             "generic": "兼容模型",
-            "noThinking": "强制关闭思考"
+            "noThinking": "强制关闭思考",
+            "forceHistory": "强制历史拆分",
+            "autoDelete": "对话后自动删除",
+            "thinkingInject": "强制思考注入"
         },
         "missingApiKey": "请提供 API 密钥",
         "requestFailed": "请求失败",

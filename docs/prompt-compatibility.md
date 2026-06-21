@@ -335,3 +335,47 @@ Parameters: ...
 鍘熷垯鏄細
 
 - 鍐呴儴涓婚摼璺彉鍖栵紝鑷冲皯鏇存柊鏈枃妗?- 澶栭儴鍙濂戠害鍙樺寲锛屽啀鍚屾鏇存柊 API 鏂囨。
+
+---
+
+## 模型后缀系统（2026-06-21 更新）
+
+模型 ID 支持四个可叠加的行为后缀，规范拼接顺序：`base[-nothinking][-forcehistory][-autodelete][-thinkinginject]`。
+
+### 后缀语义
+
+| 后缀 | 作用 | 与全局配置的关系 |
+| --- | --- | --- |
+| `-nothinking` | 永久关闭 thinking，不受请求参数影响 | 无对应全局开关，仅按后缀触发；让 `stdReq.Thinking=false` |
+| `-forcehistory` | 本次请求强制启用历史拆分（上传历史为文件） | 全局 `current_input_file.enabled=true` 时跟随全局，全局关闭时按后缀强制启用 |
+| `-autodelete` | 响应完成后自动调用 `chat_session/delete` 删除本次对话 | 全局 `auto_delete.mode=single/all` 时跟随全局，全局 `none` 时按后缀触发单次删除 |
+| `-thinkinginject` | 本次请求强制注入思考格式提示词（追加到最新 user 消息末尾） | 全局 `thinking_injection.enabled=true` 时跟随全局，全局关闭时按后缀强制注入 |
+
+### 互斥约束
+
+`-nothinking` 与 `-thinkinginject` 互斥：nothinking 让 `stdReq.Thinking=false`，此时 `ApplyThinkingInjection` 的 `stdReq.Thinking` 检查会短路，`-thinkinginject` 后缀失去意义。`/v1/models` 列表不会生成这两个后缀共存的变体；`withSuffixes` 在 `nothinking=true` 时强制 `thinkingInject=false`（nothinking 优先），用于自动降级 alias 解析后产生的矛盾组合。
+
+### 合法组合数
+
+5 个基础模型 × 12 种合法后缀组合 = **60 个变体**（`/v1/models` 与 `/api/tags` 均返回 60 条）。
+
+12 种合法组合 = 4 个后缀的全部 16 种子集 − 4 种 nothinking+thinkinginject 共存组合。
+
+### 后缀在 prompt 组装链路中的应用位置
+
+1. **ResolveModel 阶段**：解析 alias + 后缀，alias 目标自身带后缀时与请求后缀做 OR 后用 `withSuffixes` 规范重建（自动应用互斥降级）。
+2. **NormalizeOpenAIChatRequest 阶段**：`-nothinking` 后缀让 `stdReq.Thinking=false`，覆盖请求体中的 `thinking` / `reasoning` / `reasoning_effort`。
+3. **ApplyThinkingInjection 阶段**（`internal/httpapi/openai/shared/thinking_injection.go`）：触发条件 = `store 非空 ∧ stdReq.Thinking=true ∧ (全局 enabled=true ∨ 模型带 -thinkinginject 后缀)`。注入内容 = `Reasoning Effort: Absolute maximum with no shortcuts permitted.` + 详细指令文本，追加到最新 user 消息末尾。
+4. **ApplyCurrentInputFile 阶段**（`internal/httpapi/openai/history/current_input_file.go`）：`-forcehistory` 后缀 bypass 全局 `current_input_file.enabled=false` 开关，强制进入文件上传分支。注入文本会随 current input file 进入上传的 transcript。
+5. **响应收尾阶段**（`internal/httpapi/openai/chat/handler_chat.go` 与 `internal/httpapi/claude/auto_delete.go`）：`-autodelete` 后缀在全局 `auto_delete.mode=none` 时降级为 `single`（删除本次 session），全局 `single/all` 时跟随全局。
+
+### alias 解析示例
+
+| 输入 | 解析结果 |
+| --- | --- |
+| `gpt-4.1` | `deepseek-v4-flash` |
+| `gpt-4.1-nothinking` | `deepseek-v4-flash-nothinking` |
+| `gpt-4.1-forcehistory-autodelete` | `deepseek-v4-flash-forcehistory-autodelete` |
+| `gpt-4.1-thinkinginject` | `deepseek-v4-flash-thinkinginject` |
+| `claude-sonnet-4-6-nothinking-forcehistory-autodelete-thinkinginject` | `deepseek-v4-flash-nothinking-forcehistory-autodelete`（自动降级，丢弃 thinkinginject） |
+| `deepseek-v4-flash-thinkinginject-autodelete-forcehistory-nothinking`（非规范顺序） | `deepseek-v4-flash-nothinking-forcehistory-autodelete`（同上） |

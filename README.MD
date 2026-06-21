@@ -161,21 +161,51 @@ OpenAI `/v1/*` 仍是推荐的规范路径；同时支持 `/models`、`/chat/com
 
 ### OpenAI 接口（`GET /v1/models`）
 
+`/v1/models` 暴露 5 个基础模型 × 12 种合法后缀组合 = **60 个变体**。
+
+#### 基础模型（5 个）
+
 | 模型类型 | 模型 ID | thinking | search |
 | --- | --- | --- | --- |
 | default | `deepseek-v4-flash` | 默认开启，可由请求参数控制 | ❌ |
-| default | `deepseek-v4-flash-nothinking` | 永久关闭，不受请求参数影响 | ❌ |
 | expert | `deepseek-v4-pro` | 默认开启，可由请求参数控制 | ❌ |
-| expert | `deepseek-v4-pro-nothinking` | 永久关闭，不受请求参数影响 | ❌ |
 | default | `deepseek-v4-flash-search` | 默认开启，可由请求参数控制 | ✅ |
-| default | `deepseek-v4-flash-search-nothinking` | 永久关闭，不受请求参数影响 | ✅ |
 | expert | `deepseek-v4-pro-search` | 默认开启，可由请求参数控制 | ✅ |
-| expert | `deepseek-v4-pro-search-nothinking` | 永久关闭，不受请求参数影响 | ✅ |
 | vision | `deepseek-v4-vision` | 默认开启，可由请求参数控制 | ❌ |
-| vision | `deepseek-v4-vision-nothinking` | 永久关闭，不受请求参数影响 | ❌ |
 
-除原生模型外，也支持常见 alias 输入（如 `gpt-4.1`、`gpt-5`、`gpt-5-codex`、`o3`、`claude-*`、`gemini-*` 等），但 `/v1/models` 返回的是规范化后的 DeepSeek 原生模型 ID。若 alias 名本身追加 `-nothinking` 后缀，也会映射到对应的强制关思考模型。完整 alias 行为以 [API.md](API.md#模型-alias-解析策略) 和 `config.example.json` 为准。
 当前上游视觉模型只暴露 `vision` 通道，不提供独立的联网搜索视觉变体。
+
+#### 行为后缀（4 个，可任意叠加，规范拼接顺序 `base[-nothinking][-forcehistory][-autodelete][-thinkinginject]`）
+
+| 后缀 | 作用 | 与全局配置的关系 |
+| --- | --- | --- |
+| `-nothinking` | 永久关闭 thinking，不受请求参数影响 | 无对应全局开关，仅按后缀触发 |
+| `-forcehistory` | 本次请求强制启用历史拆分（上传历史为文件） | 全局 `current_input_file.enabled=true` 时跟随全局，全局关闭时按后缀强制启用 |
+| `-autodelete` | 响应完成后自动调用 `chat_session/delete` 删除本次对话 | 全局 `auto_delete.mode=single/all` 时跟随全局，全局 `none` 时按后缀触发单次删除 |
+| `-thinkinginject` | 本次请求强制注入思考格式提示词 | 全局 `thinking_injection.enabled=true` 时跟随全局，全局关闭时按后缀强制注入 |
+
+#### 后缀互斥约束
+
+`-nothinking` 与 `-thinkinginject` 互斥：nothinking 让 `stdReq.Thinking=false`，此时思考注入不会触发，`-thinkinginject` 后缀失去意义。`/v1/models` 列表不会生成这两个后缀共存的变体；若用户直接传入矛盾组合 ID（如 `deepseek-v4-flash-nothinking-thinkinginject`），运行时由 nothinking 优先，思考注入仍不触发。
+
+#### 12 种合法组合示例（以 `deepseek-v4-flash` 为例）
+
+```
+deepseek-v4-flash
+deepseek-v4-flash-thinkinginject
+deepseek-v4-flash-forcehistory
+deepseek-v4-flash-forcehistory-thinkinginject
+deepseek-v4-flash-autodelete
+deepseek-v4-flash-autodelete-thinkinginject
+deepseek-v4-flash-forcehistory-autodelete
+deepseek-v4-flash-forcehistory-autodelete-thinkinginject
+deepseek-v4-flash-nothinking
+deepseek-v4-flash-nothinking-forcehistory
+deepseek-v4-flash-nothinking-autodelete
+deepseek-v4-flash-nothinking-forcehistory-autodelete
+```
+
+除原生模型外，也支持常见 alias 输入（如 `gpt-4.1`、`gpt-5`、`gpt-5-codex`、`o3`、`claude-*`、`gemini-*` 等），但 `/v1/models` 返回的是规范化后的 DeepSeek 原生模型 ID。alias 名也可追加任意合法后缀组合（如 `gpt-4.1-forcehistory-autodelete`），会映射到对应的 DeepSeek 后缀变体。完整 alias 行为以 [API.md](API.md#模型-alias-解析策略) 和 `config.example.json` 为准。
 
 ### Claude 接口（`GET /anthropic/v1/models`）
 
@@ -188,19 +218,19 @@ OpenAI `/v1/*` 仍是推荐的规范路径；同时支持 `/models`、`/chat/com
 | `claude-opus-4-6` | `deepseek-v4-pro` |
 | `claude-opus-4-6-nothinking` | `deepseek-v4-pro-nothinking` |
 
-可通过配置中的 `model_aliases` 覆盖映射关系；若请求模型名带 `-nothinking`，会在最终映射结果上强制追加无思考语义。
-`/anthropic/v1/models` 除上述主别名外，还会返回 Claude 4.x snapshots、3.x 历史模型 ID 与常见 alias，便于旧客户端直接兼容。
+可通过配置中的 `model_aliases` 覆盖映射关系；若请求模型名带任意合法后缀组合（`-nothinking` / `-forcehistory` / `-autodelete` / `-thinkinginject`），会在最终映射结果上保留对应后缀语义。
+`/anthropic/v1/models` 除上述主别名外，还会返回 Claude 4.x snapshots、3.x 历史模型 ID，以及全部 60 个 DeepSeek 原生后缀变体（便于 Anthropic SDK 直接传 `deepseek-v4-flash-autodelete` 等模型名触发对应行为）。
 
 #### Claude Code 接入避坑（实测）
 
 - `ANTHROPIC_BASE_URL` 推荐直接指向 DS2API 根地址（例如 `http://127.0.0.1:5001`），Claude Code 会请求 `/v1/messages?beta=true`。
 - `ANTHROPIC_API_KEY` 需要与 `config.json` 中 `keys` 一致；建议同时保留常规 key 与 `sk-ant-*` 形态 key，兼容不同客户端校验习惯。
 - 若系统设置了代理，建议对 DS2API 地址配置 `NO_PROXY=127.0.0.1,localhost,<你的主机IP>`，避免本地回环请求被代理拦截。
-- 如遇“工具调用输出成文本、未执行”问题，请优先检查模型输出是否为推荐的半角管道符 DSML 工具块：`<|DSML|tool_calls><|DSML|invoke name="..."><|DSML|parameter name="...">...`。兼容层也接受旧式 canonical XML：`<tool_calls><invoke name="..."><parameter name="...">...`；旧式 `<tools>` / `<tool_call>` / `<tool_name>` / `<param>`、`<function_call>`、`tool_use` 或纯 JSON `tool_calls` 片段不会执行，会作为普通文本处理。
+- 如遇"工具调用输出成文本、未执行"问题，请优先检查模型输出是否为推荐的半角管道符 DSML 工具块：`<|DSML|tool_calls><|DSML|invoke name="..."><|DSML|parameter name="...">...`。兼容层也接受旧式 canonical XML：`<tool_calls><invoke name="..."><parameter name="...">...`；旧式 `<tools>` / `<tool_call>` / `<tool_name>` / `<param>`、`<function_call>`、`tool_use` 或纯 JSON `tool_calls` 片段不会执行，会作为普通文本处理。
 
 ### Gemini 接口
 
-Gemini 适配器将模型名通过 `model_aliases` 或内置精确 alias 映射到 DeepSeek 原生模型（覆盖 `gemini-2.5-*`、`gemini-3*`、`gemini-pro-vision` 等常见名称），支持 `generateContent` 和 `streamGenerateContent` 两种调用方式，并完整支持 Tool Calling（`functionDeclarations` → `functionCall` 输出）。若 Gemini 模型名带 `-nothinking` 后缀，例如 `gemini-2.5-pro-nothinking`，会映射到对应的强制关闭思考模型。
+Gemini 适配器将模型名通过 `model_aliases` 或内置精确 alias 映射到 DeepSeek 原生模型（覆盖 `gemini-2.5-*`、`gemini-3*`、`gemini-pro-vision` 等常见名称），支持 `generateContent` 和 `streamGenerateContent` 两种调用方式，并完整支持 Tool Calling（`functionDeclarations` → `functionCall` 输出）。若 Gemini 模型名带任意合法后缀组合（如 `gemini-2.5-pro-nothinking`、`gemini-2.5-pro-forcehistory-autodelete`），会映射到对应的 DeepSeek 后缀变体。
 
 ## 快速开始
 

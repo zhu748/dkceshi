@@ -209,28 +209,42 @@ OpenAI `/v1/*` 仍是规范路径。对于只配置 DS2API 根地址的客户端
   "object": "list",
   "data": [
     {"id": "deepseek-v4-flash", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4-flash-thinkinginject", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4-flash-forcehistory", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4-flash-forcehistory-thinkinginject", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4-flash-autodelete", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4-flash-autodelete-thinkinginject", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4-flash-forcehistory-autodelete", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4-flash-forcehistory-autodelete-thinkinginject", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
     {"id": "deepseek-v4-flash-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-pro", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-pro-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-flash-search", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-flash-search-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-pro-search", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-pro-search-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-vision", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-vision-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []}
+    {"id": "deepseek-v4-flash-nothinking-forcehistory", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4-flash-nothinking-autodelete", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4-flash-nothinking-forcehistory-autodelete", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []}
+    // ... 其余 4 个基础模型 × 12 种组合 = 48 条省略
   ]
 }
 ```
 
-> 说明：`/v1/models` 返回的是规范化后的 DeepSeek 原生模型 ID；常见 alias 仅用于请求入参解析，不会在该接口中单独展开返回。带 `-nothinking` 后缀的模型表示无论请求里是否显式开启 thinking / reasoning，都会强制关闭思考输出。
+> 说明：`/v1/models` 返回 5 个基础模型 × 12 种合法后缀组合 = 60 个变体。
+>
+> 4 个行为后缀可任意叠加（除 `-nothinking` 与 `-thinkinginject` 互斥外），规范拼接顺序为 `base[-nothinking][-forcehistory][-autodelete][-thinkinginject]`：
+>
+> - `-nothinking`：永久关闭 thinking，不受请求参数影响
+> - `-forcehistory`：本次请求强制启用历史拆分（上传历史为文件），无视全局 `current_input_file.enabled=false`
+> - `-autodelete`：响应完成后自动调用 `chat_session/delete` 删除本次对话；全局 `auto_delete.mode=none` 时按后缀触发单次删除，全局 `single/all` 时跟随全局
+> - `-thinkinginject`：本次请求强制注入思考格式提示词，无视全局 `thinking_injection.enabled=false`；全局开启时跟随全局
+>
+> 互斥约束：`-nothinking` 让 `stdReq.Thinking=false`，此时思考注入不会触发，`-thinkinginject` 后缀失去意义。`/v1/models` 不会生成这两个后缀共存的变体；若用户直接传入矛盾组合 ID（如 `deepseek-v4-flash-nothinking-thinkinginject`），运行时由 nothinking 优先，思考注入仍不触发。
+>
+> 常见 alias 仅用于请求入参解析，不会在该接口中单独展开返回。
 
 ### 模型 alias 解析策略
 
-对 `chat` / `responses` / `embeddings` 的 `model` 字段采用“宽进严出”：
+对 `chat` / `responses` / `embeddings` 的 `model` 字段采用"宽进严出"：
 
-1. 先匹配 DeepSeek 原生模型。
+1. 先匹配 DeepSeek 原生模型（含全部 60 个后缀变体）。
 2. 再匹配 `model_aliases` 精确映射。
-3. 如果请求名以 `-nothinking` 结尾，则在最终解析出的规范模型上追加对应的无思考变体。
+3. 如果请求名带任意合法后缀组合（`-nothinking` / `-forcehistory` / `-autodelete` / `-thinkinginject`，可任意叠加），则在最终解析出的规范模型上保留对应后缀语义；alias 目标自身带后缀时，请求后缀与目标后缀做 OR 后用规范顺序重新拼接。
 4. 仍未命中则返回 `invalid_request_error`。当前不会按未知模型家族做启发式兜底；需要新增兼容名时请通过 `model_aliases` 明确配置。
 
 当前内置默认 alias 来自 `internal/config/models.go`，`config.model_aliases` 会在运行时覆盖或补充同名映射。节选：
@@ -241,8 +255,8 @@ OpenAI `/v1/*` 仍是规范路径。对于只配置 DS2API 根地址的客户端
 - Gemini：`gemini-2.5-pro`、`gemini-2.5-flash`、`gemini-3.1-pro`、`gemini-3-pro`、`gemini-3-flash`、`gemini-3.1-flash-lite`、`gemini-pro-vision`
 - 其他内置精确 alias：`llama-3.1-70b-instruct`、`qwen-max`
 
-上述 alias 若在请求名后追加 `-nothinking` 后缀，也会映射到对应的强制关闭 thinking 版本。
-当前视觉能力仅对应 `deepseek-v4-vision` / `deepseek-v4-vision-nothinking`，不会解析出独立的 `vision-search` 变体。
+上述 alias 若在请求名后追加任意合法后缀组合（如 `gpt-4.1-forcehistory-autodelete`、`claude-sonnet-4-6-thinkinginject`），也会映射到对应的 DeepSeek 后缀变体。
+当前视觉能力仅对应 `deepseek-v4-vision` 及其后缀变体，不会解析出独立的 `vision-search` 变体。
 
 退役历史模型（如 `claude-1.*`、`claude-2.*`、`claude-instant-*`、`gpt-3.5*`）会被显式拒绝。
 
