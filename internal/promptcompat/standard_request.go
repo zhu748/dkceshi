@@ -128,14 +128,6 @@ func (r StandardRequest) CompletionPayload(sessionID string) any {
 //   - prompt 仅含最新用户消息文本（LastUserMessage），而非完整对话
 //   - 新增 client_stream_id 字段
 func (r StandardRequest) EditMessagePayload(sessionID string, messageID int) any {
-        modelID := r.ResolvedModel
-        if modelID == "" {
-                modelID = r.RequestedModel
-        }
-        modelType := "default"
-        if resolvedType, ok := config.GetModelType(modelID); ok {
-                modelType = resolvedType
-        }
         m := NewOrderedJSONMap()
         // 严格按 App 抓包顺序
         m.Set("chat_session_id", sessionID)
