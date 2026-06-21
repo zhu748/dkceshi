@@ -69,8 +69,17 @@ async function handler(req, res) {
   }
 
   // Keep all non-stream behavior and non-OpenAI-chat paths on Go side to avoid
-  // protocol-shape regressions (e.g. Gemini/Claude clients expecting their own formats).
+  // protocol-shape regressions (e.g. Gemini/Claude/Claude clients expecting their own formats).
   if (!toBool(payload.stream) || !isNodeStreamSupportedPath(req.url || '')) {
+    await proxyToGo(req, res, rawBody);
+    return;
+  }
+
+  // Route edit-reuse requests (-v4f model suffix) through Go exclusively.
+  // The edit_message feature requires Go's in-memory session state and
+  // edit_message SSE handling, which the Node.js streaming path lacks.
+  // Without this, edit_message reuse would never trigger on Vercel.
+  if (isEditReuseModel(payload.model)) {
     await proxyToGo(req, res, rawBody);
     return;
   }
@@ -89,6 +98,13 @@ function isVercelRuntime() {
 function isNodeStreamSupportedPath(rawURL) {
   const path = extractPathname(rawURL);
   return path === '/v1/chat/completions' || path === '/chat/completions';
+}
+
+// isEditReuseModel checks if the model name contains the -v4f suffix,
+// which enables edit_message session reuse. These requests must go through
+// the Go handler that has access to the session state cache.
+function isEditReuseModel(model) {
+  return typeof model === 'string' && model.includes('-v4f');
 }
 
 function extractPathname(rawURL) {
