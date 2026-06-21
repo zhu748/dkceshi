@@ -52,7 +52,7 @@
     "min_chars": 0
   },
   "thinking_injection": {
-    "enabled": true,
+    "enabled": false,
     "prompt": ""
   },
   "embeddings": {

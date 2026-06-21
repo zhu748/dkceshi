@@ -349,7 +349,7 @@ Parameters: ...
 | `-nothinking` | 永久关闭 thinking，不受请求参数影响 | 无对应全局开关，仅按后缀触发；让 `stdReq.Thinking=false` |
 | `-forcehistory` | 本次请求强制启用历史拆分（上传历史为文件） | 全局 `current_input_file.enabled=true` 时跟随全局，全局关闭时按后缀强制启用 |
 | `-autodelete` | 响应完成后自动调用 `chat_session/delete` 删除本次对话 | 全局 `auto_delete.mode=single/all` 时跟随全局，全局 `none` 时按后缀触发单次删除 |
-| `-thinkinginject` | 本次请求强制注入思考格式提示词（追加到最新 user 消息末尾） | 全局 `thinking_injection.enabled=true` 时跟随全局，全局关闭时按后缀强制注入 |
+| `-thinkinginject` | 本次请求强制注入思考格式提示词（追加到最新 user 消息末尾） | 全局 `thinking_injection.enabled=true` 时跟随全局，全局关闭（默认）时按后缀强制注入 |
 
 ### 互斥约束
 
