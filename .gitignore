@@ -36,9 +36,10 @@ dist/
 static/admin/
 internal/webui/assets/admin/
 
-# Go compiled binaries
-ds2api
-ds2api-tests
+# Go compiled binaries (root-level only, must not ignore cmd/ds2api/ source)
+/ds2api
+/ds2api.exe
+/ds2api-tests
 
 # Environment
 .env.local
