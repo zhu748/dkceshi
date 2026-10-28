@@ -71,26 +71,11 @@ func TestAppendThinkingInjectionToLatestUserSkipsDuplicate(t *testing.T) {
 		map[string]any{"role": "user", "content": "latest\n\n" + DefaultThinkingInjectionPrompt},
 	}
 
-	out, changed := AppendThinkingInjectionPromptToLatestUser(messages, DefaultThinkingInjectionPrompt)
+	out, changed := AppendThinkingInjectionToLatestUser(messages)
 	if changed {
 		t.Fatal("expected duplicate injection to be skipped")
 	}
 	if len(out) != 1 {
 		t.Fatalf("unexpected messages: %#v", out)
-	}
-}
-
-func TestDefaultThinkingInjectionPromptIsSynonymRewrite(t *testing.T) {
-	if !strings.Contains(DefaultThinkingInjectionPrompt, "You MUST be very thorough in your thinking and comprehensively decompose the problem to resolve the root cause") {
-		t.Fatalf("expected original thinking-injection phrase to be present in default prompt, got %q", DefaultThinkingInjectionPrompt)
-	}
-	if !strings.Contains(DefaultThinkingInjectionPrompt, "rigorously stress-testing your logic against all potential paths, edge cases, and adversarial scenarios.") {
-		t.Fatalf("expected original stress-testing phrase to be present in default prompt, got %q", DefaultThinkingInjectionPrompt)
-	}
-	if !strings.Contains(DefaultThinkingInjectionPrompt, "Explicitly write out your entire deliberation process, documenting every intermediate step, considered alternative, and rejected hypothesis to ensure absolutely no assumption is left unchecked.") {
-		t.Fatalf("expected original deliberation phrase to be present in default prompt, got %q", DefaultThinkingInjectionPrompt)
-	}
-	if !strings.HasPrefix(DefaultThinkingInjectionPrompt, ThinkingInjectionMarker) {
-		t.Fatalf("default thinking prompt must still start with ThinkingInjectionMarker, got %q", DefaultThinkingInjectionPrompt)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"ds2api/internal/config"
 	dsprotocol "ds2api/internal/deepseek/protocol"
 	"ds2api/internal/textclean"
+	"ds2api/internal/usagestats"
 	"ds2api/internal/util"
 )
 
@@ -17,6 +18,7 @@ import (
 var writeJSON = util.WriteJSON
 
 type Handler struct {
+	Usage       *usagestats.Store
 	Store       ConfigReader
 	Auth        AuthResolver
 	DS          DeepSeekCaller

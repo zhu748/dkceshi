@@ -1,7 +1,9 @@
 package assistantturn
 
 import (
+	"context"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"ds2api/internal/httpapi/openai/shared"
@@ -45,10 +47,15 @@ type Turn struct {
 	ParsedToolCalls   toolcall.ToolCallParseResult
 	CitationLinks     map[int]string
 	ContentFilter     bool
+	UpstreamError     string
 	ResponseMessageID int
-	StopReason        StopReason
-	Usage             Usage
-	Error             *OutputError
+	// FirstResponseMessageID is the id the completion started with. It differs
+	// from ResponseMessageID when auto-continue appended segments; TTS reads
+	// the original assistant message and must use this one.
+	FirstResponseMessageID int
+	StopReason             StopReason
+	Usage                  Usage
+	Error                  *OutputError
 }
 
 type FinalizeOptions struct {
@@ -74,6 +81,143 @@ type BuildOptions struct {
 	ToolNames             []string
 	ToolsRaw              any
 	ToolChoice            promptcompat.ToolChoicePolicy
+	// ToolCallRepair, when non-nil, enables the phase-3 LLM tool-call repair
+	// pass in the finalize path: if the parsed result found a residual tool
+	// call intent but zero calls, the residual bad code is handed to this
+	// invoker for repair. It must never be wired into the per-chunk streaming
+	// sieve (plan/tool-call-fallback-design-phase3.md §5.1).
+	ToolCallRepair toolcall.ToolCallRepairInvoker
+	// ToolCallRepairCtx scopes the repair invocation; defaults to
+	// context.Background() when nil.
+	ToolCallRepairCtx context.Context
+	// ToolMarker is the caller-specific tool-call marker used by the model.
+	// Raw model output is normalized from ToolMarker back to EPSE before
+	// parsing/repair so the internal tool-call model only ever sees EPSE.
+	ToolMarker string
+}
+
+// maybeRepairToolCalls implements the phase-3 finalize-only LLM repair pass. It
+// returns repaired calls (branch ①) or nil for the fallback branches (② NO
+// TOOL, ③ unparseable/timeout/error), in which case the caller leaves the
+// residual bad code as visible text ("原样输出"). It is a no-op unless the parse
+// found a residual intent and a repair invoker is configured.
+//
+// Per phase1 §5.1 / phase3, it fires whenever there is a residual tool-call
+// intent, INCLUDING the partial-success case where some calls parsed but a bad
+// residual fragment remains (SawToolCallIntent && ResidualIntentText != ""):
+// the residual is repaired and the caller merges the repaired calls with the
+// already-parsed ones. The all-failed case (zero calls) is the classic branch.
+//
+// It also carries a defensive fallback (Direction 4): when the residual intent
+// probe missed a residual but the deterministic parser still saw tool-call
+// syntax and produced zero calls (SawToolCallSyntax && len(Calls)==0), the raw
+// un-stripped text is handed to the repair layer. This closes the silent-leak
+// gap where any intent-detection false negative would emit bad tool-call code
+// as visible text.
+func maybeRepairToolCalls(parsed toolcall.ToolCallParseResult, rawText string, opts BuildOptions) ([]toolcall.ParsedToolCall, string) {
+	if opts.ToolCallRepair == nil {
+		return nil, ""
+	}
+	badCode := strings.TrimSpace(parsed.ResidualIntentText)
+	replaceable := parsed.SawToolCallIntent && badCode != ""
+	if !parsed.SawToolCallIntent {
+		// Direction 4 defensive path: intent detection can miss a residual
+		// (e.g. odd markdown fences confusing the residual probe), but the
+		// deterministic parser still saw tool-call syntax and produced zero
+		// calls. Rather than silently leaking the bad tool-call code as visible
+		// text, hand the raw (un-stripped) text to the repair layer. Only fires
+		// when syntax was seen AND nothing parsed, so well-formed / partial
+		// successes are unaffected.
+		if !parsed.SawToolCallSyntax || len(parsed.Calls) > 0 {
+			return nil, ""
+		}
+		badCode = strings.TrimSpace(rawText)
+		// The defensive path hands the whole raw text to the model; it is not a
+		// sourced-out residual region, so it must not be deducted from visible
+		// text.
+		replaceable = false
+	}
+	if badCode == "" {
+		return nil, ""
+	}
+	ctx := opts.ToolCallRepairCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	calls, ok := toolcall.RepairToolCallsWithLLM(ctx, badCode, opts.ToolCallRepair, opts.ToolMarker)
+	if !ok || len(calls) == 0 {
+		return nil, ""
+	}
+	normalized := toolcall.NormalizeParsedToolCallsForSchemas(calls, opts.ToolsRaw)
+	if !replaceable {
+		return normalized, ""
+	}
+	return normalized, badCode
+}
+
+// deductRepairedSource removes the bad tool-markup regions that a successful
+// LLM repair replaced from the visible text.
+//
+// Removal is span based rather than verbatim-residual based. The residual
+// handed to the repair layer is not necessarily a contiguous substring of the
+// visible text (a successfully parsed wrapper is cut out of its middle, leaving
+// head and tail) and it can carry legitimate prose next to the bad call, so
+// only the markup spans themselves are deducted and the prose survives. When no
+// markup span is locatable (for example an EPSE shell whose local name is
+// outside the markup name table), the residual is removed verbatim as a
+// fallback, which preserves the previous behaviour for contiguous residuals.
+func deductRepairedSource(text, residual string) string {
+	if text == "" {
+		return text
+	}
+	if spans := toolcall.BadToolMarkupSpans(text); len(spans) > 0 {
+		return toolcall.RemoveTextSpans(text, spans)
+	}
+	replaced := strings.TrimSpace(residual)
+	if replaced == "" {
+		return text
+	}
+	idx := strings.Index(text, replaced)
+	if idx < 0 {
+		return text
+	}
+	return strings.TrimSpace(text[:idx] + text[idx+len(replaced):])
+}
+
+// mergeRepairedToolCalls appends repaired residual calls to the already-parsed
+// calls, preserving parse order (existing calls first, repaired residual after)
+// and dropping repaired calls that duplicate an existing one. This implements
+// the phase1 §5.1 partial-success merge semantics: successful calls are kept,
+// the failed residual is repaired, and the two sets are combined.
+func mergeRepairedToolCalls(existing, repaired []toolcall.ParsedToolCall) []toolcall.ParsedToolCall {
+	if len(repaired) == 0 {
+		return existing
+	}
+	if len(existing) == 0 {
+		return repaired
+	}
+	merged := make([]toolcall.ParsedToolCall, 0, len(existing)+len(repaired))
+	merged = append(merged, existing...)
+	for _, rc := range repaired {
+		dup := false
+		for _, ec := range existing {
+			if toolCallsEqual(ec, rc) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			merged = append(merged, rc)
+		}
+	}
+	return merged
+}
+
+func toolCallsEqual(a, b toolcall.ParsedToolCall) bool {
+	if a.Name != b.Name {
+		return false
+	}
+	return reflect.DeepEqual(a.Input, b.Input)
 }
 
 type StreamSnapshot struct {
@@ -83,6 +227,7 @@ type StreamSnapshot struct {
 	VisibleThinking       string
 	DetectionThinking     string
 	ContentFilter         bool
+	UpstreamError         string
 	CitationLinks         map[int]string
 	ResponseMessageID     int
 	AlreadyEmittedCalls   bool
@@ -91,14 +236,28 @@ type StreamSnapshot struct {
 }
 
 func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
+	result.Text = toolcall.NormalizeMarkerText(result.Text, opts.ToolMarker)
+	result.Thinking = toolcall.NormalizeMarkerText(result.Thinking, opts.ToolMarker)
+	result.ToolDetectionThinking = toolcall.NormalizeMarkerText(result.ToolDetectionThinking, opts.ToolMarker)
+	// Shared final safety net: the collectors already cut a hallucinated
+	// `[Tool]:` role marker on the raw text channel, and this keeps the
+	// invariant for any path that builds a turn without going through them —
+	// the model's invented tool result and the monologue after it are never
+	// delivered as reply text.
+	result.Text, _ = sse.TrimToolRoleMarker(result.Text)
 	thinking := shared.CleanVisibleOutput(result.Thinking, opts.StripReferenceMarkers)
 	text := shared.CleanVisibleOutput(result.Text, opts.StripReferenceMarkers)
+	text = toolcall.StripDSMLResidue(text)
 	if opts.SearchEnabled {
 		text = shared.ReplaceCitationMarkersWithLinks(text, result.CitationLinks)
 	}
 
 	parsed := shared.DetectAssistantToolCalls(result.Text, text, result.Thinking, result.ToolDetectionThinking, opts.ToolNames)
 	calls := toolcall.NormalizeParsedToolCallsForSchemas(parsed.Calls, opts.ToolsRaw)
+	if repaired, replaced := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
+		calls = mergeRepairedToolCalls(calls, repaired)
+		text = deductRepairedSource(text, replaced)
+	}
 	parsed.Calls = calls
 
 	stopReason := StopReasonStop
@@ -110,19 +269,21 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	}
 
 	turn := Turn{
-		Model:             opts.Model,
-		Prompt:            opts.Prompt,
-		RawText:           result.Text,
-		RawThinking:       result.Thinking,
-		DetectionThinking: result.ToolDetectionThinking,
-		Text:              text,
-		Thinking:          thinking,
-		ToolCalls:         calls,
-		ParsedToolCalls:   parsed,
-		CitationLinks:     result.CitationLinks,
-		ContentFilter:     result.ContentFilter,
-		ResponseMessageID: result.ResponseMessageID,
-		StopReason:        stopReason,
+		Model:                  opts.Model,
+		Prompt:                 opts.Prompt,
+		RawText:                result.Text,
+		RawThinking:            result.Thinking,
+		DetectionThinking:      result.ToolDetectionThinking,
+		Text:                   text,
+		Thinking:               thinking,
+		ToolCalls:              calls,
+		ParsedToolCalls:        parsed,
+		CitationLinks:          result.CitationLinks,
+		ContentFilter:          result.ContentFilter,
+		UpstreamError:          result.UpstreamError,
+		ResponseMessageID:      result.ResponseMessageID,
+		FirstResponseMessageID: result.FirstResponseMessageID,
+		StopReason:             stopReason,
 	}
 	turn.Usage = BuildUsage(opts.Model, opts.Prompt, thinking, text, opts.RefFileTokens)
 	turn.Error = ValidateTurn(turn, opts.ToolChoice)
@@ -133,8 +294,19 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 }
 
 func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Turn {
+	snapshot.RawText = toolcall.NormalizeMarkerText(snapshot.RawText, opts.ToolMarker)
+	snapshot.RawThinking = toolcall.NormalizeMarkerText(snapshot.RawThinking, opts.ToolMarker)
+	snapshot.DetectionThinking = toolcall.NormalizeMarkerText(snapshot.DetectionThinking, opts.ToolMarker)
+	// Shared final safety net: the stream runtimes already cut a hallucinated
+	// `[Tool]:` role marker on the raw text channel (sse.ToolRoleMarkerGuard),
+	// and this keeps the invariant for any path that builds a turn without
+	// going through them — neither the invented tool result nor the monologue
+	// after it can reach the reply text or the finalize tool detection.
+	snapshot.RawText, _ = sse.TrimToolRoleMarker(snapshot.RawText)
+	snapshot.VisibleText, _ = sse.TrimToolRoleMarker(snapshot.VisibleText)
 	thinking := shared.CleanVisibleOutput(snapshot.VisibleThinking, opts.StripReferenceMarkers)
 	text := shared.CleanVisibleOutput(snapshot.VisibleText, opts.StripReferenceMarkers)
+	text = toolcall.StripDSMLResidue(text)
 	if opts.SearchEnabled {
 		text = shared.ReplaceCitationMarkersWithLinks(text, snapshot.CitationLinks)
 	}
@@ -145,6 +317,18 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		calls = snapshot.AdditionalToolCalls
 	}
 	calls = toolcall.NormalizeParsedToolCallsForSchemas(calls, opts.ToolsRaw)
+	// M4/M3: run the finalize LLM repair before delivering the final frame,
+	// unless structured tool calls were already streamed to the client (we
+	// cannot retract emitted tool_calls). When only bad text was streamed, the
+	// finalize replaces it with the repaired tool_calls (phase1 §5.3 / phase3
+	// §5.1): with tool_calls present, the caller emits no visible text. Partial
+	// success merges repaired residual calls into the parsed ones (phase1 §5.1).
+	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
+		if repaired, replaced := maybeRepairToolCalls(parsed, snapshot.RawText, opts); len(repaired) > 0 {
+			calls = mergeRepairedToolCalls(calls, repaired)
+			text = deductRepairedSource(text, replaced)
+		}
+	}
 	parsed.Calls = calls
 
 	stopReason := StopReasonStop
@@ -167,6 +351,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		ParsedToolCalls:   parsed,
 		CitationLinks:     snapshot.CitationLinks,
 		ContentFilter:     snapshot.ContentFilter,
+		UpstreamError:     snapshot.UpstreamError,
 		ResponseMessageID: snapshot.ResponseMessageID,
 		StopReason:        stopReason,
 	}
@@ -206,6 +391,13 @@ func ValidateTurn(turn Turn, policy promptcompat.ToolChoicePolicy) *OutputError 
 	if strings.TrimSpace(turn.Text) != "" {
 		return nil
 	}
+	if strings.TrimSpace(turn.UpstreamError) != "" {
+		return &OutputError{
+			Status:  http.StatusBadRequest,
+			Message: turn.UpstreamError,
+			Code:    "upstream_error",
+		}
+	}
 	status, message, code := UpstreamEmptyOutputDetail(turn.ContentFilter, turn.Text, turn.Thinking)
 	return &OutputError{Status: status, Message: message, Code: code}
 }
@@ -216,6 +408,9 @@ func UpstreamEmptyOutputDetail(contentFilter bool, text, thinking string) (int, 
 		return http.StatusBadRequest, "Upstream content filtered the response and returned no output.", "content_filter"
 	}
 	if strings.TrimSpace(thinking) != "" {
+		if shared.IsModerationBlockedThinking(thinking) {
+			return http.StatusBadRequest, "输入内容被审核拦截", "input_content_blocked"
+		}
 		return http.StatusTooManyRequests, "Upstream account hit a rate limit and returned reasoning without visible output.", "upstream_empty_output"
 	}
 	return http.StatusServiceUnavailable, "Upstream service is unavailable and returned no output.", "upstream_unavailable"
@@ -228,6 +423,7 @@ func ShouldRetryEmptyOutput(turn Turn, attempts, maxAttempts int) bool {
 	return attempts < maxAttempts &&
 		!turn.ContentFilter &&
 		len(turn.ToolCalls) == 0 &&
+		strings.TrimSpace(turn.UpstreamError) == "" &&
 		strings.TrimSpace(turn.Text) == ""
 }
 

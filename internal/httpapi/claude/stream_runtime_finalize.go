@@ -130,6 +130,9 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		StripReferenceMarkers: s.stripReferenceMarkers,
 		ToolNames:             s.toolNames,
 		ToolsRaw:              s.toolsRaw,
+		ToolCallRepair:        s.toolCallRepair,
+		ToolCallRepairCtx:     s.toolCallRepairCtx,
+		ToolMarker:            s.sieve.Marker,
 	})
 	finalText := turn.Text
 	outcome := assistantturn.FinalizeTurn(turn, assistantturn.FinalizeOptions{
@@ -137,6 +140,9 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 	})
 	if outcome.ShouldFail {
 		if deferEmptyOutput {
+			s.finalErrorStatus = outcome.Error.Status
+			s.finalErrorMessage = outcome.Error.Message
+			s.finalErrorCode = outcome.Error.Code
 			return false
 		}
 		s.ended = true

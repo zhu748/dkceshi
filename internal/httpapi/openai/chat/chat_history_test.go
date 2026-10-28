@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
+	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/promptcompat"
 )
 
@@ -64,7 +66,7 @@ func TestChatCompletionsNonStreamPersistsHistory(t *testing.T) {
 		ChatHistory: historyStore,
 	}
 
-	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"system","content":"be precise"},{"role":"user","content":"hi there"},{"role":"assistant","content":"previous answer"}],"stream":false}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"system","content":"be precise"},{"role":"user","content":"hi there"},{"role":"assistant","content":"previous answer"}],"stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -107,7 +109,7 @@ func TestChatHistoryNonStreamArchivesRawToolCallMarkup(t *testing.T) {
 	historyStore := newTestChatHistoryStore(t)
 	entry, err := historyStore.Start(chathistory.StartParams{
 		CallerID:  "caller:test",
-		Model:     "deepseek-v4-flash",
+		Model:     "deepseek-v4.1-flash",
 		UserInput: "call tool",
 	})
 	if err != nil {
@@ -125,7 +127,7 @@ func TestChatHistoryNonStreamArchivesRawToolCallMarkup(t *testing.T) {
 	h := &Handler{}
 	rec := httptest.NewRecorder()
 	resp := makeOpenAISSEHTTPResponse(`data: {"p":"response/content","v":`+strconv.Quote(rawToolCall)+`}`, `data: [DONE]`)
-	h.handleNonStream(rec, resp, "cid-tool-history", "deepseek-v4-flash", "prompt", 0, false, false, []string{"search"}, nil, session)
+	h.handleNonStream(rec, resp, "cid-tool-history", "deepseek-v4.1-flash", "prompt", 0, false, false, []string{"search"}, nil, session)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -146,7 +148,7 @@ func TestChatHistoryStreamArchivesRawToolCallMarkup(t *testing.T) {
 	historyStore := newTestChatHistoryStore(t)
 	entry, err := historyStore.Start(chathistory.StartParams{
 		CallerID:  "caller:test",
-		Model:     "deepseek-v4-flash",
+		Model:     "deepseek-v4.1-flash",
 		Stream:    true,
 		UserInput: "call tool",
 	})
@@ -166,7 +168,7 @@ func TestChatHistoryStreamArchivesRawToolCallMarkup(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	rec := httptest.NewRecorder()
 	resp := makeOpenAISSEHTTPResponse(`data: {"p":"response/content","v":`+strconv.Quote(rawToolCall)+`}`, `data: [DONE]`)
-	h.handleStream(rec, req, resp, "cid-stream-tool-history", "deepseek-v4-flash", "prompt", 0, false, false, []string{"search"}, nil, session)
+	h.handleStream(rec, req, resp, "cid-stream-tool-history", "deepseek-v4.1-flash", "prompt", 0, false, false, []string{"search"}, nil, session)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
@@ -196,7 +198,7 @@ func TestStartChatHistoryRecoversFromTransientWriteFailure(t *testing.T) {
 		AccountID: "acct:test",
 	}
 	stdReq := promptcompat.StandardRequest{
-		ResponseModel: "deepseek-v4-flash",
+		ResponseModel: "deepseek-v4.1-flash",
 		Stream:        true,
 		Messages: []any{
 			map[string]any{"role": "user", "content": "hello"},
@@ -254,7 +256,7 @@ func TestHandleStreamContextCancelledMarksHistoryStopped(t *testing.T) {
 	historyStore := newTestChatHistoryStore(t)
 	entry, err := historyStore.Start(chathistory.StartParams{
 		CallerID:  "caller:test",
-		Model:     "deepseek-v4-flash",
+		Model:     "deepseek-v4.1-flash",
 		Stream:    true,
 		UserInput: "hello",
 	})
@@ -276,7 +278,7 @@ func TestHandleStreamContextCancelledMarksHistoryStopped(t *testing.T) {
 	rec := httptest.NewRecorder()
 	resp := makeOpenAISSEHTTPResponse(`data: {"p":"response/content","v":"hello"}`, `data: [DONE]`)
 
-	h.handleStream(rec, req, resp, "cid-stop", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, session)
+	h.handleStream(rec, req, resp, "cid-stop", "deepseek-v4.1-flash", "prompt", 0, false, false, nil, nil, session)
 
 	snapshot, err := historyStore.Snapshot()
 	if err != nil {
@@ -303,7 +305,7 @@ func TestChatCompletionsRecordsAdminWebUISource(t *testing.T) {
 		ChatHistory: historyStore,
 	}
 
-	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi there"}],"stream":false}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi there"}],"stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -335,7 +337,7 @@ func TestChatCompletionsSkipsHistoryWhenDisabled(t *testing.T) {
 		ChatHistory: historyStore,
 	}
 
-	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi there"}],"stream":false}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi there"}],"stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -366,7 +368,7 @@ func TestChatCompletionsCurrentInputFilePersistsNeutralPrompt(t *testing.T) {
 		ChatHistory: historyStore,
 	}
 
-	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"system","content":"system instructions"},{"role":"user","content":"first user turn"},{"role":"assistant","content":"","reasoning_content":"hidden reasoning","tool_calls":[{"name":"search","arguments":{"query":"docs"}}]},{"role":"tool","name":"search","tool_call_id":"call-1","content":"tool result"},{"role":"user","content":"latest user turn"}],"stream":false}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"system","content":"system instructions"},{"role":"user","content":"first user turn"},{"role":"assistant","content":"","reasoning_content":"hidden reasoning","tool_calls":[{"name":"search","arguments":{"query":"docs"}}]},{"role":"tool","name":"search","tool_call_id":"call-1","content":"tool result"},{"role":"user","content":"latest user turn"}],"stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -391,16 +393,112 @@ func TestChatCompletionsCurrentInputFilePersistsNeutralPrompt(t *testing.T) {
 	if len(ds.uploadCalls) != 1 {
 		t.Fatalf("expected current input upload to happen, got %d", len(ds.uploadCalls))
 	}
-	if !strings.HasSuffix(ds.uploadCalls[0].Filename, ".txt") {
-			t.Fatalf("expected first upload filename to end with .txt, got %q", ds.uploadCalls[0].Filename)
-		}
+	if ds.uploadCalls[0].Filename != "HISTORY.txt" {
+		t.Fatalf("expected HISTORY.txt upload, got %q", ds.uploadCalls[0].Filename)
+	}
 	if full.HistoryText != string(ds.uploadCalls[0].Data) {
 		t.Fatalf("expected uploaded current input file to be persisted in history text")
 	}
-	if len(full.Messages) != 1 {
-		t.Fatalf("expected continuation prompt to be the only persisted message, got %#v", full.Messages)
+	if len(full.Messages) != 2 {
+		t.Fatalf("expected continuation prompt plus the inline latest user turn, got %#v", full.Messages)
 	}
-	if !strings.Contains(full.Messages[0].Content, "The attached file holds the earlier conversation.") {
-		t.Fatalf("expected continuation prompt to be persisted, got %#v", full.Messages[0])
+	if full.Messages[0].Role != "system" || !strings.Contains(full.Messages[0].Content, "继续会话") {
+		t.Fatalf("expected continuation prompt to be persisted as a system turn, got %#v", full.Messages[0])
+	}
+	if full.Messages[1].Role != "user" || full.Messages[1].Content != "latest user turn" {
+		t.Fatalf("expected inline latest user turn to be persisted, got %#v", full.Messages[1])
+	}
+	if full.UserInput != "latest user turn" {
+		t.Fatalf("expected archived user input to be the inline latest user turn, got %q", full.UserInput)
+	}
+}
+
+type createSessionFailDSStub struct{}
+
+func (createSessionFailDSStub) CreateSession(_ context.Context, _ *auth.RequestAuth, _ int) (string, error) {
+	return "", errors.New("create session failed")
+}
+
+func (createSessionFailDSStub) GetPow(_ context.Context, _ *auth.RequestAuth, _ int) (string, error) {
+	return "pow", nil
+}
+
+func (createSessionFailDSStub) UploadFile(_ context.Context, _ *auth.RequestAuth, _ dsclient.UploadFileRequest, _ int) (*dsclient.UploadFileResult, error) {
+	return &dsclient.UploadFileResult{ID: "file-id", Filename: "file.txt", Bytes: 1, Status: "uploaded"}, nil
+}
+
+func (createSessionFailDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
+	return nil, errors.New("unexpected CallCompletion")
+}
+
+func (createSessionFailDSStub) StopStream(_ context.Context, _ *auth.RequestAuth, _ string, _ int) error {
+	return nil
+}
+
+func (createSessionFailDSStub) FireCompletionAndStop(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string) (int, error) {
+	return 0, nil
+}
+
+func (createSessionFailDSStub) DeleteSessionForToken(_ context.Context, _ string, _ string) (*dsclient.DeleteSessionResult, error) {
+	return &dsclient.DeleteSessionResult{Success: true}, nil
+}
+
+func (createSessionFailDSStub) DeleteAllSessionsForToken(_ context.Context, _ string) error {
+	return nil
+}
+
+func TestChatCompletionsDirectTokenErrorDiscardsHistory(t *testing.T) {
+	historyStore := newTestChatHistoryStore(t)
+	h := &Handler{
+		Store:       mockOpenAIConfig{},
+		Auth:        streamStatusAuthStub{},
+		DS:          createSessionFailDSStub{},
+		ChatHistory: historyStore,
+	}
+
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi there"}],"stream":false}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer direct-token")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ChatCompletions(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	snapshot, err := historyStore.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+	if len(snapshot.Items) != 0 {
+		t.Fatalf("expected direct-token auth failure to leave no history, got %#v", snapshot.Items)
+	}
+}
+
+func TestChatCompletionsStreamDirectTokenErrorDiscardsHistory(t *testing.T) {
+	historyStore := newTestChatHistoryStore(t)
+	h := &Handler{
+		Store:       mockOpenAIConfig{},
+		Auth:        streamStatusAuthStub{},
+		DS:          createSessionFailDSStub{},
+		ChatHistory: historyStore,
+	}
+
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi there"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer direct-token")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ChatCompletions(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	snapshot, err := historyStore.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+	if len(snapshot.Items) != 0 {
+		t.Fatalf("expected direct-token auth failure to leave no stream history, got %#v", snapshot.Items)
 	}
 }

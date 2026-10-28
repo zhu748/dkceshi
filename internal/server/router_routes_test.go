@@ -16,6 +16,7 @@ func TestAPIRoutesRemainRegistered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewApp() error: %v", err)
 	}
+	t.Cleanup(app.Close)
 	routes, ok := app.Router.(chi.Routes)
 	if !ok {
 		t.Fatalf("app router does not expose chi routes: %T", app.Router)

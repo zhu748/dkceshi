@@ -61,6 +61,7 @@ func (c *Client) callContinue(ctx context.Context, a *auth.RequestAuth, sessionI
 	if strings.TrimSpace(sessionID) == "" || responseMessageID <= 0 {
 		return nil, errors.New("missing continue identifiers")
 	}
+	ctx = auth.WithAuth(ctx, a)
 	clients := c.requestClientsForAuth(ctx, a)
 	headers := c.authHeadersForAuth(a)
 	headers["x-ds-pow-response"] = powResp

@@ -38,10 +38,10 @@ func TestNormalizeOpenAIMessagesForPrompt_AssistantToolCallsAndToolResult(t *tes
 		t.Fatalf("expected 4 normalized messages with assistant tool history preserved, got %d", len(normalized))
 	}
 	assistantContent, _ := normalized[2]["content"].(string)
-	if !strings.Contains(assistantContent, "<|DSML|tool_calls>") {
-		t.Fatalf("assistant tool history should be preserved in DSML form, got %q", assistantContent)
+	if !strings.Contains(assistantContent, "<|EPSE|tool_calls>") {
+		t.Fatalf("assistant tool history should be preserved in EPSE form, got %q", assistantContent)
 	}
-	if !strings.Contains(assistantContent, `<|DSML|invoke name="get_weather">`) {
+	if !strings.Contains(assistantContent, `<|EPSE|invoke name="get_weather">`) {
 		t.Fatalf("expected tool name in preserved history, got %q", assistantContent)
 	}
 	if !strings.Contains(normalized[3]["content"].(string), `"temp":18`) {
@@ -49,7 +49,7 @@ func TestNormalizeOpenAIMessagesForPrompt_AssistantToolCallsAndToolResult(t *tes
 	}
 
 	prompt := util.MessagesPrepare(normalized)
-	if !strings.Contains(prompt, "<|DSML|tool_calls>") {
+	if !strings.Contains(prompt, "<|EPSE|tool_calls>") {
 		t.Fatalf("expected preserved assistant tool history in prompt: %q", prompt)
 	}
 }
@@ -177,10 +177,10 @@ func TestNormalizeOpenAIMessagesForPrompt_AssistantMultipleToolCallsRemainSepara
 		t.Fatalf("expected assistant tool_call-only message preserved, got %#v", normalized)
 	}
 	content, _ := normalized[0]["content"].(string)
-	if strings.Count(content, "<|DSML|invoke name=") != 2 {
+	if strings.Count(content, "<|EPSE|invoke name=") != 2 {
 		t.Fatalf("expected two preserved tool call blocks, got %q", content)
 	}
-	if !strings.Contains(content, `<|DSML|invoke name="search_web">`) || !strings.Contains(content, `<|DSML|invoke name="eval_javascript">`) {
+	if !strings.Contains(content, `<|EPSE|invoke name="search_web">`) || !strings.Contains(content, `<|EPSE|invoke name="eval_javascript">`) {
 		t.Fatalf("expected both tool names in preserved history, got %q", content)
 	}
 }
@@ -258,7 +258,7 @@ func TestNormalizeOpenAIMessagesForPrompt_AssistantNilContentDoesNotInjectNullLi
 	if strings.Contains(content, "null") {
 		t.Fatalf("expected no null literal injection, got %q", content)
 	}
-	if !strings.Contains(content, "<|DSML|tool_calls>") {
+	if !strings.Contains(content, "<|EPSE|tool_calls>") {
 		t.Fatalf("expected assistant tool history in normalized content, got %q", content)
 	}
 }
@@ -267,12 +267,12 @@ func TestNormalizeOpenAIMessagesForPrompt_CanonicalizesStandaloneAssistantToolMa
 	raw := []any{
 		map[string]any{
 			"role": "assistant",
-			"content": `<！DSML！tool_calls>
-  <！DSML！invoke name=“Bash”>
-  <！DSML！parameter name=“command”><！[CDATA[lsof -i :4321 -t]]><！/DSML！parameter>
-  <！DSML！parameter name=“description”><！[CDATA[Verify port 4321 is free]]><！/DSML！parameter>
-  <！/DSML！invoke>
-  <！/DSML！tool_calls>`,
+			"content": `<！EPSE！tool_calls>
+  <！EPSE！invoke name=“Bash”>
+  <！EPSE！parameter name=“command”><！[CDATA[lsof -i :4321 -t]]><！/EPSE！parameter>
+  <！EPSE！parameter name=“description”><！[CDATA[Verify port 4321 is free]]><！/EPSE！parameter>
+  <！/EPSE！invoke>
+  <！/EPSE！tool_calls>`,
 		},
 	}
 
@@ -282,17 +282,17 @@ func TestNormalizeOpenAIMessagesForPrompt_CanonicalizesStandaloneAssistantToolMa
 	}
 	content, _ := normalized[0]["content"].(string)
 	for _, want := range []string{
-		"<|DSML|tool_calls>",
-		`<|DSML|invoke name="Bash">`,
-		`<|DSML|parameter name="command"><![CDATA[lsof -i :4321 -t]]></|DSML|parameter>`,
-		`<|DSML|parameter name="description"><![CDATA[Verify port 4321 is free]]></|DSML|parameter>`,
-		"</|DSML|tool_calls>",
+		"<|EPSE|tool_calls>",
+		`<|EPSE|invoke name="Bash">`,
+		`<|EPSE|parameter name="command"><![CDATA[lsof -i :4321 -t]]></|EPSE|parameter>`,
+		`<|EPSE|parameter name="description"><![CDATA[Verify port 4321 is free]]></|EPSE|parameter>`,
+		"</|EPSE|tool_calls>",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("expected canonicalized assistant tool markup to contain %q, got %q", want, content)
 		}
 	}
-	for _, bad := range []string{"<！DSML", "！tool_calls", "“", "”"} {
+	for _, bad := range []string{"<！EPSE", "！tool_calls", "“", "”"} {
 		if strings.Contains(content, bad) {
 			t.Fatalf("expected malformed assistant tool markup to be removed from prompt history, found %q in %q", bad, content)
 		}

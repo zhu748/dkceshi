@@ -16,6 +16,7 @@ import (
 	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/util"
 )
 
 const maxInlineFilesPerRequest = 50
@@ -41,9 +42,11 @@ func (e *inlineFileUploadError) Error() string {
 
 type inlineUploadState struct {
 	ctx             context.Context
-	handler         *Handler
+	uploader        FileUploader
 	auth            *auth.RequestAuth
 	modelType       string
+	thinkingEnabled bool
+	preserveImage   bool
 	uploadedByID    map[string]string
 	uploadCount     int
 	inlineFileBytes int
@@ -60,22 +63,45 @@ func (h *Handler) PreprocessInlineFileInputs(ctx context.Context, a *auth.Reques
 	if h == nil || h.DS == nil || len(req) == 0 {
 		return nil
 	}
-	modelType := "default"
-	if requestedModel, ok := req["model"].(string); ok {
-		if resolvedModel, ok := config.ResolveModel(h.Store, requestedModel); ok {
-			if resolvedType, ok := config.GetModelType(resolvedModel); ok {
-				modelType = resolvedType
-			}
-		}
+	model := "deepseek-v4.1-flash"
+	if requested, ok := req["model"].(string); ok && strings.TrimSpace(requested) != "" {
+		model = requested
+	}
+	resolved, ok := config.ResolveModel(h.Store, model)
+	if !ok {
+		resolved = model
+	}
+	defaultThinking, _, _ := config.GetModelConfig(resolved)
+	thinking := util.ResolveThinkingEnabled(req, defaultThinking) && !config.IsNoThinkingModel(resolved)
+	return PreprocessInlineFiles(ctx, a, req, h.DS, resolved, thinking)
+}
+
+// FileUploader is the shared upload boundary for every public protocol.
+type FileUploader interface {
+	UploadFile(context.Context, *auth.RequestAuth, dsclient.UploadFileRequest, int) (*dsclient.UploadFileResult, error)
+}
+
+func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[string]any, uploader FileUploader, resolvedModel string, thinkingEnabled bool) error {
+	if uploader == nil || len(req) == 0 {
+		return nil
+	}
+	if len(promptcompat.CollectOpenAIRefFileIDs(req)) > 0 {
+		pinFileAccount(a)
+	}
+	modelType, ok := config.GetModelType(resolvedModel)
+	if !ok {
+		modelType = "default"
 	}
 	state := &inlineUploadState{
-		ctx:          ctx,
-		handler:      h,
-		auth:         a,
-		modelType:    modelType,
-		uploadedByID: map[string]string{},
+		ctx:             ctx,
+		uploader:        uploader,
+		auth:            a,
+		modelType:       modelType,
+		thinkingEnabled: thinkingEnabled,
+		preserveImage:   req["preserve_image"] == true,
+		uploadedByID:    map[string]string{},
 	}
-	for _, key := range []string{"messages", "input", "attachments"} {
+	for _, key := range []string{"messages", "input", "attachments", "contents"} {
 		if raw, ok := req[key]; ok {
 			updated, err := state.walk(raw)
 			if err != nil {
@@ -94,19 +120,7 @@ func (h *Handler) PreprocessInlineFileInputs(ctx context.Context, a *auth.Reques
 }
 
 func WriteInlineFileError(w http.ResponseWriter, err error) {
-	inlineErr, ok := err.(*inlineFileUploadError)
-	if !ok || inlineErr == nil {
-		shared.WriteOpenAIError(w, http.StatusInternalServerError, "Failed to process file input.")
-		return
-	}
-	status := inlineErr.status
-	if status == 0 {
-		status = http.StatusInternalServerError
-	}
-	message := strings.TrimSpace(inlineErr.message)
-	if message == "" {
-		message = "Failed to process file input."
-	}
+	status, message := InlineFileErrorDetails(err)
 	shared.WriteOpenAIError(w, status, message)
 }
 
@@ -126,7 +140,7 @@ func (s *inlineUploadState) walk(raw any) (any, error) {
 		if replacement, replaced, err := s.tryUploadBlock(x); replaced || err != nil {
 			return replacement, err
 		}
-		for _, key := range []string{"messages", "input", "attachments", "content", "files", "items", "data", "source", "file", "image_url"} {
+		for _, key := range []string{"messages", "input", "attachments", "content", "files", "items", "data", "source", "file", "image_url", "contents", "parts"} {
 			if nested, ok := x[key]; ok {
 				updated, err := s.walk(nested)
 				if err != nil {
@@ -155,7 +169,19 @@ func (s *inlineUploadState) tryUploadBlock(block map[string]any) (map[string]any
 	}
 	fileID, err := s.uploadInlineFile(decoded)
 	if err != nil {
-		return nil, true, &inlineFileUploadError{status: http.StatusInternalServerError, message: "Failed to upload inline file.", err: err}
+		status := http.StatusInternalServerError
+		message := "Failed to upload inline file."
+		if dsclient.IsMutedError(err) {
+			status = http.StatusForbidden
+			message = "Account is muted by upstream."
+		} else if dsclient.IsManagedUnauthorizedError(err) {
+			status = http.StatusUnauthorized
+			message = "Account token is invalid. Please re-login the account in admin."
+		} else if dsclient.IsDirectUnauthorizedError(err) {
+			status = http.StatusUnauthorized
+			message = "Invalid token. If this should be a DS2API key, add it to config.keys first."
+		}
+		return nil, true, &inlineFileUploadError{status: status, message: message, err: err}
 	}
 	s.uploadCount++
 	s.inlineFileBytes += len(decoded.Data)
@@ -182,14 +208,20 @@ func (s *inlineUploadState) uploadInlineFile(file inlineDecodedFile) (string, er
 	if contentType == "" {
 		contentType = http.DetectContentType(file.Data)
 	}
-	result, err := s.handler.DS.UploadFile(s.ctx, s.auth, dsclient.UploadFileRequest{
-		Filename:    file.Filename,
-		ContentType: contentType,
-		ModelType:   s.modelType,
-		Data:        file.Data,
+	pinFileAccount(s.auth)
+	result, err := s.uploader.UploadFile(s.ctx, s.auth, dsclient.UploadFileRequest{
+		Filename:        file.Filename,
+		ContentType:     contentType,
+		ModelType:       s.modelType,
+		ThinkingEnabled: s.thinkingEnabled,
+		PreserveImage:   s.preserveImage,
+		Data:            file.Data,
 	}, 3)
 	if err != nil {
 		return "", err
+	}
+	if result == nil {
+		return "", fmt.Errorf("upload succeeded without file metadata")
 	}
 	fileID := strings.TrimSpace(result.ID)
 	if fileID == "" {
@@ -217,6 +249,9 @@ func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool,
 		return decoded, true, nil
 	}
 	blockType := strings.ToLower(strings.TrimSpace(shared.AsString(block["type"])))
+	if decoded, matched, err := decodeNativeInlineBlock(block, blockType); matched || err != nil {
+		return decoded, matched, err
+	}
 	if raw, matched := extractInlineImageDataURL(block); matched {
 		data, contentType, err := decodeInlinePayload(raw, contentTypeFromMap(block))
 		if err != nil {
@@ -399,4 +434,13 @@ func stringsToAnySlice(items []string) []any {
 		return nil
 	}
 	return out
+}
+
+// Uploaded IDs are installation/account scoped. Reuse the resolver's existing
+// explicit-target constraint so a later PoW/retry cannot mix files from two
+// accounts in one completion. Generated HISTORY/TOOLS use their rebuild path.
+func pinFileAccount(a *auth.RequestAuth) {
+	if a != nil && a.UseConfigToken && strings.TrimSpace(a.TargetAccount) == "" {
+		a.TargetAccount = a.AccountID
+	}
 }

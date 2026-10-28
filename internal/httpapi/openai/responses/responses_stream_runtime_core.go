@@ -1,6 +1,8 @@
 package responses
 
 import (
+	"context"
+
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/toolcall"
 	"net/http"
@@ -39,30 +41,43 @@ type responsesStreamRuntime struct {
 	toolCallsEmitted     bool
 	toolCallsDoneEmitted bool
 
-	sieve             toolstream.State
-	accumulator       shared.StreamAccumulator
-	visibleText       strings.Builder
-	responseMessageID int
-	streamToolCallIDs map[int]string
-	functionItemIDs   map[int]string
-	functionOutputIDs map[int]int
-	functionArgs      map[int]string
-	functionDone      map[int]bool
-	functionAdded     map[int]bool
-	functionNames     map[int]string
-	messageItemID     string
-	messageOutputID   int
-	nextOutputID      int
-	messageAdded      bool
-	messagePartAdded  bool
-	sequence          int
-	failed            bool
-	finalErrorStatus  int
-	finalErrorMessage string
-	finalErrorCode    string
+	sieve                toolstream.State
+	accumulator          shared.StreamAccumulator
+	visibleText          strings.Builder
+	visibleReasoning     strings.Builder
+	responseMessageID    int
+	upstreamErr          string
+	streamToolCallIDs    map[int]string
+	functionItemIDs      map[int]string
+	functionOutputIDs    map[int]int
+	functionArgs         map[int]string
+	functionDone         map[int]bool
+	functionAdded        map[int]bool
+	functionNames        map[int]string
+	messageItemID        string
+	messageOutputID      int
+	nextOutputID         int
+	messageAdded         bool
+	messagePartAdded     bool
+	reasoningItemID      string
+	reasoningOutputIndex int
+	reasoningItemAdded   bool
+	reasoningPartAdded   bool
+	reasoningClosed      bool
+	sequence             int
+	failed               bool
+	finalErrorStatus     int
+	finalErrorMessage    string
+	finalErrorCode       string
 
 	persistResponse func(obj map[string]any)
 	history         *responsehistory.Session
+
+	// toolCallRepair / toolCallRepairCtx wire the phase-3 finalize-only LLM
+	// tool-call repair into the streaming finalize path (M4). Nil unless the
+	// handler enabled repair; the per-chunk sieve never receives them.
+	toolCallRepair    toolcall.ToolCallRepairInvoker
+	toolCallRepairCtx context.Context
 }
 
 func newResponsesStreamRuntime(
@@ -106,10 +121,12 @@ func newResponsesStreamRuntime(
 		functionAdded:         map[int]bool{},
 		functionNames:         map[int]string{},
 		messageOutputID:       -1,
+		reasoningOutputIndex:  -1,
 		toolChoice:            toolChoice,
 		traceID:               traceID,
 		persistResponse:       persistResponse,
 		history:               history,
+		visibleReasoning:      strings.Builder{},
 		accumulator: shared.StreamAccumulator{
 			ThinkingEnabled:       thinkingEnabled,
 			SearchEnabled:         searchEnabled,
@@ -175,6 +192,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		VisibleThinking:       finalThinking,
 		DetectionThinking:     finalToolDetectionThinking,
 		ContentFilter:         finishReason == "content_filter",
+		UpstreamError:         s.upstreamErr,
 		ResponseMessageID:     s.responseMessageID,
 		AlreadyEmittedCalls:   s.toolCallsEmitted,
 		AlreadyEmittedToolRaw: s.toolCallsDoneEmitted,
@@ -187,6 +205,9 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		ToolNames:             s.toolNames,
 		ToolsRaw:              s.toolsRaw,
 		ToolChoice:            s.toolChoice,
+		ToolCallRepair:        s.toolCallRepair,
+		ToolCallRepairCtx:     s.toolCallRepairCtx,
+		ToolMarker:            s.sieve.Marker,
 	})
 	textParsed := turn.ParsedToolCalls
 	detected := turn.ToolCalls
@@ -199,6 +220,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		}
 	}
 
+	s.closeReasoningItem()
 	s.closeMessageItem()
 
 	outcome := assistantturn.FinalizeTurn(turn, assistantturn.FinalizeOptions{
@@ -259,7 +281,11 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 	if parsed.ResponseMessageID > 0 {
 		s.responseMessageID = parsed.ResponseMessageID
 	}
-	if parsed.ContentFilter || parsed.ErrorMessage != "" {
+	if parsed.ErrorMessage != "" {
+		s.upstreamErr = parsed.ErrorMessage
+		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReason("upstream_error")}
+	}
+	if parsed.ContentFilter {
 		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReason("content_filter")}
 	}
 	if parsed.Stop {
@@ -294,5 +320,7 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 			responsehistory.TextForArchive(s.accumulator.RawText.String(), s.accumulator.Text.String()),
 		)
 	}
-	return streamengine.ParsedDecision{ContentSeen: accumulated.ContentSeen}
+	// 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）在此统一收口：
+	// 结束读取，保留已生成内容走正常收尾。
+	return streamengine.StopForCut(accumulated.Cut, "responses", "responses", accumulated.ContentSeen)
 }

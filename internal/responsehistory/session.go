@@ -12,19 +12,29 @@ import (
 	"ds2api/internal/config"
 	"ds2api/internal/prompt"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/usagestats"
 )
 
 type Session struct {
 	store       *chathistory.Store
+	usage       *usagestats.Store
 	entryID     string
 	startedAt   time.Time
 	lastPersist time.Time
+	recordModel string
 	startParams chathistory.StartParams
 	disabled    bool
 }
 
+const progressPersistInterval = time.Second
+
+func progressPersistDue(now, last time.Time) bool {
+	return last.IsZero() || now.Sub(last) >= progressPersistInterval
+}
+
 type StartParams struct {
 	Store    *chathistory.Store
+	Usage    *usagestats.Store
 	Request  *http.Request
 	Auth     *auth.RequestAuth
 	Surface  string
@@ -32,14 +42,12 @@ type StartParams struct {
 }
 
 func Start(params StartParams) *Session {
-	if params.Store == nil || params.Request == nil || params.Auth == nil {
-		return nil
-	}
-	if !params.Store.Enabled() || !shouldCapture(params.Request) {
+	if params.Request == nil || params.Auth == nil || !shouldCapture(params.Request) {
 		return nil
 	}
 	startParams := chathistory.StartParams{
 		CallerID:    strings.TrimSpace(params.Auth.CallerID),
+		UserAgent:   strings.TrimSpace(params.Auth.UserAgent),
 		AccountID:   strings.TrimSpace(params.Auth.AccountID),
 		Surface:     strings.TrimSpace(params.Surface),
 		Model:       strings.TrimSpace(params.Standard.ResponseModel),
@@ -49,18 +57,33 @@ func Start(params StartParams) *Session {
 		HistoryText: params.Standard.HistoryText,
 		FinalPrompt: params.Standard.FinalPrompt,
 	}
-	entry, err := params.Store.Start(startParams)
 	session := &Session{
 		store:       params.Store,
-		entryID:     entry.ID,
+		usage:       params.Usage,
 		startedAt:   time.Now(),
 		lastPersist: time.Now(),
+		recordModel: recordModelForUsage(params.Standard),
 		startParams: startParams,
+	}
+	historyEnabled := params.Store != nil && params.Store.Enabled()
+	if !historyEnabled {
+		if params.Usage == nil {
+			return nil
+		}
+		return session
+	}
+	entry, err := params.Store.Start(startParams)
+	if entry.ID != "" {
+		session.entryID = entry.ID
 	}
 	if err != nil {
 		if entry.ID == "" {
 			config.Logger.Warn("[response_history] start failed", "surface", startParams.Surface, "error", err)
-			return nil
+			session.store = nil
+			if session.usage == nil {
+				return nil
+			}
+			return session
 		}
 		config.Logger.Warn("[response_history] start persisted in memory after write failure", "surface", startParams.Surface, "error", err)
 	}
@@ -88,6 +111,23 @@ func ExtractSingleUserInput(messages []any) string {
 		}
 		role := strings.ToLower(strings.TrimSpace(asString(msg["role"])))
 		if role != "user" {
+			continue
+		}
+		if normalized := strings.TrimSpace(prompt.NormalizeContent(msg["content"])); normalized != "" {
+			return normalized
+		}
+	}
+	// The current-input-file continuation path replaces every turn with a
+	// single system-role placeholder, so there is no user turn left to label
+	// the archived entry. Fall back to the last non-empty turn instead of
+	// persisting an empty title.
+	return lastNonEmptyMessageContent(messages)
+}
+
+func lastNonEmptyMessageContent(messages []any) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg, ok := messages[i].(map[string]any)
+		if !ok {
 			continue
 		}
 		if normalized := strings.TrimSpace(prompt.NormalizeContent(msg["content"])); normalized != "" {
@@ -122,7 +162,7 @@ func (s *Session) Progress(thinking, content string) {
 		return
 	}
 	now := time.Now()
-	if now.Sub(s.lastPersist) < 250*time.Millisecond {
+	if !progressPersistDue(now, s.lastPersist) {
 		return
 	}
 	s.lastPersist = now
@@ -135,8 +175,23 @@ func (s *Session) Progress(thinking, content string) {
 	})
 }
 
+func recordModelForUsage(standard promptcompat.StandardRequest) string {
+	model := strings.TrimSpace(standard.ResolvedModel)
+	if model == "" {
+		model = strings.TrimSpace(standard.ResponseModel)
+	}
+	if model == "" {
+		return "unknown"
+	}
+	return model
+}
+
 func (s *Session) Success(statusCode int, thinking, content, finishReason string, usage map[string]any) {
-	if s == nil || s.store == nil || s.disabled {
+	if s == nil {
+		return
+	}
+	s.recordUsage(usage)
+	if s.store == nil || s.disabled {
 		return
 	}
 	s.persistUpdate(chathistory.UpdateParams{
@@ -149,6 +204,15 @@ func (s *Session) Success(statusCode int, thinking, content, finishReason string
 		Usage:            usage,
 		Completed:        true,
 	})
+}
+
+// recordUsage 把一次请求的 Token 用量计入全局账本。即使聊天历史关闭，
+// 只要注入了 usage store 就会生效。
+func (s *Session) recordUsage(usage map[string]any) {
+	if s == nil || s.usage == nil {
+		return
+	}
+	s.usage.Record(s.recordModel, s.startParams.CallerID, usage, s.startedAt)
 }
 
 func (s *Session) Error(statusCode int, message, finishReason, thinking, content string) {
@@ -165,6 +229,17 @@ func (s *Session) Error(statusCode int, message, finishReason, thinking, content
 		FinishReason:     finishReason,
 		Completed:        true,
 	})
+}
+
+func (s *Session) Discard() {
+	if s == nil || s.store == nil || s.disabled {
+		return
+	}
+	if err := s.store.Delete(s.entryID); err != nil {
+		if !isMissingError(err) && !errors.Is(err, chathistory.ErrDisabled) {
+			config.Logger.Warn("[response_history] discard failed", "surface", s.startParams.Surface, "error", err)
+		}
+	}
 }
 
 func (s *Session) SuccessTurn(statusCode int, turn assistantturn.Turn, usage map[string]any) {

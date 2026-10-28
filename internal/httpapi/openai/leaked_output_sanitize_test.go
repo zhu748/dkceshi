@@ -68,11 +68,11 @@ func TestSanitizeLeakedOutputRemovesDanglingThinkBlock(t *testing.T) {
 	}
 }
 
-func TestSanitizeLeakedOutputRemovesCompleteDSMLToolCallWrapper(t *testing.T) {
-	raw := "前置文本\n<|DSML|tool_calls>\n<|DSML|invoke name=\"Bash\">\n<|DSML|parameter name=\"command\"></|DSML|parameter>\n</|DSML|invoke>\n</|DSML|tool_calls>\n后置文本"
+func TestSanitizeLeakedOutputRemovesCompleteEPSEToolCallWrapper(t *testing.T) {
+	raw := "前置文本\n<|EPSE|tool_calls>\n<|EPSE|invoke name=\"Bash\">\n<|EPSE|parameter name=\"command\"></|EPSE|parameter>\n</|EPSE|invoke>\n</|EPSE|tool_calls>\n后置文本"
 	got := sanitizeLeakedOutput(raw)
 	if got != "前置文本\n\n后置文本" {
-		t.Fatalf("unexpected sanitize result for leaked dsml wrapper: %q", got)
+		t.Fatalf("unexpected sanitize result for leaked epse wrapper: %q", got)
 	}
 }
 

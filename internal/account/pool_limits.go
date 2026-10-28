@@ -13,14 +13,14 @@ func (p *Pool) ApplyRuntimeLimits(maxInflightPerAccount, maxQueueSize, globalMax
 	if maxQueueSize < 0 {
 		maxQueueSize = 0
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if globalMaxInflight <= 0 {
-		globalMaxInflight = maxInflightPerAccount * len(p.store.Accounts())
+		globalMaxInflight = maxInflightPerAccount * len(p.queue)
 		if globalMaxInflight <= 0 {
 			globalMaxInflight = maxInflightPerAccount
 		}
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.maxInflightPerAccount = maxInflightPerAccount
 	p.maxQueueSize = maxQueueSize
 	p.globalMaxInflight = globalMaxInflight
@@ -61,6 +61,12 @@ func maxQueueFromEnv(defaultSize int) int {
 
 func (p *Pool) canAcquireIDLocked(accountID string) bool {
 	if accountID == "" {
+		return false
+	}
+	if p.isRateLimitedLocked(accountID) {
+		return false
+	}
+	if p.isDailyLimitedLocked(accountID) {
 		return false
 	}
 	if p.inUse[accountID] >= p.maxInflightPerAccount {

@@ -16,7 +16,13 @@ func (routeAliasAuthStub) Determine(_ *http.Request) (*auth.RequestAuth, error) 
 	return nil, auth.ErrUnauthorized
 }
 
+func (routeAliasAuthStub) CredentialFlagForRequest(_ *http.Request, _ string) bool { return false }
+
 func (routeAliasAuthStub) Release(_ *auth.RequestAuth) {}
+
+func (routeAliasAuthStub) SetAccountMutedUntil(_ *auth.RequestAuth, _ float64) {}
+
+func (routeAliasAuthStub) SetAccountBanned(_ *auth.RequestAuth, _ string) {}
 
 func TestClaudeRouteAliasesDoNot404(t *testing.T) {
 	h := &Handler{

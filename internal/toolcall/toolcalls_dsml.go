@@ -4,19 +4,19 @@ import (
 	"strings"
 )
 
-func normalizeDSMLToolCallMarkup(text string) (string, bool) {
+func normalizeEPSEToolCallMarkup(text string) (string, bool) {
 	if text == "" {
 		return "", true
 	}
 	canonicalized := canonicalizeToolCallCandidateSpans(text)
-	hasDSMLLikeMarkup, hasCanonicalMarkup := ContainsToolMarkupSyntaxOutsideIgnored(canonicalized)
-	if !hasDSMLLikeMarkup && !hasCanonicalMarkup {
+	hasEPSELikeMarkup, hasCanonicalMarkup := ContainsToolMarkupSyntaxOutsideIgnored(canonicalized)
+	if !hasEPSELikeMarkup && !hasCanonicalMarkup {
 		return canonicalized, true
 	}
-	return rewriteDSMLToolMarkupOutsideIgnored(canonicalized), true
+	return rewriteEPSEToolMarkupOutsideIgnored(canonicalized), true
 }
 
-func rewriteDSMLToolMarkupOutsideIgnored(text string) string {
+func rewriteEPSEToolMarkupOutsideIgnored(text string) string {
 	if text == "" {
 		return ""
 	}

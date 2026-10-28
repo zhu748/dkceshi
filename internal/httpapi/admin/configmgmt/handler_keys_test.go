@@ -74,3 +74,45 @@ func TestKeyEndpointsPreserveStructuredMetadata(t *testing.T) {
 		t.Fatalf("unexpected legacy keys after delete: %#v", snap.Keys)
 	}
 }
+
+func TestKeyEndpointsPersistMetadata(t *testing.T) {
+	h := newAdminTestHandler(t, `{
+		"api_keys":[{"key":"k1","name":"primary","remark":"prod"}]
+	}`)
+
+	r := chi.NewRouter()
+	r.Post("/admin/keys", h.addKey)
+	r.Put("/admin/keys/{key}", h.updateKey)
+
+	addBody := []byte(`{"key":"k2","name":"secondary","remark":"staging"}`)
+	addReq := httptest.NewRequest(http.MethodPost, "/admin/keys", bytes.NewReader(addBody))
+	addRec := httptest.NewRecorder()
+	r.ServeHTTP(addRec, addReq)
+	if addRec.Code != http.StatusOK {
+		t.Fatalf("add status=%d body=%s", addRec.Code, addRec.Body.String())
+	}
+
+	snap := h.Store.Snapshot()
+	if len(snap.APIKeys) != 2 {
+		t.Fatalf("unexpected api keys after add: %#v", snap.APIKeys)
+	}
+	if snap.APIKeys[1].Name != "secondary" || snap.APIKeys[1].Remark != "staging" {
+		t.Fatalf("new key metadata was not persisted: %#v", snap.APIKeys[1])
+	}
+
+	updateBody := map[string]any{
+		"remark": "prod-updated",
+	}
+	updateBytes, _ := json.Marshal(updateBody)
+	updateReq := httptest.NewRequest(http.MethodPut, "/admin/keys/k1", bytes.NewReader(updateBytes))
+	updateRec := httptest.NewRecorder()
+	r.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("update status=%d body=%s", updateRec.Code, updateRec.Body.String())
+	}
+
+	snap = h.Store.Snapshot()
+	if snap.APIKeys[0].Remark != "prod-updated" {
+		t.Fatalf("remark update did not persist: %#v", snap.APIKeys[0])
+	}
+}

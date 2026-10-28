@@ -67,7 +67,9 @@ func TestStartParsedLinePumpTypeTracking(t *testing.T) {
 			"data: {\"p\":\"response/fragments/-1/content\",\"v\":\"案\"}\n" +
 			"data: [DONE]\n",
 	)
-	results, done := StartParsedLinePump(context.Background(), body, true, "text")
+	// Reasoning-enabled messages start in the thinking segment, so a THINK
+	// fragment stays thinking and the RESPONSE flips to text.
+	results, done := StartParsedLinePump(context.Background(), body, true, "thinking")
 
 	types := make([]string, 0)
 	for r := range results {

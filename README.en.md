@@ -156,40 +156,22 @@ OpenAI `/v1/*` routes remain canonical, and DS2API also accepts root shortcuts s
 
 ## Model Support
 
-### OpenAI Endpoint (`GET /v1/models`)
+The native model list matches the reference project:
 
-| Family | Model ID | thinking | search |
+| Model | Thinking | Search | Vision |
 | --- | --- | --- | --- |
-| default | `deepseek-v4-flash` | enabled by default, request-controlled | ❌ |
-| expert | `deepseek-v4-pro` | enabled by default, request-controlled | ❌ |
-| default | `deepseek-v4-flash-search` | enabled by default, request-controlled | ✅ |
-| expert | `deepseek-v4-pro-search` | enabled by default, request-controlled | ✅ |
-| vision | `deepseek-v4-vision` | enabled by default, request-controlled | ❌ |
+| `deepseek-v4.1-flash` | Default on; request configurable | Off | Yes |
+| `deepseek-v4.1-flash-nothinking` | Always off | Off | Yes |
+| `deepseek-v4.1-flash-search` | Default on; request configurable | On | Yes |
+| `deepseek-v4.1-flash-search-nothinking` | Always off | On | Yes |
 
-Besides native IDs, DS2API also accepts common aliases as input (for example `gpt-4.1`, `gpt-5`, `gpt-5-codex`, `o3`, `claude-*`, `gemini-*`), but `/v1/models` returns normalized DeepSeek native model IDs. The complete alias behavior is documented in [API.en.md](API.en.md#model-alias-resolution) and `config.example.json`.
-Current upstream vision support exposes only the `vision` lane and does not provide a separate search-enabled vision variant.
-
-### Claude Endpoint (`GET /anthropic/v1/models`)
-
-| Current common model | Default Mapping |
-| --- | --- |
-| `claude-sonnet-4-6` | `deepseek-v4-flash` |
-| `claude-haiku-4-5` (compatible with `claude-3-5-haiku-latest`) | `deepseek-v4-flash` |
-| `claude-opus-4-6` | `deepseek-v4-pro` |
-
-Override mapping via the global `model_aliases` config.
-Besides the primary aliases above, `/anthropic/v1/models` also returns Claude 4.x snapshots plus historical 3.x IDs and common aliases for legacy client compatibility.
-
-#### Claude Code integration pitfalls (validated)
-
-- Set `ANTHROPIC_BASE_URL` to the DS2API root URL (for example `http://127.0.0.1:5001`). Claude Code sends requests to `/v1/messages?beta=true`.
-- `ANTHROPIC_API_KEY` must match an entry in `keys` from `config.json`. Keeping both a regular key and an `sk-ant-*` style key improves client compatibility.
-- If your environment has proxy variables, set `NO_PROXY=127.0.0.1,localhost,<your_host_ip>` for DS2API to avoid proxy interception of local traffic.
-- If tool calls are rendered as plain text and not executed, first verify the model output uses the recommended halfwidth-pipe DSML block: `<|DSML|tool_calls><|DSML|invoke name="..."><|DSML|parameter name="...">...`. DS2API also accepts legacy canonical XML: `<tool_calls><invoke name="..."><parameter name="...">...`; legacy `<tools>` / `<tool_call>` / `<tool_name>` / `<param>`, `<function_call>`, `tool_use`, or standalone JSON `tool_calls` are not executed and stay plain text.
-
-### Gemini Endpoint
-
-The Gemini adapter maps model names to DeepSeek native models via `model_aliases` or exact built-in aliases (covering common `gemini-2.5-*`, `gemini-3*`, and `gemini-pro-vision` names), supporting both `generateContent` and `streamGenerateContent` call patterns with full Tool Calling support (`functionDeclarations` → `functionCall` output). If the Gemini model name has a `-nothinking` suffix, such as `gemini-2.5-pro-nothinking`, it maps to the corresponding forced no-thinking model.
+Legacy DeepSeek names and supported OpenAI / Claude / Gemini aliases resolve to
+this series. Alias chains are limited to eight hops. Only `-nothinking` remains
+a model behavior suffix. The former `-forcehistory`, `-autodelete`,
+`-thinkinginject` and `-v4f` variants are no longer advertised or accepted.
+Configure context-file splitting with `input_file`, thinking injection with
+`thinking_injection`, and session deletion with `auto_delete` instead.
+See [prompt compatibility](docs/prompt-compatibility.md) and [API.md](API.md).
 
 ## Quick Start
 
@@ -439,3 +421,5 @@ This project is built through reverse engineering and is provided for learning, 
 The author and repository maintainers are not responsible for any direct or indirect loss, account suspension, data loss, legal risk, or third-party claims arising from use, modification, distribution, deployment, or reliance on this project.
 
 Do not use this project in ways that violate service terms, agreements, laws, or platform rules. Before any commercial use, review the `LICENSE`, the relevant terms, and confirm that you have the author's written permission.
+
+- Android App 2.7.1 HAR alignment: [headers, devices and uploads](docs/android-har-alignment.md).

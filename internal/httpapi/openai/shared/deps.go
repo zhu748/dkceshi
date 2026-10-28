@@ -1,58 +1,59 @@
 package shared
 
 import (
-        "context"
-        "net/http"
+	"context"
+	"net/http"
 
-        "ds2api/internal/auth"
-        "ds2api/internal/chathistory"
-        "ds2api/internal/config"
-        dsclient "ds2api/internal/deepseek/client"
-        "ds2api/internal/util"
+	"ds2api/internal/auth"
+	"ds2api/internal/chathistory"
+	"ds2api/internal/config"
+	dsclient "ds2api/internal/deepseek/client"
+	"ds2api/internal/util"
 )
 
 const (
-        // UploadMaxSize limits total multipart request body size (100 MiB).
-        UploadMaxSize = 100 << 20
-        // GeneralMaxSize limits total JSON request body size (100 MiB).
-        GeneralMaxSize = 100 << 20
+	// UploadMaxSize limits total multipart request body size (100 MiB).
+	UploadMaxSize = 100 << 20
+	// GeneralMaxSize limits total JSON request body size (100 MiB).
+	GeneralMaxSize = 100 << 20
 )
 
 type AuthResolver interface {
-        Determine(req *http.Request) (*auth.RequestAuth, error)
-        DetermineCaller(req *http.Request) (*auth.RequestAuth, error)
-        Release(a *auth.RequestAuth)
+	Determine(req *http.Request) (*auth.RequestAuth, error)
+	DetermineCaller(req *http.Request) (*auth.RequestAuth, error)
+	CredentialFlagForRequest(req *http.Request, flag string) bool
+	Release(a *auth.RequestAuth)
 }
 
 type DeepSeekCaller interface {
-        CreateSession(ctx context.Context, a *auth.RequestAuth, maxAttempts int) (string, error)
-        GetPow(ctx context.Context, a *auth.RequestAuth, maxAttempts int) (string, error)
-        UploadFile(ctx context.Context, a *auth.RequestAuth, req dsclient.UploadFileRequest, maxAttempts int) (*dsclient.UploadFileResult, error)
-        CallCompletion(ctx context.Context, a *auth.RequestAuth, payload any, powResp string, maxAttempts int) (*http.Response, error)
-        CallEditMessage(ctx context.Context, a *auth.RequestAuth, payload any, powResp string, maxAttempts int) (*http.Response, error)
-        DeleteSessionForToken(ctx context.Context, token string, sessionID string) (*dsclient.DeleteSessionResult, error)
-        DeleteAllSessionsForToken(ctx context.Context, token string) error
+	CreateSession(ctx context.Context, a *auth.RequestAuth, maxAttempts int) (string, error)
+	GetPow(ctx context.Context, a *auth.RequestAuth, maxAttempts int) (string, error)
+	UploadFile(ctx context.Context, a *auth.RequestAuth, req dsclient.UploadFileRequest, maxAttempts int) (*dsclient.UploadFileResult, error)
+	CallCompletion(ctx context.Context, a *auth.RequestAuth, payload map[string]any, powResp string, maxAttempts int) (*http.Response, error)
+	DeleteSessionForToken(ctx context.Context, token string, sessionID string) (*dsclient.DeleteSessionResult, error)
+	DeleteAllSessionsForToken(ctx context.Context, token string) error
 }
 
+// ConfigReader composes the read-only configuration views the OpenAI surfaces
+// depend on. The views are declared once in internal/config, so adding an
+// accessor to one of them needs no change here.
 type ConfigReader interface {
-        ModelAliases() map[string]string
-        ToolcallMode() string
-        ToolcallEarlyEmitConfidence() string
-        ResponsesStoreTTLSeconds() int
-        EmbeddingsProvider() string
-        AutoDeleteMode() string
-        AutoDeleteSessions() bool
-        CurrentInputFileEnabled() bool
-        CurrentInputFileMinChars() int
-        ThinkingInjectionEnabled() bool
-        ThinkingInjectionPrompt() string
+	config.ModelAliasReader
+	config.ToolcallPolicyReader
+	config.ResponsesStoreReader
+	config.EmbeddingsReader
+	config.AutoDeleteReader
+	config.CurrentInputFileReader
+	config.ThinkingInjectionReader
+	config.ExpertPromptSegmentReader
+	config.ExpertTextFileInlineReader
 }
 
 type Deps struct {
-        Store       ConfigReader
-        Auth        AuthResolver
-        DS          DeepSeekCaller
-        ChatHistory *chathistory.Store
+	Store       ConfigReader
+	Auth        AuthResolver
+	DS          DeepSeekCaller
+	ChatHistory *chathistory.Store
 }
 
 var WriteJSON = util.WriteJSON

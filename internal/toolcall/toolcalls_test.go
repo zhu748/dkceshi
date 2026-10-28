@@ -30,21 +30,21 @@ func TestParseToolCallsSupportsToolCallsWrapper(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsSupportsDSMLShell(t *testing.T) {
-	text := `<|DSML|tool_calls><|DSML|invoke name="Bash"><|DSML|parameter name="command"><![CDATA[pwd]]></|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`
+func TestParseToolCallsSupportsEPSEShell(t *testing.T) {
+	text := `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 DSML call, got %#v", calls)
+		t.Fatalf("expected 1 EPSE call, got %#v", calls)
 	}
 	if calls[0].Name != "Bash" || calls[0].Input["command"] != "pwd" {
-		t.Fatalf("unexpected DSML parse result: %#v", calls[0])
+		t.Fatalf("unexpected EPSE parse result: %#v", calls[0])
 	}
 }
 
-func TestParseToolCallsSupportsHyphenatedDSMLShellWithHereDocCDATA(t *testing.T) {
-	text := `<dsml-tool-calls>
-<dsml-invoke name="Bash">
-<dsml-parameter name="command"><![CDATA[git commit -m "$(cat <<'EOF'
+func TestParseToolCallsSupportsHyphenatedEPSEShellWithHereDocCDATA(t *testing.T) {
+	text := `<epse-tool-calls>
+<epse-invoke name="Bash">
+<epse-parameter name="command"><![CDATA[git commit -m "$(cat <<'EOF'
 docs: add missing directory entries and package descriptions to architecture docs
 Fill gaps identified in architecture audit: add artifacts/ and static/ to
 directory tree, and document 7 auxiliary internal/ packages (textclean,
@@ -52,13 +52,13 @@ claudeconv, compat, rawsample, devcapture, util, version) in Section 3.
 
 Co-Authored-By: Claude Opus 4.7 noreply@anthropic.com
 EOF
-)"]]></dsml-parameter>
-<dsml-parameter name="description"><![CDATA[Create commit with architecture doc updates]]></dsml-parameter>
-</dsml-invoke>
-</dsml-tool-calls>`
+)"]]></epse-parameter>
+<epse-parameter name="description"><![CDATA[Create commit with architecture doc updates]]></epse-parameter>
+</epse-invoke>
+</epse-tool-calls>`
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 hyphenated DSML call, got %#v", calls)
+		t.Fatalf("expected 1 hyphenated EPSE call, got %#v", calls)
 	}
 	if calls[0].Name != "Bash" {
 		t.Fatalf("expected Bash tool, got %#v", calls[0])
@@ -72,25 +72,25 @@ EOF
 	}
 }
 
-func TestParseToolCallsSupportsUnderscoredDSMLShell(t *testing.T) {
-	text := `<dsml_tool_calls>
-<dsml_invoke name="search_web">
-<dsml_parameter name="query"><![CDATA[2026年5月 热点事件]]></dsml_parameter>
-<dsml_parameter name="topic"><![CDATA[news]]></dsml_parameter>
-</dsml_invoke>
-<dsml_invoke name="eval_javascript">
-<dsml_parameter name="code"><![CDATA[1 + 1]]></dsml_parameter>
-</dsml_invoke>
-</dsml_tool_calls>`
+func TestParseToolCallsSupportsUnderscoredEPSEShell(t *testing.T) {
+	text := `<epse_tool_calls>
+<epse_invoke name="search_web">
+<epse_parameter name="query"><![CDATA[2026年5月 热点事件]]></epse_parameter>
+<epse_parameter name="topic"><![CDATA[news]]></epse_parameter>
+</epse_invoke>
+<epse_invoke name="eval_javascript">
+<epse_parameter name="code"><![CDATA[1 + 1]]></epse_parameter>
+</epse_invoke>
+</epse_tool_calls>`
 	calls := ParseToolCalls(text, []string{"search_web", "eval_javascript"})
 	if len(calls) != 2 {
-		t.Fatalf("expected two underscored DSML calls, got %#v", calls)
+		t.Fatalf("expected two underscored EPSE calls, got %#v", calls)
 	}
 	if calls[0].Name != "search_web" || calls[0].Input["query"] != "2026年5月 热点事件" || calls[0].Input["topic"] != "news" {
-		t.Fatalf("unexpected first underscored DSML call: %#v", calls[0])
+		t.Fatalf("unexpected first underscored EPSE call: %#v", calls[0])
 	}
 	if calls[1].Name != "eval_javascript" || calls[1].Input["code"] != "1 + 1" {
-		t.Fatalf("unexpected second underscored DSML call: %#v", calls[1])
+		t.Fatalf("unexpected second underscored EPSE call: %#v", calls[1])
 	}
 }
 
@@ -130,95 +130,95 @@ func TestParseToolCallsRejectsCamelPrefixedToolMarkupLookalike(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsSupportsFullwidthDSMLShell(t *testing.T) {
-	text := `<ｄＳＭＬ|tool_calls>
-  <ｄＳＭＬ|invoke name="Read">
-    <ｄＳＭＬ|parameter name="file_path"＞<![CDATA[/Users/aq/Desktop/myproject/Personal_Blog/README.md]]＞</ｄＳＭＬ|parameter>
-  </ｄＳＭＬ|invoke>
-  <ｄＳＭＬ|invoke name="Read">
-    <ｄＳＭＬ|parameter name="file_path"＞<![CDATA[/Users/aq/Desktop/myproject/Personal_Blog/index.html]]＞</ｄＳＭＬ|parameter>
-  </ｄＳＭＬ|invoke>
-</ｄＳＭＬ|tool_calls>`
+func TestParseToolCallsSupportsFullwidthEPSEShell(t *testing.T) {
+	text := `<ｅｐＳＥ|tool_calls>
+  <ｅｐＳＥ|invoke name="Read">
+    <ｅｐＳＥ|parameter name="file_path"＞<![CDATA[/Users/aq/Desktop/myproject/Personal_Blog/README.md]]＞</ｅｐＳＥ|parameter>
+  </ｅｐＳＥ|invoke>
+  <ｅｐＳＥ|invoke name="Read">
+    <ｅｐＳＥ|parameter name="file_path"＞<![CDATA[/Users/aq/Desktop/myproject/Personal_Blog/index.html]]＞</ｅｐＳＥ|parameter>
+  </ｅｐＳＥ|invoke>
+</ｅｐＳＥ|tool_calls>`
 	calls := ParseToolCalls(text, []string{"Read"})
 	if len(calls) != 2 {
-		t.Fatalf("expected two fullwidth DSML calls, got %#v", calls)
+		t.Fatalf("expected two fullwidth EPSE calls, got %#v", calls)
 	}
 	if calls[0].Name != "Read" || calls[0].Input["file_path"] != "/Users/aq/Desktop/myproject/Personal_Blog/README.md" {
-		t.Fatalf("unexpected first fullwidth DSML call: %#v", calls[0])
+		t.Fatalf("unexpected first fullwidth EPSE call: %#v", calls[0])
 	}
 	if calls[1].Name != "Read" || calls[1].Input["file_path"] != "/Users/aq/Desktop/myproject/Personal_Blog/index.html" {
-		t.Fatalf("unexpected second fullwidth DSML call: %#v", calls[1])
+		t.Fatalf("unexpected second fullwidth EPSE call: %#v", calls[1])
 	}
 }
 
-func TestParseToolCallsSupportsCJKAngleDSMDrift(t *testing.T) {
-	text := `<DSM|tool_calls>
-<DSM|invoke name="Bash">
-<DSM|parameter name="description"|>〈![CDATA[Show commits on local dev not on origin/dev]]〉〈/DSM|parameter〉
-<DSM|parameter name="command"|>〈![CDATA[git log --oneline origin/dev..dev]]〉〈/DSM|parameter〉
-〈/DSM|invoke〉
-<DSM|invoke name="Bash">
-<DSM|parameter name="description"|>〈![CDATA[Show commits on origin/dev not on local dev]]〉〈/DSM|parameter〉
-<DSM|parameter name="command"|>〈![CDATA[git log --oneline dev..origin/dev]]〉〈/DSM|parameter〉
-〈/DSM|invoke〉
-<DSM|invoke name="Bash">
-<DSM|parameter name="description"|>〈![CDATA[Check tracking branch status]]〉〈/DSM|parameter〉
-<DSM|parameter name="command"|>〈![CDATA[git status -b --short]]〉〈/DSM|parameter〉
-〈/DSM|invoke〉
-〈/DSM|tool_calls〉`
+func TestParseToolCallsSupportsCJKAngleEPSDrift(t *testing.T) {
+	text := `<EPS|tool_calls>
+<EPS|invoke name="Bash">
+<EPS|parameter name="description"|>〈![CDATA[Show commits on local dev not on origin/dev]]〉〈/EPS|parameter〉
+<EPS|parameter name="command"|>〈![CDATA[git log --oneline origin/dev..dev]]〉〈/EPS|parameter〉
+〈/EPS|invoke〉
+<EPS|invoke name="Bash">
+<EPS|parameter name="description"|>〈![CDATA[Show commits on origin/dev not on local dev]]〉〈/EPS|parameter〉
+<EPS|parameter name="command"|>〈![CDATA[git log --oneline dev..origin/dev]]〉〈/EPS|parameter〉
+〈/EPS|invoke〉
+<EPS|invoke name="Bash">
+<EPS|parameter name="description"|>〈![CDATA[Check tracking branch status]]〉〈/EPS|parameter〉
+<EPS|parameter name="command"|>〈![CDATA[git status -b --short]]〉〈/EPS|parameter〉
+〈/EPS|invoke〉
+〈/EPS|tool_calls〉`
 
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 3 {
-		t.Fatalf("expected three CJK-angle DSM drift calls, got %#v", calls)
+		t.Fatalf("expected three CJK-angle EPS drift calls, got %#v", calls)
 	}
 	if calls[0].Name != "Bash" || calls[0].Input["command"] != "git log --oneline origin/dev..dev" {
-		t.Fatalf("unexpected first CJK-angle DSM drift call: %#v", calls[0])
+		t.Fatalf("unexpected first CJK-angle EPS drift call: %#v", calls[0])
 	}
 	if calls[1].Name != "Bash" || calls[1].Input["description"] != "Show commits on origin/dev not on local dev" {
-		t.Fatalf("unexpected second CJK-angle DSM drift call: %#v", calls[1])
+		t.Fatalf("unexpected second CJK-angle EPS drift call: %#v", calls[1])
 	}
 	if calls[2].Name != "Bash" || calls[2].Input["command"] != "git status -b --short" {
-		t.Fatalf("unexpected third CJK-angle DSM drift call: %#v", calls[2])
+		t.Fatalf("unexpected third CJK-angle EPS drift call: %#v", calls[2])
 	}
 }
 
-func TestParseToolCallsSupportsFullwidthBangDSMLDrift(t *testing.T) {
-	text := `<！DSML！tool_calls>
-  <！DSML！invoke name=“Bash”>
-  <！DSML！parameter name=“command”><！[CDATA[lsof -i :4321 -t]]><！/DSML！parameter>
-  <！DSML！parameter name=“description”><！[CDATA[Verify port 4321 is free]]><！/DSML！parameter>
-  <！/DSML！invoke>
-  <！/DSML！tool_calls>`
+func TestParseToolCallsSupportsFullwidthBangEPSEDrift(t *testing.T) {
+	text := `<！EPSE！tool_calls>
+  <！EPSE！invoke name=“Bash”>
+  <！EPSE！parameter name=“command”><！[CDATA[lsof -i :4321 -t]]><！/EPSE！parameter>
+  <！EPSE！parameter name=“description”><！[CDATA[Verify port 4321 is free]]><！/EPSE！parameter>
+  <！/EPSE！invoke>
+  <！/EPSE！tool_calls>`
 
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 1 {
-		t.Fatalf("expected one fullwidth-bang DSML drift call, got %#v", calls)
+		t.Fatalf("expected one fullwidth-bang EPSE drift call, got %#v", calls)
 	}
 	if calls[0].Name != "Bash" || calls[0].Input["command"] != "lsof -i :4321 -t" || calls[0].Input["description"] != "Verify port 4321 is free" {
-		t.Fatalf("unexpected fullwidth-bang DSML drift call: %#v", calls[0])
+		t.Fatalf("unexpected fullwidth-bang EPSE drift call: %#v", calls[0])
 	}
 }
 
-func TestParseToolCallsSupportsIdeographicCommaDSMLDrift(t *testing.T) {
-	text := `<、DSML、tool_calls>
-  <、DSML、invoke name="Bash">
-    <、DSML、parameter name="command"><、[CDATA[git commit -m "$(cat <<'EOF'
-feat: expand fullwidth bang separator and curly quote tolerance in DSML tool parsing
+func TestParseToolCallsSupportsIdeographicCommaEPSEDrift(t *testing.T) {
+	text := `<、EPSE、tool_calls>
+  <、EPSE、invoke name="Bash">
+    <、EPSE、parameter name="command"><、[CDATA[git commit -m "$(cat <<'EOF'
+feat: expand fullwidth bang separator and curly quote tolerance in EPSE tool parsing
 
 Co-Authored-By: Claude Opus 4.6 noreply@anthropic.com
 EOF
-)"]]><、/DSML、parameter>
-    <、DSML、parameter name="description"><、[CDATA[Create commit with staged changes]]><、/DSML、parameter>
-  <、/DSML、invoke>
-<、/DSML、tool_calls>`
+)"]]><、/EPSE、parameter>
+    <、EPSE、parameter name="description"><、[CDATA[Create commit with staged changes]]><、/EPSE、parameter>
+  <、/EPSE、invoke>
+<、/EPSE、tool_calls>`
 
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 1 {
-		t.Fatalf("expected one ideographic-comma DSML drift call, got %#v", calls)
+		t.Fatalf("expected one ideographic-comma EPSE drift call, got %#v", calls)
 	}
 	command, _ := calls[0].Input["command"].(string)
 	if calls[0].Name != "Bash" || !strings.Contains(command, `git commit -m "$(cat <<'EOF'`) || !strings.Contains(command, "Co-Authored-By: Claude Opus 4.6 noreply@anthropic.com") {
-		t.Fatalf("unexpected ideographic-comma DSML drift call: %#v", calls[0])
+		t.Fatalf("unexpected ideographic-comma EPSE drift call: %#v", calls[0])
 	}
 	if calls[0].Input["description"] != "Create commit with staged changes" {
 		t.Fatalf("unexpected ideographic-comma description: %#v", calls[0])
@@ -233,18 +233,18 @@ func TestParseToolCallsIgnoresBareHyphenatedToolCallsLookalike(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsToleratesDSMLTrailingPipeTagTerminator(t *testing.T) {
+func TestParseToolCallsToleratesEPSETrailingPipeTagTerminator(t *testing.T) {
 	text := strings.Join([]string{
-		`<|DSML|tool_calls| `,
-		`  <|DSML|invoke name="terminal">`,
-		`    <|DSML|parameter name="command"><![CDATA[find "/home" -type d]]></|DSML|parameter>`,
-		`    <|DSML|parameter name="timeout"><![CDATA[10]]></|DSML|parameter>`,
-		`  </|DSML|invoke>`,
-		`</|DSML|tool_calls>`,
+		`<|EPSE|tool_calls| `,
+		`  <|EPSE|invoke name="terminal">`,
+		`    <|EPSE|parameter name="command"><![CDATA[find "/home" -type d]]></|EPSE|parameter>`,
+		`    <|EPSE|parameter name="timeout"><![CDATA[10]]></|EPSE|parameter>`,
+		`  </|EPSE|invoke>`,
+		`</|EPSE|tool_calls>`,
 	}, "\n")
 	calls := ParseToolCalls(text, []string{"terminal"})
 	if len(calls) != 1 {
-		t.Fatalf("expected one trailing-pipe DSML call, got %#v", calls)
+		t.Fatalf("expected one trailing-pipe EPSE call, got %#v", calls)
 	}
 	if calls[0].Name != "terminal" {
 		t.Fatalf("expected terminal tool, got %#v", calls[0])
@@ -257,68 +257,68 @@ func TestParseToolCallsToleratesDSMLTrailingPipeTagTerminator(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsToleratesDSMLTrailingNovelSeparatorTagTerminator(t *testing.T) {
+func TestParseToolCallsToleratesEPSETrailingNovelSeparatorTagTerminator(t *testing.T) {
 	text := strings.Join([]string{
-		`<DSMLtool_calls※>`,
-		`  <DSMLinvoke name="Bash"※>`,
-		`    <DSMLparameter name="command"※><![CDATA[pwd]]></DSMLparameter※>`,
-		`  </DSMLinvoke※>`,
-		`</DSMLtool_calls※>`,
+		`<EPSEtool_calls※>`,
+		`  <EPSEinvoke name="Bash"※>`,
+		`    <EPSEparameter name="command"※><![CDATA[pwd]]></EPSEparameter※>`,
+		`  </EPSEinvoke※>`,
+		`</EPSEtool_calls※>`,
 	}, "\n")
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 1 {
-		t.Fatalf("expected one trailing-separator DSML call, got %#v", calls)
+		t.Fatalf("expected one trailing-separator EPSE call, got %#v", calls)
 	}
 	if calls[0].Name != "Bash" || calls[0].Input["command"] != "pwd" {
-		t.Fatalf("unexpected trailing-separator DSML parse result: %#v", calls[0])
+		t.Fatalf("unexpected trailing-separator EPSE parse result: %#v", calls[0])
 	}
 }
 
-func TestParseToolCallsToleratesExtraLeadingLessThanBeforeDSML(t *testing.T) {
-	text := `<<|DSML|tool_calls><<|DSML|invoke name="Bash"><<|DSML|parameter name="command"><![CDATA[pwd]]></|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`
+func TestParseToolCallsToleratesExtraLeadingLessThanBeforeEPSE(t *testing.T) {
+	text := `<<|EPSE|tool_calls><<|EPSE|invoke name="Bash"><<|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 1 {
-		t.Fatalf("expected one extra-leading-less-than DSML call, got %#v", calls)
+		t.Fatalf("expected one extra-leading-less-than EPSE call, got %#v", calls)
 	}
 	if calls[0].Name != "Bash" || calls[0].Input["command"] != "pwd" {
-		t.Fatalf("unexpected extra-leading-less-than DSML parse result: %#v", calls[0])
+		t.Fatalf("unexpected extra-leading-less-than EPSE parse result: %#v", calls[0])
 	}
 }
 
-func TestParseToolCallsToleratesRepeatedDSMLPrefixNoise(t *testing.T) {
-	text := `<<DSML|DSML|tool_calls><<DSML|DSML|invoke name="Bash"><<DSML|DSML|parameter name="command"><![CDATA[git status]]></DSML|DSML|parameter></DSML|DSML|invoke></DSML|DSML|tool_calls>`
+func TestParseToolCallsToleratesRepeatedEPSEPrefixNoise(t *testing.T) {
+	text := `<<EPSE|EPSE|tool_calls><<EPSE|EPSE|invoke name="Bash"><<EPSE|EPSE|parameter name="command"><![CDATA[git status]]></EPSE|EPSE|parameter></EPSE|EPSE|invoke></EPSE|EPSE|tool_calls>`
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 1 {
-		t.Fatalf("expected one repeated-prefix DSML call, got %#v", calls)
+		t.Fatalf("expected one repeated-prefix EPSE call, got %#v", calls)
 	}
 	if calls[0].Name != "Bash" || calls[0].Input["command"] != "git status" {
-		t.Fatalf("unexpected repeated-prefix DSML parse result: %#v", calls[0])
+		t.Fatalf("unexpected repeated-prefix EPSE parse result: %#v", calls[0])
 	}
 }
 
-func TestParseToolCallsSupportsDSMLShellWithCanonicalExampleInCDATA(t *testing.T) {
+func TestParseToolCallsSupportsEPSEShellWithCanonicalExampleInCDATA(t *testing.T) {
 	content := `<tool_calls><invoke name="demo"><parameter name="value">x</parameter></invoke></tool_calls>`
-	text := `<|DSML|tool_calls><|DSML|invoke name="Write"><|DSML|parameter name="file_path">notes.md</|DSML|parameter><|DSML|parameter name="content"><![CDATA[` + content + `]]></|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`
+	text := `<|EPSE|tool_calls><|EPSE|invoke name="Write"><|EPSE|parameter name="file_path">notes.md</|EPSE|parameter><|EPSE|parameter name="content"><![CDATA[` + content + `]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
 	calls := ParseToolCalls(text, []string{"Write"})
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 DSML call with XML-looking CDATA, got %#v", calls)
+		t.Fatalf("expected 1 EPSE call with XML-looking CDATA, got %#v", calls)
 	}
 	if calls[0].Name != "Write" || calls[0].Input["content"] != content {
-		t.Fatalf("unexpected DSML CDATA parse result: %#v", calls[0])
+		t.Fatalf("unexpected EPSE CDATA parse result: %#v", calls[0])
 	}
 }
 
-func TestParseToolCallsKeepsHereDocCDATAWithFencedDSMLAndLiteralCDATAEnd(t *testing.T) {
+func TestParseToolCallsKeepsHereDocCDATAWithFencedEPSEAndLiteralCDATAEnd(t *testing.T) {
 	command := strings.Join([]string{
 		"cat > docs/project-value.md << 'ENDOFFILE'",
 		"# DS2API project value",
 		"",
 		"```xml",
-		`<|DSML|tool_calls>`,
-		`  <|DSML|invoke name="Bash">`,
-		`    <|DSML|parameter name="command"><![CDATA[grep -E "error|fail" < input.log 2>&1]]></|DSML|parameter>`,
-		`  </|DSML|invoke>`,
-		`</|DSML|tool_calls>`,
+		`<|EPSE|tool_calls>`,
+		`  <|EPSE|invoke name="Bash">`,
+		`    <|EPSE|parameter name="command"><![CDATA[grep -E "error|fail" < input.log 2>&1]]></|EPSE|parameter>`,
+		`  </|EPSE|invoke>`,
+		`</|EPSE|tool_calls>`,
 		"```",
 		"",
 		"Only the literal `]]>` needs special handling.",
@@ -326,11 +326,11 @@ func TestParseToolCallsKeepsHereDocCDATAWithFencedDSMLAndLiteralCDATAEnd(t *test
 		"ENDOFFILE",
 		`echo "Done. Lines: $(wc -l < docs/project-value.md)"`,
 	}, "\n")
-	text := `<|DSML|tool_calls><|DSML|invoke name="Bash"><|DSML|parameter name="command"><![CDATA[` + command + `]]></|DSML|parameter><|DSML|parameter name="description"><![CDATA[Write project value doc]]></|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`
+	text := `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[` + command + `]]></|EPSE|parameter><|EPSE|parameter name="description"><![CDATA[Write project value doc]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
 
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 1 {
-		t.Fatalf("expected one DSML call with extreme heredoc CDATA, got %#v", calls)
+		t.Fatalf("expected one EPSE call with extreme heredoc CDATA, got %#v", calls)
 	}
 	got, _ := calls[0].Input["command"].(string)
 	if got != command {
@@ -341,14 +341,14 @@ func TestParseToolCallsKeepsHereDocCDATAWithFencedDSMLAndLiteralCDATAEnd(t *test
 	}
 }
 
-func TestParseToolCallsKeepsCompactCDATAWithImmediateFencedDSML(t *testing.T) {
+func TestParseToolCallsKeepsCompactCDATAWithImmediateFencedEPSE(t *testing.T) {
 	content := strings.Join([]string{
 		"```xml",
-		`<|DSML|tool_calls>`,
-		`  <|DSML|invoke name="Bash">`,
-		`    <|DSML|parameter name="command"><![CDATA[echo compact]]></|DSML|parameter>`,
-		`  </|DSML|invoke>`,
-		`</|DSML|tool_calls>`,
+		`<|EPSE|tool_calls>`,
+		`  <|EPSE|invoke name="Bash">`,
+		`    <|EPSE|parameter name="command"><![CDATA[echo compact]]></|EPSE|parameter>`,
+		`  </|EPSE|invoke>`,
+		`</|EPSE|tool_calls>`,
 		"```",
 		"tail",
 	}, "\n")
@@ -390,16 +390,16 @@ func TestParseToolCallsTreatsUnclosedCDATAAsText(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsNormalizesMixedDSMLAndCanonicalToolTags(t *testing.T) {
-	// Models commonly mix DSML wrapper tags with canonical inner tags.
+func TestParseToolCallsNormalizesMixedEPSEAndCanonicalToolTags(t *testing.T) {
+	// Models commonly mix EPSE wrapper tags with canonical inner tags.
 	// These should be normalized and parsed, not rejected.
-	text := `<|DSML|tool_calls><invoke name="Bash"><|DSML|parameter name="command">pwd</|DSML|parameter></invoke></|DSML|tool_calls>`
+	text := `<|EPSE|tool_calls><invoke name="Bash"><|EPSE|parameter name="command">pwd</|EPSE|parameter></invoke></|EPSE|tool_calls>`
 	calls := ParseToolCalls(text, []string{"Bash"})
 	if len(calls) != 1 {
-		t.Fatalf("expected mixed DSML/XML tool tags to be normalized and parsed, got %#v", calls)
+		t.Fatalf("expected mixed EPSE/XML tool tags to be normalized and parsed, got %#v", calls)
 	}
 	if calls[0].Name != "Bash" || calls[0].Input["command"] != "pwd" {
-		t.Fatalf("unexpected mixed DSML parse result: %#v", calls[0])
+		t.Fatalf("unexpected mixed EPSE parse result: %#v", calls[0])
 	}
 }
 
@@ -486,9 +486,9 @@ func TestParseToolCallsSupportsJSONScalarParameters(t *testing.T) {
 
 func TestParseToolCallsTreatsItemOnlyParameterBodyAsArray(t *testing.T) {
 	text := strings.Join([]string{
-		`<|DSML|tool_calls>`,
-		`<|DSML|invoke name="AskUserQuestion">`,
-		`<|DSML|parameter name="questions">`,
+		`<|EPSE|tool_calls>`,
+		`<|EPSE|invoke name="AskUserQuestion">`,
+		`<|EPSE|parameter name="questions">`,
 		`<item>`,
 		`<question><![CDATA[What would you like to do next?]]></question>`,
 		`<header><![CDATA[Next step]]></header>`,
@@ -498,9 +498,9 @@ func TestParseToolCallsTreatsItemOnlyParameterBodyAsArray(t *testing.T) {
 		`</options>`,
 		`<multiSelect>false</multiSelect>`,
 		`</item>`,
-		`</|DSML|parameter>`,
-		`</|DSML|invoke>`,
-		`</|DSML|tool_calls>`,
+		`</|EPSE|parameter>`,
+		`</|EPSE|invoke>`,
+		`</|EPSE|tool_calls>`,
 	}, "\n")
 	calls := ParseToolCalls(text, []string{"AskUserQuestion"})
 	if len(calls) != 1 {
@@ -525,7 +525,7 @@ func TestParseToolCallsTreatsItemOnlyParameterBodyAsArray(t *testing.T) {
 
 func TestParseToolCallsTreatsCDATAItemOnlyBodyAsArray(t *testing.T) {
 	todos := `<br>  <item><br>    <activeForm>Testing EnterWorktree tool</activeForm><br>    <content>Test EnterWorktree tool</content><br>    <status>in_progress</status><br>  </item><br>  <item><br>    <activeForm>Testing TodoWrite tool</activeForm><br>    <content>Test TodoWrite tool</content><br>    <status>completed</status><br>  </item><br>`
-	text := `<|DSML|tool_calls><|DSML|invoke name="TodoWrite"><|DSML|parameter name="todos"><![CDATA[` + todos + `]]></|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`
+	text := `<|EPSE|tool_calls><|EPSE|invoke name="TodoWrite"><|EPSE|parameter name="todos"><![CDATA[` + todos + `]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
 	calls := ParseToolCalls(text, []string{"TodoWrite"})
 	if len(calls) != 1 {
 		t.Fatalf("expected one TodoWrite call, got %#v", calls)
@@ -967,17 +967,17 @@ func TestParseToolCallsParsesAfterFourBacktickFence(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsToleratesDSMLSpaceSeparatorTypo(t *testing.T) {
+func TestParseToolCallsToleratesEPSESpaceSeparatorTypo(t *testing.T) {
 	text := strings.Join([]string{
-		"<|DSML tool_calls>",
-		"<|DSML invoke name=\"Read\">",
-		"<|DSML parameter name=\"file_path\"><![CDATA[/tmp/input.txt]]></|DSML parameter>",
-		"</|DSML invoke>",
-		"</|DSML tool_calls>",
+		"<|EPSE tool_calls>",
+		"<|EPSE invoke name=\"Read\">",
+		"<|EPSE parameter name=\"file_path\"><![CDATA[/tmp/input.txt]]></|EPSE parameter>",
+		"</|EPSE invoke>",
+		"</|EPSE tool_calls>",
 	}, "\n")
 	calls := ParseToolCalls(text, []string{"Read"})
 	if len(calls) != 1 {
-		t.Fatalf("expected one call from DSML space-separator typo, got %#v", calls)
+		t.Fatalf("expected one call from EPSE space-separator typo, got %#v", calls)
 	}
 	if calls[0].Name != "Read" {
 		t.Fatalf("expected Read call, got %#v", calls[0])
@@ -987,13 +987,57 @@ func TestParseToolCallsToleratesDSMLSpaceSeparatorTypo(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsDoesNotAcceptDSMLSpaceLookalikeTagName(t *testing.T) {
+func TestParseToolCallsSupportsEPSEShorthandParameterTag(t *testing.T) {
 	text := strings.Join([]string{
-		"<|DSML tool_calls_extra>",
-		"<|DSML invoke name=\"Read\">",
-		"<|DSML parameter name=\"file_path\">/tmp/input.txt</|DSML parameter>",
-		"</|DSML invoke>",
-		"</|DSML tool_calls_extra>",
+		`<|EPSE|tool_calls>`,
+		`  <|EPSE|invoke name="terminal">`,
+		`    <|EPSE|parameter name="command"><![CDATA[cd D:/ds2api && ls scripts/ && echo '=== workflows ===' && ls -R .github/workflows/ 2>/dev/null && echo '=== version 相关 ===' && ls -la VERSION 2>/dev/null; cat VERSION 2>/dev/null; echo '---'; grep -rn "VERSION\|version" scripts/*.sh scripts/*.go 2>/dev/null | head -40]]></|EPSE>`,
+		`    <|EPSE parameter name="workdir"><![CDATA[D:/ds2api]]></|EPSE>`,
+		`  </|EPSE|invoke>`,
+		`</|EPSE|tool_calls>`,
+	}, "\n")
+	calls := ParseToolCalls(text, []string{"terminal"})
+	if len(calls) != 1 {
+		t.Fatalf("expected one shorthand EPSE call, got %#v", calls)
+	}
+	if calls[0].Name != "terminal" {
+		t.Fatalf("expected terminal tool, got %q", calls[0].Name)
+	}
+	command, _ := calls[0].Input["command"].(string)
+	if !strings.Contains(command, "cd D:/ds2api") || !strings.Contains(command, `grep -rn "VERSION\|version"`) {
+		t.Fatalf("expected command to survive shorthand EPSE parse, got %q", command)
+	}
+	if calls[0].Input["workdir"] != "D:/ds2api" {
+		t.Fatalf("expected workdir parameter, got %#v", calls[0].Input)
+	}
+}
+
+func TestParseToolCallsSupportsEPSEShorthandParameterWithoutLocalName(t *testing.T) {
+	text := `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE name="command"><![CDATA[pwd]]></|EPSE></|EPSE|invoke></|EPSE|tool_calls>`
+	calls := ParseToolCalls(text, []string{"Bash"})
+	if len(calls) != 1 {
+		t.Fatalf("expected one shorthand-without-local-name EPSE call, got %#v", calls)
+	}
+	if calls[0].Name != "Bash" || calls[0].Input["command"] != "pwd" {
+		t.Fatalf("unexpected shorthand-without-local-name parse result: %#v", calls[0])
+	}
+}
+
+func TestParseToolCallsRejectsEPSEShorthandWithoutNameAttribute(t *testing.T) {
+	text := `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE foo="bar">pwd</|EPSE></|EPSE|invoke></|EPSE|tool_calls>`
+	calls := ParseToolCalls(text, []string{"Bash"})
+	if len(calls) != 0 {
+		t.Fatalf("expected shorthand parameter without name attribute to be rejected, got %#v", calls)
+	}
+}
+
+func TestParseToolCallsDoesNotAcceptEPSESpaceLookalikeTagName(t *testing.T) {
+	text := strings.Join([]string{
+		"<|EPSE tool_calls_extra>",
+		"<|EPSE invoke name=\"Read\">",
+		"<|EPSE parameter name=\"file_path\">/tmp/input.txt</|EPSE parameter>",
+		"</|EPSE invoke>",
+		"</|EPSE tool_calls_extra>",
 	}, "\n")
 	calls := ParseToolCalls(text, []string{"Read"})
 	if len(calls) != 0 {
@@ -1001,10 +1045,10 @@ func TestParseToolCallsDoesNotAcceptDSMLSpaceLookalikeTagName(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsToleratesDSMLCollapsedTagNames(t *testing.T) {
+func TestParseToolCallsToleratesEPSECollapsedTagNames(t *testing.T) {
 	todos := `[x] 检查 toolcalls_format.go 格式化逻辑
 [x] 检查 toolcalls_parse.go 解析逻辑
-[x] 检查 toolcalls_xml.go 和 toolcalls_dsml.go
+[x] 检查 toolcalls_xml.go 和 toolcalls_epse.go
 [x] 检查 toolcalls_markup.go 和 toolcalls_json_repair.go
 [x] 检查 prompt/tool_calls.go 注入逻辑
 [x] 检查 toolstream 流式解析
@@ -1012,15 +1056,15 @@ func TestParseToolCallsToleratesDSMLCollapsedTagNames(t *testing.T) {
 [x] 给出调查结论`
 	text := strings.Join([]string{
 		"[]",
-		"<DSMLtool_calls>",
-		"<DSMLinvoke name=\"update_todo_list\">",
-		"<DSMLparameter name=\"todos\"><![CDATA[" + todos + "]]></DSMLparameter>",
-		"</DSMLinvoke>",
-		"</DSMLtool_calls>",
+		"<EPSEtool_calls>",
+		"<EPSEinvoke name=\"update_todo_list\">",
+		"<EPSEparameter name=\"todos\"><![CDATA[" + todos + "]]></EPSEparameter>",
+		"</EPSEinvoke>",
+		"</EPSEtool_calls>",
 	}, "\n")
 	calls := ParseToolCalls(text, []string{"update_todo_list"})
 	if len(calls) != 1 {
-		t.Fatalf("expected one call from collapsed DSML tags, got %#v", calls)
+		t.Fatalf("expected one call from collapsed EPSE tags, got %#v", calls)
 	}
 	if calls[0].Name != "update_todo_list" {
 		t.Fatalf("expected update_todo_list call, got %#v", calls[0])
@@ -1030,13 +1074,13 @@ func TestParseToolCallsToleratesDSMLCollapsedTagNames(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsDoesNotAcceptDSMLCollapsedLookalikeTagName(t *testing.T) {
+func TestParseToolCallsDoesNotAcceptEPSECollapsedLookalikeTagName(t *testing.T) {
 	text := strings.Join([]string{
-		"<DSMLtool_calls_extra>",
-		"<DSMLinvoke name=\"update_todo_list\">",
-		"<DSMLparameter name=\"todos\">x</DSMLparameter>",
-		"</DSMLinvoke>",
-		"</DSMLtool_calls_extra>",
+		"<EPSEtool_calls_extra>",
+		"<EPSEinvoke name=\"update_todo_list\">",
+		"<EPSEparameter name=\"todos\">x</EPSEparameter>",
+		"</EPSEinvoke>",
+		"</EPSEtool_calls_extra>",
 	}, "\n")
 	calls := ParseToolCalls(text, []string{"update_todo_list"})
 	if len(calls) != 0 {
@@ -1046,13 +1090,13 @@ func TestParseToolCallsDoesNotAcceptDSMLCollapsedLookalikeTagName(t *testing.T) 
 
 func TestParseToolCallsSkipsProseMentionOfSameWrapperVariant(t *testing.T) {
 	text := strings.Join([]string{
-		"Summary: support canonical <tool_calls> and DSML <|DSML|tool_calls> wrappers.",
+		"Summary: support canonical <tool_calls> and EPSE <|EPSE|tool_calls> wrappers.",
 		"",
-		"<|DSML|tool_calls>",
-		"<|DSML|invoke name=\"Bash\">",
-		"<|DSML|parameter name=\"command\"><![CDATA[git status]]></|DSML|parameter>",
-		"</|DSML|invoke>",
-		"</|DSML|tool_calls>",
+		"<|EPSE|tool_calls>",
+		"<|EPSE|invoke name=\"Bash\">",
+		"<|EPSE|parameter name=\"command\"><![CDATA[git status]]></|EPSE|parameter>",
+		"</|EPSE|invoke>",
+		"</|EPSE|tool_calls>",
 	}, "\n")
 	res := ParseToolCallsDetailed(text, []string{"Bash"})
 	if len(res.Calls) != 1 {
@@ -1179,6 +1223,35 @@ func TestFindToolCDATAEndBoundaryConditions(t *testing.T) {
 	}
 }
 
+// Direction 3: `]]>` is a hard CDATA boundary. An odd number of markdown fences
+// inside the CDATA body must not push the structural close past the real
+// terminator. Before the fix, cdataOffsetIsInsideMarkdownFence saw the unclosed
+// ``` and skipped the only structural `]]>`, so the whole tool call was lost.
+func TestParseToolCallsOddFenceInsideCDATAKeepsStructuralClose(t *testing.T) {
+	content := "\x60\x60\x60python\nprint('hi')\n" // opened, never closed -> odd fence
+	text := `<|EPSE|tool_calls><|EPSE|invoke name="Write"><|EPSE|parameter name="content"><![CDATA[` + content + `]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
+	calls := ParseToolCalls(text, []string{"Write"})
+	if len(calls) != 1 {
+		t.Fatalf("expected one call despite odd fence inside CDATA, got %#v", calls)
+	}
+	if calls[0].Input["content"] != content {
+		t.Fatalf("expected CDATA content preserved, got %#v", calls[0].Input["content"])
+	}
+}
+
+// Direction 3: findToolCDATAEnd must return the structural `]]>` even when the
+// CDATA body contains an odd number of markdown fences.
+func TestFindToolCDATAEndOddFenceReturnsStructuralClose(t *testing.T) {
+	body := "\x60\x60\x60lang\ncode line\n"
+	text := "<![CDATA[" + body + "]]></parameter>"
+	from := len("<![CDATA[")
+	got := findToolCDATAEnd(text, from)
+	want := len("<![CDATA[" + body)
+	if got != want {
+		t.Fatalf("findToolCDATAEnd odd-fence = %d, want %d (text %q)", got, want, text)
+	}
+}
+
 func TestFindMatchingToolMarkupCloseBoundaryConditions(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -1202,44 +1275,44 @@ func TestFindMatchingToolMarkupCloseBoundaryConditions(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsSupportsDSMLShellWithFullwidthClosingSlash(t *testing.T) {
-	text := `<|DSML|tool_calls><|DSML|invoke name="execute_code"><|DSML|parameter name="code"><![CDATA[print("hi")]]></|DSML|parameter></|DSML|invoke><／DSML|tool_calls>`
+func TestParseToolCallsSupportsEPSEShellWithFullwidthClosingSlash(t *testing.T) {
+	text := `<|EPSE|tool_calls><|EPSE|invoke name="execute_code"><|EPSE|parameter name="code"><![CDATA[print("hi")]]></|EPSE|parameter></|EPSE|invoke><／EPSE|tool_calls>`
 	calls := ParseToolCalls(text, []string{"execute_code"})
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 DSML call with fullwidth closing slash, got %#v", calls)
+		t.Fatalf("expected 1 EPSE call with fullwidth closing slash, got %#v", calls)
 	}
 	if calls[0].Name != "execute_code" || calls[0].Input["code"] != `print("hi")` {
-		t.Fatalf("unexpected fullwidth-closing-slash DSML parse result: %#v", calls[0])
+		t.Fatalf("unexpected fullwidth-closing-slash EPSE parse result: %#v", calls[0])
 	}
 }
 
-func TestParseToolCallsSupportsDSMLShellWithSentencePieceSeparatorAndFullwidthGT(t *testing.T) {
-	text := `<|DSML▁tool_calls|><|DSML▁invoke▁name="execute_code"><|DSML▁parameter▁name="code"><![CDATA[print("hi")]]></|DSML▁parameter></|DSML▁invoke></|DSML▁tool_calls＞`
+func TestParseToolCallsSupportsEPSEShellWithSentencePieceSeparatorAndFullwidthGT(t *testing.T) {
+	text := `<|EPSE▁tool_calls|><|EPSE▁invoke▁name="execute_code"><|EPSE▁parameter▁name="code"><![CDATA[print("hi")]]></|EPSE▁parameter></|EPSE▁invoke></|EPSE▁tool_calls＞`
 	calls := ParseToolCalls(text, []string{"execute_code"})
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 DSML call with sentencepiece separator and fullwidth terminator, got %#v", calls)
+		t.Fatalf("expected 1 EPSE call with sentencepiece separator and fullwidth terminator, got %#v", calls)
 	}
 	if calls[0].Name != "execute_code" || calls[0].Input["code"] != `print("hi")` {
-		t.Fatalf("unexpected sentencepiece/fullwidth-terminator DSML parse result: %#v", calls[0])
+		t.Fatalf("unexpected sentencepiece/fullwidth-terminator EPSE parse result: %#v", calls[0])
 	}
 }
 
-func TestParseToolCallsSupportsDSMLShellWithFullwidthLTUnicodeSpaceAndFullwidthAttributes(t *testing.T) {
-	text := `＜|DSML　tool_calls＞＜|DSML　invoke　name＝“execute_code”＞＜|DSML　parameter　name＝“code”＞<![CDATA[print("hi")]]>＜／DSML|parameter＞＜／DSML|invoke＞＜／DSML|tool_calls＞`
+func TestParseToolCallsSupportsEPSEShellWithFullwidthLTUnicodeSpaceAndFullwidthAttributes(t *testing.T) {
+	text := `＜|EPSE　tool_calls＞＜|EPSE　invoke　name＝“execute_code”＞＜|EPSE　parameter　name＝“code”＞<![CDATA[print("hi")]]>＜／EPSE|parameter＞＜／EPSE|invoke＞＜／EPSE|tool_calls＞`
 	calls := ParseToolCalls(text, []string{"execute_code"})
 	if len(calls) != 1 {
-		t.Fatalf("expected 1 DSML call with fullwidth opening delimiter and Unicode attribute confusables, got %#v", calls)
+		t.Fatalf("expected 1 EPSE call with fullwidth opening delimiter and Unicode attribute confusables, got %#v", calls)
 	}
 	if calls[0].Name != "execute_code" || calls[0].Input["code"] != `print("hi")` {
-		t.Fatalf("unexpected fullwidth-opening/Unicode-attr DSML parse result: %#v", calls[0])
+		t.Fatalf("unexpected fullwidth-opening/Unicode-attr EPSE parse result: %#v", calls[0])
 	}
 }
 
 func TestParseToolCallsCanonicalizesConfusableCandidateShellOnly(t *testing.T) {
 	text := "<|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls>" +
-		"<|\ufeffDSML|inv\u03bfk\u0435 n\u0430me\uff1d\u201cexecute_code\u201d>" +
-		"<|\u200bDSML|par\u0430meter n\u0430me\uff1d\u201ccode\u201d><![\ufeff\u0421D\u0410T\u0410[print(\"hi\")]]>" +
-		"</|\u200bDSML|par\u0430meter></|\u200bDSML|inv\u03bfk\u0435></|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls>"
+		"<|\ufeffEPSE|inv\u03bfk\u0435 n\u0430me\uff1d\u201cexecute_code\u201d>" +
+		"<|\u200bEPSE|par\u0430meter n\u0430me\uff1d\u201ccode\u201d><![\ufeff\u0421D\u0410T\u0410[print(\"hi\")]]>" +
+		"</|\u200bEPSE|par\u0430meter></|\u200bEPSE|inv\u03bfk\u0435></|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls>"
 	calls := ParseToolCalls(text, []string{"execute_code"})
 	if len(calls) != 1 {
 		t.Fatalf("expected one confusable-shell call, got %#v", calls)

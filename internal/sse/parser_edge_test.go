@@ -229,11 +229,13 @@ func TestParseSSEChunkForContentFragmentsAppendThink(t *testing.T) {
 	if finished {
 		t.Fatal("expected not finished")
 	}
-	if nextType != "thinking" {
-		t.Fatalf("expected nextType thinking, got %q", nextType)
+	// 一刀切: the body has already begun (cursor is text), so the THINK
+	// fragment is dropped wholesale and no longer rewinds the sticky cursor.
+	if nextType != "text" {
+		t.Fatalf("expected nextType to stay text, got %q", nextType)
 	}
-	if len(parts) != 1 || parts[0].Type != "thinking" || parts[0].Text != "深入思考..." {
-		t.Fatalf("unexpected parts: %#v", parts)
+	if len(parts) != 0 {
+		t.Fatalf("expected residual thinking to be dropped, got %#v", parts)
 	}
 }
 
@@ -322,8 +324,10 @@ func TestParseSSEChunkForContentResponsePathFragmentsAppend(t *testing.T) {
 		},
 	}
 	_, _, nextType := ParseSSEChunkForContent(chunk, true, "text")
-	if nextType != "thinking" {
-		t.Fatalf("expected nextType thinking from response path fragments, got %q", nextType)
+	// 一刀切: the body has already begun, so the THINKING fragment no longer
+	// rewinds the sticky cursor back to thinking.
+	if nextType != "text" {
+		t.Fatalf("expected nextType to stay text, got %q", nextType)
 	}
 }
 
@@ -374,14 +378,13 @@ func TestParseSSEChunkForContentMapValueWithFragments(t *testing.T) {
 	if nextType != "text" {
 		t.Fatalf("expected nextType text after RESPONSE, got %q", nextType)
 	}
-	if len(parts) != 2 {
-		t.Fatalf("expected 2 parts, got %d: %#v", len(parts), parts)
+	// 一刀切: the body has already begun (cursor text), so the replayed THINK
+	// fragment is dropped wholesale and only the RESPONSE body survives.
+	if len(parts) != 1 {
+		t.Fatalf("expected 1 part, got %d: %#v", len(parts), parts)
 	}
-	if parts[0].Type != "thinking" || parts[0].Text != "思考..." {
-		t.Fatalf("first part mismatch: %#v", parts[0])
-	}
-	if parts[1].Type != "text" || parts[1].Text != "回答..." {
-		t.Fatalf("second part mismatch: %#v", parts[1])
+	if parts[0].Type != "text" || parts[0].Text != "回答..." {
+		t.Fatalf("unexpected parts: %#v", parts)
 	}
 }
 
@@ -475,7 +478,7 @@ func TestExtractContentRecursiveFinishedStatus(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "status", "v": "FINISHED"},
 	}
-	parts, finished := extractContentRecursive(items, "text")
+	parts, finished := extractContentRecursive(items, "text", true, nil)
 	if !finished {
 		t.Fatal("expected finished on status FINISHED")
 	}
@@ -488,7 +491,7 @@ func TestExtractContentRecursiveSkipsPath(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "quasi_status", "v": "data"},
 	}
-	parts, finished := extractContentRecursive(items, "text")
+	parts, finished := extractContentRecursive(items, "text", true, nil)
 	if finished {
 		t.Fatal("expected not finished")
 	}
@@ -501,7 +504,7 @@ func TestExtractContentRecursiveContentField(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "x", "v": "val", "content": "actual content", "type": "RESPONSE"},
 	}
-	parts, _ := extractContentRecursive(items, "text")
+	parts, _ := extractContentRecursive(items, "text", true, nil)
 	if len(parts) != 1 || parts[0].Text != "actual content" || parts[0].Type != "text" {
 		t.Fatalf("unexpected parts: %#v", parts)
 	}
@@ -511,7 +514,7 @@ func TestExtractContentRecursiveContentFieldThinkType(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "x", "v": "val", "content": "think text", "type": "THINK"},
 	}
-	parts, _ := extractContentRecursive(items, "text")
+	parts, _ := extractContentRecursive(items, "text", true, nil)
 	if len(parts) != 1 || parts[0].Type != "thinking" {
 		t.Fatalf("expected thinking type for THINK content, got %#v", parts)
 	}
@@ -521,7 +524,7 @@ func TestExtractContentRecursiveThinkingPath(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "thinking_content", "v": "deep thought"},
 	}
-	parts, _ := extractContentRecursive(items, "text")
+	parts, _ := extractContentRecursive(items, "text", true, nil)
 	if len(parts) != 1 || parts[0].Type != "thinking" || parts[0].Text != "deep thought" {
 		t.Fatalf("unexpected parts for thinking path: %#v", parts)
 	}
@@ -531,7 +534,7 @@ func TestExtractContentRecursiveContentPath(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "content", "v": "text content"},
 	}
-	parts, _ := extractContentRecursive(items, "thinking")
+	parts, _ := extractContentRecursive(items, "thinking", true, nil)
 	if len(parts) != 1 || parts[0].Type != "text" {
 		t.Fatalf("expected text type for content path, got %#v", parts)
 	}
@@ -541,7 +544,7 @@ func TestExtractContentRecursiveResponsePath(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "response", "v": "text content"},
 	}
-	parts, _ := extractContentRecursive(items, "thinking")
+	parts, _ := extractContentRecursive(items, "thinking", true, nil)
 	if len(parts) != 1 || parts[0].Type != "text" {
 		t.Fatalf("expected text type for response path, got %#v", parts)
 	}
@@ -551,7 +554,7 @@ func TestExtractContentRecursiveFragmentsPath(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "fragments", "v": "fragment text"},
 	}
-	parts, _ := extractContentRecursive(items, "thinking")
+	parts, _ := extractContentRecursive(items, "thinking", true, nil)
 	if len(parts) != 1 || parts[0].Type != "text" {
 		t.Fatalf("expected text type for fragments path, got %#v", parts)
 	}
@@ -568,7 +571,7 @@ func TestExtractContentRecursiveNestedArrayWithTypes(t *testing.T) {
 			},
 		},
 	}
-	parts, _ := extractContentRecursive(items, "text")
+	parts, _ := extractContentRecursive(items, "text", true, nil)
 	if len(parts) != 3 {
 		t.Fatalf("expected 3 parts, got %d: %#v", len(parts), parts)
 	}
@@ -592,7 +595,7 @@ func TestExtractContentRecursiveEmptyContentSkipped(t *testing.T) {
 			},
 		},
 	}
-	parts, _ := extractContentRecursive(items, "text")
+	parts, _ := extractContentRecursive(items, "text", true, nil)
 	if len(parts) != 0 {
 		t.Fatalf("expected no parts for empty nested content, got %#v", parts)
 	}
@@ -602,7 +605,7 @@ func TestExtractContentRecursiveFinishedString(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "content", "v": "FINISHED"},
 	}
-	parts, _ := extractContentRecursive(items, "text")
+	parts, _ := extractContentRecursive(items, "text", true, nil)
 	// "FINISHED" string value on non-status path should be skipped
 	if len(parts) != 0 {
 		t.Fatalf("expected FINISHED string to be skipped, got %#v", parts)
@@ -613,7 +616,7 @@ func TestExtractContentRecursiveNoVField(t *testing.T) {
 	items := []any{
 		map[string]any{"p": "content"},
 	}
-	parts, _ := extractContentRecursive(items, "text")
+	parts, _ := extractContentRecursive(items, "text", true, nil)
 	if len(parts) != 0 {
 		t.Fatalf("expected no parts for missing v field, got %#v", parts)
 	}
@@ -621,8 +624,79 @@ func TestExtractContentRecursiveNoVField(t *testing.T) {
 
 func TestExtractContentRecursiveNonMapItem(t *testing.T) {
 	items := []any{"just a string", 42}
-	parts, _ := extractContentRecursive(items, "text")
+	parts, _ := extractContentRecursive(items, "text", true, nil)
 	if len(parts) != 0 {
 		t.Fatalf("expected no parts for non-map items, got %#v", parts)
+	}
+}
+
+// ─── fragment-scoped status FINISHED (web-search tool fragments) ─────
+
+func TestIsFragmentScopedPath(t *testing.T) {
+	cases := map[string]bool{
+		"response/fragments/-1":         true,
+		"response/fragments/8":          true,
+		"fragments/-1":                  true,
+		"response/fragments":            false,
+		"fragments":                     false,
+		"response/fragments/-1/content": false,
+		"response/fragments/-1/status":  false,
+		"response":                      false,
+		"":                              false,
+	}
+	for path, want := range cases {
+		if got := isFragmentScopedPath(path); got != want {
+			t.Errorf("isFragmentScopedPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// A fragment-scoped status FINISHED (e.g. the TOOL_SEARCH fragment emitted for
+// -search models right after "正在搜索图片") marks that fragment as done, not
+// the whole response. Treating it as terminal cut the stream short before the
+// rest of the search results and the final answer arrived. Its content is
+// progress narration, so it belongs to the reasoning chain, not the body.
+func TestParseSSEChunkFragmentScopedStatusNotTerminal(t *testing.T) {
+	line := []byte(`data: {"p":"response/fragments/-1","v":[{"p":"status","v":"FINISHED"},{"p":"content","v":"已搜索到相关图片"}]}`)
+	res := ParseDeepSeekContentLine(line, true, "thinking")
+	if res.Stop {
+		t.Fatal("fragment-scoped status FINISHED must not finish the response")
+	}
+	if len(res.Parts) != 1 || res.Parts[0].Text != "已搜索到相关图片" || res.Parts[0].Type != "thinking" {
+		t.Fatalf("expected fragment content routed to thinking, got %#v", res.Parts)
+	}
+}
+
+// TOOL_SEARCH / TOOL_OPEN fragment content ("正在搜索图片") is tool metadata,
+// not answer body: it must be routed to reasoning.
+func TestParseSSEChunkToolFragmentContentRoutedToThinking(t *testing.T) {
+	line := []byte(`data: {"p":"response","o":"BATCH","v":[{"p":"fragments","o":"APPEND","v":[{"id":3,"type":"TOOL_SEARCH","status":"WIP","content":"正在搜索图片","queries":[],"results":[]}]},{"p":"has_pending_fragment","o":"SET","v":false}]}`)
+	res := ParseDeepSeekContentLine(line, true, "thinking")
+	if res.Stop {
+		t.Fatal("tool fragment must not finish the response")
+	}
+	if len(res.Parts) != 1 || res.Parts[0].Text != "正在搜索图片" || res.Parts[0].Type != "thinking" {
+		t.Fatalf("expected tool fragment content routed to thinking, got %#v", res.Parts)
+	}
+}
+
+// A response-scoped nested status FINISHED is still a terminal signal.
+func TestParseSSEChunkResponseScopedStatusStillTerminal(t *testing.T) {
+	line := []byte(`data: {"p":"response","v":[{"p":"status","v":"FINISHED"}]}`)
+	res := ParseDeepSeekContentLine(line, true, "text")
+	if !res.Stop {
+		t.Fatal("response-scoped status FINISHED must finish the response")
+	}
+	if len(res.Parts) != 0 {
+		t.Fatalf("expected no parts for terminal status, got %#v", res.Parts)
+	}
+}
+
+// The top-level response/status FINISHED must keep finishing the stream.
+func TestParseSSEChunkTopLevelStatusStillTerminal(t *testing.T) {
+	line := []byte(`data: {"p":"response/status","o":"SET","v":"FINISHED"}`)
+	res := ParseDeepSeekContentLine(line, true, "text")
+	if !res.Stop {
+		t.Fatal("response/status FINISHED must finish the response")
 	}
 }

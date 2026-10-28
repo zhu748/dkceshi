@@ -28,11 +28,27 @@ func TestGetSettingsDefaultPasswordWarning(t *testing.T) {
 	}
 }
 
+func TestGetSettingsReportsSuccess(t *testing.T) {
+	h := newAdminTestHandler(t, `{"keys":["k1"]}`)
+	rec := httptest.NewRecorder()
+	h.getSettings(rec, httptest.NewRequest(http.MethodGet, "/admin/settings", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	// Every admin endpoint answers with it and both API docs list it as part of
+	// this response, so a client that checks it must not see it disappear.
+	if body["success"] != true {
+		t.Fatalf("GET /admin/settings must report success=true, body=%v", body)
+	}
+}
+
 func TestGetSettingsIncludesTokenRefreshInterval(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "runtime":{"token_refresh_interval_hours":9}
-        }`)
+		"keys":["k1"],
+		"runtime":{"token_refresh_interval_hours":9}
+	}`)
 	req := httptest.NewRequest(http.MethodGet, "/admin/settings", nil)
 	rec := httptest.NewRecorder()
 	h.getSettings(rec, req)
@@ -57,16 +73,20 @@ func TestGetSettingsIncludesCurrentInputFileDefaults(t *testing.T) {
 	}
 	var body map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	currentInputFile, _ := body["current_input_file"].(map[string]any)
+	currentInputFile, _ := body["input_file"].(map[string]any)
 	if got := boolFrom(currentInputFile["enabled"]); got {
-		t.Fatalf("expected current_input_file.enabled=false (default off), body=%v", body)
+		t.Fatalf("expected input_file.enabled=false, body=%v", body)
 	}
 	if got := intFrom(currentInputFile["min_chars"]); got != 0 {
-		t.Fatalf("expected current_input_file.min_chars=0, got %d body=%v", got, body)
+		t.Fatalf("expected input_file.min_chars=0, got %d body=%v", got, body)
+	}
+	autoRouteVision, _ := body["auto_route_vision"].(map[string]any)
+	if got := boolFrom(autoRouteVision["enabled"]); got {
+		t.Fatalf("expected auto_route_vision.enabled=false, body=%v", body)
 	}
 	thinkingInjection, _ := body["thinking_injection"].(map[string]any)
 	if got := boolFrom(thinkingInjection["enabled"]); got {
-		t.Fatalf("expected thinking_injection.enabled=false (default off), body=%v", body)
+		t.Fatalf("expected thinking_injection.enabled=false, body=%v", body)
 	}
 	if got, _ := thinkingInjection["prompt"].(string); got != "" {
 		t.Fatalf("expected empty custom thinking prompt, got %q body=%v", got, body)
@@ -128,19 +148,19 @@ func TestUpdateSettingsAllowsEmptyEmbeddingsProvider(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if got := h.Store.Snapshot().Responses.StoreTTLSeconds; got != 600 {
+	if got := h.Store.SettingInt("responses", "store_ttl_seconds"); got != 600 {
 		t.Fatalf("store_ttl_seconds=%d want=600", got)
 	}
 }
 
 func TestUpdateSettingsValidationWithMergedRuntimeSnapshot(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "runtime":{
-                        "account_max_inflight":8,
-                        "global_max_inflight":8
-                }
-        }`)
+		"keys":["k1"],
+		"runtime":{
+			"account_max_inflight":8,
+			"global_max_inflight":8
+		}
+	}`)
 	payload := map[string]any{
 		"runtime": map[string]any{
 			"account_max_inflight": 16,
@@ -160,12 +180,12 @@ func TestUpdateSettingsValidationWithMergedRuntimeSnapshot(t *testing.T) {
 
 func TestUpdateSettingsWithoutRuntimeSkipsMergedRuntimeValidation(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "runtime":{
-                        "account_max_inflight":8,
-                        "global_max_inflight":4
-                }
-        }`)
+		"keys":["k1"],
+		"runtime":{
+			"account_max_inflight":8,
+			"global_max_inflight":4
+		}
+	}`)
 	payload := map[string]any{
 		"responses": map[string]any{
 			"store_ttl_seconds": 600,
@@ -178,7 +198,7 @@ func TestUpdateSettingsWithoutRuntimeSkipsMergedRuntimeValidation(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if got := h.Store.Snapshot().Responses.StoreTTLSeconds; got != 600 {
+	if got := h.Store.SettingInt("responses", "store_ttl_seconds"); got != 600 {
 		t.Fatalf("store_ttl_seconds=%d want=600", got)
 	}
 }
@@ -186,7 +206,7 @@ func TestUpdateSettingsWithoutRuntimeSkipsMergedRuntimeValidation(t *testing.T) 
 func TestUpdateSettingsCurrentInputFile(t *testing.T) {
 	h := newAdminTestHandler(t, `{"keys":["k1"],"history_split":{"enabled":true,"trigger_after_turns":2}}`)
 	payload := map[string]any{
-		"current_input_file": map[string]any{
+		"input_file": map[string]any{
 			"enabled":   true,
 			"min_chars": 12345,
 		},
@@ -198,22 +218,22 @@ func TestUpdateSettingsCurrentInputFile(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	snap := h.Store.Snapshot()
-	if snap.CurrentInputFile.Enabled == nil || !*snap.CurrentInputFile.Enabled {
-		t.Fatalf("expected current_input_file.enabled=true, got %#v", snap.CurrentInputFile)
+	stored := h.Store.Snapshot().Settings["input_file"]
+	if stored["enabled"] != true {
+		t.Fatalf("expected input_file.enabled=true, got %#v", stored)
 	}
-	if snap.CurrentInputFile.MinChars != 12345 {
-		t.Fatalf("expected current_input_file.min_chars=12345, got %#v", snap.CurrentInputFile)
+	if stored["min_chars"] != 12345 {
+		t.Fatalf("expected input_file.min_chars=12345, got %#v", stored)
 	}
-	if !h.Store.CurrentInputFileEnabled() {
+	if !h.Store.SettingBool("input_file", "enabled") {
 		t.Fatal("expected current input file accessor to stay enabled")
 	}
 }
 
 func TestUpdateSettingsCurrentInputFilePartialUpdatePreservesEnabled(t *testing.T) {
-	h := newAdminTestHandler(t, `{"keys":["k1"],"current_input_file":{"enabled":false,"min_chars":777}}`)
+	h := newAdminTestHandler(t, `{"keys":["k1"],"input_file":{"enabled":false,"min_chars":777}}`)
 	payload := map[string]any{
-		"current_input_file": map[string]any{
+		"input_file": map[string]any{
 			"min_chars": 5000,
 		},
 	}
@@ -224,19 +244,19 @@ func TestUpdateSettingsCurrentInputFilePartialUpdatePreservesEnabled(t *testing.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	snap := h.Store.Snapshot()
-	if snap.CurrentInputFile.Enabled == nil || *snap.CurrentInputFile.Enabled {
-		t.Fatalf("expected current_input_file.enabled to remain false, got %#v", snap.CurrentInputFile.Enabled)
+	stored := h.Store.Snapshot().Settings["input_file"]
+	if stored["enabled"] != false {
+		t.Fatalf("expected input_file.enabled to remain false, got %#v", stored["enabled"])
 	}
-	if snap.CurrentInputFile.MinChars != 5000 {
-		t.Fatalf("expected current_input_file.min_chars=5000, got %#v", snap.CurrentInputFile)
+	if stored["min_chars"] != 5000 {
+		t.Fatalf("expected input_file.min_chars=5000, got %#v", stored)
 	}
 }
 
 func TestUpdateSettingsCurrentInputFilePartialUpdatePreservesMinChars(t *testing.T) {
-	h := newAdminTestHandler(t, `{"keys":["k1"],"current_input_file":{"enabled":false,"min_chars":777}}`)
+	h := newAdminTestHandler(t, `{"keys":["k1"],"input_file":{"enabled":false,"min_chars":777}}`)
 	payload := map[string]any{
-		"current_input_file": map[string]any{
+		"input_file": map[string]any{
 			"enabled": true,
 		},
 	}
@@ -247,12 +267,12 @@ func TestUpdateSettingsCurrentInputFilePartialUpdatePreservesMinChars(t *testing
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	snap := h.Store.Snapshot()
-	if snap.CurrentInputFile.Enabled == nil || !*snap.CurrentInputFile.Enabled {
-		t.Fatalf("expected current_input_file.enabled=true, got %#v", snap.CurrentInputFile.Enabled)
+	stored := h.Store.Snapshot().Settings["input_file"]
+	if stored["enabled"] != true {
+		t.Fatalf("expected input_file.enabled=true, got %#v", stored["enabled"])
 	}
-	if snap.CurrentInputFile.MinChars != 777 {
-		t.Fatalf("expected current_input_file.min_chars to remain 777, got %#v", snap.CurrentInputFile)
+	if stored["min_chars"] != 777 {
+		t.Fatalf("expected input_file.min_chars to remain 777, got %#v", stored)
 	}
 }
 
@@ -263,7 +283,7 @@ func TestUpdateSettingsIgnoresHistorySplitPayload(t *testing.T) {
 			"enabled":             true,
 			"trigger_after_turns": 3,
 		},
-		"current_input_file": map[string]any{
+		"input_file": map[string]any{
 			"enabled":   true,
 			"min_chars": 0,
 		},
@@ -275,9 +295,8 @@ func TestUpdateSettingsIgnoresHistorySplitPayload(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	snap := h.Store.Snapshot()
-	if snap.CurrentInputFile.Enabled == nil || !*snap.CurrentInputFile.Enabled {
-		t.Fatalf("expected current_input_file to remain enabled, got %#v", snap.CurrentInputFile.Enabled)
+	if got := h.Store.Snapshot().Settings["input_file"]["enabled"]; got != true {
+		t.Fatalf("expected input_file to remain enabled, got %#v", got)
 	}
 }
 
@@ -296,14 +315,10 @@ func TestUpdateSettingsThinkingInjection(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	snap := h.Store.Snapshot()
-	if snap.ThinkingInjection.Enabled == nil || *snap.ThinkingInjection.Enabled {
-		t.Fatalf("expected thinking_injection.enabled=false, got %#v", snap.ThinkingInjection.Enabled)
+	if got := h.Store.SettingBool("thinking_injection", "enabled"); got {
+		t.Fatalf("expected thinking_injection.enabled=false, got %#v", got)
 	}
-	if h.Store.ThinkingInjectionEnabled() {
-		t.Fatal("expected thinking injection accessor to reflect disabled config")
-	}
-	if got := h.Store.ThinkingInjectionPrompt(); got != "custom thinking prompt" {
+	if got := h.Store.SettingString("thinking_injection", "prompt"); got != "custom thinking prompt" {
 		t.Fatalf("expected custom thinking prompt, got %q", got)
 	}
 }
@@ -322,11 +337,10 @@ func TestUpdateSettingsThinkingInjectionPartialPromptPreservesEnabled(t *testing
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	snap := h.Store.Snapshot()
-	if snap.ThinkingInjection.Enabled == nil || *snap.ThinkingInjection.Enabled {
-		t.Fatalf("expected thinking_injection.enabled to remain false, got %#v", snap.ThinkingInjection.Enabled)
+	if got := h.Store.SettingBool("thinking_injection", "enabled"); got {
+		t.Fatalf("expected thinking_injection.enabled to remain false, got %#v", got)
 	}
-	if got := h.Store.ThinkingInjectionPrompt(); got != "updated prompt" {
+	if got := h.Store.SettingString("thinking_injection", "prompt"); got != "updated prompt" {
 		t.Fatalf("expected updated prompt, got %q", got)
 	}
 }
@@ -345,11 +359,10 @@ func TestUpdateSettingsThinkingInjectionPartialEnabledPreservesPrompt(t *testing
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	snap := h.Store.Snapshot()
-	if snap.ThinkingInjection.Enabled == nil || !*snap.ThinkingInjection.Enabled {
-		t.Fatalf("expected thinking_injection.enabled=true, got %#v", snap.ThinkingInjection.Enabled)
+	if got := h.Store.SettingBool("thinking_injection", "enabled"); !got {
+		t.Fatalf("expected thinking_injection.enabled=true, got %#v", got)
 	}
-	if got := h.Store.ThinkingInjectionPrompt(); got != "original prompt" {
+	if got := h.Store.SettingString("thinking_injection", "prompt"); got != "original prompt" {
 		t.Fatalf("expected original prompt to be preserved, got %q", got)
 	}
 }
@@ -379,11 +392,153 @@ func TestUpdateSettingsAutoDeleteMode(t *testing.T) {
 	}
 }
 
+// The legacy sessions boolean is no longer a settings field: a write that still
+// carries it is rejected with the replacement named, rather than answered with a
+// 200 that changed nothing. The config-file form of the legacy key keeps
+// working (see TestUpdateSettingsAutoDeleteMode's starting config).
+func TestUpdateSettingsRejectsLegacyAutoDeleteSessions(t *testing.T) {
+	h := newAdminTestHandler(t, `{"keys":["k1"],"auto_delete":{"sessions":true}}`)
+
+	payload := map[string]any{
+		"auto_delete": map[string]any{
+			"sessions": false,
+		},
+	}
+	b, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/admin/settings", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+	h.updateSettings(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"auto_delete.sessions", "auto_delete.mode"} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("the error must name %s, got %s", want, rec.Body.String())
+		}
+	}
+	// Nothing was committed: the legacy file value is still in force.
+	if got := h.Store.AutoDeleteMode(); got != "all" {
+		t.Fatalf("a rejected update must not change the config, AutoDeleteMode()=%q", got)
+	}
+}
+
+// An explicit 0 in a settings update is the value the user chose, not the
+// "unset" sentinel: a bounded int whose declared minimum is positive rejects it
+// instead of silently resetting the setting to its default.
+func TestUpdateSettingsRejectsExplicitZeroIntSetting(t *testing.T) {
+	h := newAdminTestHandler(t, `{"keys":["k1"],"responses":{"store_ttl_seconds":600}}`)
+
+	payload := map[string]any{
+		"responses": map[string]any{
+			"store_ttl_seconds": 0,
+		},
+	}
+	b, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/admin/settings", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+	h.updateSettings(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("responses.store_ttl_seconds")) {
+		t.Fatalf("the error must name the field, got %s", rec.Body.String())
+	}
+	if got := h.Store.SettingInt("responses", "store_ttl_seconds"); got != 600 {
+		t.Fatalf("a rejected update must not reset the setting, got %d", got)
+	}
+}
+
+// A bounded int whose declared range includes 0 keeps accepting it: 0 is a
+// meaningful value there, not an out-of-range one.
+func TestUpdateSettingsAcceptsZeroWithinTheDeclaredRange(t *testing.T) {
+	h := newAdminTestHandler(t, `{"keys":["k1"],"input_file":{"enabled":true,"min_chars":5000}}`)
+
+	payload := map[string]any{
+		"input_file": map[string]any{
+			"min_chars": 0,
+		},
+	}
+	b, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/admin/settings", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+	h.updateSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := h.Store.SettingInt("input_file", "min_chars"); got != 0 {
+		t.Fatalf("min_chars=%d want 0", got)
+	}
+}
+
+// A trimmed string field cannot tell "the user cleared it" from "the user typed
+// spaces", so both are the unset value and neither fails the request.
+func TestUpdateSettingsAcceptsBlankEmbeddingsProvider(t *testing.T) {
+	for _, provider := range []any{"", "   "} {
+		h := newAdminTestHandler(t, `{"keys":["k1"],"embeddings":{"provider":"ollama"}}`)
+		payload := map[string]any{
+			"embeddings": map[string]any{"provider": provider},
+		}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPut, "/admin/settings", bytes.NewReader(b))
+		rec := httptest.NewRecorder()
+		h.updateSettings(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("provider %#v: expected 200, got %d body=%s", provider, rec.Code, rec.Body.String())
+		}
+		if got := h.Store.SettingString("embeddings", "provider"); got != "" {
+			t.Fatalf("provider %#v: expected the value to be cleared, got %q", provider, got)
+		}
+	}
+}
+
+func TestUpdateSettingsAutoRouteVision(t *testing.T) {
+	h := newAdminTestHandler(t, `{"keys":["k1"]}`)
+	payload := map[string]any{
+		"auto_route_vision": map[string]any{
+			"enabled": true,
+		},
+	}
+	b, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/admin/settings", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+	h.updateSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	// The value round-trips into the config, but the retired feature keeps its
+	// kill switch: the effective value is forced off.
+	if got := h.Store.Snapshot().Settings["auto_route_vision"]["enabled"]; got != true {
+		t.Fatalf("expected auto_route_vision.enabled=true to be persisted, got %#v", got)
+	}
+	if h.Store.SettingBool("auto_route_vision", "enabled") {
+		t.Fatal("expected auto route vision to stay force-disabled")
+	}
+}
+
+func TestUpdateSettingsAutoRouteVisionPreservesWhenNotProvided(t *testing.T) {
+	h := newAdminTestHandler(t, `{"keys":["k1"],"auto_route_vision":{"enabled":true}}`)
+	payload := map[string]any{
+		"responses": map[string]any{
+			"store_ttl_seconds": 600,
+		},
+	}
+	b, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/admin/settings", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+	h.updateSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := h.Store.Snapshot().Settings["auto_route_vision"]["enabled"]; got != true {
+		t.Fatalf("expected auto_route_vision.enabled to remain true, got %#v", got)
+	}
+}
+
 func TestUpdateSettingsHotReloadRuntime(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "accounts":[{"email":"a@test.com","token":"t1"},{"email":"b@test.com","token":"t2"}]
-        }`)
+		"keys":["k1"],
+		"accounts":[{"email":"a@test.com","token":"t1"},{"email":"b@test.com","token":"t2"}]
+	}`)
 
 	payload := map[string]any{
 		"runtime": map[string]any{
@@ -413,9 +568,9 @@ func TestUpdateSettingsHotReloadRuntime(t *testing.T) {
 
 func TestUpdateSettingsHotReloadTokenRefreshInterval(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "runtime":{"token_refresh_interval_hours":6}
-        }`)
+		"keys":["k1"],
+		"runtime":{"token_refresh_interval_hours":6}
+	}`)
 
 	payload := map[string]any{
 		"runtime": map[string]any{
@@ -436,10 +591,10 @@ func TestUpdateSettingsHotReloadTokenRefreshInterval(t *testing.T) {
 
 func TestUpdateConfigPreservesStructuredAPIKeysWhenBothFieldsPresent(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["legacy"],
-                "api_keys":[{"key":"legacy","name":"primary","remark":"prod"}],
-                "accounts":[]
-        }`)
+		"keys":["legacy"],
+		"api_keys":[{"key":"legacy","name":"primary","remark":"prod"}],
+		"accounts":[]
+	}`)
 
 	payload := map[string]any{
 		"keys": []any{"legacy", "new-key"},
@@ -473,9 +628,9 @@ func TestUpdateConfigPreservesStructuredAPIKeysWhenBothFieldsPresent(t *testing.
 
 func TestUpdateConfigLegacyKeysPreserveStructuredMetadata(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "api_keys":[{"key":"legacy","name":"primary","remark":"prod"}],
-                "accounts":[]
-        }`)
+		"api_keys":[{"key":"legacy","name":"primary","remark":"prod"}],
+		"accounts":[]
+	}`)
 
 	payload := map[string]any{
 		"keys": []any{"legacy", "new-key"},
@@ -505,13 +660,13 @@ func TestUpdateConfigLegacyKeysPreserveStructuredMetadata(t *testing.T) {
 
 func TestUpdateConfigReplacesModelAliases(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "model_aliases":{"claude-sonnet-4-6":"deepseek-v4-flash"}
-        }`)
+		"keys":["k1"],
+		"model_aliases":{"claude-sonnet-4-6":"deepseek-v4.1-flash"}
+	}`)
 
 	payload := map[string]any{
 		"model_aliases": map[string]any{
-			"gpt-5.5": "deepseek-v4-pro",
+			"gpt-5.5": "deepseek-v4.1-flash",
 		},
 	}
 	b, _ := json.Marshal(payload)
@@ -526,7 +681,7 @@ func TestUpdateConfigReplacesModelAliases(t *testing.T) {
 	if len(snap.ModelAliases) != 1 {
 		t.Fatalf("expected aliases to be replaced, got %#v", snap.ModelAliases)
 	}
-	if snap.ModelAliases["gpt-5.5"] != "deepseek-v4-pro" {
+	if snap.ModelAliases["gpt-5.5"] != "deepseek-v4.1-flash" {
 		t.Fatalf("expected updated alias, got %#v", snap.ModelAliases)
 	}
 }
@@ -562,9 +717,9 @@ func TestUpdateSettingsPasswordInvalidatesOldJWT(t *testing.T) {
 
 func TestConfigImportMergeAndReplace(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "accounts":[{"email":"a@test.com","password":"p1"}]
-        }`)
+		"keys":["k1"],
+		"accounts":[{"email":"a@test.com","password":"p1"}]
+	}`)
 
 	merge := map[string]any{
 		"mode": "merge",
@@ -614,8 +769,8 @@ func TestConfigImportMergeAndReplace(t *testing.T) {
 
 func TestConfigImportMergePreservesStructuredAPIKeys(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "api_keys":[{"key":"k1","name":"primary","remark":"prod"}]
-        }`)
+		"api_keys":[{"key":"k1","name":"primary","remark":"prod"}]
+	}`)
 
 	merge := map[string]any{
 		"mode": "merge",
@@ -648,9 +803,9 @@ func TestConfigImportMergePreservesStructuredAPIKeys(t *testing.T) {
 
 func TestConfigImportMergeUpgradesLegacyAPIKeys(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["legacy"],
-                "accounts":[]
-        }`)
+		"keys":["legacy"],
+		"accounts":[]
+	}`)
 
 	merge := map[string]any{
 		"mode": "merge",
@@ -686,9 +841,9 @@ func TestConfigImportMergeUpgradesLegacyAPIKeys(t *testing.T) {
 
 func TestBatchImportUpgradesLegacyAPIKeys(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["legacy"],
-                "accounts":[]
-        }`)
+		"keys":["legacy"],
+		"accounts":[]
+	}`)
 
 	payload := map[string]any{
 		"keys": []any{"legacy", "new-key"},
@@ -772,12 +927,12 @@ func TestConfigImportRejectsInvalidRuntimeBounds(t *testing.T) {
 
 func TestConfigImportRejectsMergedRuntimeConflict(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "runtime":{
-                        "account_max_inflight":8,
-                        "global_max_inflight":8
-                }
-        }`)
+		"keys":["k1"],
+		"runtime":{
+			"account_max_inflight":8,
+			"global_max_inflight":8
+		}
+	}`)
 	payload := map[string]any{
 		"mode": "merge",
 		"config": map[string]any{
@@ -804,9 +959,9 @@ func TestConfigImportRejectsMergedRuntimeConflict(t *testing.T) {
 
 func TestConfigImportMergeDedupesMobileAliases(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "accounts":[{"mobile":"+8613800138000","password":"p1"}]
-        }`)
+		"keys":["k1"],
+		"accounts":[{"mobile":"+8613800138000","password":"p1"}]
+	}`)
 
 	merge := map[string]any{
 		"mode": "merge",
@@ -830,9 +985,9 @@ func TestConfigImportMergeDedupesMobileAliases(t *testing.T) {
 
 func TestUpdateConfigDedupesMobileAliases(t *testing.T) {
 	h := newAdminTestHandler(t, `{
-                "keys":["k1"],
-                "accounts":[{"mobile":"+8613800138000","password":"old"}]
-        }`)
+		"keys":["k1"],
+		"accounts":[{"mobile":"+8613800138000","password":"old"}]
+	}`)
 
 	reqBody := map[string]any{
 		"accounts": []any{

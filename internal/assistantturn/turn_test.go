@@ -1,18 +1,21 @@
 package assistantturn
 
 import (
+	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
+	"ds2api/internal/toolcall"
 )
 
 func TestBuildTurnFromCollectedTextCitation(t *testing.T) {
 	turn := BuildTurnFromCollected(sse.CollectResult{
 		Text:          "See [citation:1]",
 		CitationLinks: map[int]string{1: "https://example.com"},
-	}, BuildOptions{Model: "deepseek-v4-flash", Prompt: "prompt", SearchEnabled: true})
+	}, BuildOptions{Model: "deepseek-v4.1-flash", Prompt: "prompt", SearchEnabled: true})
 	if turn.Text != "See [1](https://example.com)" {
 		t.Fatalf("text mismatch: %q", turn.Text)
 	}
@@ -31,7 +34,7 @@ func TestBuildTurnFromCollectedKeepsNonStreamReferenceLinks(t *testing.T) {
 			1: "https://example.com/a",
 			2: "https://example.com/b",
 		},
-	}, BuildOptions{Model: "deepseek-v4-flash-search", Prompt: "prompt", SearchEnabled: true})
+	}, BuildOptions{Model: "deepseek-v4.1-flash-search", Prompt: "prompt", SearchEnabled: true})
 	want := "结论[0](https://example.com/a)，补充[1](https://example.com/b)。"
 	if turn.Text != want {
 		t.Fatalf("text mismatch: got %q want %q", turn.Text, want)
@@ -68,6 +71,18 @@ func TestBuildTurnFromCollectedThinkingOnlyIsEmptyOutput(t *testing.T) {
 	turn := BuildTurnFromCollected(sse.CollectResult{Thinking: "hidden"}, BuildOptions{})
 	if turn.Error == nil || turn.Error.Code != "upstream_empty_output" {
 		t.Fatalf("expected empty output error, got %#v", turn.Error)
+	}
+}
+
+func TestBuildTurnFromCollectedModerationBlockedThinkingIsInputContentBlocked(t *testing.T) {
+	turn := BuildTurnFromCollected(sse.CollectResult{
+		Thinking: "你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。",
+	}, BuildOptions{})
+	if turn.Error == nil || turn.Error.Status != http.StatusBadRequest || turn.Error.Code != "input_content_blocked" {
+		t.Fatalf("expected input_content_blocked error, got %#v", turn.Error)
+	}
+	if turn.Error.Message != "输入内容被审核拦截" {
+		t.Fatalf("unexpected message: %q", turn.Error.Message)
 	}
 }
 
@@ -145,5 +160,351 @@ func TestFinalizeTurnContentFilterOutcome(t *testing.T) {
 	outcome := FinalizeTurn(turn, FinalizeOptions{})
 	if !outcome.ShouldFail || outcome.Error == nil || outcome.Error.Code != "content_filter" {
 		t.Fatalf("expected content filter failure, got %#v", outcome)
+	}
+}
+
+func TestBuildTurnFromCollectedUpstreamError(t *testing.T) {
+	turn := BuildTurnFromCollected(sse.CollectResult{
+		UpstreamError: "内容超长，请删减后再试",
+	}, BuildOptions{})
+	if turn.Error == nil || turn.Error.Status != http.StatusBadRequest ||
+		turn.Error.Code != "upstream_error" ||
+		turn.Error.Message != "内容超长，请删减后再试" {
+		t.Fatalf("expected upstream_error with original message, got %#v", turn.Error)
+	}
+}
+
+func TestBuildTurnFromStreamSnapshotUpstreamError(t *testing.T) {
+	turn := BuildTurnFromStreamSnapshot(StreamSnapshot{
+		UpstreamError: "内容超长，请删减后再试",
+	}, BuildOptions{})
+	if turn.Error == nil || turn.Error.Status != http.StatusBadRequest ||
+		turn.Error.Code != "upstream_error" {
+		t.Fatalf("expected upstream_error from snapshot, got %#v", turn.Error)
+	}
+}
+
+func TestShouldRetryEmptyOutputSkipsUpstreamError(t *testing.T) {
+	turn := Turn{UpstreamError: "内容超长，请删减后再试"}
+	if ShouldRetryEmptyOutput(turn, 0, 3) {
+		t.Fatalf("should not retry when upstream error is present")
+	}
+}
+
+func TestBuildTurnFromCollectedLLMRepairFillsToolCall(t *testing.T) {
+	// A malformed tool call (wrong local name "call" instead of "invoke") that
+	// the deterministic parser cannot rescue, but the finalize LLM repair pass
+	// can. The residual bad code is handed to the invoker, which returns valid
+	// EPSE format; the repaired call is surfaced.
+	bad := `<|EPSE|call name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|call>`
+	invoke := func(_ context.Context, _ string) (string, error) {
+		return `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[DS_SLOT_0]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+	}
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: bad}, BuildOptions{
+		ToolNames:         []string{"Bash"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if len(turn.ToolCalls) != 1 {
+		t.Fatalf("expected one repaired tool call, got %d", len(turn.ToolCalls))
+	}
+	if turn.ToolCalls[0].Name != "Bash" {
+		t.Fatalf("expected Bash, got %q", turn.ToolCalls[0].Name)
+	}
+	if got, _ := turn.ToolCalls[0].Input["command"].(string); got != "pwd" {
+		t.Fatalf("expected restored command 'pwd', got %q", got)
+	}
+	if turn.StopReason != StopReasonToolCalls {
+		t.Fatalf("expected tool_calls stop reason, got %q", turn.StopReason)
+	}
+}
+
+// TestBuildTurnFromCollectedRepairDeductsDSMLSource covers the DSML case: the
+// repair produces a valid call, and the DSML source fragment it replaced must be
+// deducted from the visible text instead of surviving before the repaired call.
+func TestBuildTurnFromCollectedRepairDeductsDSMLSource(t *testing.T) {
+	bad := `<DSML calls><DSML invoke name="read"><DSML parameter name="path">/tmp/a.txt</DSML parameter></DSML invoke></DSML calls>`
+	invoke := func(_ context.Context, _ string) (string, error) {
+		return `<|EPSE|tool_calls><|EPSE|invoke name="read"><|EPSE|parameter name="path">/tmp/a.txt</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+	}
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: bad}, BuildOptions{
+		ToolNames:         []string{"read"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if len(turn.ToolCalls) != 1 {
+		t.Fatalf("expected one repaired tool call, got %d", len(turn.ToolCalls))
+	}
+	if strings.Contains(turn.Text, "DSML") {
+		t.Fatalf("expected DSML source deducted from visible text, got %q", turn.Text)
+	}
+}
+
+func TestBuildTurnFromCollectedLLMRepairNoToolLeavesText(t *testing.T) {
+	bad := `<|EPSE|call name="x">just prose that is not a tool</|EPSE|call>`
+	invoke := func(_ context.Context, _ string) (string, error) {
+		return "NO TOOL", nil
+	}
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: bad}, BuildOptions{
+		ToolNames:         []string{"Bash"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if len(turn.ToolCalls) != 0 {
+		t.Fatalf("expected NO TOOL to leave zero tool calls, got %d", len(turn.ToolCalls))
+	}
+}
+
+func TestBuildTurnFromCollectedLLMRepairDisabledWhenNoInvoker(t *testing.T) {
+	bad := `<|EPSE|call name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|call>`
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: bad}, BuildOptions{
+		ToolNames: []string{"Bash"},
+	})
+	if len(turn.ToolCalls) != 0 {
+		t.Fatalf("expected no repair without an invoker, got %d calls", len(turn.ToolCalls))
+	}
+}
+
+// TestBuildTurnFromCollectedPartialSuccessMerges covers M3: one wrapper parses
+// successfully, and a trailing bad EPSE shell survives as residual intent. The
+// residual is repaired and merged with the already-parsed call rather than
+// dropped.
+func TestBuildTurnFromCollectedPartialSuccessMerges(t *testing.T) {
+	// good wrapper (parses to Write) + trailing bad shell (wrong local name).
+	good := `<|EPSE|tool_calls><|EPSE|invoke name="Write"><|EPSE|parameter name="content"><![CDATA[hi]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
+	bad := `<|EPSE|call name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|call>`
+	invoke := func(_ context.Context, _ string) (string, error) {
+		return `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[DS_SLOT_0]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+	}
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: good + bad}, BuildOptions{
+		ToolNames:         []string{"Write", "Bash"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if len(turn.ToolCalls) != 2 {
+		t.Fatalf("expected merged 2 tool calls (parsed + repaired), got %d", len(turn.ToolCalls))
+	}
+	if turn.ToolCalls[0].Name != "Write" {
+		t.Fatalf("expected first (parsed) call Write, got %q", turn.ToolCalls[0].Name)
+	}
+	if turn.ToolCalls[1].Name != "Bash" {
+		t.Fatalf("expected merged repaired call Bash, got %q", turn.ToolCalls[1].Name)
+	}
+	if got, _ := turn.ToolCalls[1].Input["command"].(string); got != "pwd" {
+		t.Fatalf("expected restored command 'pwd', got %q", got)
+	}
+	if turn.StopReason != StopReasonToolCalls {
+		t.Fatalf("expected tool_calls stop reason, got %q", turn.StopReason)
+	}
+}
+
+// TestMergeRepairedToolCallsDeduplicates verifies the merge drops repaired
+// calls that duplicate an existing parsed call.
+func TestMergeRepairedToolCallsDeduplicates(t *testing.T) {
+	existing := []toolcall.ParsedToolCall{{Name: "Bash", Input: map[string]any{"command": "pwd"}}}
+	repaired := []toolcall.ParsedToolCall{
+		{Name: "Bash", Input: map[string]any{"command": "pwd"}}, // dup
+		{Name: "Write", Input: map[string]any{"content": "hi"}}, // new
+	}
+	merged := mergeRepairedToolCalls(existing, repaired)
+	if len(merged) != 2 {
+		t.Fatalf("expected 2 merged calls (dedup), got %d", len(merged))
+	}
+	if merged[0].Name != "Bash" || merged[1].Name != "Write" {
+		t.Fatalf("unexpected merge order: %+v", merged)
+	}
+}
+
+// TestBuildTurnFromStreamSnapshotRepairsResidual covers M4: a streaming finalize
+// with bad tool-call text (no structured tool_calls emitted) triggers the LLM
+// repair and the finalize turn surfaces the repaired tool_calls instead of the
+// bad visible text.
+func TestBuildTurnFromStreamSnapshotRepairsResidual(t *testing.T) {
+	bad := `<|EPSE|call name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|call>`
+	invoke := func(_ context.Context, _ string) (string, error) {
+		return `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[DS_SLOT_0]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+	}
+	turn := BuildTurnFromStreamSnapshot(StreamSnapshot{
+		RawText:     bad,
+		VisibleText: "",
+	}, BuildOptions{
+		ToolNames:         []string{"Bash"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if len(turn.ToolCalls) != 1 {
+		t.Fatalf("expected one repaired stream tool call, got %d", len(turn.ToolCalls))
+	}
+	if turn.ToolCalls[0].Name != "Bash" {
+		t.Fatalf("expected Bash, got %q", turn.ToolCalls[0].Name)
+	}
+	if turn.StopReason != StopReasonToolCalls {
+		t.Fatalf("expected tool_calls stop reason, got %q", turn.StopReason)
+	}
+}
+
+// TestBuildTurnFromStreamSnapshotRepairDeductsDSMLSource covers the streaming
+// finalize DSML case: the DSML block was released as visible text and later
+// repaired into a real call, so the repaired source must be deducted from the
+// final turn text instead of staying in front of the repaired call.
+func TestBuildTurnFromStreamSnapshotRepairDeductsDSMLSource(t *testing.T) {
+	bad := `<DSML calls><DSML invoke name="read"><DSML parameter name="path">/tmp/a.txt</DSML parameter></DSML invoke></DSML calls>`
+	invoke := func(_ context.Context, _ string) (string, error) {
+		return `<|EPSE|tool_calls><|EPSE|invoke name="read"><|EPSE|parameter name="path">/tmp/a.txt</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+	}
+	turn := BuildTurnFromStreamSnapshot(StreamSnapshot{
+		RawText:     bad,
+		VisibleText: bad,
+	}, BuildOptions{
+		ToolNames:         []string{"read"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if len(turn.ToolCalls) != 1 {
+		t.Fatalf("expected one repaired stream tool call, got %d", len(turn.ToolCalls))
+	}
+	if strings.Contains(turn.Text, "DSML") {
+		t.Fatalf("expected DSML source deducted from stream text, got %q", turn.Text)
+	}
+}
+
+// TestBuildTurnFromStreamSnapshotSkipsRepairAfterEmittedCalls ensures M4 does
+// not attempt repair once structured tool_calls were already streamed (they
+// cannot be retracted).
+func TestBuildTurnFromStreamSnapshotSkipsRepairAfterEmittedCalls(t *testing.T) {
+	bad := `<|EPSE|call name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|call>`
+	called := false
+	invoke := func(_ context.Context, _ string) (string, error) {
+		called = true
+		return "NO TOOL", nil
+	}
+	BuildTurnFromStreamSnapshot(StreamSnapshot{
+		RawText:             bad,
+		AlreadyEmittedCalls: true,
+	}, BuildOptions{
+		ToolNames:         []string{"Bash"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if called {
+		t.Fatalf("repair invoker must not run when tool calls were already emitted")
+	}
+}
+
+// TestBuildTurnFromCollectedDefensiveRepairOnSyntaxWithoutIntent covers
+// Direction 4: the residual intent probe can miss (SawToolCallIntent=false) even
+// though the deterministic parser saw tool-call syntax and produced zero calls.
+// Rather than leaking the bad tool-call code as visible text, the raw text is
+// handed to the repair layer as a defensive fallback.
+func TestBuildTurnFromCollectedDefensiveRepairOnSyntaxWithoutIntent(t *testing.T) {
+	// A canonical (no EPSE prefix) wrapper whose invoke has no name: this
+	// parses to zero calls and, being canonical, produces no EPSE intent
+	// signal — exactly the silent-leak gap Direction 4 guards.
+	bad := `<tool_calls><invoke><parameter name="command">pwd</parameter></invoke></tool_calls>`
+	parsed := toolcall.ParseStandaloneToolCallsDetailed(bad, []string{"Bash"})
+	if parsed.SawToolCallIntent {
+		t.Fatalf("precondition: expected SawToolCallIntent=false for canonical no-name invoke")
+	}
+	if !parsed.SawToolCallSyntax {
+		t.Fatalf("precondition: expected SawToolCallSyntax=true")
+	}
+	if len(parsed.Calls) != 0 {
+		t.Fatalf("precondition: expected 0 parsed calls, got %d", len(parsed.Calls))
+	}
+
+	var seen string
+	invoke := func(_ context.Context, prompt string) (string, error) {
+		seen = prompt
+		return `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+	}
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: bad}, BuildOptions{
+		ToolNames:         []string{"Bash"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if len(turn.ToolCalls) != 1 {
+		t.Fatalf("expected defensive repair to yield one tool call, got %d", len(turn.ToolCalls))
+	}
+	if turn.ToolCalls[0].Name != "Bash" {
+		t.Fatalf("expected Bash, got %q", turn.ToolCalls[0].Name)
+	}
+	if seen == "" {
+		t.Fatalf("expected repair invoker to receive the raw bad code")
+	}
+}
+
+// TestBuildTurnFromCollectedNoDefensiveRepairWithoutSyntax ensures the Direction
+// 4 fallback does NOT fire for plain prose (no tool-call syntax at all), so
+// ordinary text is never sent to the repair layer.
+func TestBuildTurnFromCollectedNoDefensiveRepairWithoutSyntax(t *testing.T) {
+	called := false
+	invoke := func(_ context.Context, _ string) (string, error) {
+		called = true
+		return "NO TOOL", nil
+	}
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: "just a normal answer, no tools here"}, BuildOptions{
+		ToolNames:         []string{"Bash"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if called {
+		t.Fatalf("defensive repair must not fire without tool-call syntax")
+	}
+	if len(turn.ToolCalls) != 0 {
+		t.Fatalf("expected no tool calls, got %d", len(turn.ToolCalls))
+	}
+}
+
+// TestBuildTurnFromCollectedRepairDeductsDSMLKeepsProse covers span-based
+// deduction: only the DSML wrapper is removed, so prose that travelled next to
+// the bad call stays visible instead of being deducted with the whole residual.
+func TestBuildTurnFromCollectedRepairDeductsDSMLKeepsProse(t *testing.T) {
+	text := `before <DSML calls><DSML invoke name="read"><DSML parameter name="path">/tmp/a.txt</DSML parameter></DSML invoke></DSML calls> after`
+	invoke := func(_ context.Context, _ string) (string, error) {
+		return `<|EPSE|tool_calls><|EPSE|invoke name="read"><|EPSE|parameter name="path">/tmp/a.txt</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+	}
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: text}, BuildOptions{
+		ToolNames:         []string{"read"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if len(turn.ToolCalls) != 1 {
+		t.Fatalf("expected one repaired tool call, got %d", len(turn.ToolCalls))
+	}
+	if strings.Contains(turn.Text, "DSML") {
+		t.Fatalf("expected DSML wrapper deducted from visible text, got %q", turn.Text)
+	}
+	for _, want := range []string{"before", "after"} {
+		if !strings.Contains(turn.Text, want) {
+			t.Fatalf("expected prose %q preserved, got %q", want, turn.Text)
+		}
+	}
+}
+
+// TestBuildTurnFromCollectedRepairDeductsDSMLPartialSuccess covers the
+// partial-success case: a successfully parsed wrapper sits between prose, so the
+// residual is not a contiguous substring of the visible text. Span-based
+// deduction must still remove the trailing DSML block.
+func TestBuildTurnFromCollectedRepairDeductsDSMLPartialSuccess(t *testing.T) {
+	good := `<|EPSE|tool_calls><|EPSE|invoke name="Write"><|EPSE|parameter name="content">hi</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
+	bad := `<DSML calls><DSML invoke name="read"><DSML parameter name="path">/tmp/a.txt</DSML parameter></DSML invoke></DSML calls>`
+	invoke := func(_ context.Context, _ string) (string, error) {
+		return `<|EPSE|tool_calls><|EPSE|invoke name="read"><|EPSE|parameter name="path">/tmp/a.txt</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+	}
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: "intro " + good + " tail " + bad}, BuildOptions{
+		ToolNames:         []string{"Write", "read"},
+		ToolCallRepair:    invoke,
+		ToolCallRepairCtx: context.Background(),
+	})
+	if len(turn.ToolCalls) != 2 {
+		t.Fatalf("expected parsed + repaired calls, got %d", len(turn.ToolCalls))
+	}
+	if strings.Contains(turn.Text, "DSML") {
+		t.Fatalf("expected DSML wrapper deducted from visible text, got %q", turn.Text)
+	}
+	for _, want := range []string{"intro", "tail"} {
+		if !strings.Contains(turn.Text, want) {
+			t.Fatalf("expected prose %q preserved, got %q", want, turn.Text)
+		}
 	}
 }

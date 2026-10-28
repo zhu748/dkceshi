@@ -11,7 +11,9 @@ func normalizeSettingsConfig(c *config.Config) {
 		return
 	}
 	c.Admin.PasswordHash = strings.TrimSpace(c.Admin.PasswordHash)
-	c.Embeddings.Provider = strings.TrimSpace(c.Embeddings.Provider)
+	// Registered settings are normalized from their own declarations, so a new
+	// setting is trimmed (or not) by its spec rather than by a line here.
+	config.NormalizeRegisteredSettings(c)
 }
 
 func NormalizeSettingsConfig(c *config.Config) {

@@ -17,17 +17,33 @@ var promptXMLTextEscaper = strings.NewReplacer(
 var promptXMLNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.:-]*$`)
 
 const (
-	promptDSMLToolCallsOpen  = "<|DSML|tool_calls>"
-	promptDSMLToolCallsClose = "</|DSML|tool_calls>"
-	promptDSMLInvokeOpen     = "<|DSML|invoke"
-	promptDSMLInvokeClose    = "</|DSML|invoke>"
-	promptDSMLParameterOpen  = "<|DSML|parameter"
-	promptDSMLParameterClose = "</|DSML|parameter>"
+	promptEPSEToolCallsOpen  = "<|EPSE|tool_calls>"
+	promptEPSEToolCallsClose = "</|EPSE|tool_calls>"
+	promptEPSEInvokeOpen     = "<|EPSE|invoke"
+	promptEPSEInvokeClose    = "</|EPSE|invoke>"
+	promptEPSEParameterOpen  = "<|EPSE|parameter"
+	promptEPSEParameterClose = "</|EPSE|parameter>"
 )
 
 // FormatToolCallsForPrompt renders a tool_calls slice into the prompt-visible
 // invoke/parameter history block used across adapters.
 func FormatToolCallsForPrompt(raw any) string {
+	return FormatToolCallsForPromptForMarker(raw, "EPSE")
+}
+
+// FormatToolCallsForPromptForMarker is the marker-aware variant of
+// FormatToolCallsForPrompt. It renders the block with the caller-specific
+// tool-call marker so prompt history stays consistent with the format spec.
+func FormatToolCallsForPromptForMarker(raw any, marker string) string {
+	out := formatToolCallsForPromptEPSE(raw)
+	marker = strings.TrimSpace(marker)
+	if marker == "" || marker == "EPSE" {
+		return out
+	}
+	return strings.ReplaceAll(out, "EPSE", marker)
+}
+
+func formatToolCallsForPromptEPSE(raw any) string {
 	calls, ok := raw.([]any)
 	if !ok || len(calls) == 0 {
 		return ""
@@ -47,7 +63,7 @@ func FormatToolCallsForPrompt(raw any) string {
 	if len(blocks) == 0 {
 		return ""
 	}
-	return promptDSMLToolCallsOpen + "\n" + strings.Join(blocks, "\n") + "\n" + promptDSMLToolCallsClose
+	return promptEPSEToolCallsOpen + "\n" + strings.Join(blocks, "\n") + "\n" + promptEPSEToolCallsClose
 }
 
 // StringifyToolCallArguments normalizes tool arguments into a compact string
@@ -103,12 +119,12 @@ func formatToolCallForPrompt(call map[string]any) string {
 
 	parameters := formatToolCallParametersForPrompt(argsRaw)
 	if parameters == "" {
-		return `  ` + promptDSMLInvokeOpen + ` name="` + escapeXMLAttribute(name) + `">` + promptDSMLInvokeClose
+		return `  ` + promptEPSEInvokeOpen + ` name="` + escapeXMLAttribute(name) + `">` + promptEPSEInvokeClose
 	}
 
-	return "  " + promptDSMLInvokeOpen + " name=\"" + escapeXMLAttribute(name) + "\">\n" +
+	return "  " + promptEPSEInvokeOpen + " name=\"" + escapeXMLAttribute(name) + "\">\n" +
 		parameters + "\n" +
-		"  " + promptDSMLInvokeClose
+		"  " + promptEPSEInvokeClose
 }
 
 func formatToolCallParametersForPrompt(raw any) string {
@@ -122,7 +138,7 @@ func formatToolCallParametersForPrompt(raw any) string {
 	if strings.TrimSpace(fallback) == "" {
 		return ""
 	}
-	return "    " + promptDSMLParameterOpen + " name=\"content\">" + renderPromptXMLText(fallback) + promptDSMLParameterClose
+	return "    " + promptEPSEParameterOpen + " name=\"content\">" + renderPromptXMLText(fallback) + promptEPSEParameterClose
 }
 
 func renderPromptToolParameters(value any, indent string) (string, bool) {
@@ -158,9 +174,9 @@ func renderPromptToolParameters(value any, indent string) (string, bool) {
 		}
 		return strings.Join(lines, "\n"), true
 	case string:
-		return indent + promptDSMLParameterOpen + ` name="content">` + renderPromptXMLText(v) + promptDSMLParameterClose, true
+		return indent + promptEPSEParameterOpen + ` name="content">` + renderPromptXMLText(v) + promptEPSEParameterClose, true
 	default:
-		return indent + promptDSMLParameterOpen + ` name="value">` + renderPromptXMLText(fmt.Sprint(v)) + promptDSMLParameterClose, true
+		return indent + promptEPSEParameterOpen + ` name="value">` + renderPromptXMLText(fmt.Sprint(v)) + promptEPSEParameterClose, true
 	}
 }
 
@@ -171,29 +187,29 @@ func renderPromptParameterNode(name string, value any, indent string) (string, b
 	}
 	switch v := value.(type) {
 	case nil:
-		return indent + promptDSMLParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + promptDSMLParameterClose, true
+		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + promptEPSEParameterClose, true
 	case map[string]any:
 		body, ok := renderPromptToolXMLBody(v, indent+"  ")
 		if !ok {
 			return "", false
 		}
 		if strings.TrimSpace(body) == "" {
-			return indent + promptDSMLParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + promptDSMLParameterClose, true
+			return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + promptEPSEParameterClose, true
 		}
-		return indent + promptDSMLParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + "\">\n" + body + "\n" + indent + promptDSMLParameterClose, true
+		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + "\">\n" + body + "\n" + indent + promptEPSEParameterClose, true
 	case []any:
 		body, ok := renderPromptToolXMLArray(v, indent+"  ")
 		if !ok {
 			return "", false
 		}
 		if strings.TrimSpace(body) == "" {
-			return indent + promptDSMLParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + promptDSMLParameterClose, true
+			return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + promptEPSEParameterClose, true
 		}
-		return indent + promptDSMLParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + "\">\n" + body + "\n" + indent + promptDSMLParameterClose, true
+		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + "\">\n" + body + "\n" + indent + promptEPSEParameterClose, true
 	case string:
-		return indent + promptDSMLParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + renderPromptXMLText(v) + promptDSMLParameterClose, true
+		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + renderPromptXMLText(v) + promptEPSEParameterClose, true
 	default:
-		return indent + promptDSMLParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + renderPromptXMLText(fmt.Sprint(v)) + promptDSMLParameterClose, true
+		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + renderPromptXMLText(fmt.Sprint(v)) + promptEPSEParameterClose, true
 	}
 }
 

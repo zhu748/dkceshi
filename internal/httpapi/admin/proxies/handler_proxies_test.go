@@ -183,6 +183,45 @@ func TestUpdateAccountProxyAssignsProxyID(t *testing.T) {
 	if acc.ProxyID != "proxy-1" {
 		t.Fatalf("expected proxy assigned, got %#v", acc)
 	}
+	if acc.NoProxy {
+		t.Fatal("assigning a proxy must clear no_proxy")
+	}
+	// 手动指定代理由用户掌握：账号退出自动调度。
+	if !acc.ManualBinding {
+		t.Fatal("assigning a proxy must set manual_binding")
+	}
+}
+
+func TestUpdateAccountProxyClearsAssignmentSetsNoProxy(t *testing.T) {
+	h := newAdminProxyTestHandler(t, `{
+		"proxies":[{"id":"proxy-1","name":"Node 1","type":"socks5h","host":"127.0.0.1","port":1080}],
+		"accounts":[{"email":"u@example.com","password":"pwd","proxy_id":"proxy-1"}]
+	}`)
+
+	r := chi.NewRouter()
+	r.Put("/admin/accounts/{identifier}/proxy", h.updateAccountProxy)
+
+	req := httptest.NewRequest(http.MethodPut, "/admin/accounts/u@example.com/proxy", bytes.NewBufferString(`{"proxy_id":""}`))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	acc, ok := h.Store.FindAccount("u@example.com")
+	if !ok {
+		t.Fatal("expected account")
+	}
+	if acc.ProxyID != "" {
+		t.Fatalf("expected proxy assignment cleared, got %#v", acc)
+	}
+	if !acc.NoProxy {
+		t.Fatal("explicitly clearing proxy assignment must set no_proxy")
+	}
+	// 手动绑定随解绑一并撤销，账号回到可被自动调度接管的状态。
+	if acc.ManualBinding {
+		t.Fatal("explicitly clearing proxy assignment must clear manual_binding")
+	}
 }
 
 func TestTestProxyUsesStoredProxy(t *testing.T) {
@@ -223,5 +262,75 @@ func TestTestProxyUsesStoredProxy(t *testing.T) {
 	}
 	if ok, _ := payload["success"].(bool); !ok {
 		t.Fatalf("expected success payload, got %#v", payload)
+	}
+}
+
+// 手动绑定之后回到自动调度的唯一入口：mode=auto 清空绑定并同时清除
+// no_proxy 与 manual_binding，账号重新参与桥的故障转移/补位。
+func TestUpdateAccountProxyAutoModeReturnsAccountToAutoScheduling(t *testing.T) {
+	h := newAdminProxyTestHandler(t, `{
+		"proxies":[{"id":"mihomo-1","name":"香港 01","type":"socks5","host":"127.0.0.1","port":10801}],
+		"accounts":[{"email":"u@example.com","password":"pwd","proxy_id":"mihomo-1","manual_binding":true}]
+	}`)
+
+	var reconciles int
+	h.OnAccountsChanged = func() { reconciles++ }
+
+	r := chi.NewRouter()
+	r.Put("/admin/accounts/{identifier}/proxy", h.updateAccountProxy)
+
+	req := httptest.NewRequest(http.MethodPut, "/admin/accounts/u@example.com/proxy", bytes.NewBufferString(`{"mode":"auto"}`))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	acc, ok := h.Store.FindAccount("u@example.com")
+	if !ok {
+		t.Fatal("expected account")
+	}
+	if acc.ProxyID != "" {
+		t.Fatalf("binding must be cleared, got %q", acc.ProxyID)
+	}
+	if acc.ManualBinding {
+		t.Fatal("mode=auto must clear manual_binding")
+	}
+	if acc.NoProxy {
+		t.Fatal("mode=auto must clear no_proxy")
+	}
+	// 交回自动调度后应立即触发一次绑定调和（按已有测速结果补位）。
+	if reconciles != 1 {
+		t.Fatalf("expected one reconcile request, got %d", reconciles)
+	}
+}
+
+// 桥未装配（OnAccountsChanged 为 nil，见 deps.go）时 mode=auto 不能 panic：
+// 回调是可选依赖，账号 handler 侧的 notifyAccountsChanged 用的是同一套 nil 规则。
+func TestUpdateAccountProxyAutoModeWithoutBridgeCallback(t *testing.T) {
+	h := newAdminProxyTestHandler(t, `{
+		"proxies":[{"id":"mihomo-1","name":"香港 01","type":"socks5","host":"127.0.0.1","port":10801}],
+		"accounts":[{"email":"u@example.com","password":"pwd","proxy_id":"mihomo-1","manual_binding":true}]
+	}`)
+	if h.OnAccountsChanged != nil {
+		t.Fatal("precondition: no bridge callback wired")
+	}
+
+	r := chi.NewRouter()
+	r.Put("/admin/accounts/{identifier}/proxy", h.updateAccountProxy)
+
+	req := httptest.NewRequest(http.MethodPut, "/admin/accounts/u@example.com/proxy", bytes.NewBufferString(`{"mode":"auto"}`))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	acc, ok := h.Store.FindAccount("u@example.com")
+	if !ok {
+		t.Fatal("expected account")
+	}
+	if acc.ProxyID != "" || acc.ManualBinding || acc.NoProxy {
+		t.Fatalf("mode=auto must return the account to auto-scheduling: %+v", acc)
 	}
 }

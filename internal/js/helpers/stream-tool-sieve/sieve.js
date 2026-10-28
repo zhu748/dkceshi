@@ -7,7 +7,10 @@ const {
 const { trimWrappingJSONFence } = require('./jsonscan');
 const {
   findToolMarkupTagOutsideIgnored,
+  findDSMLTagOutsideIgnored,
+  findMatchingDSMLClose,
   sanitizeLooseCDATA,
+  stripDSMLResidue,
 } = require('./parse_payload');
 const {
   consumeXMLToolCapture: consumeXMLToolCaptureImpl,
@@ -35,11 +38,10 @@ function processToolSieveChunk(state, chunk, toolNames) {
         state.capture += state.pending;
         state.pending = '';
       }
-      const consumed = consumeToolCapture(state, toolNames);
+      const consumed = consumeToolCapture(state, toolNames, false);
       if (!consumed.ready) {
         break;
       }
-      const captured = state.capture;
       state.capture = '';
       state.capturing = false;
       resetIncrementalToolState(state);
@@ -49,8 +51,13 @@ function processToolSieveChunk(state, chunk, toolNames) {
           noteText(state, consumed.prefix);
           events.push({ type: 'text', text: consumed.prefix });
         }
-        state.pendingToolRaw = captured;
-        state.pendingToolCalls = consumed.calls;
+        // Emit the completed tool call immediately so the runtime can mark the
+        // turn as tool-call emitting before the capture suffix (tail prose after
+        // the tool block) is released as content. Deferring to the next
+        // processToolSieveChunk call would let same-chunk tail text slip through
+        // as visible content in the same stream pass.
+        events.push({ type: 'tool_calls', calls: consumed.calls });
+        state.pendingToolRaw = '';
         if (consumed.suffix) {
           state.pending = consumed.suffix + state.pending;
         }
@@ -115,7 +122,7 @@ function flushToolSieve(state, toolNames) {
     state.pendingToolCalls = [];
   }
   if (state.capturing) {
-    const consumed = consumeToolCapture(state, toolNames);
+    const consumed = consumeToolCapture(state, toolNames, true);
     if (consumed.ready) {
       if (consumed.prefix) {
         noteText(state, consumed.prefix);
@@ -129,7 +136,13 @@ function flushToolSieve(state, toolNames) {
         events.push({ type: 'text', text: consumed.suffix });
       }
     } else if (state.capture) {
-      const content = state.capture;
+      let content = state.capture;
+      // A never-completed capture is released as text (repair / verbatim-output
+      // contract), but its DSML tags are still alien markup that must never
+      // reach the client: strip them here so the flush-time release cannot leak
+      // a lone `<｜｜DSML｜｜ calls>` as a delta the finalize pass can no longer
+      // retract. Mirrors the Go side flush release in tool_sieve_core.go.
+      content = stripDSMLResidue(content);
       const recovered = sanitizeLooseCDATA(content);
       if (recovered !== content) {
         const recoveredResult = consumeXMLToolCaptureImpl(recovered, toolNames, trimWrappingJSONFence);
@@ -157,8 +170,13 @@ function flushToolSieve(state, toolNames) {
     resetIncrementalToolState(state);
   }
   if (state.pending) {
-    noteText(state, state.pending);
-    events.push({ type: 'text', text: state.pending });
+    // Held-back partial DSML fragments (a tag whose `>` never arrived) used to
+    // be released verbatim here; strip them with the same final net. Mirrors
+    // the Go side flush release in tool_sieve_core.go.
+    const content = stripDSMLResidue(state.pending);
+    // If pending never resolved into a real tool call, release it as text.
+    noteText(state, content);
+    events.push({ type: 'text', text: content });
     state.pending = '';
   }
   return events;
@@ -200,27 +218,48 @@ function findToolSegmentStart(state, s) {
   }
   let offset = 0;
   while (true) {
-    const tag = findToolMarkupTagOutsideIgnored(s, offset);
-    if (!tag) {
+    const hit = findNextToolInterceptTag(s, offset);
+    if (!hit) {
       return -1;
     }
-    if (insideCodeFenceWithState(state, s.slice(0, tag.start))) {
-      offset = tag.end + 1;
+    if (insideCodeFenceWithState(state, s.slice(0, hit.start))) {
+      offset = hit.end + 1;
       continue;
     }
-    const markdown = markdownCodeSpanStateAt(state, s.slice(0, tag.start));
+    const markdown = markdownCodeSpanStateAt(state, s.slice(0, hit.start));
     if (markdown.ticks === 0) {
-      return tag.start;
+      return hit.start;
     }
-    if (markdownCodeSpanCloses(s.slice(tag.start), markdown.ticks)) {
-      offset = tag.end + 1;
+    if (markdownCodeSpanCloses(s.slice(hit.start), markdown.ticks)) {
+      offset = hit.end + 1;
       continue;
     }
     if (markdown.fromPrior) {
       return HOLD_TOOL_SEGMENT_START;
     }
-    return tag.start;
+    return hit.start;
   }
+}
+
+// findNextToolInterceptTag returns the earliest streaming interception entry at
+// or after offset: a recognized EPSE / canonical tool markup tag, or a
+// DSML-prefixed tag. DSML output never parses into a tool call, but its wrapper
+// still has to be captured so the raw alien markup is not leaked piecemeal.
+function findNextToolInterceptTag(s, offset) {
+  const tag = findToolMarkupTagOutsideIgnored(s, offset);
+  const dsml = findDSMLTagOutsideIgnored(s, offset);
+  if (tag && dsml) {
+    return tag.start <= dsml.start
+      ? { start: tag.start, end: tag.end }
+      : { start: dsml.start, end: dsml.end };
+  }
+  if (tag) {
+    return { start: tag.start, end: tag.end };
+  }
+  if (dsml) {
+    return { start: dsml.start, end: dsml.end };
+  }
+  return null;
 }
 
 function markdownCodeSpanStateAt(state, text) {
@@ -296,7 +335,7 @@ function atMarkdownFenceLineStart(text, idx) {
   return true;
 }
 
-function consumeToolCapture(state, toolNames) {
+function consumeToolCapture(state, toolNames, final) {
   const captured = state.capture || '';
   if (!captured) {
     return { ready: false, prefix: '', calls: [], suffix: '' };
@@ -311,6 +350,15 @@ function consumeToolCapture(state, toolNames) {
   if (hasOpenXMLToolTag(captured)) {
     return { ready: false, prefix: '', calls: [], suffix: '' };
   }
+  // DSML never parses into a tool call: hide it from visible content while
+  // keeping the raw text available for the finalize repair path.
+  const dsml = consumeDSMLHiddenCapture(captured, final);
+  if (dsml.handled) {
+    if (dsml.hold) {
+      return { ready: false, prefix: '', calls: [], suffix: '' };
+    }
+    return { ready: true, prefix: dsml.prefix, calls: [], suffix: dsml.suffix };
+  }
   if (shouldKeepBareInvokeCapture(captured)) {
     return { ready: false, prefix: '', calls: [], suffix: '' };
   }
@@ -322,6 +370,28 @@ function consumeToolCapture(state, toolNames) {
     calls: [],
     suffix: '',
   };
+}
+
+// consumeDSMLHiddenCapture hides a DSML block from visible output: prefix is
+// the text before the first DSML tag; suffix is the text after the matched
+// closing tag. handled=true means a DSML tag was found; hold=true means the
+// outer wrapper has not closed yet and the caller should keep buffering. When
+// final is true an unclosed tail is discarded as well. Mirrors the Go side
+// (internal/toolstream/tool_sieve_core.go) consumeDSMLHiddenCapture.
+function consumeDSMLHiddenCapture(captured, final) {
+  const open = findDSMLTagOutsideIgnored(captured, 0);
+  if (!open) {
+    return { prefix: '', suffix: '', handled: false, hold: false };
+  }
+  const prefix = captured.slice(0, open.start);
+  const closeTag = findMatchingDSMLClose(captured, open);
+  if (!closeTag) {
+    if (final) {
+      return { prefix, suffix: '', handled: true, hold: false };
+    }
+    return { prefix: '', suffix: '', handled: true, hold: true };
+  }
+  return { prefix, suffix: captured.slice(closeTag.end + 1), handled: true, hold: false };
 }
 
 module.exports = {

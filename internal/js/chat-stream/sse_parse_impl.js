@@ -65,7 +65,24 @@ function dropThinkingParts(parts) {
   return parts.filter((p) => p && p.type !== 'thinking');
 }
 
-function finalizeThinkingParts(parts, thinkingEnabled, newType) {
+function finalizeThinkingParts(parts, thinkingEnabled, newType, bodyStarted) {
+  if (bodyStarted) {
+    // 一刀切: visible body output has already begun for this request, so every
+    // residual thinking/reasoning increment is dropped wholesale. It is neither
+    // routed to thinking (no reasoning_content deltas) nor recovered into the
+    // body via the </think> split (no thinking content folded into content).
+    const out = [];
+    for (const p of parts) {
+      if (!p || p.type === 'thinking') {
+        continue;
+      }
+      const cleaned = stripThinkTags(p.text);
+      if (cleaned) {
+        out.push({ ...p, text: cleaned });
+      }
+    }
+    return { parts: out, newType };
+  }
   const splitResult = splitThinkingParts(parts);
   let finalType = newType;
   let finalParts = splitResult.parts;
@@ -175,6 +192,11 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
 
   let newType = currentType;
   const parts = [];
+  // One-size-fits-all rule: whether visible body output had already begun when
+  // this chunk arrived (the sticky cursor was already in the text segment).
+  // Once the body has begun, every residual thinking/reasoning increment in
+  // this and every following chunk is dropped wholesale.
+  const bodyStarted = thinkingEnabled && currentType === 'text';
 
   if (pathValue === 'response/fragments' && asString(chunk.o).toUpperCase() === 'APPEND' && Array.isArray(chunk.v)) {
     for (const frag of chunk.v) {
@@ -187,11 +209,15 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
         continue;
       }
       if (fragType === 'THINK' || fragType === 'THINKING') {
-        newType = 'thinking';
+        if (!(thinkingEnabled && newType === 'text')) {
+          newType = 'thinking';
+        }
         parts.push({ text: content, type: 'thinking' });
       } else if (fragType === 'RESPONSE') {
         newType = 'text';
         parts.push({ text: content, type: 'text' });
+      } else if (isToolFragmentType(fragType)) {
+        parts.push({ text: content, type: 'thinking' });
       } else {
         parts.push({ text: content, type: 'text' });
       }
@@ -207,7 +233,9 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
         for (const frag of item.v) {
           const fragType = asString(frag && frag.type).toUpperCase();
           if (fragType === 'THINK' || fragType === 'THINKING') {
-            newType = 'thinking';
+            if (!(thinkingEnabled && newType === 'text')) {
+              newType = 'thinking';
+            }
           } else if (fragType === 'RESPONSE') {
             newType = 'text';
           }
@@ -224,16 +252,17 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
 
   let partType = 'text';
   if (pathValue === 'response/thinking_content') {
-    if (!thinkingEnabled) {
-      partType = 'thinking';
-    } else if (newType === 'text') {
-      partType = 'text';
-    } else {
-      partType = 'thinking';
-    }
+    // Reasoning content is always typed "thinking". When the body has already
+    // begun, finalizeThinkingParts drops it wholesale (one-size-fits-all rule)
+    // instead of the old behavior that recovered it as body text and leaked
+    // reasoning into the visible answer.
+    partType = 'thinking';
   } else if (pathValue === 'response/content') {
     partType = 'text';
-  } else if (pathValue.includes('response/fragments') && pathValue.includes('/content')) {
+  } else if ((pathValue.startsWith('fragments/') || pathValue.startsWith('response/fragments/')) && pathValue.includes('/content')) {
+    // Fragment content paths follow the sticky cursor. DeepSeek emits the
+    // relative form "fragments/-1/content" (no "response/" prefix) inside a
+    // response BATCH; it carries the current stream kind, not a body marker.
     partType = newType;
   } else if (!pathValue) {
     partType = newType || 'text';
@@ -271,7 +300,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
     }
     
     let resolvedParts = filterLeakedContentFilterParts(parts);
-    const finalized = finalizeThinkingParts(resolvedParts, thinkingEnabled, newType);
+    const finalized = finalizeThinkingParts(resolvedParts, thinkingEnabled, newType, bodyStarted);
     
     return {
       parsed: true,
@@ -286,7 +315,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
   }
 
   if (Array.isArray(val)) {
-    const extracted = extractContentRecursive(val, partType, stripReferenceMarkers);
+    const extracted = extractContentRecursive(val, partType, newType, stripReferenceMarkers, thinkingEnabled, pathValue);
     if (extracted.finished) {
       return {
         parsed: true,
@@ -296,13 +325,14 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
         errorMessage: '',
         promptTokens,
         outputTokens,
-        newType,
+        newType: extracted.newType || newType,
       };
     }
     parts.push(...extracted.parts);
+    newType = extracted.newType || newType;
     
     let resolvedParts = filterLeakedContentFilterParts(parts);
-    const finalized = finalizeThinkingParts(resolvedParts, thinkingEnabled, newType);
+    const finalized = finalizeThinkingParts(resolvedParts, thinkingEnabled, newType, bodyStarted);
     
     return {
       parsed: true,
@@ -333,11 +363,15 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
         }
         const t = asString(frag.type).toUpperCase();
         if (t === 'THINK' || t === 'THINKING') {
-          newType = 'thinking';
+          if (!(thinkingEnabled && newType === 'text')) {
+            newType = 'thinking';
+          }
           parts.push({ text: content, type: 'thinking' });
         } else if (t === 'RESPONSE') {
           newType = 'text';
           parts.push({ text: content, type: 'text' });
+        } else if (isToolFragmentType(t)) {
+          parts.push({ text: content, type: 'thinking' });
         } else {
           parts.push({ text: content, type: partType });
         }
@@ -346,7 +380,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
   }
   
   let resolvedParts = filterLeakedContentFilterParts(parts);
-  const finalized = finalizeThinkingParts(resolvedParts, thinkingEnabled, newType);
+  const finalized = finalizeThinkingParts(resolvedParts, thinkingEnabled, newType, bodyStarted);
 
   return {
     parsed: true,
@@ -360,7 +394,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
   };
 }
 
-function extractContentRecursive(items, defaultType, stripReferenceMarkers = true) {
+function extractContentRecursive(items, defaultType, newType, stripReferenceMarkers = true, thinkingEnabled = true, parentPath = '') {
   const parts = [];
   for (const it of items) {
     if (!it || typeof it !== 'object') {
@@ -371,9 +405,14 @@ function extractContentRecursive(items, defaultType, stripReferenceMarkers = tru
     }
     const itemPath = asString(it.p);
     const itemV = it.v;
-    if (isStatusPath(itemPath)) {
+    // Status ops nested under a fragment-scoped path
+    // (e.g. {"p":"response/fragments/-1","v":[{"p":"status","v":"FINISHED"}]})
+    // mark that fragment as done, not the whole response. Treating them as
+    // terminal cut streams short right after a web-search fragment such as
+    // "正在搜索图片".
+    if (isStatusPath(itemPath) && !isFragmentScopedPath(parentPath)) {
       if (isFinishedStatus(itemV)) {
-        return { parts: [], finished: true };
+        return { parts: [], finished: true, newType };
       }
       continue;
     }
@@ -384,9 +423,18 @@ function extractContentRecursive(items, defaultType, stripReferenceMarkers = tru
     if (content) {
       const typeName = asString(it.type).toUpperCase();
       if (typeName === 'THINK' || typeName === 'THINKING') {
+        // THINK fragment moves the sticky cursor to thinking; RESPONSE (or
+        // response/content) is the only way back to text. Once the body has
+        // begun (one-size-fits-all rule) the cursor never rewinds.
+        if (!(thinkingEnabled && newType === 'text')) {
+          newType = 'thinking';
+        }
         parts.push({ text: content, type: 'thinking' });
       } else if (typeName === 'RESPONSE') {
+        newType = 'text';
         parts.push({ text: content, type: 'text' });
+      } else if (isToolFragmentType(typeName)) {
+        parts.push({ text: content, type: 'thinking' });
       } else {
         parts.push({ text: content, type: defaultType });
       }
@@ -394,10 +442,23 @@ function extractContentRecursive(items, defaultType, stripReferenceMarkers = tru
     }
 
     let partType = defaultType;
-    if (itemPath.includes('thinking')) {
+    if (isFragmentScopedPath(parentPath) && (itemPath === 'content' || itemPath === 'response/content')) {
+      // A bare response/fragments/-N patch (no /content suffix) updates the
+      // fragment object itself. In the web-search flow these are the tool
+      // fragment's status/content (e.g. "已搜索到相关图片"), which is progress
+      // narration rather than answer body.
       partType = 'thinking';
-    } else if (itemPath.includes('content') || itemPath === 'response' || itemPath === 'fragments') {
+    } else if (itemPath.includes('thinking')) {
+      partType = 'thinking';
+    } else if (itemPath === 'content' || itemPath === 'response' || itemPath === 'fragments' || itemPath === 'response/content') {
+      // Explicit body/fragment paths stay text. DeepSeek also emits path
+      // variants like "fragments/-1/content" (no "response/" prefix) inside a
+      // response BATCH; those carry the CURRENT stream kind (thinking content
+      // while reasoning, body content while text), so they follow the sticky
+      // cursor instead of being forced to text.
       partType = 'text';
+    } else if (newType) {
+      partType = newType;
     }
 
     if (typeof itemV === 'string') {
@@ -431,23 +492,72 @@ function extractContentRecursive(items, defaultType, stripReferenceMarkers = tru
       }
       const ct = asContentString(inner.content, stripReferenceMarkers);
       if (!ct) {
+        // Nested fragment items may carry the payload as "v" with no "content"
+        // field, e.g. a fragment content APPEND inside a fragments BATCH:
+        //   {"p":"-1/content","o":"APPEND","v":"..."}
+        // Use the sticky cursor for its type so body code (e.g. a trailing
+        // "pass\n```") is not dropped and reasoning fragments are not leaked
+        // as body text. TIP-style items still fall through when "v" is not a
+        // string.
+        const sv = typeof inner.v === 'string' ? asContentString(inner.v, stripReferenceMarkers) : '';
+        if (sv) {
+          parts.push({ text: sv, type: newType || partType });
+        }
         continue;
       }
       const typeName = asString(inner.type).toUpperCase();
       if (typeName === 'THINK' || typeName === 'THINKING') {
+        // THINK fragment moves the sticky cursor to thinking; RESPONSE (or
+        // response/content) is the only way back to text. Once the body has
+        // begun (one-size-fits-all rule) the cursor never rewinds.
+        if (!(thinkingEnabled && newType === 'text')) {
+          newType = 'thinking';
+        }
         parts.push({ text: ct, type: 'thinking' });
       } else if (typeName === 'RESPONSE') {
+        newType = 'text';
         parts.push({ text: ct, type: 'text' });
+      } else if (isToolFragmentType(typeName)) {
+        parts.push({ text: ct, type: 'thinking' });
       } else {
         parts.push({ text: ct, type: partType });
       }
     }
   }
-  return { parts, finished: false };
+  return { parts, finished: false, newType };
 }
 
 function isStatusPath(pathValue) {
   return pathValue === 'response/status' || pathValue === 'status';
+}
+
+// isToolFragmentType reports whether a fragment type carries search/tool
+// metadata (TOOL_SEARCH / TOOL_OPEN / ...). Its content is progress narration
+// ("正在搜索图片", "已搜索到相关图片"), not the answer body, so it is routed to
+// reasoning instead of visible content.
+function isToolFragmentType(typeName) {
+  return typeof typeName === 'string' && typeName.startsWith('TOOL_');
+}
+
+// isFragmentScopedPath reports whether a patch path targets one specific
+// fragment, e.g. "response/fragments/-1" or "fragments/8". Ops nested under such
+// a path are relative to that fragment: a {"p":"status","v":"FINISHED"} there
+// marks the fragment finished, not the whole response. Collection appends
+// ("response/fragments") and deeper paths ("fragments/-1/content") are not
+// fragment-scoped array parents.
+function isFragmentScopedPath(pathValue) {
+  let p = asString(pathValue);
+  if (p.startsWith('response/')) {
+    p = p.slice('response/'.length);
+  }
+  if (!p.startsWith('fragments/')) {
+    return false;
+  }
+  const rest = p.slice('fragments/'.length);
+  if (!rest) {
+    return false;
+  }
+  return rest.indexOf('/') === -1;
 }
 
 function isFinishedStatus(value) {

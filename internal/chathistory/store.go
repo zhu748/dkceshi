@@ -42,6 +42,7 @@ type Entry struct {
 	CompletedAt      int64          `json:"completed_at,omitempty"`
 	Status           string         `json:"status"`
 	CallerID         string         `json:"caller_id,omitempty"`
+	UserAgent        string         `json:"user_agent,omitempty"`
 	AccountID        string         `json:"account_id,omitempty"`
 	Surface          string         `json:"surface,omitempty"`
 	Model            string         `json:"model,omitempty"`
@@ -93,6 +94,7 @@ type File struct {
 
 type StartParams struct {
 	CallerID    string
+	UserAgent   string
 	AccountID   string
 	Surface     string
 	Model       string
@@ -273,6 +275,7 @@ func (s *Store) Start(params StartParams) (Entry, error) {
 		UpdatedAt:   now,
 		Status:      "streaming",
 		CallerID:    strings.TrimSpace(params.CallerID),
+		UserAgent:   strings.TrimSpace(params.UserAgent),
 		AccountID:   strings.TrimSpace(params.AccountID),
 		Surface:     strings.TrimSpace(params.Surface),
 		Model:       strings.TrimSpace(params.Model),

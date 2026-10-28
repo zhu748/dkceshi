@@ -45,6 +45,14 @@ func shouldSkipPath(path string) bool {
 	return false
 }
 
+// SkipPath reports whether a patch path is protocol metadata that must never be
+// treated as visible content (status / heartbeat / usage frames). Exported so
+// sibling layers (e.g. the auto-continue state machine) can reuse the same
+// classification when deciding whether an interrupted stream produced content.
+func SkipPath(path string) bool {
+	return shouldSkipPath(path)
+}
+
 func isFragmentStatusPath(path string) bool {
 	if path == "" || path == "response/status" {
 		return false
@@ -92,13 +100,40 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 	}
 	newType := currentFragmentType
 	parts := make([]ContentPart, 0, 8)
+	// The one-size-fits-all rule keys off whether visible body output had
+	// already begun when this chunk arrived (the sticky cursor was already in
+	// the text segment). Once the body has begun, every residual thinking /
+	// reasoning increment in this and every following chunk is dropped
+	// wholesale: it is neither routed to thinking (no reasoning_content
+	// increments) nor recovered into the body (no thinking content folded into
+	// content). The </think> text-recovery in splitThinkingParts only applies
+	// while the message is still in its reasoning phase.
+	bodyStartedAtStart := bodyStarted(thinkingEnabled, currentFragmentType)
 	updateTypeFromExplicitPath(path, thinkingEnabled, &newType)
-	collectDirectFragments(path, chunk, v, &newType, &parts)
-	updateTypeFromNestedResponse(path, v, &newType)
+	collectDirectFragments(path, chunk, v, thinkingEnabled, &newType, &parts)
+	updateTypeFromNestedResponse(path, v, thinkingEnabled, &newType)
 	partType := resolvePartType(path, thinkingEnabled, newType)
-	finished := appendChunkValueContent(v, partType, &newType, &parts, path)
+	finished := appendChunkValueContent(v, partType, thinkingEnabled, &newType, &parts, path)
 	if finished {
 		return nil, nil, true, newType
+	}
+	if bodyStartedAtStart {
+		// The upstream THINK parts are still surfaced to the caller's
+		// detection layer (ToolDetectionThinkingParts) so upstream activity is
+		// not mistaken for an idle/empty stream, but they never reach visible
+		// Parts.
+		detection := selectThinkingParts(parts)
+		cleaned := parts[:0]
+		for _, p := range parts {
+			if p.Type == "thinking" {
+				continue
+			}
+			p.Text = stripThinkTags(p.Text)
+			if p.Text != "" {
+				cleaned = append(cleaned, p)
+			}
+		}
+		return cleaned, detection, false, newType
 	}
 	var transitioned bool
 	parts, transitioned = splitThinkingParts(parts)
@@ -110,6 +145,14 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 		parts = dropThinkingParts(parts)
 	}
 	return parts, detectionThinkingParts, false, newType
+}
+
+// bodyStarted reports whether visible body output has already begun for the
+// current request: reasoning is enabled and the sticky segment cursor is
+// already in the text segment. Once that happens the one-size-fits-all rule
+// applies — any further think / thinking / reasoning increment is discarded.
+func bodyStarted(thinkingEnabled bool, cursor string) bool {
+	return thinkingEnabled && cursor == "text"
 }
 
 func updateTypeFromExplicitPath(path string, thinkingEnabled bool, newType *string) {
@@ -139,7 +182,7 @@ func selectThinkingParts(parts []ContentPart) []ContentPart {
 	return out
 }
 
-func collectDirectFragments(path string, chunk map[string]any, v any, newType *string, parts *[]ContentPart) {
+func collectDirectFragments(path string, chunk map[string]any, v any, thinkingEnabled bool, newType *string, parts *[]ContentPart) {
 	if path != "response/fragments" {
 		return
 	}
@@ -162,18 +205,30 @@ func collectDirectFragments(path string, chunk map[string]any, v any, newType *s
 		}
 		switch typeName {
 		case "THINK", "THINKING":
-			*newType = "thinking"
+			if !bodyStarted(thinkingEnabled, *newType) {
+				// THINK fragment moves the cursor to thinking (see
+				// appendWrappedFragments); RESPONSE is the only way back to
+				// text. Once the body has begun (one-size-fits-all rule) the
+				// cursor never rewinds; the part is still appended so the
+				// caller's detection layer sees the upstream activity, then
+				// ParseSSEChunkForContentDetailed drops it from visible parts.
+				*newType = "thinking"
+			}
 			appendContentPart(parts, content, "thinking")
 		case "RESPONSE":
 			*newType = "text"
 			appendContentPart(parts, content, "text")
 		default:
-			appendContentPart(parts, content, "text")
+			if isToolFragmentType(typeName) {
+				appendContentPart(parts, content, "thinking")
+			} else {
+				appendContentPart(parts, content, "text")
+			}
 		}
 	}
 }
 
-func updateTypeFromNestedResponse(path string, v any, newType *string) {
+func updateTypeFromNestedResponse(path string, v any, thinkingEnabled bool, newType *string) {
 	if path != "response" {
 		return
 	}
@@ -198,7 +253,12 @@ func updateTypeFromNestedResponse(path string, v any, newType *string) {
 			typeName, _, _ := parseFragmentTypeContent(fm)
 			switch typeName {
 			case "THINK", "THINKING":
-				*newType = "thinking"
+				if !bodyStarted(thinkingEnabled, *newType) {
+					// THINK fragment moves the cursor to thinking; RESPONSE is
+					// the only way back to text. Once the body has begun
+					// (one-size-fits-all rule) the cursor never rewinds.
+					*newType = "thinking"
+				}
 			case "RESPONSE":
 				*newType = "text"
 			}
@@ -209,16 +269,17 @@ func updateTypeFromNestedResponse(path string, v any, newType *string) {
 func resolvePartType(path string, thinkingEnabled bool, newType string) string {
 	switch {
 	case path == "response/thinking_content":
-		if !thinkingEnabled {
-			return "thinking"
-		}
-		if newType == "text" {
-			return "text"
-		}
+		// Reasoning content is always typed "thinking". When the body has
+		// already begun, ParseSSEChunkForContentDetailed drops it wholesale
+		// (the one-size-fits-all rule) instead of the old behavior that
+		// recovered it as body text and leaked reasoning into the answer.
 		return "thinking"
 	case path == "response/content":
 		return "text"
-	case strings.Contains(path, "response/fragments") && strings.Contains(path, "/content"):
+	case (strings.HasPrefix(path, "fragments/") || strings.HasPrefix(path, "response/fragments/")) && strings.Contains(path, "/content"):
+		// fragment content paths follow the sticky cursor. DeepSeek emits the
+		// relative form "fragments/-1/content" (no "response/" prefix) inside a
+		// response BATCH; it carries the current stream kind, not a body marker.
 		return newType
 	case path == "":
 		if newType != "" {
@@ -244,7 +305,7 @@ func dropThinkingParts(parts []ContentPart) []ContentPart {
 	return out
 }
 
-func appendChunkValueContent(v any, partType string, newType *string, parts *[]ContentPart, path string) bool {
+func appendChunkValueContent(v any, partType string, thinkingEnabled bool, newType *string, parts *[]ContentPart, path string) bool {
 	switch val := v.(type) {
 	case string:
 		if val == "FINISHED" && (path == "" || path == "status") {
@@ -255,7 +316,7 @@ func appendChunkValueContent(v any, partType string, newType *string, parts *[]C
 		}
 		appendContentPart(parts, val, partType)
 	case []any:
-		pp, finished := extractContentRecursive(val, partType)
+		pp, finished := extractContentRecursiveFrom(val, partType, thinkingEnabled, newType, path)
 		if finished {
 			return true
 		}
@@ -264,7 +325,7 @@ func appendChunkValueContent(v any, partType string, newType *string, parts *[]C
 		if appendObjectContentByPath(path, val, partType, parts) {
 			return false
 		}
-		appendWrappedFragments(val, partType, newType, parts)
+		appendWrappedFragments(val, partType, thinkingEnabled, newType, parts)
 	}
 	return false
 }
@@ -284,7 +345,7 @@ func appendObjectContentByPath(path string, val map[string]any, partType string,
 	return true
 }
 
-func appendWrappedFragments(val map[string]any, partType string, newType *string, parts *[]ContentPart) {
+func appendWrappedFragments(val map[string]any, partType string, thinkingEnabled bool, newType *string, parts *[]ContentPart) {
 	resp := val
 	if wrapped, ok := val["response"].(map[string]any); ok {
 		resp = wrapped
@@ -304,13 +365,26 @@ func appendWrappedFragments(val map[string]any, partType string, newType *string
 		}
 		switch typeName {
 		case "THINK", "THINKING":
-			*newType = "thinking"
+			if !bodyStarted(thinkingEnabled, *newType) {
+				// A THINK fragment moves the sticky cursor to thinking: it is
+				// the upstream's explicit "reasoning" marker, and RESPONSE (or
+				// response/content) is the only way back to text. Once the body
+				// has begun (one-size-fits-all rule) the cursor never rewinds;
+				// the part is still appended so the detection layer sees the
+				// upstream activity, then ParseSSEChunkForContentDetailed drops
+				// it from visible parts.
+				*newType = "thinking"
+			}
 			appendContentPart(parts, content, "thinking")
 		case "RESPONSE":
 			*newType = "text"
 			appendContentPart(parts, content, "text")
 		default:
-			appendContentPart(parts, content, partType)
+			if isToolFragmentType(typeName) {
+				appendContentPart(parts, content, "thinking")
+			} else {
+				appendContentPart(parts, content, partType)
+			}
 		}
 	}
 }
@@ -319,6 +393,14 @@ func parseFragmentTypeContent(m map[string]any) (string, string, string) {
 	typeName, _ := m["type"].(string)
 	content, _ := m["content"].(string)
 	return strings.ToUpper(typeName), content, strings.ToUpper(typeName)
+}
+
+// isToolFragmentType reports whether a fragment type carries search/tool
+// metadata (TOOL_SEARCH / TOOL_OPEN / ...). Its content is progress narration
+// ("正在搜索图片", "已搜索到相关图片"), not the answer body, so it is routed to
+// reasoning instead of visible content.
+func isToolFragmentType(typeName string) bool {
+	return strings.HasPrefix(typeName, "TOOL_")
 }
 
 func appendContentPart(parts *[]ContentPart, content, kind string) {
@@ -389,7 +471,34 @@ func isStatusPath(path string) bool {
 	return path == "response/status" || path == "status"
 }
 
-func extractContentRecursive(items []any, defaultType string) ([]ContentPart, bool) {
+// isFragmentScopedPath reports whether a patch path targets one specific
+// fragment, e.g. "response/fragments/-1" or "fragments/8". Ops nested under such
+// a path are relative to that fragment: a {"p":"status","v":"FINISHED"} there
+// marks the fragment finished, not the whole response. Collection appends
+// ("response/fragments") and deeper paths ("fragments/-1/content") are not
+// fragment-scoped array parents.
+func isFragmentScopedPath(path string) bool {
+	p := strings.TrimPrefix(strings.TrimSpace(path), "response/")
+	if !strings.HasPrefix(p, "fragments/") {
+		return false
+	}
+	rest := strings.TrimPrefix(p, "fragments/")
+	if rest == "" {
+		return false
+	}
+	return !strings.Contains(rest, "/")
+}
+
+func extractContentRecursive(items []any, defaultType string, thinkingEnabled bool, newType *string) ([]ContentPart, bool) {
+	return extractContentRecursiveFrom(items, defaultType, thinkingEnabled, newType, "")
+}
+
+// extractContentRecursiveFrom is extractContentRecursive with the parent patch
+// path available. Status ops nested under a fragment-scoped path
+// (e.g. {"p":"response/fragments/-1","v":[{"p":"status","v":"FINISHED"}]}) mark
+// that fragment as done, not the whole response; treating them as terminal cut
+// streams short right after a web-search fragment such as "正在搜索图片".
+func extractContentRecursiveFrom(items []any, defaultType string, thinkingEnabled bool, newType *string, parentPath string) ([]ContentPart, bool) {
 	parts := make([]ContentPart, 0, len(items))
 	for _, it := range items {
 		m, ok := it.(map[string]any)
@@ -401,7 +510,7 @@ func extractContentRecursive(items []any, defaultType string) ([]ContentPart, bo
 		if !hasV {
 			continue
 		}
-		if isStatusPath(itemPath) {
+		if isStatusPath(itemPath) && !isFragmentScopedPath(parentPath) {
 			if s, ok := itemV.(string); ok && strings.EqualFold(strings.TrimSpace(s), "FINISHED") {
 				return nil, true
 			}
@@ -415,19 +524,46 @@ func extractContentRecursive(items []any, defaultType string) ([]ContentPart, bo
 			typeName = strings.ToUpper(typeName)
 			switch typeName {
 			case "THINK", "THINKING":
+				if newType != nil && !bodyStarted(thinkingEnabled, *newType) {
+					// THINK fragment moves the cursor to thinking; RESPONSE is
+					// the only way back to text. Once the body has begun
+					// (one-size-fits-all rule) the cursor never rewinds.
+					*newType = "thinking"
+				}
 				parts = append(parts, ContentPart{Text: content, Type: "thinking"})
 			case "RESPONSE":
+				if newType != nil {
+					*newType = "text"
+				}
 				parts = append(parts, ContentPart{Text: content, Type: "text"})
 			default:
-				parts = append(parts, ContentPart{Text: content, Type: defaultType})
+				if isToolFragmentType(typeName) {
+					parts = append(parts, ContentPart{Text: content, Type: "thinking"})
+				} else {
+					parts = append(parts, ContentPart{Text: content, Type: defaultType})
+				}
 			}
 			continue
 		}
 		partType := defaultType
-		if strings.Contains(itemPath, "thinking") {
+		if isFragmentScopedPath(parentPath) && (itemPath == "content" || itemPath == "response/content") {
+			// A bare response/fragments/-N patch (no /content suffix) updates
+			// the fragment object itself. In the web-search flow these are the
+			// tool fragment's status/content (e.g. "已搜索到相关图片"), which is
+			// progress narration rather than answer body.
 			partType = "thinking"
-		} else if strings.Contains(itemPath, "content") || itemPath == "response" || itemPath == "fragments" {
+		} else if strings.Contains(itemPath, "thinking") {
+			partType = "thinking"
+		} else if itemPath == "content" || itemPath == "response" || itemPath == "fragments" || itemPath == "response/content" {
+			// Explicit body/fragment paths stay text. DeepSeek also emits
+			// path variants like "fragments/-1/content" (no "response/"
+			// prefix) inside a response BATCH; those carry the CURRENT stream
+			// kind (thinking content while reasoning, body content while
+			// text), so they follow the sticky cursor instead of being forced
+			// to text.
 			partType = "text"
+		} else if newType != nil && *newType != "" {
+			partType = *newType
 		}
 		switch v := itemV.(type) {
 		case string:
@@ -443,17 +579,45 @@ func extractContentRecursive(items []any, defaultType string) ([]ContentPart, bo
 				case map[string]any:
 					ct, _ := x["content"].(string)
 					if ct == "" {
+						// Nested fragment items may carry the payload as "v"
+						// with no "content" field, e.g. a fragment content
+						// APPEND inside a fragments BATCH:
+						//   {"p":"-1/content","o":"APPEND","v":"..."}
+						// Use the sticky cursor for its type so body code
+						// (e.g. a trailing "pass\n```") is not dropped and
+						// reasoning fragments are not leaked as body text.
+						innerType := partType
+						if newType != nil && *newType != "" {
+							innerType = *newType
+						}
+						if sv, ok := x["v"].(string); ok && sv != "" {
+							parts = append(parts, ContentPart{Text: sv, Type: innerType})
+						}
 						continue
 					}
 					typeName, _ := x["type"].(string)
 					typeName = strings.ToUpper(typeName)
 					switch typeName {
 					case "THINK", "THINKING":
+						if newType != nil && !bodyStarted(thinkingEnabled, *newType) {
+							// THINK fragment moves the cursor to thinking;
+							// RESPONSE is the only way back to text. Once the
+							// body has begun (one-size-fits-all rule) the
+							// cursor never rewinds.
+							*newType = "thinking"
+						}
 						parts = append(parts, ContentPart{Text: ct, Type: "thinking"})
 					case "RESPONSE":
+						if newType != nil {
+							*newType = "text"
+						}
 						parts = append(parts, ContentPart{Text: ct, Type: "text"})
 					default:
-						parts = append(parts, ContentPart{Text: ct, Type: partType})
+						if isToolFragmentType(typeName) {
+							parts = append(parts, ContentPart{Text: ct, Type: "thinking"})
+						} else {
+							parts = append(parts, ContentPart{Text: ct, Type: partType})
+						}
 					}
 				case string:
 					if x != "" {

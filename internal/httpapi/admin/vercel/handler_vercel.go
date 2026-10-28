@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -344,7 +345,11 @@ func vercelRequest(ctx context.Context, client *http.Client, method, endpoint st
 	if err != nil {
 		return nil, 0, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("cleanup close failed", "error", err)
+		}
+	}()
 	b, _ := io.ReadAll(resp.Body)
 	parsed := map[string]any{}
 	_ = json.Unmarshal(b, &parsed)

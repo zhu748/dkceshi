@@ -67,11 +67,23 @@ export default function AddAccountModal({
                         <label className="block text-sm font-medium mb-1.5">{t('accountManager.passwordLabel')} <span className="text-destructive">*</span></label>
                         <input
                             type="password"
-                            className="input-field bg-[#09090b]"
+                            className="input-field bg-background"
                             placeholder={t('accountManager.passwordPlaceholder')}
                             value={newAccount.password}
                             onChange={e => setNewAccount({ ...newAccount, password: e.target.value })}
                         />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1.5">{t('accountManager.poolTypeLabel')}</label>
+                        <select
+                            className="input-field"
+                            value={newAccount.pool_type || 'default'}
+                            onChange={e => setNewAccount({ ...newAccount, pool_type: e.target.value })}
+                        >
+                            <option value="default">{t('accountManager.poolTypeDefault')}</option>
+                            <option value="no_tools">{t('accountManager.poolTypeNoTools')}</option>
+                            <option value="tools_only">{t('accountManager.poolTypeToolsOnly')}</option>
+                        </select>
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
                         <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border hover:bg-secondary transition-colors text-sm font-medium">{t('actions.cancel')}</button>

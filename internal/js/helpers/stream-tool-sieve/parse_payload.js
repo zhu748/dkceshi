@@ -4,8 +4,8 @@ const CDATA_PATTERN = /^(?:<|〈)(?:!|！)\[CDATA\[([\s\S]*?)]](?:>|＞|〉)$/i;
 const XML_ATTR_PATTERN = /\b([a-z0-9_:-]+)\s*=\s*("([^"]*)"|'([^']*)')/gi;
 const TOOL_MARKUP_NAMES = [
   { raw: 'tool_calls', canonical: 'tool_calls' },
-  { raw: 'tool-calls', canonical: 'tool_calls', dsmlOnly: true },
-  { raw: 'toolcalls', canonical: 'tool_calls', dsmlOnly: true },
+  { raw: 'tool-calls', canonical: 'tool_calls', epseOnly: true },
+  { raw: 'toolcalls', canonical: 'tool_calls', epseOnly: true },
   { raw: 'invoke', canonical: 'invoke' },
   { raw: 'parameter', canonical: 'parameter' },
 ];
@@ -26,10 +26,16 @@ function stripFencedCodeBlocks(text) {
   let fenceLen = 0;
   let inCDATA = false;
   let beforeFenceIdx = 0;
+  // Byte offset in the original text where the current unclosed fence began,
+  // so its raw tail can be recovered when the fence is a false positive.
+  let fenceStartOffset = -1;
+  let lineStart = 0;
 
   for (let li = 0; li < lines.length; li += 1) {
     const line = lines[li];
     const lineWithNL = li < lines.length - 1 ? line + '\n' : line;
+    const curLineStart = lineStart;
+    lineStart += lineWithNL.length;
 
     // CDATA protection
     if (inCDATA || cdataStartsBeforeFence(line)) {
@@ -46,6 +52,7 @@ function stripFencedCodeBlocks(text) {
         fenceChar = fence.ch;
         fenceLen = fence.count;
         beforeFenceIdx = out.length;
+        fenceStartOffset = curLineStart;
         continue;
       }
       out.push(lineWithNL);
@@ -60,13 +67,39 @@ function stripFencedCodeBlocks(text) {
   }
 
   if (inFence) {
-    // Unclosed fence: keep content before the fence started.
-    if (beforeFenceIdx > 0) {
-      return out.slice(0, beforeFenceIdx).join('');
+    // Unclosed fence: normally drop the fenced region and keep only the
+    // content collected before it. But tool-call parameters routinely carry
+    // an odd number of markdown fences (```), which makes a real tool call
+    // look like an unclosed fence and swallows the trailing tool close tags.
+    // If the dropped tail still carries tool-structural closing tags, treat
+    // the fence as a false positive and preserve the raw tail so the close
+    // tags survive.
+    const head = beforeFenceIdx > 0 ? out.slice(0, beforeFenceIdx).join('') : '';
+    if (fenceStartOffset >= 0 && fenceStartOffset <= t.length) {
+      const tail = t.slice(fenceStartOffset);
+      if (textContainsToolMarkupCloseTag(tail)) {
+        return head + tail;
+      }
     }
-    return '';
+    return head;
   }
   return out.join('');
+}
+
+// textContainsToolMarkupCloseTag reports whether text carries a closing tool
+// markup tag (EPSE or canonical) for tool_calls / invoke / parameter. It
+// deliberately does NOT skip markdown fences: used to decide whether an
+// apparently-unclosed fence actually straddles a real tool call whose closing
+// tags must not be discarded.
+function textContainsToolMarkupCloseTag(text) {
+  const raw = toStringSafe(text);
+  for (let i = 0; i < raw.length; i += 1) {
+    const tag = scanToolMarkupTagAt(raw, i);
+    if (tag && tag.closing) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function stripMarkdownCodeSpans(text) {
@@ -186,7 +219,7 @@ function updateCDATAStateLine(inCDATA, line) {
 }
 
 function parseMarkupToolCalls(text) {
-  const normalized = normalizeDSMLToolCallMarkup(toStringSafe(text));
+  const normalized = normalizeEPSEToolCallMarkup(toStringSafe(text));
   if (!normalized.ok) {
     return [];
   }
@@ -245,24 +278,24 @@ function findToolCallElementBlocksOutsideIgnored(text) {
   return out;
 }
 
-function normalizeDSMLToolCallMarkup(text) {
+function normalizeEPSEToolCallMarkup(text) {
   const raw = toStringSafe(text);
   if (!raw) {
     return { text: '', ok: true };
   }
   const canonicalized = canonicalizeToolCallCandidateSpans(raw);
   const styles = containsToolMarkupSyntaxOutsideIgnored(canonicalized);
-  if (!styles.dsml && !styles.canonical) {
+  if (!styles.epse && !styles.canonical) {
     return { text: canonicalized, ok: true };
   }
   return {
-    text: replaceDSMLToolMarkupOutsideIgnored(canonicalized),
+    text: replaceEPSEToolMarkupOutsideIgnored(canonicalized),
     ok: true,
   };
 }
 
-function containsDSMLToolMarkup(text) {
-  return containsToolMarkupSyntaxOutsideIgnored(text).dsml;
+function containsEPSEToolMarkup(text) {
+  return containsToolMarkupSyntaxOutsideIgnored(text).epse;
 }
 
 function containsCanonicalToolMarkup(text) {
@@ -271,7 +304,7 @@ function containsCanonicalToolMarkup(text) {
 
 function containsToolCallWrapperSyntaxOutsideIgnored(text) {
   const raw = toStringSafe(text);
-  const styles = { dsml: false, canonical: false };
+  const styles = { epse: false, canonical: false };
   if (!raw) {
     return styles;
   }
@@ -295,12 +328,12 @@ function containsToolCallWrapperSyntaxOutsideIgnored(text) {
         i = tag.end + 1;
         continue;
       }
-      if (tag.dsmlLike) {
-        styles.dsml = true;
+      if (tag.epseLike) {
+        styles.epse = true;
       } else {
         styles.canonical = true;
       }
-      if (styles.dsml && styles.canonical) {
+      if (styles.epse && styles.canonical) {
         return styles;
       }
       i = tag.end + 1;
@@ -312,7 +345,7 @@ function containsToolCallWrapperSyntaxOutsideIgnored(text) {
 }
 function containsToolMarkupSyntaxOutsideIgnored(text) {
   const raw = toStringSafe(text);
-  const styles = { dsml: false, canonical: false };
+  const styles = { epse: false, canonical: false };
   if (!raw) {
     return styles;
   }
@@ -332,12 +365,12 @@ function containsToolMarkupSyntaxOutsideIgnored(text) {
     }
     const tag = scanToolMarkupTagAt(raw, i);
     if (tag) {
-      if (tag.dsmlLike) {
-        styles.dsml = true;
+      if (tag.epseLike) {
+        styles.epse = true;
       } else {
         styles.canonical = true;
       }
-      if (styles.dsml && styles.canonical) {
+      if (styles.epse && styles.canonical) {
         return styles;
       }
       i = tag.end + 1;
@@ -348,7 +381,7 @@ function containsToolMarkupSyntaxOutsideIgnored(text) {
   return styles;
 }
 
-function replaceDSMLToolMarkupOutsideIgnored(text) {
+function replaceEPSEToolMarkupOutsideIgnored(text) {
   const raw = toStringSafe(text);
   if (!raw) {
     return '';
@@ -589,20 +622,27 @@ function scanToolMarkupTagAt(text, start) {
   const prefix = consumeToolMarkupNamePrefix(raw, lower, i);
   const prefixStart = i;
   i = prefix.next;
-  let dsmlLike = prefix.dsmlLike;
-  let { name, len } = matchToolMarkupName(raw, i, dsmlLike);
+  let epseLike = prefix.epseLike;
+  let { name, len } = matchToolMarkupName(raw, i, epseLike);
+  let shorthandParameter = false;
   if (!name) {
     const fallback = matchToolMarkupNameAfterArbitraryPrefix(raw, prefixStart);
     if (!fallback.ok) {
-      return null;
+      if (!epseLike || !isEPSEShorthandParameter(raw, i, closing)) {
+        return null;
+      }
+      name = 'parameter';
+      len = 0;
+      shorthandParameter = true;
+    } else {
+      if (!closing && toolMarkupPrefixContainsSlash(raw.slice(prefixStart, fallback.start))) {
+        closing = true;
+      }
+      name = fallback.name;
+      i = fallback.start;
+      len = fallback.len;
+      epseLike = true;
     }
-    if (!closing && toolMarkupPrefixContainsSlash(raw.slice(prefixStart, fallback.start))) {
-      closing = true;
-    }
-    name = fallback.name;
-    i = fallback.start;
-    len = fallback.len;
-    dsmlLike = true;
   }
   const originalNameEnd = i + len;
   let nameEnd = originalNameEnd;
@@ -614,7 +654,7 @@ function scanToolMarkupTagAt(text, start) {
     nameEnd = nextPipe.next;
   }
   const hasTrailingSeparator = nameEnd > originalNameEnd;
-  if (!hasXmlTagBoundary(raw, nameEnd)) {
+  if (!shorthandParameter && !hasXmlTagBoundary(raw, nameEnd)) {
     return null;
   }
   let end = findXmlTagEnd(raw, nameEnd);
@@ -641,9 +681,29 @@ function scanToolMarkupTagAt(text, start) {
     name,
     closing,
     selfClosing: isSelfClosingXmlTag(raw.slice(start, end)),
-    dsmlLike,
-    canonical: !dsmlLike,
+    epseLike,
+    canonical: !epseLike,
   };
+}
+
+function isEPSEShorthandParameter(text, i, closing) {
+  const raw = toStringSafe(text);
+  if (i < 0 || i >= raw.length) {
+    return false;
+  }
+  const end = findXmlTagEnd(raw, i);
+  if (end < 0) {
+    return false;
+  }
+  if (closing) {
+    return raw.slice(i, end).trim() === '';
+  }
+  for (const attr of parseCanonicalToolMarkupAttrs(raw, i)) {
+    if (attr && attr.key === 'name') {
+      return true;
+    }
+  }
+  return false;
 }
 
 function findToolMarkupTagOutsideIgnored(text, from) {
@@ -748,6 +808,9 @@ function isPartialToolMarkupTagPrefix(text) {
   if (!raw || !isXmlTagStartDelimiter(raw[0]) || containsXmlTagTerminator(raw)) {
     return false;
   }
+  if (isPartialDSMLTagPrefix(raw)) {
+    return true;
+  }
   const lower = raw.toLowerCase();
   let i = 1;
   while (i < raw.length && isXmlTagStartDelimiter(raw[i])) {
@@ -767,7 +830,7 @@ function isPartialToolMarkupTagPrefix(text) {
     if (hasToolMarkupNamePrefix(raw, i)) {
       return true;
     }
-    if (hasDSMLNamePrefixOrPartial(raw, i)) {
+    if (hasEPSENamePrefixOrPartial(raw, i)) {
       return true;
     }
     if (hasPartialToolMarkupNameAfterArbitraryPrefix(raw, i)) {
@@ -782,16 +845,79 @@ function isPartialToolMarkupTagPrefix(text) {
   return false;
 }
 
+// isPartialDSMLTagPrefix reports whether text is an as-yet-unterminated
+// DSML-prefixed tag. Any DSML tag is a streaming interception trigger, so a
+// half-arrived `<DSML ...` (with or without a local-name suffix) must be held
+// back instead of leaking as visible text. Mirrors the Go side
+// (internal/toolcall/toolcalls_scan.go) isPartialDSMLTagPrefix.
+function isPartialDSMLTagPrefix(text) {
+  const raw = toStringSafe(text);
+  if (!raw || !isXmlTagStartDelimiter(raw[0]) || containsXmlTagTerminator(raw)) {
+    return false;
+  }
+  let i = 1;
+  while (i < raw.length && isXmlTagStartDelimiter(raw[i])) {
+    i += 1;
+  }
+  if (i >= raw.length) {
+    return true;
+  }
+  const slash = consumeToolMarkupClosingSlash(raw, i);
+  if (slash.closing) {
+    i = slash.next;
+  }
+  while (true) {
+    const sep = consumeToolMarkupSeparator(raw, i);
+    if (sep.ok) {
+      i = sep.next;
+      continue;
+    }
+    const spacingLen = toolMarkupWhitespaceLikeLenAt(raw, i);
+    if (spacingLen > 0) {
+      i += spacingLen;
+      continue;
+    }
+    break;
+  }
+  if (i >= raw.length) {
+    return true;
+  }
+  const dsml = consumeToolKeyword(raw, i, 'dsml');
+  if (!dsml.ok) {
+    return hasPartialDSMLKeyword(raw, i);
+  }
+  const tail = normalizeFullwidthASCIIChar(raw[dsml.next] || '');
+  if (/^[A-Za-z0-9]$/.test(tail || '')) {
+    return false;
+  }
+  return true;
+}
+
+function hasPartialDSMLKeyword(raw, start) {
+  const expected = 'dsml';
+  let idx = start;
+  let matched = 0;
+  while (matched < expected.length && idx < raw.length) {
+    const ch = normalizeFullwidthASCIIChar(raw[idx]).toLowerCase();
+    if (ch !== expected[matched]) {
+      return false;
+    }
+    idx += 1;
+    matched += 1;
+  }
+  return matched > 0 && matched < expected.length && idx === raw.length;
+}
+
 function consumeToolMarkupNamePrefix(raw, lower, idx) {
   let next = idx;
-  let dsmlLike = false;
+  let epseLike = false;
   while (true) {
     const consumed = consumeToolMarkupNamePrefixOnce(raw, lower, next);
     if (!consumed.ok) {
-      return { next, dsmlLike };
+      return { next, epseLike };
     }
     next = consumed.next;
-    dsmlLike = true;
+    epseLike = true;
   }
 }
 
@@ -823,7 +949,7 @@ function hasPartialToolMarkupNameAfterArbitraryPrefix(raw, start) {
     if (toolMarkupPrefixAllowsLocalNameAt(raw, start, idx) && hasToolMarkupNamePrefix(raw, idx)) {
       return true;
     }
-    if (toolMarkupPrefixAllowsLocalNameAt(raw, start, idx) && hasDSMLNamePrefixOrPartial(raw, idx)) {
+    if (toolMarkupPrefixAllowsLocalNameAt(raw, start, idx) && hasEPSENamePrefixOrPartial(raw, idx)) {
       return true;
     }
     idx += 1;
@@ -831,16 +957,16 @@ function hasPartialToolMarkupNameAfterArbitraryPrefix(raw, start) {
   return toolMarkupPrefixAllowsLocalName(raw.slice(start));
 }
 
-function hasDSMLNamePrefixOrPartial(raw, start) {
+function hasEPSENamePrefixOrPartial(raw, start) {
   const tail = normalizedASCIITailAt(raw, start);
-  return tail.startsWith('dsml') || 'dsml'.startsWith(tail) || hasConfusablePartialKeywordPrefix(raw, start, 'dsml');
+  return tail.startsWith('epse') || 'epse'.startsWith(tail) || hasConfusablePartialKeywordPrefix(raw, start, 'epse');
 }
 
 function toolMarkupPrefixAllowsLocalName(prefix) {
   if (!prefix) {
     return false;
   }
-  if (normalizedASCIITailAt(prefix, 0).includes('dsml')) {
+  if (normalizedASCIITailAt(prefix, 0).includes('epse')) {
     return true;
   }
   if (/[="']/u.test(prefix)) {
@@ -889,9 +1015,9 @@ function consumeToolMarkupNamePrefixOnce(raw, lower, idx) {
   if (spacingLen > 0) {
     return { next: idx + spacingLen, ok: true };
   }
-  const dsml = consumeToolKeyword(raw, idx, 'dsml');
-  if (dsml.ok) {
-    let next = dsml.next;
+  const epse = consumeToolKeyword(raw, idx, 'epse');
+  if (epse.ok) {
+    let next = epse.next;
     const dashLen = toolMarkupDashLenAt(raw, next);
     const underscoreLen = toolMarkupUnderscoreLenAt(raw, next);
     if (dashLen) {
@@ -1027,9 +1153,9 @@ function hasConfusablePartialKeywordPrefix(raw, start, keyword) {
   return matched > 0 && matched < keyword.length && idx === raw.length;
 }
 
-function matchToolMarkupName(raw, start, dsmlLike) {
+function matchToolMarkupName(raw, start, epseLike) {
   for (const name of TOOL_MARKUP_NAMES) {
-    if (name.dsmlOnly && !dsmlLike) {
+    if (name.epseOnly && !epseLike) {
       continue;
     }
     const matched = consumeToolKeyword(raw, start, name.raw);
@@ -1149,8 +1275,8 @@ function canonicalizeRecognizedToolMarkupTag(rawTag, tag) {
   if (tag.closing) {
     out += '/';
   }
-  if (tag.dsmlLike) {
-    out += '|DSML|';
+  if (tag.epseLike) {
+    out += '|EPSE|';
   }
   out += tag.name;
   for (const attr of attrs) {
@@ -2362,6 +2488,417 @@ function sanitizeLooseCDATA(text) {
   return changed ? out : raw;
 }
 
+// Go parity: internal/toolcall/toolcalls_cdata_boundary_repair.go
+//
+// findToolCDATAEnd searches forward without an element bound, so a `<![CDATA[`
+// whose own `]]>` is missing keeps scanning until the next `]]>` anywhere in the
+// text — which belongs to a LATER parameter. The value then silently absorbs
+// `</|EPSE|parameter><|EPSE|parameter name="...">` plus the next parameter's
+// body, and that later parameter disappears from the parsed input.
+//
+// The repair below closes such a range at its own element boundary. It is
+// deliberately narrow: the greedy interpretation stays authoritative and is only
+// replaced when the boundary interpretation parses into strictly more tool calls
+// / parameters (see boundaryRepairOutranks in parse.js).
+const TOOL_MARKUP_STRUCTURAL_TAG_PREFIXES = [
+  '<tool_calls', '</tool_calls',
+  '<tool-calls', '</tool-calls',
+  '<toolcalls', '</toolcalls',
+  '<invoke', '</invoke',
+  '<parameter', '</parameter',
+];
+
+// nextToolMarkupStructuralBoundary returns the offset of the first tool-markup
+// structural tag at or after from, or -1 when there is none.
+//
+// Unlike every other scanner here it deliberately does NOT skip CDATA regions:
+// it is called from inside a CDATA body precisely to find where the enclosing
+// element ends when that body has no `]]>` of its own.
+function nextToolMarkupStructuralBoundary(text, from) {
+  const raw = toStringSafe(text);
+  const lower = raw.toLowerCase();
+  for (let i = Math.max(0, from || 0); i < raw.length; i += 1) {
+    // Cheap guard: every candidate starts with a `<` (or a fullwidth/CJK
+    // variant). Bodies are routinely tens of KB, so the expensive matchers must
+    // not run on every character.
+    if (!xmlTagStartDelimiterLenAt(raw, i)) {
+      continue;
+    }
+    if (detectEPSETagAt(raw, i)) {
+      return i;
+    }
+    for (const prefix of TOOL_MARKUP_STRUCTURAL_TAG_PREFIXES) {
+      if (lower.startsWith(prefix, i) && hasXmlTagBoundary(raw, i + prefix.length)) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+// detectEPSETagAt reports whether an EPSE-prefixed markup tag begins at start,
+// ignoring the local name, so `<|EPSE|parameter>`, `</|EPSE>` and `<EPSE ...>`
+// variants all match.
+function detectEPSETagAt(text, start) {
+  const raw = toStringSafe(text);
+  const lt = consumeToolMarkupLessThan(raw, start);
+  if (!lt.ok) {
+    return false;
+  }
+  let i = lt.next;
+  while (true) {
+    const next = consumeToolMarkupLessThan(raw, i);
+    if (!next.ok) {
+      break;
+    }
+    i = next.next;
+  }
+  i = consumeToolMarkupClosingSlash(raw, i).next;
+  while (true) {
+    const sep = consumeToolMarkupSeparator(raw, i);
+    if (!sep.ok) {
+      break;
+    }
+    i = sep.next;
+  }
+  const epse = consumeToolKeyword(raw, i, 'epse');
+  if (!epse.ok) {
+    return false;
+  }
+  // Guard against words that merely start with "epse" (e.g. "epsentence").
+  const tail = normalizeFullwidthASCIIChar(raw[epse.next] || '');
+  return !/^[A-Za-z0-9]$/.test(tail || '');
+}
+
+// scanDSMLTagAt parses a complete DSML-prefixed markup tag (local name
+// included) beginning at start, returning { start, end, name, closing } or
+// null. The local name is the token after the `dsml` literal, normalized to
+// lowercase ASCII; it may be empty (e.g. `<DSML>`). Mirrors the Go side
+// (internal/toolcall/toolcalls_intent.go) scanDSMLTagAt.
+function scanDSMLTagAt(text, start) {
+  const raw = toStringSafe(text);
+  const lt = consumeToolMarkupLessThan(raw, start);
+  if (!lt.ok) {
+    return null;
+  }
+  let i = lt.next;
+  while (true) {
+    const next = consumeToolMarkupLessThan(raw, i);
+    if (!next.ok) {
+      break;
+    }
+    i = next.next;
+  }
+  let closing = false;
+  const slash = consumeToolMarkupClosingSlash(raw, i);
+  if (slash.closing) {
+    closing = true;
+    i = slash.next;
+  }
+  while (true) {
+    const sep = consumeToolMarkupSeparator(raw, i);
+    if (sep.ok) {
+      i = sep.next;
+      continue;
+    }
+    const spacingLen = toolMarkupWhitespaceLikeLenAt(raw, i);
+    if (spacingLen > 0) {
+      i += spacingLen;
+      continue;
+    }
+    break;
+  }
+  const dsml = consumeToolKeyword(raw, i, 'dsml');
+  if (!dsml.ok) {
+    return null;
+  }
+  // Guard against words that merely start with "dsml" (e.g. "dsmlfoo").
+  const tail = normalizeFullwidthASCIIChar(raw[dsml.next] || '');
+  if (/^[A-Za-z0-9]$/.test(tail || '')) {
+    return null;
+  }
+  let nameStart = dsml.next;
+  while (true) {
+    const sep = consumeToolMarkupSeparator(raw, nameStart);
+    if (sep.ok) {
+      nameStart = sep.next;
+      continue;
+    }
+    const spacingLen = toolMarkupWhitespaceLikeLenAt(raw, nameStart);
+    if (spacingLen > 0) {
+      nameStart += spacingLen;
+      continue;
+    }
+    break;
+  }
+  let nameEnd = nameStart;
+  while (nameEnd < raw.length) {
+    const ch = normalizeFullwidthASCIIChar(raw[nameEnd]);
+    if (ch.charCodeAt(0) > 0x7f) {
+      break;
+    }
+    if (!/[A-Za-z0-9_-]/.test(ch)) {
+      break;
+    }
+    nameEnd += 1;
+  }
+  const tagEnd = findXmlTagEnd(raw, nameStart);
+  if (tagEnd < 0) {
+    return null;
+  }
+  let name = '';
+  for (let k = nameStart; k < nameEnd; k += 1) {
+    name += normalizeFullwidthASCIIChar(raw[k]).toLowerCase();
+  }
+  return { start, end: tagEnd, name, closing };
+}
+
+// findDSMLTagOutsideIgnored returns the first complete (terminator already
+// arrived) DSML-prefixed markup tag at or after from, skipping CDATA, XML
+// comments and markdown inline code spans. It mirrors
+// findToolMarkupTagOutsideIgnored but matches the DSML prefix instead of the
+// tool markup name table.
+function findDSMLTagOutsideIgnored(text, from) {
+  const raw = toStringSafe(text);
+  for (let i = Math.max(0, from || 0); i < raw.length;) {
+    const skipped = skipXmlIgnoredSection(raw, i);
+    if (skipped.blocked) {
+      return null;
+    }
+    if (skipped.advanced) {
+      i = skipped.next;
+      continue;
+    }
+    const spanEnd = markdownCodeSpanEnd(raw, i);
+    if (spanEnd.ok) {
+      i = spanEnd.end;
+      continue;
+    }
+    const tag = scanDSMLTagAt(raw, i);
+    if (tag) {
+      return tag;
+    }
+    i += 1;
+  }
+  return null;
+}
+
+// findMatchingDSMLClose performs local-name depth pairing to find the closing
+// tag for open. Empty local names pair with empty local names. Mirrors the Go
+// side (internal/toolcall/toolcalls_intent.go) FindMatchingDSMLClose.
+function findMatchingDSMLClose(text, open) {
+  const raw = toStringSafe(text);
+  if (!raw || !open || open.closing || open.end >= raw.length) {
+    return null;
+  }
+  let depth = 1;
+  for (let pos = open.end + 1; pos < raw.length;) {
+    const tag = findDSMLTagOutsideIgnored(raw, pos);
+    if (!tag) {
+      return null;
+    }
+    if (tag.name !== open.name) {
+      pos = tag.end + 1;
+      continue;
+    }
+    if (tag.closing) {
+      depth -= 1;
+      if (depth === 0) {
+        return tag;
+      }
+    } else {
+      depth += 1;
+    }
+    pos = tag.end + 1;
+  }
+  return null;
+}
+
+// scanClosedCDATARanges records every well-closed CDATA block, skipping an
+// unclosed opener and continuing instead of blocking the remainder the way
+// skipXmlIgnoredSection does.
+function scanClosedCDATARanges(text) {
+  const raw = toStringSafe(text);
+  const ranges = [];
+  let pos = 0;
+  while (pos < raw.length) {
+    const start = indexToolCDATAOpen(raw, pos);
+    if (start < 0) {
+      break;
+    }
+    const contentStart = start + toolCDATAOpenLenAt(raw, start);
+    const contentEnd = findToolCDATAEnd(raw, contentStart);
+    if (contentEnd < 0) {
+      pos = contentStart;
+      continue;
+    }
+    const closeLen = toolCDATACloseLenAt(raw, contentEnd);
+    ranges.push({ contentStart, contentEnd, closeLen });
+    pos = contentEnd + closeLen;
+  }
+  return ranges;
+}
+
+// boundedCDATAContentEnd splits an element-bounded CDATA region into its content
+// and its close marker. A trailing `]]` (the `]]>` the model forgot the `>` on)
+// is kept out of the content so the restored value carries no stray suffix.
+function boundedCDATAContentEnd(text, contentStart, limit) {
+  const raw = toStringSafe(text);
+  const endRel = findToolCDATAEnd(raw.slice(0, limit), contentStart);
+  if (endRel >= 0) {
+    return { contentEnd: endRel, closeLen: toolCDATACloseLenAt(raw, endRel) };
+  }
+  let end = limit;
+  while (end > contentStart && /\s/u.test(raw[end - 1])) {
+    end -= 1;
+  }
+  if (end - contentStart >= 2 && raw.slice(end - 2, end) === ']]') {
+    return { contentEnd: end - 2, closeLen: 2 };
+  }
+  return { contentEnd: limit, closeLen: 0 };
+}
+
+// cdataRangeSwallowedNextParameter reports whether a greedy CDATA range consumed
+// the close marker of a later parameter.
+//
+// The signature has two halves, and both are required:
+//
+//   - an *unbalanced* CDATA opener inside the body — an opener with no `]]>` of
+//     its own before the body ends. Only possible when the body ate a later
+//     parameter's opener and terminated on that parameter's close marker.
+//   - the range's own `</parameter>` close tag sitting inside the body, before
+//     that opener. This is what distinguishes "escaped my element" from "quotes
+//     tool-call markup".
+//
+// The second half keeps a legitimately quoted example intact: a value embedding a
+// tool-call sample makes the greedy scan stop at the sample's inner `]]>`, so the
+// body holds the sample's opening parameter tag and an unbalanced opener — but
+// never a close tag preceding them, because the value never left its element.
+function cdataRangeSwallowedNextParameter(text, range) {
+  const body = toStringSafe(text).slice(range.contentStart, range.contentEnd);
+  let pos = 0;
+  while (pos < body.length) {
+    const open = indexToolCDATAOpen(body, pos);
+    if (open < 0) {
+      return false;
+    }
+    const contentStart = open + toolCDATAOpenLenAt(body, open);
+    const closeIdx = indexToolCDATAClose(body, contentStart);
+    if (closeIdx < 0) {
+      return cdataOpenerEscapedOwnElement(body, open);
+    }
+    pos = closeIdx + toolCDATACloseLenAt(body, closeIdx);
+  }
+  return false;
+}
+
+function indexToolCDATAClose(text, from) {
+  const raw = toStringSafe(text);
+  for (let i = Math.max(0, from || 0); i < raw.length; i += 1) {
+    if (toolCDATACloseLenAt(raw, i)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// cdataOpenerEscapedOwnElement reports whether the unbalanced CDATA opener at
+// open is preceded by the tag sequence that can only mean the body ran out of its
+// own element and into the next parameter: a closing `parameter` tag somewhere
+// earlier, and an opening `parameter` tag immediately before the opener.
+function cdataOpenerEscapedOwnElement(body, open) {
+  if (open <= 0 || open > body.length) {
+    return false;
+  }
+  const head = body.slice(0, open).replace(/[ \t\r\n]+$/u, '');
+  if (!head) {
+    return false;
+  }
+  let sawOwnClose = false;
+  let last = null;
+  for (let from = 0; from < head.length;) {
+    const tag = findToolMarkupTagOutsideIgnored(head, from);
+    if (!tag) {
+      break;
+    }
+    if (tag.closing && tag.name === 'parameter') {
+      sawOwnClose = true;
+    }
+    last = tag;
+    from = tag.end + 1;
+  }
+  if (!sawOwnClose || !last) {
+    return false;
+  }
+  return !last.closing && last.name === 'parameter' && last.end === head.length - 1;
+}
+
+// repairSwallowedCDATARanges closes every greedy CDATA range that swallowed a
+// later parameter at its own element boundary, leaving all other text — and all
+// other CDATA ranges — byte-identical.
+//
+// Releasing a swallowed tail can expose a further unclosed parameter inside it
+// (two consecutive parameters both missing their `]]>` present as a single greedy
+// range), so the pass repeats to a fixpoint, bounded by the number of CDATA
+// openers since every pass closes at least one.
+function repairSwallowedCDATARanges(text) {
+  let repaired = toStringSafe(text);
+  for (let budget = countToolCDATAOpeners(repaired); budget > 0; budget -= 1) {
+    const next = repairSwallowedCDATARangesOnce(repaired);
+    if (next === repaired) {
+      break;
+    }
+    repaired = next;
+  }
+  return repaired;
+}
+
+function countToolCDATAOpeners(text) {
+  const raw = toStringSafe(text);
+  let count = 0;
+  let pos = 0;
+  while (pos < raw.length) {
+    const open = indexToolCDATAOpen(raw, pos);
+    if (open < 0) {
+      break;
+    }
+    count += 1;
+    pos = open + toolCDATAOpenLenAt(raw, open);
+  }
+  return count;
+}
+
+function repairSwallowedCDATARangesOnce(text) {
+  const raw = toStringSafe(text);
+  if (!raw) {
+    return raw;
+  }
+  let out = '';
+  let prev = 0;
+  let changed = false;
+  for (const range of scanClosedCDATARanges(raw)) {
+    if (range.contentStart < prev || !cdataRangeSwallowedNextParameter(raw, range)) {
+      continue;
+    }
+    const limit = nextToolMarkupStructuralBoundary(raw, range.contentStart);
+    if (limit < 0 || limit > range.contentEnd) {
+      continue;
+    }
+    const bounded = boundedCDATAContentEnd(raw, range.contentStart, limit);
+    if (bounded.contentEnd <= range.contentStart || bounded.contentEnd + bounded.closeLen > raw.length) {
+      continue;
+    }
+    changed = true;
+    out += raw.slice(prev, bounded.contentEnd);
+    out += ']]>';
+    prev = bounded.contentEnd + bounded.closeLen;
+  }
+  if (!changed) {
+    return raw;
+  }
+  return out + raw.slice(prev);
+}
+
 function hasRepairableXMLToolCallsWrapper(text) {
   const raw = toStringSafe(text).trim();
   if (!raw || firstToolMarkupTagByName(raw, 'tool_calls', false)) {
@@ -2489,16 +3026,33 @@ function findToolCDATAEnd(text, from) {
     return -1;
   }
   let firstNonFenceEnd = -1;
+  // Direction 3 parity with Go: `]]>` is a hard CDATA boundary. An odd number
+  // of markdown fences inside the CDATA body (e.g. an unclosed ``` opener in
+  // file-writing / code parameters) makes cdataOffsetIsInsideMarkdownFence
+  // report "inside fence" for the whole body and skip the only structural
+  // `]]>`, so the real close would be lost. When the body carries no
+  // tool-markup sample (plain code / text, not a fenced tool-call example),
+  // fall back to the first structural `]]>` so the hard boundary survives.
+  // When the body DOES carry tool-markup (a fenced tool-call example), keep
+  // the conservative fence-aware path so a mid-stream buffer does not mistake
+  // an example `]]>` for the real close.
+  let firstStructuralEnd = -1;
+  const bodyHasToolMarkup = toolMarkupPresent(raw.slice(from));
   for (let i = from; i < raw.length; i += 1) {
     const closeLen = toolCDATACloseLenAt(raw, i);
     if (!closeLen) {
       continue;
     }
     const end = i;
+    const structural = cdataEndLooksStructural(raw, end + closeLen);
+    if (structural && firstStructuralEnd < 0) {
+      firstStructuralEnd = end;
+    }
     if (cdataOffsetIsInsideMarkdownFence(raw.slice(from, end))) {
+      i = end + closeLen - 1;
       continue;
     }
-    if (cdataEndLooksStructural(raw, end + closeLen)) {
+    if (structural) {
       return end;
     }
     if (firstNonFenceEnd < 0) {
@@ -2506,7 +3060,30 @@ function findToolCDATAEnd(text, from) {
     }
     i = end + closeLen - 1;
   }
-  return firstNonFenceEnd;
+  if (firstNonFenceEnd >= 0) {
+    return firstNonFenceEnd;
+  }
+  if (!bodyHasToolMarkup) {
+    return firstStructuralEnd;
+  }
+  return -1;
+}
+
+// toolMarkupPresent (Go parity): reports whether s contains a recognizable
+// tool-call markup fragment (EPSE or canonical XML). It distinguishes a fenced
+// tool-call example (which must keep the fence-aware CDATA path so an example
+// `]]>` is not taken for the real close) from plain code/text that merely
+// carries an odd markdown fence (where the structural `]]>` really is the
+// close).
+function toolMarkupPresent(s) {
+  const raw = toStringSafe(s);
+  const markers = ['<|EPSE|', '<tool_calls', '<invoke', '<parameter', '<epse-'];
+  for (const marker of markers) {
+    if (raw.includes(marker)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function indexToolCDATAOpen(text, from = 0) {
@@ -2639,17 +3216,222 @@ function isOnlyRawValue(obj) {
   return keys.length === 1 && keys[0] === '_raw';
 }
 
+// stripDSMLResidue is the JS mirror of the Go final safety net
+// (internal/toolcall/toolcalls_deduct.go StripDSMLResidue): it removes every
+// DSML-prefixed markup span (full wrapper, orphan closing tag, or unclosed
+// opening tag plus its own tag run) plus a trailing unterminated DSML
+// fragment, so a leftover `<｜｜DSML｜｜ calls>` never reaches the client.
+// DSML inside fenced code blocks or inline code spans is documentation and is
+// preserved. Used by the sieve flush release paths
+// (internal/js/helpers/stream-tool-sieve/sieve.js flushToolSieve).
+function stripDSMLResidue(text) {
+  // Deliberately no toStringSafe here: it trims, and this net must be a no-op
+  // (byte-identical passthrough) on clean text so flush releases keep the
+  // verbatim-output contract, matching the Go side.
+  if (typeof text !== 'string' || !text) {
+    return text;
+  }
+  const spans = dsmlBadSpans(text);
+  let stripped = text;
+  if (spans.length > 0) {
+    stripped = removeDSMLTextSpans(text, spans);
+  }
+  const tailStripped = stripTrailingPartialDSMLTag(stripped);
+  if (tailStripped !== stripped) {
+    return tailStripped.trim();
+  }
+  return tailStripped;
+}
+
+// dsmlBadSpans mirrors Go dsmlBadSpans: spans of DSML wrappers, skipping
+// fenced-code documentation.
+function dsmlBadSpans(text) {
+  const spans = [];
+  for (let pos = 0; pos < text.length;) {
+    const tag = findDSMLTagOutsideIgnored(text, pos);
+    if (!tag) {
+      break;
+    }
+    if (insideFencedCodeAt(text, tag.start)) {
+      pos = tag.end + 1;
+      continue;
+    }
+    if (tag.closing) {
+      spans.push({ start: tag.start, end: tag.end + 1 });
+      pos = tag.end + 1;
+      continue;
+    }
+    const closeTag = findMatchingDSMLClose(text, tag);
+    if (closeTag) {
+      spans.push({ start: tag.start, end: closeTag.end + 1 });
+      pos = closeTag.end + 1;
+      continue;
+    }
+    const end = dsmlTagRunEnd(text, tag);
+    spans.push({ start: tag.start, end });
+    pos = end;
+  }
+  return spans;
+}
+
+// dsmlTagRunEnd mirrors Go dsmlTagRunEnd: only whitespace-separated DSML tags
+// join the run of an unclosed wrapper, so trailing prose is preserved.
+function dsmlTagRunEnd(text, open) {
+  let end = open.end + 1;
+  for (let pos = end; pos < text.length;) {
+    const tag = findDSMLTagOutsideIgnored(text, pos);
+    if (!tag) {
+      return end;
+    }
+    if (text.slice(end, tag.start).trim() !== '') {
+      return end;
+    }
+    end = tag.end + 1;
+    pos = tag.end + 1;
+  }
+  return end;
+}
+
+// removeDSMLTextSpans mirrors Go RemoveTextSpans: delete the merged spans and
+// trim surrounding whitespace.
+function removeDSMLTextSpans(text, spans) {
+  const ordered = [...spans].sort((a, b) => (a.start !== b.start ? a.start - b.start : a.end - b.end));
+  const merged = [];
+  for (const span of ordered) {
+    const last = merged[merged.length - 1];
+    if (last && span.start <= last.end) {
+      if (span.end > last.end) {
+        last.end = span.end;
+      }
+      continue;
+    }
+    merged.push({ start: span.start, end: span.end });
+  }
+  let out = '';
+  let prev = 0;
+  for (const span of merged) {
+    const start = Math.max(span.start, prev);
+    const end = Math.min(span.end, text.length);
+    if (start > end) {
+      continue;
+    }
+    if (start > prev) {
+      out += text.slice(prev, start);
+    }
+    prev = end;
+  }
+  if (prev < text.length) {
+    out += text.slice(prev);
+  }
+  return out.trim();
+}
+
+// stripTrailingPartialDSMLTag mirrors Go stripTrailingPartialDSMLTag: cut a
+// trailing unterminated DSML tag fragment, requiring DSML evidence so a bare
+// trailing `<` in prose survives, and preserving fenced documentation.
+function stripTrailingPartialDSMLTag(text) {
+  const idx = text.lastIndexOf('<');
+  if (idx < 0) {
+    return text;
+  }
+  let start = idx;
+  while (start > 0 && text[start - 1] === '<') {
+    start -= 1;
+  }
+  const tail = text.slice(start);
+  if (!isPartialDSMLTagPrefix(tail) || !partialDSMLTailHasEvidence(tail)) {
+    return text;
+  }
+  if (insideFencedCodeAt(text, start)) {
+    return text;
+  }
+  return text.slice(0, start);
+}
+
+// partialDSMLTailHasEvidence mirrors Go partialDSMLTailHasEvidence: the
+// fragment must spell at least part of the `dsml` literal.
+function partialDSMLTailHasEvidence(tail) {
+  let i = 1;
+  while (i < tail.length && isXmlTagStartDelimiter(tail[i])) {
+    i += 1;
+  }
+  const slash = consumeToolMarkupClosingSlash(tail, i);
+  if (slash.closing) {
+    i = slash.next;
+  }
+  while (true) {
+    const sep = consumeToolMarkupSeparator(tail, i);
+    if (sep.ok) {
+      i = sep.next;
+      continue;
+    }
+    const spacingLen = toolMarkupWhitespaceLikeLenAt(tail, i);
+    if (spacingLen > 0) {
+      i += spacingLen;
+      continue;
+    }
+    break;
+  }
+  if (i >= tail.length) {
+    return false;
+  }
+  const kw = consumeToolKeyword(tail, i, 'dsml');
+  if (kw.ok) {
+    return true;
+  }
+  return hasPartialDSMLKeyword(tail, i);
+}
+
+// insideFencedCodeAt mirrors Go insideFencedCode: report whether idx sits
+// inside a fenced code block of text.
+function insideFencedCodeAt(text, idx) {
+  if (!text || idx <= 0 || idx >= text.length) {
+    return false;
+  }
+  let inFence = false;
+  let fenceChar = '';
+  let fenceLen = 0;
+  let lineStart = 0;
+  while (lineStart <= idx) {
+    const nl = text.indexOf('\n', lineStart);
+    const lineEnd = nl < 0 ? text.length : nl + 1;
+    if (idx < lineEnd) {
+      return inFence;
+    }
+    const line = text.slice(lineStart, nl < 0 ? text.length : nl);
+    const trimmed = line.replace(/^[ \t]+/, '');
+    if (!inFence) {
+      const fence = parseFenceOpenLine(trimmed);
+      if (fence) {
+        inFence = true;
+        fenceChar = fence.ch;
+        fenceLen = fence.count;
+      }
+    } else if (isFenceCloseLine(trimmed, fenceChar, fenceLen)) {
+      inFence = false;
+      fenceChar = '';
+      fenceLen = 0;
+    }
+    lineStart = lineEnd;
+  }
+  return false;
+}
+
 module.exports = {
   stripFencedCodeBlocks,
   stripMarkdownCodeSpans,
   parseMarkupToolCalls,
-  normalizeDSMLToolCallMarkup,
+  normalizeEPSEToolCallMarkup,
   containsToolMarkupSyntaxOutsideIgnored,
   containsToolCallWrapperSyntaxOutsideIgnored,
   hasRepairableXMLToolCallsWrapper,
   findToolMarkupTagOutsideIgnored,
+  findDSMLTagOutsideIgnored,
+  findMatchingDSMLClose,
   findMatchingToolMarkupClose,
   findPartialToolMarkupStart,
   indexToolCDATAOpen,
   sanitizeLooseCDATA,
+  repairSwallowedCDATARanges,
+  stripDSMLResidue,
 };

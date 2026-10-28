@@ -207,8 +207,11 @@ func TestParseSSEChunkForContentAutoTransitionsState(t *testing.T) {
 		"v": "more actual text sent to thinking path",
 	}
 	parts2, _, nextType2 := ParseSSEChunkForContent(chunk2, true, nextType1)
-	if len(parts2) != 1 || parts2[0].Type != "text" {
-		t.Fatalf("expected subsequent parts to be text, got %#v", parts2)
+	// 一刀切: the body has already begun, so this residual reasoning increment
+	// is dropped wholesale — it is neither routed to thinking nor recovered
+	// into the body as text.
+	if len(parts2) != 0 {
+		t.Fatalf("expected residual reasoning to be dropped, got %#v", parts2)
 	}
 	if nextType2 != "text" {
 		t.Fatalf("expected nextType2 to remain text, got %q", nextType2)

@@ -20,8 +20,8 @@ import (
 type requestClients struct {
 	regular   trans.Doer
 	stream    trans.Doer
-	fallback  *http.Client
-	fallbackS *http.Client
+	fallback  trans.Doer
+	fallbackS trans.Doer
 }
 
 type hostLookupFunc func(ctx context.Context, network, host string) ([]string, error)
@@ -102,7 +102,7 @@ func (c *Client) defaultRequestClients() requestClients {
 }
 
 func (c *Client) resolveProxyForAccount(acc config.Account) (config.Proxy, bool) {
-	if c == nil || c.Store == nil {
+	if c == nil || c.Store == nil || acc.NoProxy {
 		return config.Proxy{}, false
 	}
 	proxyID := strings.TrimSpace(acc.ProxyID)
@@ -134,39 +134,46 @@ func (c *Client) requestClientsForAuth(ctx context.Context, a *auth.RequestAuth)
 }
 
 func (c *Client) requestClientsForAccount(acc config.Account) requestClients {
-	proxyCfg, ok := c.resolveProxyForAccount(acc)
-	if !ok {
+	proxyCfg, proxied := c.resolveProxyForAccount(acc)
+	if !proxied && !acc.NoProxy {
 		return c.defaultRequestClients()
 	}
-
-	key := proxyCacheKey(proxyCfg)
+	key := "direct"
+	if proxied {
+		key = proxyCacheKey(proxyCfg)
+	}
 	c.proxyClientsMu.RLock()
 	cached, ok := c.proxyClients[key]
 	c.proxyClientsMu.RUnlock()
 	if ok {
-		return cached
+		return c.reportingBundle(proxyCfg.ID, cached)
 	}
-
-	dialContext, err := proxyDialContext(proxyCfg)
-	if err != nil {
-		config.Logger.Warn("[proxy] build dialer failed", "proxy_id", proxyCfg.ID, "error", err)
-		return c.defaultRequestClients()
+	dialContext := trans.DialContextFunc((&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext)
+	if proxied {
+		var err error
+		dialContext, err = proxyDialContext(proxyCfg)
+		if err != nil {
+			config.Logger.Warn("[proxy] build dialer failed", "proxy_id", proxyCfg.ID, "error", err)
+			return c.defaultRequestClients()
+		}
 	}
-
+	// Build once under the lock so concurrent first requests share one bundle.
+	c.proxyClientsMu.Lock()
+	defer c.proxyClientsMu.Unlock()
+	if cached, ok := c.proxyClients[key]; ok {
+		return c.reportingBundle(proxyCfg.ID, cached)
+	}
 	bundle := requestClients{
 		regular:   trans.NewWithDialContext(60*time.Second, dialContext),
 		stream:    trans.NewWithDialContext(0, dialContext),
 		fallback:  trans.NewFallbackClient(60*time.Second, dialContext),
 		fallbackS: trans.NewFallbackClient(0, dialContext),
 	}
-
-	c.proxyClientsMu.Lock()
 	if c.proxyClients == nil {
 		c.proxyClients = make(map[string]requestClients)
 	}
 	c.proxyClients[key] = bundle
-	c.proxyClientsMu.Unlock()
-	return bundle
+	return c.reportingBundle(proxyCfg.ID, bundle)
 }
 
 func applyProxyConnectivityHeaders(req *http.Request) {

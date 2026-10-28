@@ -206,16 +206,10 @@ No auth required. Returns the currently supported DeepSeek native model list.
 {
   "object": "list",
   "data": [
-    {"id": "deepseek-v4-flash", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-flash-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-pro", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-pro-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-flash-search", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-flash-search-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-pro-search", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-pro-search-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-vision", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
-    {"id": "deepseek-v4-vision-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []}
+    {"id": "deepseek-v4.1-flash", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4.1-flash-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4.1-flash-search", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []},
+    {"id": "deepseek-v4.1-flash-search-nothinking", "object": "model", "created": 1677610602, "owned_by": "deepseek", "permission": []}
   ]
 }
 ```
@@ -241,7 +235,7 @@ Built-in aliases come from `internal/config/models.go`; `config.model_aliases` c
 
 Aliases with a `-nothinking` suffix also map to the corresponding forced no-thinking DeepSeek model.
 
-Current vision support resolves only to `deepseek-v4-vision` and does not expose a separate `vision-search` variant.
+The DeepSeek web client 2.4.0 merged the old fast / expert / vision modes into a single `default` model type; native model IDs are now only the `deepseek-v4.1-flash` series (all vision-capable). The legacy DeepSeek canonical names (`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4-vision` and their search variants) remain as built-in aliases that resolve to the corresponding v4.1 models. Alias resolution follows chains (up to 8 hops), so user configs such as `gpt-4o -> deepseek-v4-flash -> deepseek-v4.1-flash` still resolve correctly.
 
 Retired historical families such as `claude-1.*`, `claude-2.*`, `claude-instant-*`, and `gpt-3.5*` are explicitly rejected.
 
@@ -1445,3 +1439,15 @@ curl http://localhost:5001/v1/chat/completions \
     "messages": [{"role": "user", "content": "Hello"}]
   }'
 ```
+
+## Speech synthesis
+
+`POST /v1/audio/speech` (also `/audio/speech`) uses the existing API Key authentication.
+
+```json
+{"input":"Hello, how are you today?","voice":"mira","response_format":"wav"}
+```
+
+`input` accepts up to 4096 characters. Voices: `mira`, `echo`, `stella`, `tide`. Formats: `opus` (Ogg Opus, default) and `wav`; MP3 is unsupported. `speed` only accepts 1. `model` is optional or can name a supported chat model. The service creates a recitation session and cleans it up afterwards. `X-Ds2-Tts-Text-Base64` contains the actual recited text.
+
+Reader apps can use GET `/v1/audio/speech?input=...&voice=mira&response_format=wav` and provide an API Key through `token`; ordinary clients should prefer the Authorization header. Disabling `tts.enabled` returns 503. See the [feature alignment notes](docs/function-alignment.md).

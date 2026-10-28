@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -41,7 +42,7 @@ func (h *Handler) testSingleAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	model, _ := req["model"].(string)
 	if model == "" {
-		model = "deepseek-v4-flash"
+		model = "deepseek-v4.1-flash"
 	}
 	message, _ := req["message"].(string)
 	result := h.testAccount(r.Context(), acc, model, message)
@@ -53,7 +54,7 @@ func (h *Handler) testAllAccounts(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	model, _ := req["model"].(string)
 	if model == "" {
-		model = "deepseek-v4-flash"
+		model = "deepseek-v4.1-flash"
 	}
 	accounts := h.Store.Snapshot().Accounts
 	if len(accounts) == 0 {
@@ -99,15 +100,24 @@ func runAccountTestsConcurrently(accounts []config.Account, maxConcurrency int, 
 func (h *Handler) testAccount(ctx context.Context, acc config.Account, model, message string) map[string]any {
 	start := time.Now()
 	identifier := acc.Identifier()
+	accUsername := acc.Email
+	if accUsername == "" {
+		accUsername = acc.Mobile
+	}
+	if accUsername == "" {
+		accUsername = identifier
+	}
 	result := map[string]any{
-		"account":         identifier,
-		"success":         false,
-		"response_time":   0,
-		"message":         "",
-		"model":           model,
-		"session_count":   0,
-		"config_writable": !h.Store.IsEnvBacked(),
-		"config_warning":  "",
+		"account":          identifier,
+		"account_username": accUsername,
+		"account_password": acc.Password,
+		"success":          false,
+		"response_time":    0,
+		"message":          "",
+		"model":            model,
+		"session_count":    0,
+		"config_writable":  !h.Store.IsEnvBacked(),
+		"config_warning":   "",
 	}
 	defer func() {
 		status := "failed"
@@ -123,6 +133,12 @@ func (h *Handler) testAccount(ctx context.Context, acc config.Account, model, me
 	}
 	if err := h.Store.UpdateAccountToken(acc.Identifier(), token); err != nil {
 		result["config_warning"] = "登录成功，但 token 持久化失败（仅保存在内存，重启后会丢失）: " + err.Error()
+	}
+	if acc.IsMuted() {
+		result["message"] = fmt.Sprintf("账号已被禁言，解禁时间: %s", formatMuteUntil(acc.MutedUntil))
+		result["muted"] = true
+		result["muted_until"] = acc.MutedUntil
+		return result
 	}
 	authCtx := &authn.RequestAuth{UseConfigToken: false, DeepSeekToken: token, AccountID: identifier, Account: acc}
 	proxyCtx := authn.WithAuth(ctx, authCtx)
@@ -188,7 +204,11 @@ func (h *Handler) testAccount(ctx context.Context, acc config.Account, model, me
 		return result
 	}
 	if resp.StatusCode != http.StatusOK {
-		defer func() { _ = resp.Body.Close() }()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				slog.Warn("cleanup close failed", "error", err)
+			}
+		}()
 		result["message"] = fmt.Sprintf("请求失败: HTTP %d", resp.StatusCode)
 		return result
 	}
@@ -213,7 +233,7 @@ func (h *Handler) testAPI(w http.ResponseWriter, r *http.Request) {
 	message, _ := req["message"].(string)
 	apiKey, _ := req["api_key"].(string)
 	if model == "" {
-		model = "deepseek-v4-flash"
+		model = "deepseek-v4.1-flash"
 	}
 	if message == "" {
 		message = "你好"
@@ -241,7 +261,11 @@ func (h *Handler) testAPI(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "error": err.Error()})
 		return
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("cleanup close failed", "error", err)
+		}
+	}()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode == http.StatusOK {
 		var parsed any
@@ -296,4 +320,12 @@ func (h *Handler) deleteAllSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "删除成功"})
+}
+
+func formatMuteUntil(muteUntil float64) string {
+	if muteUntil <= 0 {
+		return "未知"
+	}
+	t := time.Unix(int64(muteUntil), 0)
+	return t.Format("2006-01-02 15:04:05")
 }

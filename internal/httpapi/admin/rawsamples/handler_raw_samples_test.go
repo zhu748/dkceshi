@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,7 +20,7 @@ type stubOpenAIChatCaller struct{}
 
 func (stubOpenAIChatCaller) ChatCompletions(w http.ResponseWriter, _ *http.Request) {
 	store := devcapture.Global()
-	session := store.Start("deepseek_completion", "https://chat.deepseek.com/api/v0/chat/completion", "acct-test", map[string]any{"model": "deepseek-v4-flash"})
+	session := store.Start("deepseek_completion", "https://chat.deepseek.com/api/v0/chat/completion", "acct-test", map[string]any{"model": "deepseek-v4.1-flash"})
 	raw := io.NopCloser(strings.NewReader(
 		"data: {\"v\":\"hello [reference:1]\"}\n\n" +
 			"data: {\"v\":\"FINISHED\",\"p\":\"response/status\"}\n\n",
@@ -28,7 +29,9 @@ func (stubOpenAIChatCaller) ChatCompletions(w http.ResponseWriter, _ *http.Reque
 		raw = session.WrapBody(raw, http.StatusOK)
 	}
 	_, _ = io.ReadAll(raw)
-	_ = raw.Close()
+	if err := raw.Close(); err != nil {
+		slog.Warn("cleanup close failed", "error", err)
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
@@ -38,7 +41,7 @@ func (stubOpenAIChatCaller) ChatCompletions(w http.ResponseWriter, _ *http.Reque
 type stubOpenAIChatCallerWithContinuations struct{}
 
 func (stubOpenAIChatCallerWithContinuations) ChatCompletions(w http.ResponseWriter, _ *http.Request) {
-	recordCapturedResponse("deepseek_completion", "https://chat.deepseek.com/api/v0/chat/completion", http.StatusOK, map[string]any{"model": "deepseek-v4-flash"}, "data: {\"v\":\"hello [reference:1]\"}\n\n"+"data: [DONE]\n\n")
+	recordCapturedResponse("deepseek_completion", "https://chat.deepseek.com/api/v0/chat/completion", http.StatusOK, map[string]any{"model": "deepseek-v4.1-flash"}, "data: {\"v\":\"hello [reference:1]\"}\n\n"+"data: [DONE]\n\n")
 	recordCapturedResponse("deepseek_continue", "https://chat.deepseek.com/api/v0/chat/continue", http.StatusOK, map[string]any{"chat_session_id": "session-1", "message_id": 2}, "data: {\"v\":\"continued\"}\n\n"+"data: [DONE]\n\n")
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -62,10 +65,13 @@ func recordCapturedResponse(label, rawURL string, statusCode int, request any, b
 		raw = session.WrapBody(raw, statusCode)
 	}
 	_, _ = io.ReadAll(raw)
-	_ = raw.Close()
+	if err := raw.Close(); err != nil {
+		slog.Warn("cleanup close failed", "error", err)
+	}
 }
 
 func TestCaptureRawSampleWritesPersistentSample(t *testing.T) {
+	t.Setenv("DS2API_DEV_PACKET_CAPTURE", "true")
 	t.Setenv("DS2API_RAW_STREAM_SAMPLE_ROOT", t.TempDir())
 	devcapture.Global().Clear()
 	defer devcapture.Global().Clear()
@@ -74,7 +80,7 @@ func TestCaptureRawSampleWritesPersistentSample(t *testing.T) {
 	reqBody := `{
 		"sample_id":"My Sample 01",
 		"api_key":"local-key",
-		"model":"deepseek-v4-flash",
+		"model":"deepseek-v4.1-flash",
 		"message":"广州天气",
 		"stream":true
 	}`
@@ -123,6 +129,7 @@ func TestCaptureRawSampleWritesPersistentSample(t *testing.T) {
 }
 
 func TestCaptureRawSampleCombinesContinuationCaptures(t *testing.T) {
+	t.Setenv("DS2API_DEV_PACKET_CAPTURE", "true")
 	t.Setenv("DS2API_RAW_STREAM_SAMPLE_ROOT", t.TempDir())
 	devcapture.Global().Clear()
 	defer devcapture.Global().Clear()
@@ -131,7 +138,7 @@ func TestCaptureRawSampleCombinesContinuationCaptures(t *testing.T) {
 	reqBody := `{
 		"sample_id":"My Sample 02",
 		"api_key":"local-key",
-		"model":"deepseek-v4-flash",
+		"model":"deepseek-v4.1-flash",
 		"message":"广州天气",
 		"stream":true
 	}`
@@ -195,13 +202,13 @@ func TestCaptureRawSampleReturnsErrorWhenNoNewCaptureRecorded(t *testing.T) {
 	devcapture.Global().Clear()
 	defer devcapture.Global().Clear()
 
-	recordCapturedResponse("preexisting", "https://chat.deepseek.com/api/v0/chat/completion", http.StatusOK, map[string]any{"model": "deepseek-v4-flash"}, "data: {\"v\":\"old\"}\n\n")
+	recordCapturedResponse("preexisting", "https://chat.deepseek.com/api/v0/chat/completion", http.StatusOK, map[string]any{"model": "deepseek-v4.1-flash"}, "data: {\"v\":\"old\"}\n\n")
 
 	h := &Handler{OpenAI: stubOpenAIChatCallerWithoutCapture{}}
 	reqBody := `{
 		"sample_id":"My Sample 03",
 		"api_key":"local-key",
-		"model":"deepseek-v4-flash",
+		"model":"deepseek-v4.1-flash",
 		"message":"广州天气",
 		"stream":true
 	}`
@@ -243,6 +250,7 @@ func TestPreviewTextPreservesUTF8MB4Characters(t *testing.T) {
 }
 
 func TestQueryRawSampleCapturesGroupsBySessionAndMatchesQuestion(t *testing.T) {
+	t.Setenv("DS2API_DEV_PACKET_CAPTURE", "true")
 	devcapture.Global().Clear()
 	defer devcapture.Global().Clear()
 
@@ -330,6 +338,7 @@ func TestBuildCaptureChainsPreservesCaptureOrderWhenTimestampsCollide(t *testing
 }
 
 func TestSaveRawSampleFromCapturesPersistsSelectedChain(t *testing.T) {
+	t.Setenv("DS2API_DEV_PACKET_CAPTURE", "true")
 	root := t.TempDir()
 	t.Setenv("DS2API_RAW_STREAM_SAMPLE_ROOT", root)
 	devcapture.Global().Clear()

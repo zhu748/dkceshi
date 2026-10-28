@@ -23,11 +23,29 @@ func main() {
 	}
 	config.RefreshLogger()
 	webui.EnsureBuiltOnStartup()
-	_ = auth.AdminKey()
 	app, err := server.NewApp()
 	if err != nil {
 		config.Logger.Error("server initialization failed", "error", err)
 		os.Exit(1)
+	}
+
+	// 首次启动时若未配置 admin 密码（无 DS2API_ADMIN_KEY、无 admin password
+	// hash），自动生成一个安全随机密码并写入 Store（内存态，登录立即可用）。
+	// 注意：env-backed / Vercel 环境下该密码不落盘、重启会变更；这类环境应显式
+	// 设置 DS2API_ADMIN_KEY。
+	var initialAdminPassword string
+	if auth.UsingDefaultAdminKey(app.Store) {
+		pwd, genErr := auth.GenerateAdminPassword()
+		if genErr != nil {
+			config.Logger.Warn("failed to generate initial admin password", "error", genErr)
+		} else if updErr := app.Store.Update(func(c *config.Config) error {
+			c.Admin.PasswordHash = auth.HashAdminPassword(pwd)
+			return nil
+		}); updErr != nil {
+			config.Logger.Warn("failed to persist initial admin password", "error", updErr)
+		} else {
+			initialAdminPassword = pwd
+		}
 	}
 	port := strings.TrimSpace(os.Getenv("PORT"))
 	if port == "" {
@@ -54,6 +72,7 @@ func main() {
 			config.Logger.Info("starting ds2api", "bind", srv.Addr, "port", port, "local_url", localURL)
 			config.Logger.Warn("lan ip not detected; check active network interfaces")
 		}
+		printAdminBanner(initialAdminPassword, localURL)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			config.Logger.Error("server stopped unexpectedly", "error", err)
 			os.Exit(1)
@@ -70,11 +89,30 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	shutdownErr := srv.Shutdown(ctx)
+	app.Close()
+	if err := shutdownErr; err != nil {
 		config.Logger.Error("graceful shutdown failed, forcing exit", "error", err)
 		os.Exit(1)
 	}
 	config.Logger.Info("server gracefully stopped")
+}
+
+// printAdminBanner 在 stdout 直接打印随机生成的初始 admin 密码 banner。
+// 绕过 slog 以保证对齐/醒目，任何 LOG_LEVEL 都能看到；仅在本次启动生成了
+// 随机密码时打印一次。
+func printAdminBanner(pwd, localURL string) {
+	if pwd == "" {
+		return
+	}
+	line := strings.Repeat("#", 50)
+	_, _ = fmt.Fprintln(os.Stdout, line)
+	_, _ = fmt.Fprintln(os.Stdout, "DS2api WebUI is ready")
+	_, _ = fmt.Fprintln(os.Stdout)
+	_, _ = fmt.Fprintln(os.Stdout, "➜ Initial password: "+pwd)
+	_, _ = fmt.Fprintln(os.Stdout, "➜ Change it after logging in")
+	_, _ = fmt.Fprintln(os.Stdout, "➜ local_url="+localURL)
+	_, _ = fmt.Fprintln(os.Stdout, line)
 }
 
 func detectLANIPv4() string {

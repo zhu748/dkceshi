@@ -2,7 +2,6 @@ package settings
 
 import (
 	"ds2api/internal/chathistory"
-	"ds2api/internal/config"
 	adminshared "ds2api/internal/httpapi/admin/shared"
 )
 
@@ -15,13 +14,9 @@ type Handler struct {
 }
 
 var writeJSON = adminshared.WriteJSON
-var intFrom = adminshared.IntFrom
 
 func fieldString(m map[string]any, key string) string {
 	return adminshared.FieldString(m, key)
-}
-func validateRuntimeSettings(runtime config.RuntimeConfig) error {
-	return adminshared.ValidateRuntimeSettings(runtime)
 }
 
 func (h *Handler) computeSyncHash() string {

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -16,6 +17,23 @@ import (
 	"sync"
 	"time"
 )
+
+// adminPasswordCharset 排除易混淆字符（0/O、1/l/I）以便人工抄写。
+const adminPasswordCharset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+
+// GenerateAdminPassword 使用 crypto/rand 生成一个安全随机的 admin 密码。
+// 返回的密码仅含 adminPasswordCharset 中的字符，长度固定为 20。
+func GenerateAdminPassword() (string, error) {
+	const n = 20
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	for i := range b {
+		b[i] = adminPasswordCharset[int(b[i])%len(adminPasswordCharset)]
+	}
+	return string(b), nil
+}
 
 var warnOnce sync.Once
 
@@ -39,9 +57,9 @@ func effectiveAdminKey(store AdminConfigReader) string {
 		return v
 	}
 	warnOnce.Do(func() {
-		slog.Warn("⚠️  DS2API_ADMIN_KEY is not set! Using insecure default \"admin\". Set a strong key in production!")
+		slog.Warn("DS2API_ADMIN_KEY is not set and no admin password hash is configured; admin credential authentication is disabled")
 	})
-	return "admin"
+	return ""
 }
 
 func jwtSecret(store AdminConfigReader) string {
@@ -75,6 +93,9 @@ func CreateJWT(expireHours int) (string, error) {
 }
 
 func CreateJWTWithStore(expireHours int, store AdminConfigReader) (string, error) {
+	if strings.TrimSpace(jwtSecret(store)) == "" {
+		return "", errors.New("jwt signing secret is not configured")
+	}
 	if expireHours <= 0 {
 		expireHours = jwtExpireHours(store)
 	}
@@ -103,6 +124,9 @@ func VerifyJWT(token string) (map[string]any, error) {
 }
 
 func VerifyJWTWithStore(token string, store AdminConfigReader) (map[string]any, error) {
+	if strings.TrimSpace(jwtSecret(store)) == "" {
+		return nil, errors.New("jwt signing secret is not configured")
+	}
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, errors.New("invalid token format")

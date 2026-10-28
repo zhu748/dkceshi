@@ -12,15 +12,19 @@ import (
 	"strings"
 	"time"
 
+	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
 	claudefmt "ds2api/internal/format/claude"
+	"ds2api/internal/httpapi/openai/files"
 	"ds2api/internal/httpapi/openai/history"
+	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/httpapi/requestbody"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	streamengine "ds2api/internal/stream"
+	"ds2api/internal/toolcall"
 	"ds2api/internal/translatorcliproxy"
 	"ds2api/internal/util"
 
@@ -56,9 +60,12 @@ func isClaudeVercelProxyRequest(r *http.Request) bool {
 }
 
 func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
+		if requestbody.IsTooLarge(err) {
+			writeClaudeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		} else if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
 			writeClaudeError(w, http.StatusBadRequest, "invalid json")
 		} else {
 			writeClaudeError(w, http.StatusBadRequest, "invalid body")
@@ -70,6 +77,9 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 		writeClaudeError(w, http.StatusBadRequest, "invalid json")
 		return true
 	}
+	// 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。
+	// 按 Key 的开关由 promptcompat.ApplyCallerFlags 在判定之前应用。
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
 	norm, err := normalizeClaudeRequest(h.Store, req)
 	if err != nil {
 		writeClaudeError(w, http.StatusBadRequest, err.Error())
@@ -81,22 +91,33 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 		writeClaudeError(w, http.StatusUnauthorized, err.Error())
 		return true
 	}
-	// sessionID / resolvedModel 由 stream / non-stream 路径回写，
-	// defer 统一触发 auto-delete（按全局 mode 与 -autodelete 后缀策略联动）。
-	var sessionID string
-	var resolvedModel string
-	defer func() {
-		h.autoDeleteRemoteSession(r.Context(), a, sessionID, resolvedModel)
-		h.Auth.Release(a)
-	}()
+	defer h.Auth.Release(a)
+	if err := files.PreprocessInlineFiles(r.Context(), a, req, h.DS, norm.Standard.ResolvedModel, norm.Standard.Thinking); err != nil {
+		status, message := files.InlineFileErrorDetails(err)
+		writeClaudeError(w, status, message)
+		return true
+	}
+	norm, err = normalizeClaudeRequest(h.Store, req)
+	if err != nil {
+		writeClaudeError(w, http.StatusBadRequest, err.Error())
+		return true
+	}
+	norm.Standard.FinalPrompt = toolcall.ApplyToolMarker(norm.Standard.FinalPrompt, a.ToolMarker)
+	norm.Standard.ToolMarker = a.ToolMarker
+	// Usage 口径必须等于实际发送的那份 prompt：OpenAI 出口在
+	// NormalizeOpenAIChatRequest / NormalizeOpenAIResponsesRequest 内把
+	// PromptTokenText 与出口替换后的 FinalPrompt 一起赋值，这里同步一次，
+	// 否则同一个设置（思考注入 / input_file 续写）开与不开会让 Claude 的
+	// input_tokens 分别按两种形态计数。
+	norm.Standard.PromptTokenText = norm.Standard.FinalPrompt
 	stdReq, err := h.applyCurrentInputFile(r.Context(), a, norm.Standard)
 	if err != nil {
 		status, message := mapCurrentInputFileError(err)
 		writeClaudeError(w, status, message)
 		return true
 	}
-	resolvedModel = stdReq.ResolvedModel
 	historySession := responsehistory.Start(responsehistory.StartParams{
+		Usage:    h.Usage,
 		Store:    h.ChatHistory,
 		Request:  r,
 		Auth:     a,
@@ -104,21 +125,27 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 		Standard: stdReq,
 	})
 	if stdReq.Stream {
-		h.handleClaudeDirectStream(w, r, a, stdReq, historySession, &sessionID)
+		h.handleClaudeDirectStream(w, r, a, stdReq, historySession)
 		return true
 	}
 	result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-		RetryEnabled:     true,
-		CurrentInputFile: h.Store,
+		RetryEnabled:          true,
+		CurrentInputFile:      h.Store,
+		ExpertPromptSegment:   h.Store,
+		ToolCallRepairEnabled: true,
+		ChatHistory:           h.ChatHistory,
 	})
 	if outErr != nil {
 		if historySession != nil {
-			historySession.ErrorTurn(outErr.Status, outErr.Message, outErr.Code, result.Turn)
+			if completionruntime.IsDirectTokenAuthError(outErr) {
+				historySession.Discard()
+			} else {
+				historySession.ErrorTurn(outErr.Status, outErr.Message, outErr.Code, result.Turn)
+			}
 		}
 		writeClaudeError(w, outErr.Status, outErr.Message)
 		return true
 	}
-	sessionID = result.SessionID
 	if historySession != nil {
 		historySession.SuccessTurn(http.StatusOK, result.Turn, responsehistory.GenericUsage(result.Turn))
 	}
@@ -135,6 +162,7 @@ func (h *Handler) applyCurrentInputFile(ctx context.Context, a *auth.RequestAuth
 	if h == nil {
 		return stdReq, nil
 	}
+	stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
 	return (history.Service{Store: h.Store, DS: h.DS}).ApplyCurrentInputFile(ctx, a, stdReq)
 }
 
@@ -142,28 +170,33 @@ func mapCurrentInputFileError(err error) (int, string) {
 	return history.MapError(err)
 }
 
-func (h *Handler) handleClaudeDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session, sessionIDOut *string) {
+func (h *Handler) handleClaudeDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session) {
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-		CurrentInputFile: h.Store,
+		CurrentInputFile:    h.Store,
+		ExpertPromptSegment: h.Store,
 	})
 	if outErr != nil {
 		if historySession != nil {
-			historySession.Error(outErr.Status, outErr.Message, outErr.Code, "", "")
+			if completionruntime.IsDirectTokenAuthError(outErr) {
+				historySession.Discard()
+			} else {
+				historySession.Error(outErr.Status, outErr.Message, outErr.Code, "", "")
+			}
 		}
 		writeClaudeError(w, outErr.Status, outErr.Message)
 		return
-	}
-	if sessionIDOut != nil {
-		*sessionIDOut = start.SessionID
 	}
 	streamReq := start.Request
 	h.handleClaudeStreamRealtimeWithRetry(w, r, a, start.Response, start.Payload, start.Pow, streamReq, streamReq.ResponseModel, streamReq.Messages, streamReq.Thinking, streamReq.Search, streamReq.ToolNames, streamReq.ToolsRaw, streamReq.PromptTokenText, historySession)
 }
 
 func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store ConfigReader) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
+		if requestbody.IsTooLarge(err) {
+			writeClaudeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		} else if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
 			writeClaudeError(w, http.StatusBadRequest, "invalid json")
 		} else {
 			writeClaudeError(w, http.StatusBadRequest, "invalid body")
@@ -319,6 +352,9 @@ func (h *Handler) handleClaudeStreamRealtime(w http.ResponseWriter, r *http.Requ
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[claude_stream] captcha challenge detected on initial response", "detail", detail)
+		}
 		if historySession != nil {
 			historySession.Error(resp.StatusCode, strings.TrimSpace(string(body)), "error", "", "")
 		}
@@ -347,7 +383,7 @@ func (h *Handler) handleClaudeStreamRealtime(w http.ResponseWriter, r *http.Requ
 		stripReferenceMarkersEnabled(),
 		toolNames,
 		toolsRaw,
-		buildClaudePromptTokenText(messages, thinkingEnabled),
+		promptcompat.RenderPromptText(messages, thinkingEnabled),
 		historySession,
 	)
 	streamRuntime.sendMessageStart()
@@ -373,10 +409,13 @@ func (h *Handler) handleClaudeStreamRealtime(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload any, pow string, stdReq promptcompat.StandardRequest, model string, messages []any, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, promptTokenText string, historySession *responsehistory.Session) {
+func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow string, stdReq promptcompat.StandardRequest, model string, messages []any, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, promptTokenText string, historySession *responsehistory.Session) {
 	if resp.StatusCode != http.StatusOK {
 		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[claude_stream_realtime] captcha challenge detected on initial response", "account", a.AccountID, "detail", detail)
+		}
 		if historySession != nil {
 			historySession.Error(resp.StatusCode, strings.TrimSpace(string(body)), "error", "", "")
 		}
@@ -408,19 +447,25 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		promptTokenText,
 		historySession,
 	)
+	streamRuntime.sieve.Marker = a.ToolMarker
+	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
+	streamRuntime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)
+	streamRuntime.toolCallRepairCtx = r.Context()
 	streamRuntime.sendMessageStart()
 
 	completionruntime.ExecuteStreamWithRetry(r.Context(), h.DS, a, resp, payload, pow, completionruntime.StreamRetryOptions{
-		Surface:          "claude.messages",
-		Stream:           true,
-		RetryEnabled:     true,
-		MaxAttempts:      3,
-		UsagePrompt:      promptTokenText,
-		Request:          stdReq,
-		CurrentInputFile: h.Store,
+		Surface:             "claude.messages",
+		Stream:              true,
+		RetryEnabled:        true,
+		MaxAttempts:         3,
+		UsagePrompt:         promptTokenText,
+		Request:             stdReq,
+		CurrentInputFile:    h.Store,
+		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
-		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) (bool, bool) {
-			return h.consumeClaudeStreamAttempt(r, currentResp, streamRuntime, thinkingEnabled, allowDeferEmpty)
+		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
+			terminalWritten, retryable := h.consumeClaudeStreamAttempt(r, currentResp, streamRuntime, thinkingEnabled, allowDeferEmpty)
+			return completionruntime.ConsumeAttemptResult{Terminal: terminalWritten, Retryable: retryable}
 		},
 		Finalize: func(_ int) {
 			streamRuntime.finalize("end_turn", false)
@@ -434,11 +479,21 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		OnRetryFailure: func(status int, message, code string) {
 			streamRuntime.sendErrorWithCode(status, strings.TrimSpace(message), code)
 		},
+		EmptyOutputError: func() *assistantturn.OutputError {
+			if streamRuntime.finalErrorCode == "" {
+				return nil
+			}
+			return &assistantturn.OutputError{Status: streamRuntime.finalErrorStatus, Message: streamRuntime.finalErrorMessage, Code: streamRuntime.finalErrorCode}
+		},
 	})
 }
 
 func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Response, streamRuntime *claudeStreamRuntime, thinkingEnabled bool, allowDeferEmpty bool) (bool, bool) {
 	defer func() { _ = resp.Body.Close() }()
+	// A new attempt reads a new upstream response, so the content rules start
+	// over: a cut that ended the previous attempt (an empty-output retry, or a
+	// retry on another account) must not keep discarding this one's text.
+	streamRuntime.resetContentPolicy()
 	initialType := "text"
 	if thinkingEnabled {
 		initialType = "thinking"
@@ -470,7 +525,7 @@ func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Respons
 		streamRuntime.sendError(streamRuntime.upstreamErr)
 		return true, false
 	}
-	if scannerErr != nil {
+	if scannerErr != nil && finalReason != streamengine.StopReasonIdleTimeout && finalReason != streamengine.StopReasonNoContentTimeout {
 		if streamRuntime.history != nil {
 			streamRuntime.history.Error(500, scannerErr.Error(), "error", responsehistory.ThinkingForArchive(streamRuntime.rawThinking.String(), streamRuntime.toolDetectionThinking.String(), streamRuntime.thinking.String()), responsehistory.TextForArchive(streamRuntime.rawText.String(), streamRuntime.text.String()))
 		}

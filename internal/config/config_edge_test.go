@@ -10,29 +10,29 @@ import (
 // ─── GetModelConfig edge cases ───────────────────────────────────────
 
 func TestGetModelConfigDeepSeekChat(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-v4-flash")
+	thinking, search, ok := GetModelConfig("deepseek-v4.1-flash")
 	if !ok {
-		t.Fatal("expected ok for deepseek-v4-flash")
+		t.Fatal("expected ok for deepseek-v4.1-flash")
 	}
 	if !thinking || search {
-		t.Fatalf("expected thinking=true search=false for deepseek-v4-flash, got thinking=%v search=%v", thinking, search)
+		t.Fatalf("expected thinking=true search=false for deepseek-v4.1-flash, got thinking=%v search=%v", thinking, search)
 	}
 }
 
 func TestGetModelConfigDeepSeekChatNoThinking(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-v4-flash-nothinking")
+	thinking, search, ok := GetModelConfig("deepseek-v4.1-flash-nothinking")
 	if !ok {
-		t.Fatal("expected ok for deepseek-v4-flash-nothinking")
+		t.Fatal("expected ok for deepseek-v4.1-flash-nothinking")
 	}
 	if thinking || search {
-		t.Fatalf("expected thinking=false search=false for deepseek-v4-flash-nothinking, got thinking=%v search=%v", thinking, search)
+		t.Fatalf("expected thinking=false search=false for deepseek-v4.1-flash-nothinking, got thinking=%v search=%v", thinking, search)
 	}
 }
 
 func TestGetModelConfigDeepSeekReasoner(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-v4-pro")
+	thinking, search, ok := GetModelConfig("deepseek-v4.1-flash")
 	if !ok {
-		t.Fatal("expected ok for deepseek-v4-pro")
+		t.Fatal("expected ok for deepseek-v4.1-flash")
 	}
 	if !thinking || search {
 		t.Fatalf("expected thinking=true search=false, got thinking=%v search=%v", thinking, search)
@@ -40,88 +40,73 @@ func TestGetModelConfigDeepSeekReasoner(t *testing.T) {
 }
 
 func TestGetModelConfigDeepSeekChatSearch(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-v4-flash-search")
+	thinking, search, ok := GetModelConfig("deepseek-v4.1-flash-search")
 	if !ok {
-		t.Fatal("expected ok for deepseek-v4-flash-search")
+		t.Fatal("expected ok for deepseek-v4.1-flash-search")
 	}
 	if !thinking || !search {
 		t.Fatalf("expected thinking=true search=true, got thinking=%v search=%v", thinking, search)
 	}
 }
 
-func TestGetModelConfigDeepSeekReasonerSearch(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-v4-pro-search")
-	if !ok {
-		t.Fatal("expected ok for deepseek-v4-pro-search")
-	}
-	if !thinking || !search {
-		t.Fatalf("expected both true, got thinking=%v search=%v", thinking, search)
-	}
-}
-
 func TestGetModelConfigDeepSeekExpertChat(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-v4-pro")
+	thinking, search, ok := GetModelConfig("deepseek-v4.1-flash")
 	if !ok {
-		t.Fatal("expected ok for deepseek-v4-pro")
+		t.Fatal("expected ok for deepseek-v4.1-flash")
 	}
 	if !thinking || search {
-		t.Fatalf("expected thinking=true search=false for deepseek-v4-pro, got thinking=%v search=%v", thinking, search)
-	}
-}
-
-func TestGetModelConfigDeepSeekExpertReasonerSearch(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-v4-pro-search")
-	if !ok {
-		t.Fatal("expected ok for deepseek-v4-pro-search")
-	}
-	if !thinking || !search {
-		t.Fatalf("expected both true, got thinking=%v search=%v", thinking, search)
+		t.Fatalf("expected thinking=true search=false for deepseek-v4.1-flash, got thinking=%v search=%v", thinking, search)
 	}
 }
 
 func TestGetModelConfigDeepSeekVision(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-v4-vision")
+	thinking, search, ok := GetModelConfig("deepseek-v4.1-flash")
 	if !ok {
-		t.Fatal("expected ok for deepseek-v4-vision")
+		t.Fatal("expected ok for deepseek-v4.1-flash")
 	}
 	if !thinking || search {
 		t.Fatalf("expected thinking=true search=false, got thinking=%v search=%v", thinking, search)
 	}
 }
 
-func TestGetModelConfigDeepSeekVisionSearchUnsupported(t *testing.T) {
-	_, _, ok := GetModelConfig("deepseek-v4-vision-search")
-	if ok {
-		t.Fatal("expected deepseek-v4-vision-search to be unsupported")
+func TestGetModelConfigDeepSeekVisionSearch(t *testing.T) {
+	thinking, search, ok := GetModelConfig("deepseek-v4.1-flash-search")
+	if !ok {
+		t.Fatal("expected ok for deepseek-v4.1-flash-search")
+	}
+	if !thinking || !search {
+		t.Fatalf("expected thinking=true search=true, got thinking=%v search=%v", thinking, search)
 	}
 }
 
 func TestGetModelTypeDefaultExpertAndVision(t *testing.T) {
-	defaultType, ok := GetModelType("deepseek-v4-flash")
+	// After the 2.4.0 fast/expert/vision merge every model resolves to the
+	// single upstream "default" model_type.
+	defaultType, ok := GetModelType("deepseek-v4.1-flash")
 	if !ok || defaultType != "default" {
 		t.Fatalf("expected default model_type, got ok=%v model_type=%q", ok, defaultType)
 	}
-	defaultNoThinkingType, ok := GetModelType("deepseek-v4-flash-nothinking")
+	defaultNoThinkingType, ok := GetModelType("deepseek-v4.1-flash-nothinking")
 	if !ok || defaultNoThinkingType != "default" {
 		t.Fatalf("expected default model_type for nothinking, got ok=%v model_type=%q", ok, defaultNoThinkingType)
 	}
-	expertType, ok := GetModelType("deepseek-v4-pro")
-	if !ok || expertType != "expert" {
-		t.Fatalf("expected expert model_type, got ok=%v model_type=%q", ok, expertType)
+	searchType, ok := GetModelType("deepseek-v4.1-flash-search")
+	if !ok || searchType != "default" {
+		t.Fatalf("expected default model_type for search, got ok=%v model_type=%q", ok, searchType)
 	}
-	visionType, ok := GetModelType("deepseek-v4-vision")
-	if !ok || visionType != "vision" {
-		t.Fatalf("expected vision model_type, got ok=%v model_type=%q", ok, visionType)
+	searchNoThinkingType, ok := GetModelType("deepseek-v4.1-flash-search-nothinking")
+	if !ok || searchNoThinkingType != "default" {
+		t.Fatalf("expected default model_type for search nothinking, got ok=%v model_type=%q", ok, searchNoThinkingType)
 	}
 }
 
 func TestGetModelConfigCaseInsensitive(t *testing.T) {
-	thinking, search, ok := GetModelConfig("DeepSeek-V4-Flash")
+	thinking, search, ok := GetModelConfig("deepseek-v4.1-flash")
 	if !ok {
-		t.Fatal("expected ok for case-insensitive deepseek-v4-flash")
+		t.Fatal("expected ok for case-insensitive deepseek-v4.1-flash")
 	}
 	if !thinking || search {
-		t.Fatalf("expected thinking=true search=false for case-insensitive deepseek-v4-flash")
+		t.Fatalf("expected thinking=true search=false for case-insensitive deepseek-v4.1-flash")
 	}
 }
 
@@ -166,7 +151,7 @@ func TestConfigJSONRoundtrip(t *testing.T) {
 	cfg := Config{
 		Keys:         []string{"key1", "key2"},
 		Accounts:     []Account{{Email: "user@example.com", Password: "pass", Token: "tok"}},
-		ModelAliases: map[string]string{"Claude-Sonnet-4-6": "DeepSeek-V4-Flash"},
+		ModelAliases: map[string]string{"Claude-Sonnet-4-6": "deepseek-v4.1-flash"},
 		AutoDelete: AutoDeleteConfig{
 			Mode: "single",
 		},
@@ -201,7 +186,7 @@ func TestConfigJSONRoundtrip(t *testing.T) {
 	if len(decoded.Accounts) != 1 || decoded.Accounts[0].Email != "user@example.com" {
 		t.Fatalf("unexpected accounts: %#v", decoded.Accounts)
 	}
-	if decoded.ModelAliases["claude-sonnet-4-6"] != "deepseek-v4-flash" {
+	if decoded.ModelAliases["claude-sonnet-4-6"] != "deepseek-v4.1-flash" {
 		t.Fatalf("unexpected normalized model aliases: %#v", decoded.ModelAliases)
 	}
 	if decoded.Runtime.TokenRefreshIntervalHours != 12 {
@@ -260,7 +245,7 @@ func TestConfigUnmarshalJSONPreservesUnknownFields(t *testing.T) {
 }
 
 func TestConfigUnmarshalJSONIgnoresRemovedLegacyModelMappings(t *testing.T) {
-	raw := `{"keys":["k1"],"accounts":[],"claude_mapping":{"fast":"deepseek-v4-pro"},"claude_model_mapping":{"slow":"deepseek-v4-pro"}}`
+	raw := `{"keys":["k1"],"accounts":[],"claude_mapping":{"fast":"deepseek-v4.1-flash"},"claude_model_mapping":{"slow":"deepseek-v4.1-flash"}}`
 	var cfg Config
 	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 		t.Fatalf("unmarshal error: %v", err)
@@ -294,13 +279,55 @@ func TestConfigUnmarshalJSONIgnoresRemovedHistorySplit(t *testing.T) {
 	}
 }
 
+// TestConfigUnmarshalJSONIgnoresLegacyCurrentInputFileKey pins the rename of
+// the `current_input_file` section to `input_file`. The legacy key is dropped
+// on load instead of being migrated, so an old config carrying an explicit
+// `"min_chars": 0` no longer disables the split and instead falls back to the
+// new default threshold.
+func TestConfigUnmarshalJSONIgnoresLegacyCurrentInputFileKey(t *testing.T) {
+	raw := `{"keys":["k1"],"current_input_file":{"enabled":true,"min_chars":0}}`
+	var cfg Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if len(cfg.Settings["input_file"]) != 0 {
+		t.Fatalf("expected legacy current_input_file section to be ignored, got %#v", cfg.Settings["input_file"])
+	}
+	if _, ok := cfg.AdditionalFields["current_input_file"]; ok {
+		t.Fatalf("expected legacy field not to persist in additional fields: %#v", cfg.AdditionalFields)
+	}
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	if strings.Contains(string(out), "current_input_file") {
+		t.Fatalf("expected legacy current_input_file field not to marshal, got %s", out)
+	}
+
+	// The renamed key still round-trips.
+	var renamed Config
+	if err := json.Unmarshal([]byte(`{"keys":["k1"],"input_file":{"enabled":true,"min_chars":12345}}`), &renamed); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if renamed.Settings["input_file"]["enabled"] != true || renamed.Settings["input_file"]["min_chars"] != 12345 {
+		t.Fatalf("expected input_file section to load, got %#v", renamed.Settings["input_file"])
+	}
+	renamedOut, err := json.Marshal(renamed)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	if !strings.Contains(string(renamedOut), `"input_file"`) {
+		t.Fatalf("expected input_file field to marshal, got %s", renamedOut)
+	}
+}
+
 // ─── Config.Clone ────────────────────────────────────────────────────
 
 func TestConfigCloneIsDeepCopy(t *testing.T) {
 	cfg := Config{
 		Keys:             []string{"key1"},
 		Accounts:         []Account{{Email: "user@test.com", Token: "token"}},
-		ModelAliases:     map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"},
+		ModelAliases:     map[string]string{"claude-sonnet-4-6": "deepseek-v4.1-flash"},
 		AdditionalFields: map[string]any{"custom": "value"},
 	}
 
@@ -318,7 +345,7 @@ func TestConfigCloneIsDeepCopy(t *testing.T) {
 	if cloned.Accounts[0].Email != "user@test.com" {
 		t.Fatalf("clone accounts was affected: %#v", cloned.Accounts)
 	}
-	if cloned.ModelAliases["claude-sonnet-4-6"] != "deepseek-v4-flash" {
+	if cloned.ModelAliases["claude-sonnet-4-6"] != "deepseek-v4.1-flash" {
 		t.Fatalf("clone model aliases was affected: %#v", cloned.ModelAliases)
 	}
 }
@@ -614,13 +641,13 @@ func TestNormalizeCredentialsPrefersStructuredAPIKeys(t *testing.T) {
 }
 
 func TestStoreModelAliasesIncludesDefaultsAndOverrides(t *testing.T) {
-	t.Setenv("DS2API_CONFIG_JSON", `{"keys":[],"accounts":[],"model_aliases":{"claude-opus-4-6":"deepseek-v4-pro-search"}}`)
+	t.Setenv("DS2API_CONFIG_JSON", `{"keys":[],"accounts":[],"model_aliases":{"claude-opus-4-6":"deepseek-v4.1-flash-search"}}`)
 	store := LoadStore()
 	aliases := store.ModelAliases()
-	if aliases["claude-sonnet-4-6"] != "deepseek-v4-flash" {
+	if aliases["claude-sonnet-4-6"] != "deepseek-v4.1-flash" {
 		t.Fatalf("expected default alias to remain available, got %q", aliases["claude-sonnet-4-6"])
 	}
-	if aliases["claude-opus-4-6"] != "deepseek-v4-pro-search" {
+	if aliases["claude-opus-4-6"] != "deepseek-v4.1-flash-search" {
 		t.Fatalf("expected custom alias override, got %q", aliases["claude-opus-4-6"])
 	}
 }
@@ -632,7 +659,7 @@ func TestStoreModelAliasesDefault(t *testing.T) {
 	if aliases == nil {
 		t.Fatal("expected non-nil aliases")
 	}
-	if aliases["claude-sonnet-4-6"] != "deepseek-v4-flash" {
+	if aliases["claude-sonnet-4-6"] != "deepseek-v4.1-flash" {
 		t.Fatalf("expected built-in alias, got %q", aliases["claude-sonnet-4-6"])
 	}
 }
@@ -683,16 +710,10 @@ func TestOpenAIModelsResponse(t *testing.T) {
 		t.Fatal("expected non-empty models list")
 	}
 	expected := map[string]bool{
-		"deepseek-v4-flash":                   false,
-		"deepseek-v4-flash-nothinking":        false,
-		"deepseek-v4-pro":                     false,
-		"deepseek-v4-pro-nothinking":          false,
-		"deepseek-v4-flash-search":            false,
-		"deepseek-v4-flash-search-nothinking": false,
-		"deepseek-v4-pro-search":              false,
-		"deepseek-v4-pro-search-nothinking":   false,
-		"deepseek-v4-vision":                  false,
-		"deepseek-v4-vision-nothinking":       false,
+		"deepseek-v4.1-flash":                   false,
+		"deepseek-v4.1-flash-nothinking":        false,
+		"deepseek-v4.1-flash-search":            false,
+		"deepseek-v4.1-flash-search-nothinking": false,
 	}
 	for _, model := range data {
 		if _, ok := expected[model.ID]; ok {
@@ -717,5 +738,36 @@ func TestClaudeModelsResponse(t *testing.T) {
 	}
 	if len(data) == 0 {
 		t.Fatal("expected non-empty models list")
+	}
+}
+
+func TestNormalizeAPIKeysPreservesMetadata(t *testing.T) {
+	cfg := Config{
+		APIKeys: []APIKey{
+			{Key: "k1", Name: "a", Remark: "r1"},
+			{Key: "k2", Name: "b"},
+		},
+	}
+	cfg.NormalizeCredentials()
+
+	if len(cfg.APIKeys) != 2 {
+		t.Fatalf("unexpected api keys: %#v", cfg.APIKeys)
+	}
+	if cfg.APIKeys[0].Name != "a" || cfg.APIKeys[0].Remark != "r1" {
+		t.Fatalf("metadata was lost during normalize: %#v", cfg.APIKeys[0])
+	}
+	if cfg.APIKeys[1].Name != "b" {
+		t.Fatalf("name was lost during normalize: %#v", cfg.APIKeys[1])
+	}
+}
+
+func TestEqualAPIKeysDetectsMetadataDifference(t *testing.T) {
+	a := []APIKey{{Key: "k1", Name: "a"}}
+	b := []APIKey{{Key: "k1", Name: "b"}}
+	if equalAPIKeys(a, b) {
+		t.Fatalf("equalAPIKeys should detect metadata difference")
+	}
+	if !equalAPIKeys(a, a) {
+		t.Fatalf("equalAPIKeys should return true for identical slices")
 	}
 }

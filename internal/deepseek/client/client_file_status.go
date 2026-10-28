@@ -20,14 +20,27 @@ const (
 	fileReadyPollTimeout  = 65 * time.Second
 )
 
-var fileReadySleep = time.Sleep
+var fileReadySleep = func(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
 
 // ErrUploadFileNotFound indicates that DeepSeek returned no matching uploaded file.
 var ErrUploadFileNotFound = errors.New("uploaded file not found")
+var ErrUploadFileRejected = errors.New("uploaded file processing failed")
 
 func (c *Client) waitForUploadedFile(ctx context.Context, a *auth.RequestAuth, result *UploadFileResult) error {
 	if result == nil || strings.TrimSpace(result.ID) == "" {
 		return nil
+	}
+	if isFailedUploadFileStatus(result.Status) {
+		return fmt.Errorf("%w: status=%s", ErrUploadFileRejected, result.Status)
 	}
 	if isReadyUploadFileStatus(result.Status) {
 		return nil
@@ -48,6 +61,9 @@ func (c *Client) waitForUploadedFile(ctx context.Context, a *auth.RequestAuth, r
 		fetched, err := c.FetchUploadedFile(pollCtx, a, result.ID)
 		if err == nil && fetched != nil {
 			mergeUploadFileResults(result, fetched)
+			if isFailedUploadFileStatus(result.Status) {
+				return fmt.Errorf("%w: status=%s", ErrUploadFileRejected, result.Status)
+			}
 			if isReadyUploadFileStatus(result.Status) {
 				return nil
 			}
@@ -58,7 +74,9 @@ func (c *Client) waitForUploadedFile(ctx context.Context, a *auth.RequestAuth, r
 		}
 
 		if attempt < fileReadyPollAttempts-1 {
-			fileReadySleep(fileReadyPollInterval)
+			if err := fileReadySleep(pollCtx, fileReadyPollInterval); err != nil {
+				return fmt.Errorf("waiting for file readiness: %w", err)
+			}
 		}
 	}
 
@@ -74,6 +92,7 @@ func (c *Client) FetchUploadedFile(ctx context.Context, a *auth.RequestAuth, fil
 	if fileID == "" {
 		return nil, errors.New("file id is required")
 	}
+	ctx = auth.WithAuth(ctx, a)
 	clients := c.requestClientsForAuth(ctx, a)
 	reqURL := dsprotocol.DeepSeekFetchFilesURL + "?file_ids=" + url.QueryEscape(fileID)
 	headers := c.authHeadersForAuth(a)
@@ -186,6 +205,15 @@ func mergeUploadFileResults(dst, src *UploadFileResult) {
 func isReadyUploadFileStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "processed", "ready", "done", "available", "success", "completed", "finished":
+		return true
+	default:
+		return false
+	}
+}
+
+func isFailedUploadFileStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "failure", "error", "rejected", "deleted":
 		return true
 	default:
 		return false

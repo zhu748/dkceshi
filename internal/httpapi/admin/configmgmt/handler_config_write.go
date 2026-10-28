@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"ds2api/internal/account"
 	"ds2api/internal/config"
 )
 
@@ -18,6 +19,7 @@ func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old := h.Store.Snapshot()
+	busyAccounts := h.inflightAccounts()
 	err := h.Store.Update(func(c *config.Config) error {
 		if apiKeys, ok := toAPIKeys(req["api_keys"]); ok {
 			c.APIKeys = apiKeys
@@ -57,6 +59,9 @@ func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
 				accounts = append(accounts, acc)
 			}
 			c.Accounts = accounts
+			if c.ElasticPool.Enabled {
+				account.ReconcileElasticPoolWithBusy(c, busyAccounts)
+			}
 		}
 		if m, ok := req["model_aliases"].(map[string]any); ok {
 			aliases := make(map[string]string, len(m))
@@ -92,7 +97,9 @@ func (h *Handler) addKey(w http.ResponseWriter, r *http.Request) {
 				return fmt.Errorf("key 已存在")
 			}
 		}
-		c.APIKeys = append(c.APIKeys, config.APIKey{Key: key, Name: name, Remark: remark})
+		item := config.APIKey{Key: key, Name: name, Remark: remark}
+		applyCredentialFlags(&item, req)
+		c.APIKeys = append(c.APIKeys, item)
 		return nil
 	})
 	if err != nil {
@@ -134,6 +141,9 @@ func (h *Handler) updateKey(w http.ResponseWriter, r *http.Request) {
 		if remarkOK {
 			c.APIKeys[idx].Remark = remark
 		}
+		// A flag absent from the request keeps its stored value, so a partial
+		// update never clears a switch the caller did not mention.
+		applyCredentialFlags(&c.APIKeys[idx], req)
 		return nil
 	})
 	if err != nil {
@@ -173,6 +183,7 @@ func (h *Handler) batchImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	importedKeys, importedAccounts := 0, 0
+	busyAccounts := h.inflightAccounts()
 	err := h.Store.Update(func(c *config.Config) error {
 		if apiKeys, ok := toAPIKeys(req["api_keys"]); ok {
 			var changed int
@@ -214,6 +225,9 @@ func (h *Handler) batchImport(w http.ResponseWriter, r *http.Request) {
 				c.Accounts = append(c.Accounts, acc)
 				existing[key] = true
 				importedAccounts++
+			}
+			if c.ElasticPool.Enabled {
+				account.ReconcileElasticPoolWithBusy(c, busyAccounts)
 			}
 		}
 		return nil

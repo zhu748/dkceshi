@@ -2,8 +2,11 @@ package config
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -99,7 +102,11 @@ func TestLoadStorePreservesFileBackedTokensForRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp config: %v", err)
 	}
-	defer func() { _ = tmp.Close() }()
+	defer func() {
+		if err := tmp.Close(); err != nil {
+			slog.Warn("cleanup close failed", "error", err)
+		}
+	}()
 	if _, err := tmp.WriteString(`{
 		"accounts":[{"email":"u@example.com","password":"p","token":"persisted-token"}]
 	}`); err != nil {
@@ -125,7 +132,9 @@ func TestLoadStoreIgnoresLegacyConfigJSONEnv(t *testing.T) {
 		t.Fatalf("create temp config: %v", err)
 	}
 	path := tmp.Name()
-	_ = tmp.Close()
+	if err := tmp.Close(); err != nil {
+		slog.Warn("cleanup close failed", "error", err)
+	}
 	_ = os.Remove(path)
 
 	t.Setenv("DS2API_CONFIG_JSON", "")
@@ -188,7 +197,9 @@ func TestEnvBackedStoreWritebackBootstrapsMissingConfigFile(t *testing.T) {
 		t.Fatalf("create temp config: %v", err)
 	}
 	path := tmp.Name()
-	_ = tmp.Close()
+	if err := tmp.Close(); err != nil {
+		slog.Warn("cleanup close failed", "error", err)
+	}
 	_ = os.Remove(path)
 
 	t.Setenv("DS2API_CONFIG_JSON", `{"keys":["k1"],"accounts":[{"email":"seed@example.com","password":"p"}]}`)
@@ -232,7 +243,9 @@ func TestEnvBackedStoreWritebackDoesNotBootstrapOnInvalidEnvJSON(t *testing.T) {
 		t.Fatalf("create temp config: %v", err)
 	}
 	path := tmp.Name()
-	_ = tmp.Close()
+	if err := tmp.Close(); err != nil {
+		slog.Warn("cleanup close failed", "error", err)
+	}
 	_ = os.Remove(path)
 
 	t.Setenv("DS2API_CONFIG_JSON", "{invalid-json")
@@ -260,7 +273,9 @@ func TestEnvBackedStoreWritebackDoesNotBootstrapOnInvalidSemanticConfig(t *testi
 		t.Fatalf("create temp config: %v", err)
 	}
 	path := tmp.Name()
-	_ = tmp.Close()
+	if err := tmp.Close(); err != nil {
+		slog.Warn("cleanup close failed", "error", err)
+	}
 	_ = os.Remove(path)
 
 	t.Setenv("DS2API_CONFIG_JSON", `{
@@ -313,7 +328,9 @@ func TestEnvBackedStoreWritebackFallsBackToPersistedFileOnInvalidEnvJSON(t *test
 	if _, err := tmp.WriteString(`{"keys":["file-key"],"accounts":[{"email":"persisted@example.com","password":"p"}]}`); err != nil {
 		t.Fatalf("write temp config: %v", err)
 	}
-	_ = tmp.Close()
+	if err := tmp.Close(); err != nil {
+		slog.Warn("cleanup close failed", "error", err)
+	}
 
 	t.Setenv("DS2API_CONFIG_JSON", "{invalid-json")
 	t.Setenv("DS2API_CONFIG_PATH", path)
@@ -356,6 +373,110 @@ func TestRuntimeTokenRefreshIntervalHoursUsesConfigValue(t *testing.T) {
 	store := LoadStore()
 	if got := store.RuntimeTokenRefreshIntervalHours(); got != 9 {
 		t.Fatalf("expected configured refresh interval 9, got %d", got)
+	}
+}
+
+// Vercel 部署无法持久化设备档案与数美配置，auto 模式每次冷启动都会生成新
+// device_id，因此强制回退 manual，即使配置写了 auto 也要被忽略。
+func TestRuntimeDeviceIDModeForcedManualOnVercel(t *testing.T) {
+	t.Setenv("DS2API_CONFIG_JSON", `{
+		"keys":["k1"],
+		"accounts":[{"email":"u@example.com","password":"p"}],
+		"runtime":{"device_id_mode":"auto"}
+	}`)
+	t.Setenv("VERCEL", "1")
+
+	store := LoadStore()
+	if got := store.RuntimeDeviceIDMode(); got != DeviceIDTypeManual {
+		t.Fatalf("expected forced manual on Vercel, got %q", got)
+	}
+}
+
+// 历史配置里的 random 模式会被自动迁移为 manual。
+func TestRuntimeDeviceIDModeMigratesLegacyRandom(t *testing.T) {
+	t.Setenv("DS2API_CONFIG_JSON", `{
+		"keys":["k1"],
+		"accounts":[{"email":"u@example.com","password":"p","device_id":"BLegacy","device_id_type":"random"}],
+		"runtime":{"device_id_mode":"random"}
+	}`)
+	t.Setenv("VERCEL", "")
+	t.Setenv("NOW_REGION", "")
+
+	store := LoadStore()
+	if got := store.RuntimeDeviceIDMode(); got != DeviceIDTypeManual {
+		t.Fatalf("expected legacy random migrated to manual, got %q", got)
+	}
+	if got := store.Accounts()[0].DeviceIDType; got != DeviceIDTypeManual {
+		t.Fatalf("expected account device_id_type migrated to manual, got %q", got)
+	}
+}
+
+// 旧名 real 会被自动迁移为 auto：全局模式与账号上的 device_id_type 都按新名读出。
+func TestRuntimeDeviceIDModeMigratesLegacyReal(t *testing.T) {
+	t.Setenv("DS2API_CONFIG_JSON", `{
+		"keys":["k1"],
+		"accounts":[{"email":"u@example.com","password":"p","device_id":"BLegacy","device_id_type":"real"}],
+		"runtime":{"device_id_mode":"real"}
+	}`)
+	t.Setenv("VERCEL", "")
+	t.Setenv("NOW_REGION", "")
+
+	store := LoadStore()
+	if got := store.RuntimeDeviceIDMode(); got != DeviceIDTypeAuto {
+		t.Fatalf("expected legacy real migrated to auto, got %q", got)
+	}
+	if got := store.Accounts()[0].DeviceIDType; got != DeviceIDTypeAuto {
+		t.Fatalf("expected account device_id_type migrated to auto, got %q", got)
+	}
+}
+
+// 迁移会随下一次保存落盘：旧名 real 被改写成 auto。
+func TestLegacyRealModeIsRewrittenOnSave(t *testing.T) {
+	path := t.TempDir() + "/config.json"
+	legacy := `{"keys":["k1"],"accounts":[{"email":"u@example.com","password":"p","device_id":"BLegacy","device_id_type":"real"}],"runtime":{"device_id_mode":"real"}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+	t.Setenv("DS2API_CONFIG_JSON", "")
+	t.Setenv("DS2API_CONFIG_PATH", path)
+	t.Setenv("VERCEL", "")
+	t.Setenv("NOW_REGION", "")
+
+	store := LoadStore()
+	if got := store.RuntimeDeviceIDMode(); got != DeviceIDTypeAuto {
+		t.Fatalf("expected legacy real migrated to auto, got %q", got)
+	}
+	if err := store.Update(func(c *Config) error {
+		c.Keys = append(c.Keys, "k2")
+		return nil
+	}); err != nil {
+		t.Fatalf("update store: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read saved config: %v", err)
+	}
+	if strings.Contains(string(content), `"real"`) {
+		t.Fatalf("expected saved config to be free of the legacy real name, got: %s", content)
+	}
+	if !strings.Contains(string(content), `"device_id_mode": "auto"`) ||
+		!strings.Contains(string(content), `"device_id_type": "auto"`) {
+		t.Fatalf("expected saved config to carry the auto name, got: %s", content)
+	}
+}
+
+func TestRuntimeDeviceIDModeUsesConfigValueOffVercel(t *testing.T) {
+	t.Setenv("DS2API_CONFIG_JSON", `{
+		"keys":["k1"],
+		"accounts":[{"email":"u@example.com","password":"p"}],
+		"runtime":{"device_id_mode":"auto"}
+	}`)
+	t.Setenv("VERCEL", "")
+	t.Setenv("NOW_REGION", "")
+
+	store := LoadStore()
+	if got := store.RuntimeDeviceIDMode(); got != DeviceIDTypeAuto {
+		t.Fatalf("expected configured auto mode off Vercel, got %q", got)
 	}
 }
 
@@ -433,7 +554,11 @@ func TestAccountTestStatusIsRuntimeOnlyAndNotPersisted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp config: %v", err)
 	}
-	defer func() { _ = tmp.Close() }()
+	defer func() {
+		if err := tmp.Close(); err != nil {
+			slog.Warn("cleanup close failed", "error", err)
+		}
+	}()
 	if _, err := tmp.WriteString(`{
 		"accounts":[{"email":"u@example.com","password":"p","test_status":"ok"}]
 	}`); err != nil {
@@ -460,5 +585,90 @@ func TestAccountTestStatusIsRuntimeOnlyAndNotPersisted(t *testing.T) {
 	}
 	if strings.Contains(string(content), "test_status") {
 		t.Fatalf("expected test_status to stay out of persisted config, got: %s", content)
+	}
+}
+
+func TestStoreUpdatePersistsElasticPoolToFile(t *testing.T) {
+	path := t.TempDir() + "/config.json"
+	t.Setenv("DS2API_CONFIG_JSON", "")
+	t.Setenv("DS2API_CONFIG_PATH", path)
+
+	store := LoadStore()
+	if err := store.Update(func(c *Config) error {
+		c.Accounts = []Account{{Email: "a@x.com", Password: "p"}}
+		c.ElasticPool = ElasticPoolConfig{Enabled: true, PerPool: false, GlobalCount: 3}
+		return nil
+	}); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+
+	snap := store.Snapshot()
+	t.Logf("snapshot ElasticPool: %+v", snap.ElasticPool)
+	clone := snap.Clone()
+	t.Logf("clone ElasticPool: %+v", clone.ElasticPool)
+	b, _ := json.MarshalIndent(clone, "", "  ")
+	t.Logf("clone JSON: %s", string(b))
+
+	// Direct serialization test
+	direct := Config{ElasticPool: ElasticPoolConfig{Enabled: true, GlobalCount: 3}}
+	db, _ := json.MarshalIndent(direct, "", "  ")
+	t.Logf("direct JSON: %s", string(db))
+
+	// Test nested struct only
+	nested := ElasticPoolConfig{Enabled: true, GlobalCount: 3}
+	t.Logf("reflect.IsZero of nested: %v", reflect.ValueOf(nested).IsZero())
+	nb, _ := json.MarshalIndent(nested, "", "  ")
+	t.Logf("elastic pool only JSON: %s", string(nb))
+
+	// Test with omitempty removed via different field
+	cfgNoOmit := struct {
+		ElasticPool ElasticPoolConfig `json:"elastic_pool"`
+	}{ElasticPool: ElasticPoolConfig{Enabled: true, GlobalCount: 3}}
+	ob, _ := json.MarshalIndent(cfgNoOmit, "", "  ")
+	t.Logf("without omitempty JSON: %s", string(ob))
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	t.Logf("file content: %s", string(content))
+	if !strings.Contains(string(content), "elastic_pool") {
+		t.Fatalf("expected persisted config to contain elastic_pool, got: %s", content)
+	}
+	if !strings.Contains(string(content), `"enabled": true`) {
+		t.Fatalf("expected elastic_pool.enabled=true in file, got: %s", content)
+	}
+
+	if !snap.ElasticPool.Enabled {
+		t.Fatal("Snapshot() should return ElasticPool.Enabled=true after Update")
+	}
+	if snap.ElasticPool.GlobalCount != 3 {
+		t.Fatalf("expected GlobalCount=3, got %d", snap.ElasticPool.GlobalCount)
+	}
+}
+
+func TestLoadStoreReadsElasticPoolFromFile(t *testing.T) {
+	path := t.TempDir() + "/config.json"
+	t.Setenv("DS2API_CONFIG_JSON", "")
+	t.Setenv("DS2API_CONFIG_PATH", path)
+
+	store := LoadStore()
+	if err := store.Update(func(c *Config) error {
+		c.ElasticPool = ElasticPoolConfig{Enabled: true, PerPool: true, DefaultCount: 2, NoToolsCount: 1, ToolsOnlyCount: 1}
+		return nil
+	}); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+
+	reloaded := LoadStore()
+	snap := reloaded.Snapshot()
+	if !snap.ElasticPool.Enabled {
+		t.Fatal("expected ElasticPool.Enabled=true after reload from file")
+	}
+	if !snap.ElasticPool.PerPool {
+		t.Fatal("expected ElasticPool.PerPool=true after reload from file")
+	}
+	if snap.ElasticPool.DefaultCount != 2 {
+		t.Fatalf("expected DefaultCount=2 after reload, got %d", snap.ElasticPool.DefaultCount)
 	}
 }

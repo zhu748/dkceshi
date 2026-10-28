@@ -7,7 +7,7 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 		return nil
 	}
 	if chunk != "" {
-		state.pending.WriteString(chunk)
+		state.pending.WriteString(state.normalizeIncoming(chunk))
 	}
 	events := make([]Event, 0, 2)
 	if len(state.pendingToolCalls) > 0 {
@@ -22,11 +22,10 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 				state.capture.WriteString(state.pending.String())
 				state.pending.Reset()
 			}
-			prefix, calls, suffix, ready := consumeToolCapture(state, toolNames)
+			prefix, calls, suffix, ready := consumeToolCapture(state, toolNames, false)
 			if !ready {
 				break
 			}
-			captured := state.capture.String()
 			state.capture.Reset()
 			state.capturing = false
 			state.resetIncrementalToolState()
@@ -35,11 +34,16 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 					state.noteText(prefix)
 					events = append(events, Event{Content: prefix})
 				}
+				// Emit the completed tool call immediately so the runtime can mark
+				// the turn as tool-call emitting before the capture suffix (tail
+				// prose after the tool block) is released as content. Deferring
+				// to the next ProcessChunk call would let same-chunk tail text
+				// slip through as visible content in the same onParsed pass.
+				events = append(events, Event{ToolCalls: calls})
+				state.pendingToolRaw = ""
 				if suffix != "" {
 					state.pending.WriteString(suffix)
 				}
-				_ = captured
-				state.pendingToolCalls = calls
 				continue
 			}
 			if prefix != "" {
@@ -94,6 +98,9 @@ func Flush(state *State, toolNames []string) []Event {
 	if state == nil {
 		return nil
 	}
+	if tail := state.flushNormalizer(); tail != "" {
+		state.pending.WriteString(tail)
+	}
 	events := ProcessChunk(state, "", toolNames)
 	if state.pending.Len() > 0 && state.markdownCodeSpanTicks > 0 {
 		// At end of stream, an unmatched backtick is literal Markdown text.
@@ -108,7 +115,7 @@ func Flush(state *State, toolNames []string) []Event {
 		state.pendingToolCalls = nil
 	}
 	if state.capturing {
-		consumedPrefix, consumedCalls, consumedSuffix, ready := consumeToolCapture(state, toolNames)
+		consumedPrefix, consumedCalls, consumedSuffix, ready := consumeToolCapture(state, toolNames, true)
 		if ready {
 			if consumedPrefix != "" {
 				state.noteText(consumedPrefix)
@@ -124,6 +131,12 @@ func Flush(state *State, toolNames []string) []Event {
 		} else {
 			content := state.capture.String()
 			if content != "" {
+				// A never-completed capture is released as text (repair /
+				// verbatim-output contract), but its DSML tags are still alien
+				// markup that must never reach the client: strip them here so
+				// the flush-time release cannot leak a lone `<｜｜DSML｜｜ calls>`
+				// as a delta the finalize pass can no longer retract.
+				content = toolcall.StripDSMLResidue(content)
 				recovered := toolcall.SanitizeLooseCDATA(content)
 				if recovered != content {
 					if prefix, calls, suffix, recoveredReady := consumeXMLToolCapture(recovered, toolNames); recoveredReady && len(calls) > 0 {
@@ -156,6 +169,9 @@ func Flush(state *State, toolNames []string) []Event {
 	}
 	if state.pending.Len() > 0 {
 		content := state.pending.String()
+		// Held-back partial DSML fragments (a tag whose `>` never arrived) used
+		// to be released verbatim here; strip them with the same final net.
+		content = toolcall.StripDSMLResidue(content)
 		// If pending never resolved into a real tool call, release it as text.
 		state.noteText(content)
 		events = append(events, Event{Content: content})
@@ -197,13 +213,13 @@ func findToolSegmentStart(state *State, s string) int {
 	}
 	offset := 0
 	for {
-		tag, ok := toolcall.FindToolMarkupTagOutsideIgnored(s, offset)
+		start, end, ok := findNextToolInterceptTag(s, offset)
 		if !ok {
 			return -1
 		}
-		start := includeDuplicateLeadingLessThan(s, tag.Start)
+		start = includeDuplicateLeadingLessThan(s, start)
 		if insideCodeFenceWithState(state, s[:start]) {
-			offset = tag.End + 1
+			offset = end + 1
 			continue
 		}
 		markdown := markdownCodeSpanStateAt(state, s[:start])
@@ -211,7 +227,7 @@ func findToolSegmentStart(state *State, s string) int {
 			return start
 		}
 		if markdownCodeSpanCloses(s[start:], markdown.ticks) {
-			offset = tag.End + 1
+			offset = end + 1
 			continue
 		}
 		if markdown.fromPrior {
@@ -219,6 +235,49 @@ func findToolSegmentStart(state *State, s string) int {
 		}
 		return start
 	}
+}
+
+// findNextToolInterceptTag returns the earliest streaming interception entry at
+// or after offset: a recognized EPSE / canonical tool markup tag, or a
+// DSML-prefixed tag. DSML output never parses into a tool call, but its wrapper
+// still has to be captured so the raw alien markup is not leaked piecemeal.
+func findNextToolInterceptTag(s string, offset int) (start, end int, ok bool) {
+	tag, tagOK := toolcall.FindToolMarkupTagOutsideIgnored(s, offset)
+	dsml, dsmlOK := toolcall.FindDSMLTagOutsideIgnored(s, offset)
+	switch {
+	case tagOK && dsmlOK:
+		if tag.Start <= dsml.Start {
+			return tag.Start, tag.End, true
+		}
+		return dsml.Start, dsml.End, true
+	case tagOK:
+		return tag.Start, tag.End, true
+	case dsmlOK:
+		return dsml.Start, dsml.End, true
+	default:
+		return 0, 0, false
+	}
+}
+
+// consumeDSMLHiddenCapture hides a DSML block from visible output:
+// prefix is the text before the first DSML tag; suffix is the text after the
+// matched closing tag. handled=true means a DSML tag was found; hold=true means
+// the outer wrapper has not closed yet and the caller should keep buffering.
+// When final is true an unclosed tail is discarded as well.
+func consumeDSMLHiddenCapture(captured string, final bool) (prefix, suffix string, handled, hold bool) {
+	open, ok := toolcall.FindDSMLTagOutsideIgnored(captured, 0)
+	if !ok {
+		return "", "", false, false
+	}
+	prefix = captured[:open.Start]
+	closeTag, ok := toolcall.FindMatchingDSMLClose(captured, open)
+	if !ok {
+		if final {
+			return prefix, "", true, false
+		}
+		return "", "", true, true
+	}
+	return prefix, captured[closeTag.End+1:], true, false
 }
 
 type markdownCodeSpanScan struct {
@@ -289,7 +348,7 @@ func includeDuplicateLeadingLessThan(s string, idx int) int {
 	return idx
 }
 
-func consumeToolCapture(state *State, toolNames []string) (prefix string, calls []toolcall.ParsedToolCall, suffix string, ready bool) {
+func consumeToolCapture(state *State, toolNames []string, final bool) (prefix string, calls []toolcall.ParsedToolCall, suffix string, ready bool) {
 	captured := state.capture.String()
 	if captured == "" {
 		return "", nil, "", false
@@ -302,6 +361,14 @@ func consumeToolCapture(state *State, toolNames []string) (prefix string, calls 
 	// If XML tags are present but block is incomplete, keep buffering.
 	if hasOpenXMLToolTag(captured) {
 		return "", nil, "", false
+	}
+	// DSML never parses into a tool call: hide it from visible content while
+	// keeping the raw text available for the finalize repair path.
+	if dsmlPrefix, dsmlSuffix, handled, hold := consumeDSMLHiddenCapture(captured, final); handled {
+		if hold {
+			return "", nil, "", false
+		}
+		return dsmlPrefix, nil, dsmlSuffix, true
 	}
 	if shouldKeepBareInvokeCapture(captured) {
 		return "", nil, "", false

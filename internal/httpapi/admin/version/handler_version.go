@@ -2,6 +2,7 @@ package version
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -9,7 +10,7 @@ import (
 	"ds2api/internal/version"
 )
 
-const latestReleaseAPI = "https://api.github.com/repos/CJackHwang/ds2api/releases/latest"
+const latestReleaseAPI = "https://api.github.com/repos/ouqiting/ds2api/releases/latest"
 
 type latestReleasePayload struct {
 	TagName     string `json:"tag_name"`
@@ -43,7 +44,11 @@ func (h *Handler) getVersion(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
-	defer func() { _ = r.Body.Close() }()
+	defer func() {
+		if err := r.Body.Close(); err != nil {
+			slog.Warn("cleanup close failed", "error", err)
+		}
+	}()
 	if r.StatusCode < 200 || r.StatusCode >= 300 {
 		resp["check_error"] = "github api status: " + r.Status
 		writeJSON(w, http.StatusOK, resp)

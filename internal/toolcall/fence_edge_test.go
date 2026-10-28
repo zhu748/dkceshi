@@ -77,7 +77,7 @@ func TestParseToolCalls_IgnoresMarkdownDocumentationExamples(t *testing.T) {
 		"  </invoke>\n" +
 		"</tool_calls>\n" +
 		"```\n\n" +
-		"DSML 风格形如 `<invoke name=\"tool\">...</invoke>`，也可能提到 `<tool_calls>` 包裹。\n"
+		"EPSE 风格形如 `<invoke name=\"tool\">...</invoke>`，也可能提到 `<tool_calls>` 包裹。\n"
 
 	got := ParseToolCallsDetailed(text, []string{"read_file"})
 	if len(got.Calls) != 0 {
@@ -103,5 +103,54 @@ func TestParseToolCalls_PreservesBackticksInsideToolParameters(t *testing.T) {
 	}
 	if got.Calls[0].Input["command"] != "echo `date`" {
 		t.Fatalf("expected command backticks preserved, got %#v", got.Calls[0].Input["command"])
+	}
+}
+
+// Direction 1/2 root-cause regression: a tool call whose parameter body carries
+// an ODD number of markdown fences (a naked ``` that the model forgot to close)
+// must not decapitate the trailing tool close tags. Before the fix
+// stripFencedCodeBlocks treated everything from the last ``` onward as an
+// unclosed fence and dropped the closing </...> tags, which made
+// SawToolCallIntent false and let the bad tool call leak silently.
+func TestStripFencedCodeBlocks_OddFenceKeepsTrailingCloseTags(t *testing.T) {
+	// Note: the fenced content lives inside a raw parameter body (not CDATA);
+	// the last fence line is unbalanced on purpose.
+	text := "<|EPSE|tool_calls><|EPSE|invoke name=\"Write\"><|EPSE|parameter name=\"content\">\n" +
+		"\x60\x60\x60python\nprint('hi')\n" + // opened, never closed -> odd fence
+		"</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>"
+	got := stripFencedCodeBlocks(text)
+	if !strings.Contains(got, "</|EPSE|tool_calls>") {
+		t.Fatalf("odd fence must not drop trailing tool close tags, got %q", got)
+	}
+}
+
+// Direction 1: intent detection must survive an odd-fence tool call whose local
+// name is wrong (unparseable). The trailing EPSE close shell has to be visible
+// for DetectToolCallIntent to fire.
+func TestDetectToolCallIntent_OddFenceUnparseableStillDetected(t *testing.T) {
+	text := "<|EPSE|call name=\"Write\"><|EPSE|parameter name=\"content\">\n" +
+		"\x60\x60\x60python\nprint('hi')\n" +
+		"</|EPSE|parameter></|EPSE|call>"
+	if !DetectToolCallIntent(text) {
+		t.Fatalf("expected intent detection to survive odd markdown fence in parameter body")
+	}
+}
+
+// Direction 1 (end-to-end): the full parse pipeline must flag SawToolCallIntent
+// for an unparseable tool call whose body contains an odd fence, so the fallback
+// repair layer is reached instead of silently leaking the text.
+func TestParseToolCallsDetailed_OddFenceUnparseableKeepsIntent(t *testing.T) {
+	text := "<|EPSE|call name=\"Write\"><|EPSE|parameter name=\"content\">\n" +
+		"\x60\x60\x60python\nprint('hi')\n" +
+		"</|EPSE|parameter></|EPSE|call>"
+	res := ParseToolCallsDetailed(text, []string{"Write"})
+	if len(res.Calls) != 0 {
+		t.Fatalf("expected 0 parsed calls for bad local name, got %#v", res.Calls)
+	}
+	if !res.SawToolCallIntent {
+		t.Fatalf("expected SawToolCallIntent=true despite odd fence in parameter body")
+	}
+	if res.ResidualIntentText == "" {
+		t.Fatalf("expected residual intent text to be populated for the repair layer")
 	}
 }

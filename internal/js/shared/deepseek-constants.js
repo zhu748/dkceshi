@@ -6,7 +6,7 @@ const path = require('path');
 const DEFAULT_CLIENT = Object.freeze({
   name: 'DeepSeek',
   platform: 'android',
-  androidApiLevel: '35',
+  androidApiLevel: '36',
   locale: 'zh_CN',
 });
 
@@ -15,6 +15,7 @@ const DEFAULT_BASE_HEADERS = Object.freeze({
   Accept: 'application/json',
   'Content-Type': 'application/json',
   'accept-charset': 'UTF-8',
+  'Accept-Encoding': 'gzip',
 });
 
 const DEFAULT_SKIP_PATTERNS = Object.freeze([
@@ -44,6 +45,9 @@ function normalizeClient(raw) {
     version: asNonEmptyString(client.version),
     androidApiLevel: asNonEmptyString(client.android_api_level) || DEFAULT_CLIENT.androidApiLevel,
     locale: asNonEmptyString(client.locale) || DEFAULT_CLIENT.locale,
+    deviceModel: asNonEmptyString(client.device_model) || 'V2507A',
+    deviceID: asNonEmptyString(client.device_id),
+    timezoneOffset: asNonEmptyString(client.timezone_offset) || '28800',
   };
 }
 
@@ -67,6 +71,9 @@ function buildBaseHeaders(parsed, client) {
   if (client.locale) {
     baseHeaders['x-client-locale'] = client.locale;
   }
+  baseHeaders['x-device-model'] = client.deviceModel;
+  baseHeaders['x-client-timezone-offset'] = client.timezoneOffset;
+  if (client.deviceID) baseHeaders['x-device-id'] = client.deviceID;
   return baseHeaders;
 }
 

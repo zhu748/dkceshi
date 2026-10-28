@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"ds2api/internal/config"
+	dsprotocol "ds2api/internal/deepseek/protocol"
 	trans "ds2api/internal/deepseek/transport"
 )
 
@@ -27,33 +29,12 @@ func (c *Client) postJSONWithStatus(ctx context.Context, doer trans.Doer, fallba
 	var body []byte
 	if payload != nil {
 		var err error
-		body, err = json.Marshal(payload)
+		body, err = dsprotocol.MarshalAppJSON(url, payload)
 		if err != nil {
 			return nil, 0, err
 		}
 	}
 	headers = c.jsonHeaders(headers)
-
-	// 若启用自定义 H2 Framed 客户端（DS2API_DEEPSEEK_USE_FRAMED_H2=1），
-	// 走 framed path 以控制 header 顺序与 HPACK never-indexed 行为
-	if trans.UseFramedH2() {
-		resp, err := trans.FramedPostJSON(ctx, 60*1000*1000*1000 /* 60s */, url, headers, body)
-		if err != nil {
-			return nil, 0, err
-		}
-		defer func() { _ = resp.Body.Close() }()
-		payloadBytes, err := readResponseBody(resp)
-		if err != nil {
-			return nil, resp.StatusCode, err
-		}
-		out := map[string]any{}
-		if len(payloadBytes) > 0 {
-			if err := json.Unmarshal(payloadBytes, &out); err != nil {
-				config.Logger.Warn("[deepseek] json parse failed", "url", url, "status", resp.StatusCode, "content_encoding", resp.Header.Get("Content-Encoding"), "preview", preview(payloadBytes))
-			}
-		}
-		return out, resp.StatusCode, nil
-	}
 
 	// 原有 utls + net/http2 路径
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -93,6 +74,12 @@ func (c *Client) postJSONWithStatus(ctx context.Context, doer trans.Doer, fallba
 }
 
 func (c *Client) getJSONWithStatus(ctx context.Context, doer trans.Doer, url string, headers map[string]string) (map[string]any, int, error) {
+	headers = cloneStringMap(headers)
+	for key := range headers {
+		if strings.EqualFold(key, "Content-Type") || strings.EqualFold(key, "Content-Length") {
+			delete(headers, key)
+		}
+	}
 	clients := c.requestClientsFromContext(ctx)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

@@ -17,14 +17,21 @@ import (
 var intFrom = util.IntFrom
 
 type Client struct {
-	Store      *config.Store
-	Auth       *auth.Resolver
-	capture    *devcapture.Store
-	regular    trans.Doer
-	stream     trans.Doer
-	fallback   *http.Client
-	fallbackS  *http.Client
-	maxRetries int
+	ttsVoiceLocksMu sync.Mutex
+	ttsVoiceLocks   map[string]*sync.Mutex
+	ttsVoiceKnown   map[string]string
+	poolChangedMu   sync.RWMutex
+	poolChanged     func()
+	nodeReporterMu  sync.RWMutex
+	nodeReporter    func(string, bool)
+	Store           *config.Store
+	Auth            *auth.Resolver
+	capture         *devcapture.Store
+	regular         trans.Doer
+	stream          trans.Doer
+	fallback        *http.Client
+	fallbackS       *http.Client
+	maxRetries      int
 
 	proxyClientsMu sync.RWMutex
 	proxyClients   map[string]requestClients

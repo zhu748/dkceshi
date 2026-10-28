@@ -61,3 +61,5 @@ Recommended reading order:
 - `API*.md`: integration-oriented behavior/contracts.
 - `docs/prompt-compatibility.md`: maintainer-oriented source of truth for the “API -> pure-text web-chat context” compatibility flow; update it whenever related behavior changes.
 - Other `docs/*.md`: focused topics, avoid copy-pasting the same section into multiple files.
+
+- [与参考项目的功能对齐及验证边界](function-alignment.md)

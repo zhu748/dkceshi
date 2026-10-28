@@ -9,8 +9,16 @@ import (
 
 const assistantReasoningLabel = "reasoning_content"
 
-func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string) []map[string]any {
+// NormalizeOpenAIMessagesForPrompt renders the request messages into the
+// prompt-visible message list. The optional toolMarker is the caller-specific
+// tool-call marker: history that carries the marker form (for example a
+// pass-through client echoing raw model output) is normalized back to EPSE
+// before the assistant tool-markup probe parses it, so the block is recognized
+// whichever form the history happens to carry. Rendering stays in EPSE form;
+// the prompt boundary converts it to the marker afterwards.
+func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...string) []map[string]any {
 	_ = traceID
+	marker := firstToolMarker(toolMarker)
 	out := make([]map[string]any, 0, len(raw))
 	for _, item := range raw {
 		msg, ok := item.(map[string]any)
@@ -20,7 +28,7 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string) []map[string]an
 		role := strings.ToLower(strings.TrimSpace(asString(msg["role"])))
 		switch role {
 		case "assistant":
-			content := buildAssistantContentForPrompt(msg)
+			content := buildAssistantContentForPrompt(msg, marker)
 			if content == "" {
 				continue
 			}
@@ -56,7 +64,7 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string) []map[string]an
 	return out
 }
 
-func buildAssistantContentForPrompt(msg map[string]any) string {
+func buildAssistantContentForPrompt(msg map[string]any, marker string) string {
 	content := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
 	reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
 	if reasoning == "" {
@@ -64,7 +72,7 @@ func buildAssistantContentForPrompt(msg map[string]any) string {
 	}
 	toolHistory := prompt.FormatToolCallsForPrompt(msg["tool_calls"])
 	if toolHistory == "" {
-		content = normalizeAssistantToolMarkupContentForPrompt(content)
+		content = normalizeAssistantToolMarkupContentForPrompt(content, marker)
 	}
 	parts := make([]string, 0, 3)
 	if reasoning != "" {
@@ -86,9 +94,23 @@ func buildAssistantContentForPrompt(msg map[string]any) string {
 	}
 }
 
-func normalizeAssistantToolMarkupContentForPrompt(content string) string {
+// normalizeAssistantToolMarkupContentForPrompt re-renders an assistant message
+// whose plain content carries a standalone tool-call block into the canonical
+// EPSE history shell, so a malformed-but-parseable block does not keep
+// polluting later turns as ad-hoc assistant prose.
+//
+// The history may carry either the canonical EPSE form or the caller-specific
+// marker form; the marker is normalized back to EPSE before the block probe and
+// parse so both forms are recognized. Non-tool content is returned unchanged
+// (including marker-form text that does not parse, which already is the form the
+// prompt boundary wants).
+func normalizeAssistantToolMarkupContentForPrompt(content, marker string) string {
 	trimmed := strings.TrimSpace(content)
-	if trimmed == "" || !isStandaloneAssistantToolMarkupBlock(trimmed) {
+	if trimmed == "" {
+		return content
+	}
+	trimmed = toolcall.NormalizeMarkerText(trimmed, marker)
+	if !isStandaloneAssistantToolMarkupBlock(trimmed) {
 		return content
 	}
 	parsed := toolcall.ParseStandaloneToolCallsDetailed(trimmed, nil)

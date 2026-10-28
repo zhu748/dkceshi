@@ -3,27 +3,26 @@ export const DISABLED_LIMIT = 0
 export const MESSAGE_COLLAPSE_AT = 700
 export const VIEW_MODE_KEY = 'ds2api_chat_history_view_mode'
 
-const BEGIN_SENTENCE_MARKER = '<|begin▁of▁sentence|>'
-const SYSTEM_MARKER = '<|System|>'
-const USER_MARKER = '<|User|>'
-const ASSISTANT_MARKER = '<|Assistant|>'
-const TOOL_MARKER = '<|Tool|>'
-const END_INSTRUCTIONS_MARKER = '<|end▁of▁instructions|>'
-const END_SENTENCE_MARKER = '<|end▁of▁sentence|>'
-const END_TOOL_RESULTS_MARKER = '<|end▁of▁toolresults|>'
-const CURRENT_INPUT_FILE_PROMPT = 'The attached file holds the earlier conversation. Read it and respond to the most recent user request directly.'
+const SYSTEM_MARKER = 'System'
+const USER_MARKER = 'User'
+const ASSISTANT_MARKER = 'Assistant'
+const TOOL_MARKER = 'Tool'
+const CURRENT_INPUT_FILE_PROMPT = '继续会话'
+// The tools variant appends a fixed suffix; both shapes are matched exactly so a
+// real user message that merely starts with 继续会话 is never mistaken for it.
+const CURRENT_INPUT_FILE_PROMPT_WITH_TOOLS = `${CURRENT_INPUT_FILE_PROMPT} 使用工具时请参照说明与格式要求，仅使用所列出的工具`
 const LEGACY_CURRENT_INPUT_FILE_PROMPTS = new Set([
-    'Pick up from the most recent state inside chat_context.txt. Treat that file as the authoritative working state and reply to the latest user request directly.',
     'The current request and prior conversation context have already been provided. Answer the latest user request directly.',
-    'Continue from the latest state in the attached chat_context.txt context. Treat it as the current working state and answer the latest user request directly.',
-    'The attached file contains the prior conversation. Read it and answer the most recent user request directly.',
+    'Continue from the latest state in the attached HISTORY.txt context. Treat it as the current working state and answer the latest user request directly.Do not mention HISTORY.txt in the main text.',
 ])
-const HISTORY_TRANSCRIPT_TITLE = '# Session Snapshot'
+const HISTORY_TRANSCRIPT_TITLE = '# HISTORY.txt'
 const HISTORY_TRANSCRIPT_ENTRY_RE = /^===\s+\d+\.\s+([A-Z][A-Z_ -]*)\s+===\s*$/gm
 
 function isCurrentInputFilePrompt(value) {
     const text = String(value || '').trim()
-    return text === CURRENT_INPUT_FILE_PROMPT || LEGACY_CURRENT_INPUT_FILE_PROMPTS.has(text)
+    return text === CURRENT_INPUT_FILE_PROMPT
+        || text === CURRENT_INPUT_FILE_PROMPT_WITH_TOOLS
+        || LEGACY_CURRENT_INPUT_FILE_PROMPTS.has(text)
 }
 
 function normalizeHistoryRole(role) {
@@ -123,112 +122,80 @@ export async function copyTextWithFallback(text) {
     fallbackCopyText(text)
 }
 
-function skipWhitespace(text, start) {
-    let cursor = start
-    while (cursor < text.length && /\s/.test(text[cursor])) {
-        cursor += 1
+const ROLE_MARKERS = [SYSTEM_MARKER, USER_MARKER, ASSISTANT_MARKER, TOOL_MARKER]
+
+function findNextMarker(text, start) {
+    let earliest = -1
+    let markerLen = 0
+    for (const marker of ROLE_MARKERS) {
+        const idx = text.indexOf(marker, start)
+        if (idx >= 0 && (earliest < 0 || idx < earliest)) {
+            earliest = idx
+            markerLen = marker.length
+        }
     }
-    return cursor
+    return earliest >= 0 ? { index: earliest, length: markerLen } : null
 }
 
 export function parseStrictHistoryMessages(historyText) {
     const rawText = String(historyText || '')
-    const beginIndex = rawText.indexOf(BEGIN_SENTENCE_MARKER)
-    if (beginIndex < 0) return null
+    if (!rawText) return null
 
-    const transcript = rawText.slice(beginIndex)
-    let cursor = BEGIN_SENTENCE_MARKER.length
     const parsed = []
-    let expectedRole = null
+    let cursor = 0
     let trailingAssistantPromptOnly = false
 
-    while (cursor < transcript.length) {
-        if (expectedRole === null) {
-            if (transcript.startsWith(SYSTEM_MARKER, cursor)) {
-                expectedRole = 'system'
-            } else if (transcript.startsWith(USER_MARKER, cursor)) {
-                expectedRole = 'user'
-            } else if (transcript.startsWith(ASSISTANT_MARKER, cursor)) {
-                expectedRole = 'assistant'
-            } else if (transcript.slice(cursor).trim() === '') {
-                break
-            } else {
-                return null
-            }
-        }
+    while (cursor < rawText.length) {
+        const next = findNextMarker(rawText, cursor)
+        if (!next) break
 
-        if (transcript.startsWith(SYSTEM_MARKER, cursor)) {
-            if (expectedRole !== 'system') return null
-            cursor += SYSTEM_MARKER.length
-            const nextInstructionsEnd = transcript.indexOf(END_INSTRUCTIONS_MARKER, cursor)
-            if (nextInstructionsEnd < 0) return null
-            parsed.push({ role: 'system', content: transcript.slice(cursor, nextInstructionsEnd) })
-            cursor = nextInstructionsEnd + END_INSTRUCTIONS_MARKER.length
-            expectedRole = 'user'
+        const marker = rawText.slice(next.index, next.index + next.length)
+        const contentStart = next.index + next.length
+
+        if (marker === SYSTEM_MARKER) {
+            const after = findNextMarker(rawText, contentStart)
+            const end = after ? after.index : rawText.length
+            const content = rawText.slice(contentStart, end)
+            if (!content.trim()) return null
+            parsed.push({ role: 'system', content })
+            cursor = end
             continue
         }
 
-        if (transcript.startsWith(USER_MARKER, cursor)) {
-            if (expectedRole !== 'user' && expectedRole !== 'user_or_tool' && expectedRole !== 'assistant_or_user') return null
-            cursor += USER_MARKER.length
-            const nextAssistant = transcript.indexOf(ASSISTANT_MARKER, cursor)
-            const nextTool = transcript.indexOf(TOOL_MARKER, cursor)
-            const nextSentenceEnd = transcript.indexOf(END_SENTENCE_MARKER, cursor)
-            let nextRoleIndex = nextAssistant
-            if (nextRoleIndex < 0 || (nextTool >= 0 && nextTool < nextRoleIndex)) {
-                nextRoleIndex = nextTool
-            }
-            if (nextRoleIndex < 0) return null
-            if (nextSentenceEnd >= 0 && nextSentenceEnd < nextRoleIndex) {
-                const assistantStart = skipWhitespace(transcript, nextSentenceEnd + END_SENTENCE_MARKER.length)
-                if (!transcript.startsWith(ASSISTANT_MARKER, assistantStart)) return null
-                parsed.push({ role: 'user', content: transcript.slice(cursor, nextSentenceEnd) })
-                cursor = assistantStart
-                expectedRole = 'assistant'
-                continue
-            }
-            parsed.push({ role: 'user', content: transcript.slice(cursor, nextRoleIndex) })
-            if (transcript.startsWith(TOOL_MARKER, nextRoleIndex)) {
-                cursor = nextRoleIndex
-                expectedRole = 'tool'
-                continue
-            }
-            const assistantStart = nextRoleIndex + ASSISTANT_MARKER.length
-            if (transcript.indexOf(END_SENTENCE_MARKER, assistantStart) < 0) {
+        if (marker === USER_MARKER) {
+            const after = findNextMarker(rawText, contentStart)
+            const end = after ? after.index : rawText.length
+            const content = rawText.slice(contentStart, end)
+            if (!content.trim()) return null
+            parsed.push({ role: 'user', content })
+            cursor = end
+            continue
+        }
+
+        if (marker === ASSISTANT_MARKER) {
+            const after = findNextMarker(rawText, contentStart)
+            const end = after ? after.index : rawText.length
+            const content = rawText.slice(contentStart, end)
+            if (!content.trim()) {
                 trailingAssistantPromptOnly = true
-                cursor = assistantStart
                 break
             }
-            cursor = nextRoleIndex
-            expectedRole = 'assistant'
+            parsed.push({ role: 'assistant', content })
+            cursor = end
             continue
         }
 
-        if (transcript.startsWith(ASSISTANT_MARKER, cursor)) {
-            if (expectedRole !== 'assistant' && expectedRole !== 'assistant_or_user') return null
-            cursor += ASSISTANT_MARKER.length
-            const nextSentenceEnd = transcript.indexOf(END_SENTENCE_MARKER, cursor)
-            if (nextSentenceEnd < 0) return null
-            parsed.push({ role: 'assistant', content: transcript.slice(cursor, nextSentenceEnd) })
-            cursor = nextSentenceEnd + END_SENTENCE_MARKER.length
-            expectedRole = 'user_or_tool'
+        if (marker === TOOL_MARKER) {
+            const after = findNextMarker(rawText, contentStart)
+            const end = after ? after.index : rawText.length
+            const content = rawText.slice(contentStart, end)
+            if (!content.trim()) return null
+            parsed.push({ role: 'tool', content })
+            cursor = end
             continue
         }
 
-        if (transcript.startsWith(TOOL_MARKER, cursor)) {
-            if (expectedRole !== 'tool' && expectedRole !== 'user' && expectedRole !== 'user_or_tool') return null
-            cursor += TOOL_MARKER.length
-            const nextToolResultsEnd = transcript.indexOf(END_TOOL_RESULTS_MARKER, cursor)
-            if (nextToolResultsEnd < 0) return null
-            parsed.push({ role: 'tool', content: transcript.slice(cursor, nextToolResultsEnd) })
-            cursor = nextToolResultsEnd + END_TOOL_RESULTS_MARKER.length
-            expectedRole = 'assistant_or_user'
-            continue
-        }
-
-        if (parsed.length && (expectedRole === 'user' || expectedRole === 'user_or_tool' || expectedRole === 'assistant_or_user')) break
-        if (transcript.slice(cursor).trim() === '') break
-        return null
+        break
     }
 
     if (!parsed.length) return null
@@ -272,19 +239,25 @@ export function buildListModeMessages(item, t) {
         return { messages: liveMessages, historyMerged: false }
     }
 
-    const placeholderOnly = liveMessages.length === 1
-        && String(liveMessages[0]?.role || '').trim().toLowerCase() === 'user'
-        && isCurrentInputFilePrompt(liveMessages[0]?.content)
+    // The continuation placeholder carries no user-visible content, so it is
+    // dropped once the uploaded history is merged back in. It is injected as a
+    // system turn; older archives recorded it as a user turn, so both roles are
+    // accepted here. When the newest user turn stayed inline in the live prompt,
+    // it follows the placeholder and must be kept after the merged history.
+    const withoutPlaceholder = liveMessages.filter(message => !(
+        ['system', 'developer', 'user'].includes(String(message?.role || '').trim().toLowerCase())
+        && isCurrentInputFilePrompt(message?.content)
+    ))
 
-    if (placeholderOnly) {
+    if (!withoutPlaceholder.length) {
         return { messages: historyMessages, historyMerged: true }
     }
 
-    const insertAt = liveMessages.findIndex(message => {
+    const insertAt = withoutPlaceholder.findIndex(message => {
         const role = String(message?.role || '').trim().toLowerCase()
         return role !== 'system' && role !== 'developer'
     })
-    const mergedMessages = [...liveMessages]
+    const mergedMessages = [...withoutPlaceholder]
     mergedMessages.splice(insertAt < 0 ? mergedMessages.length : insertAt, 0, ...historyMessages)
 
     return { messages: mergedMessages, historyMerged: true }

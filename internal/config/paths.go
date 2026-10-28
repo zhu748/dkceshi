@@ -66,6 +66,70 @@ func ChatHistoryPath() string {
 	return ResolvePath("DS2API_CHAT_HISTORY_PATH", "data/chat_history.json")
 }
 
+// UsageStatsPath 返回 Token 用量账本路径。账本与聊天历史刻意分离，避免历史
+// 保留上限影响用量核算。Vercel 上 /var/task 运行时只读，因此与聊天历史一致
+// 回退到 /tmp。
+func UsageStatsPath() string {
+	if IsVercel() && strings.TrimSpace(os.Getenv("DS2API_USAGE_PATH")) == "" {
+		return "/tmp/usage.json"
+	}
+	return ResolvePath("DS2API_USAGE_PATH", "data/usage.json")
+}
+
+// DevidDir 返回数美 device_id 扩展包目录：SDK、浏览器环境模拟、画像目录、
+// SDK 补丁与解密校验配方都放在这里，仓库只保留加载代码（见 internal/devid/assets.go）。
+func DevidDir() string {
+	return ResolvePath("DS2API_DEVID_DIR", "data/devid")
+}
+
+// DevidPublicKeyPath 返回数美公钥文件路径（data/devid/public_key，纯文本）。
+func DevidPublicKeyPath() string {
+	return DevidDir() + string(os.PathSeparator) + "public_key"
+}
+
+// DevidLegacyConfigPath 返回旧版 JSON 公钥文件路径（data/devid/config.json），
+// 用于兼容早期版本部署的用户。
+func DevidLegacyConfigPath() string {
+	return DevidDir() + string(os.PathSeparator) + "config.json"
+}
+
+// DeviceProfileDir 返回按账号持久化设备档案的目录。
+func DeviceProfileDir() string {
+	return ResolvePath("DS2API_DEVICE_PROFILE_DIR", "data/device_profiles")
+}
+
+// AccountDailyLimitPath 返回 24h 速率限制计数文件的路径。计数按 GMT+8 自然日分桶
+// 并落盘，使重启既不清零当天已用次数，也不把过期的计数带进新的一天。
+// Vercel 上 /var/task 运行时只读，与用量账本一致回退到 /tmp（各实例各自计数）。
+func AccountDailyLimitPath() string {
+	if IsVercel() && strings.TrimSpace(os.Getenv("DS2API_ACCOUNT_DAILY_LIMIT_PATH")) == "" {
+		return "/tmp/account_daily_limit.json"
+	}
+	return ResolvePath("DS2API_ACCOUNT_DAILY_LIMIT_PATH", "data/account_daily_limit.json")
+}
+
+// DeviceProfilePath 返回账号设备档案的完整路径。
+func DeviceProfilePath(identifier string) string {
+	return DeviceProfileDir() + string(os.PathSeparator) + SanitizeFilename(identifier) + ".json"
+}
+
+// SanitizeFilename 把账号标识转成安全的文件名片段。
+func SanitizeFilename(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "account"
+	}
+	return b.String()
+}
+
 func StaticAdminDir() string {
 	return ResolvePath("DS2API_STATIC_ADMIN_DIR", "static/admin")
 }

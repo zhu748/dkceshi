@@ -13,11 +13,36 @@ import (
 func (h *Handler) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := authn.VerifyAdminRequestWithStore(r, h.Store); err != nil {
+			if h.WebUIFallback != nil && shouldServeSPAForBrowserNavigation(r) {
+				if h.WebUIFallback(w, r) {
+					return
+				}
+			}
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"detail": err.Error()})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// shouldServeSPAForBrowserNavigation reports whether the request looks like a
+// browser navigation (full page load) rather than an XHR/fetch API call.
+// Browser navigation requests carry Accept: text/html; fetch() defaults to
+// Accept: */*. This lets us serve index.html when a user hard-refreshes a SPA
+// route that collides with a protected admin GET endpoint (e.g. /admin/settings),
+// while still returning 401 JSON for unauthenticated API calls.
+func shouldServeSPAForBrowserNavigation(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.Method != http.MethodGet {
+		return false
+	}
+	if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+		return false
+	}
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	return strings.Contains(accept, "text/html")
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {

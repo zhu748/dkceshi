@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"errors"
 	"context"
 	"net/http"
 	"testing"
@@ -60,7 +59,7 @@ func (m *testingDSMock) GetPow(_ context.Context, _ *auth.RequestAuth, _ int) (s
 	return "pow", nil
 }
 
-func (m *testingDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+func (m *testingDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
 	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 }
 
@@ -75,10 +74,6 @@ func (m *testingDSMock) DeleteAllSessionsForToken(_ context.Context, _ string) e
 	}
 	return nil
 }
-func (m *testingDSMock) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
-	return nil, errors.New("CallEditMessage not implemented in stub")
-}
-
 
 func (m *testingDSMock) GetSessionCountForToken(_ context.Context, _ string) (*dsclient.SessionStats, error) {
 	if m.sessionCount != nil {

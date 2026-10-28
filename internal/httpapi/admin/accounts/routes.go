@@ -12,8 +12,19 @@ import (
 func RegisterRoutes(r chi.Router, h *Handler) {
 	r.Get("/accounts", h.listAccounts)
 	r.Post("/accounts", h.addAccount)
+	r.Get("/accounts/{identifier}/credential", h.getAccountCredential)
 	r.Put("/accounts/{identifier}", h.updateAccount)
 	r.Delete("/accounts/{identifier}", h.deleteAccount)
+	r.Put("/accounts/{identifier}/enabled", h.toggleAccountEnabled)
+	r.Post("/accounts/enabled/batch", h.batchToggleAccountEnabled)
+	r.Post("/accounts/banned/delete", h.batchDeleteBannedAccounts)
+	r.Put("/accounts/elastic-pool", h.updateElasticPool)
+	r.Get("/device-ids", h.listDeviceIDs)
+	r.Post("/device-ids", h.addDeviceID)
+	r.Post("/device-ids/delete", h.deleteDeviceID)
+	r.Get("/device-ids/real", h.listRealDeviceIDs)
+	r.Post("/device-ids/real/refresh", h.refreshRealDeviceID)
+	r.Post("/device-ids/real/refresh-all", h.refreshAllRealDeviceIDs)
 	r.Get("/queue/status", h.queueStatus)
 	r.Post("/accounts/test", h.testSingleAccount)
 	r.Post("/accounts/test-all", h.testAllAccounts)
@@ -33,6 +44,12 @@ func (h *Handler) ListAccounts(w http.ResponseWriter, r *http.Request)  { h.list
 func (h *Handler) AddAccount(w http.ResponseWriter, r *http.Request)    { h.addAccount(w, r) }
 func (h *Handler) UpdateAccount(w http.ResponseWriter, r *http.Request) { h.updateAccount(w, r) }
 func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) { h.deleteAccount(w, r) }
+func (h *Handler) ToggleAccountEnabled(w http.ResponseWriter, r *http.Request) {
+	h.toggleAccountEnabled(w, r)
+}
+func (h *Handler) BatchToggleAccountEnabled(w http.ResponseWriter, r *http.Request) {
+	h.batchToggleAccountEnabled(w, r)
+}
 func (h *Handler) DeleteAllSessions(w http.ResponseWriter, r *http.Request) {
 	h.deleteAllSessions(w, r)
 }

@@ -5,12 +5,58 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"ds2api/internal/account"
 	"ds2api/internal/config"
+	adminshared "ds2api/internal/httpapi/admin/shared"
+	"os"
 )
+
+func accountStatusCounts(accounts []config.Account) map[string]int {
+	enabled := 0
+	disabled := 0
+	muted := 0
+	banned := 0
+	for _, acc := range accounts {
+		if acc.IsEnabled() {
+			enabled++
+		} else {
+			disabled++
+		}
+		if acc.IsMuted() {
+			muted++
+		}
+		if acc.IsBanned() {
+			banned++
+		}
+	}
+	return map[string]int{
+		"total":    len(accounts),
+		"enabled":  enabled,
+		"disabled": disabled,
+		"muted":    muted,
+		"banned":   banned,
+	}
+}
+
+func matchesAccountStatusFilter(acc config.Account, status string) bool {
+	switch status {
+	case "enabled":
+		return acc.IsEnabled()
+	case "disabled":
+		return !acc.IsEnabled()
+	case "muted":
+		return acc.IsMuted()
+	case "banned":
+		return acc.IsBanned()
+	default:
+		return true
+	}
+}
 
 func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 	page := intFromQuery(r, "page", 1)
@@ -25,7 +71,25 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 		pageSize = 5000
 	}
 	accounts := h.Store.Snapshot().Accounts
+	counts := accountStatusCounts(accounts)
 	reverseAccounts(accounts)
+	// 将已启用且未禁言的账号排在前面，方便管理后台优先看到可用账号。
+	sort.SliceStable(accounts, func(i, j int) bool {
+		ai, aj := accounts[i], accounts[j]
+		activeI := ai.IsEnabled() && !ai.IsMuted()
+		activeJ := aj.IsEnabled() && !aj.IsMuted()
+		return activeI && !activeJ
+	})
+	statusFilter := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("status")))
+	if statusFilter != "" && statusFilter != "all" {
+		filtered := make([]config.Account, 0, len(accounts))
+		for _, acc := range accounts {
+			if matchesAccountStatusFilter(acc, statusFilter) {
+				filtered = append(filtered, acc)
+			}
+		}
+		accounts = filtered
+	}
 	q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
 	if q != "" {
 		filtered := make([]config.Account, 0, len(accounts))
@@ -59,19 +123,40 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 		testStatus, _ := h.Store.AccountTestStatus(acc.Identifier())
 		token := strings.TrimSpace(acc.Token)
 		items = append(items, map[string]any{
-			"identifier":    acc.Identifier(),
-			"name":          acc.Name,
-			"remark":        acc.Remark,
-			"email":         acc.Email,
-			"mobile":        acc.Mobile,
-			"proxy_id":      acc.ProxyID,
-			"has_password":  acc.Password != "",
-			"has_token":     token != "",
-			"token_preview": maskSecretPreview(token),
-			"test_status":   testStatus,
+			"identifier":     acc.Identifier(),
+			"name":           acc.Name,
+			"remark":         acc.Remark,
+			"email":          acc.Email,
+			"mobile":         acc.Mobile,
+			"proxy_id":       acc.ProxyID,
+			"manual_binding": acc.ManualBinding,
+			"no_proxy":       acc.NoProxy,
+			"pool_type":      config.NormalizePoolType(acc.PoolType),
+			"priority":       acc.Priority,
+			"has_password":   acc.Password != "",
+			"has_token":      token != "",
+			"token_preview":  maskSecretPreview(token),
+			"test_status":    testStatus,
+			"device_id_type": config.NormalizeDeviceIDType(acc.DeviceIDType),
+			"device_model":   acc.DeviceModel, "android_api_level": acc.AndroidAPILevel,
+			"rangers_id": acc.RangersID, "device_id": acc.DeviceID,
+			"cooldown_until": acc.CooldownUntil, "manual_disabled": acc.ManualDisabled,
+			"enabled":         acc.IsEnabled(),
+			"disabled_reason": acc.DisabledReason,
+			"banned":          acc.IsBanned(),
+			"auth_failed":     acc.IsAuthFailed(),
+			"muted":           acc.IsMuted(),
+			"muted_until":     acc.MutedUntil,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": page, "page_size": pageSize, "total_pages": totalPages})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":       items,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"total_pages": totalPages,
+		"counts":      counts,
+	})
 }
 
 func (h *Handler) addAccount(w http.ResponseWriter, r *http.Request) {
@@ -82,11 +167,14 @@ func (h *Handler) addAccount(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "需要 email 或 mobile"})
 		return
 	}
+	busy := h.inflightAccounts()
 	err := h.Store.Update(func(c *config.Config) error {
 		if acc.ProxyID != "" {
 			if _, ok := findProxyByID(*c, acc.ProxyID); !ok {
 				return fmt.Errorf("代理不存在")
 			}
+			// 新建时即指定代理由用户显式选择：退出自动调度（与编辑代理时一致）。
+			acc.ManualBinding = true
 		}
 		mobileKey := config.CanonicalMobileKey(acc.Mobile)
 		for _, a := range c.Accounts {
@@ -98,6 +186,9 @@ func (h *Handler) addAccount(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		c.Accounts = append(c.Accounts, acc)
+		if c.ElasticPool.Enabled {
+			account.ReconcileElasticPoolWithBusy(c, busy)
+		}
 		return nil
 	})
 	if err != nil {
@@ -105,7 +196,32 @@ func (h *Handler) addAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.Pool.Reset()
+	h.notifyAccountsChanged()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_accounts": len(h.Store.Snapshot().Accounts)})
+}
+
+func (h *Handler) getAccountCredential(w http.ResponseWriter, r *http.Request) {
+	identifier := chi.URLParam(r, "identifier")
+	if decoded, err := url.PathUnescape(identifier); err == nil {
+		identifier = decoded
+	}
+	acc, ok := findAccountByIdentifier(h.Store, identifier)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"detail": "账号不存在"})
+		return
+	}
+	accUsername := acc.Email
+	if accUsername == "" {
+		accUsername = acc.Mobile
+	}
+	if accUsername == "" {
+		accUsername = acc.Identifier()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"account":          acc.Identifier(),
+		"account_username": accUsername,
+		"account_password": acc.Password,
+	})
 }
 
 func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +237,12 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	name, nameOK := fieldStringOptional(req, "name")
 	remark, remarkOK := fieldStringOptional(req, "remark")
+	poolType, poolTypeOK := fieldStringOptional(req, "pool_type")
+	priority, priorityOK := fieldIntOptionalOK(req, "priority")
+	token, tokenOK := fieldStringOptional(req, "token")
 
+	var elasticReconciled bool
+	busy := h.inflightAccounts()
 	err := h.Store.Update(func(c *config.Config) error {
 		for i, acc := range c.Accounts {
 			if !accountMatchesIdentifier(acc, identifier) {
@@ -132,6 +253,39 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 			}
 			if remarkOK {
 				c.Accounts[i].Remark = remark
+			}
+			if poolTypeOK {
+				c.Accounts[i].PoolType = config.NormalizePoolType(poolType)
+			}
+			for key, dest := range map[string]*string{
+				"device_id":         &c.Accounts[i].DeviceID,
+				"device_model":      &c.Accounts[i].DeviceModel,
+				"android_api_level": &c.Accounts[i].AndroidAPILevel,
+				"rangers_id":        &c.Accounts[i].RangersID,
+				"locale":            &c.Accounts[i].Locale,
+			} {
+				if v, ok := fieldStringOptional(req, key); ok {
+					*dest = strings.TrimSpace(v)
+				}
+			}
+			if err := config.ValidateAccountDeviceProfile(c.Accounts[i]); err != nil {
+				return err
+			}
+			if priorityOK {
+				c.Accounts[i].Priority = priority
+			}
+			if tokenOK {
+				c.Accounts[i].Token = strings.TrimSpace(token)
+				if c.Accounts[i].Token != "" {
+					c.Accounts[i].AuthFailed = false
+					c.Accounts[i].DisabledReason = ""
+				}
+			}
+			if c.ElasticPool.Enabled {
+				// 优先级/号池变化会改变弹性号池的启用集合，需重算并让号池与
+				// 代理桥按新集合刷新（新启用的账号要及时补上节点）。
+				account.ReconcileElasticPoolWithBusy(c, busy)
+				elasticReconciled = true
 			}
 			return nil
 		}
@@ -145,6 +299,14 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
 		return
 	}
+	if tokenOK && strings.TrimSpace(token) != "" {
+		_ = h.Store.UpdateAccountTestStatus(identifier, "ok")
+		h.Pool.Reset()
+		h.notifyAccountsChanged()
+	} else if elasticReconciled {
+		h.Pool.Reset()
+		h.notifyAccountsChanged()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_accounts": len(h.Store.Snapshot().Accounts)})
 }
 
@@ -153,6 +315,8 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	if decoded, err := url.PathUnescape(identifier); err == nil {
 		identifier = decoded
 	}
+	var removedEmail, removedMobile string
+	busy := h.inflightAccounts()
 	err := h.Store.Update(func(c *config.Config) error {
 		idx := -1
 		for i, a := range c.Accounts {
@@ -164,13 +328,197 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		if idx < 0 {
 			return fmt.Errorf("账号不存在")
 		}
+		removedEmail = c.Accounts[idx].Email
+		removedMobile = c.Accounts[idx].Mobile
 		c.Accounts = append(c.Accounts[:idx], c.Accounts[idx+1:]...)
+		if c.ElasticPool.Enabled {
+			account.ReconcileElasticPoolWithBusy(c, busy)
+		}
+		// 账号被删除后重算号池绑定数。
+		config.ReconcileDeviceIDBindings(c)
 		return nil
 	})
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"detail": err.Error()})
 		return
 	}
+	removeDeviceProfile(config.Account{Email: removedEmail, Mobile: removedMobile}.Identifier())
+	forgetDeviceGenLock(h.DS, config.Account{Email: removedEmail, Mobile: removedMobile}.Identifier())
+	forgetAuthFailures(h.DS, config.Account{Email: removedEmail, Mobile: removedMobile}.Identifier())
 	h.Pool.Reset()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_accounts": len(h.Store.Snapshot().Accounts)})
+}
+
+// removeDeviceProfile 删除账号的设备档案文件；文件不存在时静默返回。
+func removeDeviceProfile(identifier string) {
+	if identifier == "" {
+		return
+	}
+	if err := os.Remove(config.DeviceProfilePath(identifier)); err != nil && !os.IsNotExist(err) {
+		config.Logger.Warn("[device_id] remove profile failed", "account", identifier, "error", err)
+	}
+}
+
+// deviceLockForgetter 由 deepseek client 可选实现，用于清理账号的 device_id 生成锁。
+type deviceLockForgetter interface {
+	ForgetDeviceGenLock(identifier string)
+}
+
+// forgetDeviceGenLock 删除账号后清理 device_id 生成锁（DS 未实现时静默跳过）。
+func forgetDeviceGenLock(ds adminshared.DeepSeekCaller, identifier string) {
+	if ds == nil || identifier == "" {
+		return
+	}
+	if fg, ok := ds.(deviceLockForgetter); ok {
+		fg.ForgetDeviceGenLock(identifier)
+	}
+}
+
+// authFailureForgetter 由 deepseek client 可选实现，用于清理账号的连续鉴权失败计数。
+type authFailureForgetter interface {
+	ForgetAuthFailures(identifier string)
+}
+
+// forgetAuthFailures 删除账号后清理其连续鉴权失败计数（DS 未实现时静默跳过）。
+func forgetAuthFailures(ds adminshared.DeepSeekCaller, identifier string) {
+	if ds == nil || identifier == "" {
+		return
+	}
+	if fg, ok := ds.(authFailureForgetter); ok {
+		fg.ForgetAuthFailures(identifier)
+	}
+}
+
+func (h *Handler) toggleAccountEnabled(w http.ResponseWriter, r *http.Request) {
+	identifier := chi.URLParam(r, "identifier")
+	if decoded, err := url.PathUnescape(identifier); err == nil {
+		identifier = decoded
+	}
+
+	var req map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "invalid json"})
+		return
+	}
+	enabled, ok := fieldBoolOptional(req, "enabled")
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "enabled is required"})
+		return
+	}
+
+	var current bool
+	busy := h.inflightAccounts()
+	err := h.Store.Update(func(c *config.Config) error {
+		for i, acc := range c.Accounts {
+			if !accountMatchesIdentifier(acc, identifier) {
+				continue
+			}
+			c.Accounts[i].Disabled = !enabled
+			c.Accounts[i].ManualDisabled = !enabled
+			// 手动启用同时解除"鉴权异常"判定：账号被移出号池通常是因为密码/
+			// 账号状态出了问题，管理员修好后重新启用应当让它重新参与调度。
+			if enabled {
+				c.Accounts[i].AuthFailed = false
+				c.Accounts[i].DisabledReason = ""
+			}
+			if c.ElasticPool.Enabled {
+				account.ReconcileElasticPoolWithBusy(c, busy)
+			}
+			// 账号被手动关闭时解除 device_id 绑定，重新启用后重新分配。
+			config.ReconcileDeviceIDBindings(c)
+			current = c.Accounts[i].IsEnabled()
+			return nil
+		}
+		return newRequestError("账号不存在")
+	})
+	if err != nil {
+		if detail, ok := requestErrorDetail(err); ok {
+			writeJSON(w, http.StatusNotFound, map[string]any{"detail": detail})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+	h.Pool.Reset()
+	h.notifyAccountsChanged()
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "enabled": current})
+}
+
+// batchDeleteBannedAccounts 处理 POST /admin/accounts/banned/delete 请求。
+// 删除所有被上游停用(IsBanned)的账号，并清理其设备档案与 device_id 生成锁。
+func (h *Handler) batchDeleteBannedAccounts(w http.ResponseWriter, r *http.Request) {
+	var removed []string
+	busy := h.inflightAccounts()
+	err := h.Store.Update(func(c *config.Config) error {
+		kept := make([]config.Account, 0, len(c.Accounts))
+		for _, acc := range c.Accounts {
+			if acc.IsBanned() {
+				if id := acc.Identifier(); id != "" {
+					removed = append(removed, id)
+				}
+				continue
+			}
+			kept = append(kept, acc)
+		}
+		c.Accounts = kept
+		if c.ElasticPool.Enabled {
+			account.ReconcileElasticPoolWithBusy(c, busy)
+		}
+		// 被停用账号被删除后重算号池绑定数。
+		config.ReconcileDeviceIDBindings(c)
+		return nil
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+	for _, identifier := range removed {
+		removeDeviceProfile(identifier)
+		forgetDeviceGenLock(h.DS, identifier)
+		forgetAuthFailures(h.DS, identifier)
+	}
+	h.Pool.Reset()
+	h.notifyAccountsChanged()
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total": len(removed)})
+}
+
+func (h *Handler) batchToggleAccountEnabled(w http.ResponseWriter, r *http.Request) {
+	var req map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "invalid json"})
+		return
+	}
+	enabled, ok := fieldBoolOptional(req, "enabled")
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "enabled is required"})
+		return
+	}
+
+	var total int
+	busy := h.inflightAccounts()
+	err := h.Store.Update(func(c *config.Config) error {
+		total = len(c.Accounts)
+		for i := range c.Accounts {
+			c.Accounts[i].Disabled = !enabled
+			c.Accounts[i].ManualDisabled = !enabled
+			// 批量启用同样解除"鉴权异常"判定，让修好凭据的账号重新参与调度。
+			if enabled {
+				c.Accounts[i].AuthFailed = false
+				c.Accounts[i].DisabledReason = ""
+			}
+		}
+		if c.ElasticPool.Enabled {
+			account.ReconcileElasticPoolWithBusy(c, busy)
+		}
+		// 批量关闭时解除全部 device_id 绑定，重新启用后重新分配。
+		config.ReconcileDeviceIDBindings(c)
+		return nil
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+	h.Pool.Reset()
+	h.notifyAccountsChanged()
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total": total, "enabled": enabled})
 }

@@ -105,6 +105,55 @@ func TestServeFromDiskRejectsSiblingDirectoryWithSharedPrefix(t *testing.T) {
 	}
 }
 
+// TestHandleAdminNavigationFallbackOnlyServesBrowserNavigation documents the
+// contract used by the router's 405 handler: SPA routes that collide with a
+// POST-only admin API endpoint (e.g. /admin/test, /admin/import) must serve
+// index.html on a browser refresh, while API callers keep getting the 405.
+func TestHandleAdminNavigationFallbackOnlyServesBrowserNavigation(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("spa-index"), 0o644); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+	h := &Handler{StaticDir: staticDir}
+
+	cases := []struct {
+		name    string
+		method  string
+		path    string
+		headers map[string]string
+		want    bool
+	}{
+		{"browser navigation", http.MethodGet, "/admin/test", map[string]string{"Accept": "text/html,application/xhtml+xml"}, true},
+		{"fetch wildcard accept", http.MethodGet, "/admin/test", map[string]string{"Accept": "*/*"}, false},
+		{"authorized navigation", http.MethodGet, "/admin/test", map[string]string{"Accept": "text/html", "Authorization": "Bearer t"}, false},
+		{"non-GET navigation", http.MethodPost, "/admin/test", map[string]string{"Accept": "text/html"}, false},
+		{"outside admin prefix", http.MethodGet, "/v1/chat/completions", map[string]string{"Accept": "text/html"}, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			for k, v := range tc.headers {
+				req.Header.Set(k, v)
+			}
+			rec := httptest.NewRecorder()
+
+			if got := h.HandleAdminNavigationFallback(rec, req); got != tc.want {
+				t.Fatalf("HandleAdminNavigationFallback = %v, want %v", got, tc.want)
+			}
+			if !tc.want {
+				return
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			if body := rec.Body.String(); body != "spa-index" {
+				t.Fatalf("body = %q, want SPA index.html", body)
+			}
+		})
+	}
+}
+
 func TestIsPathInsideRootAllowsFilesystemRootChildren(t *testing.T) {
 	root := filepath.VolumeName(os.TempDir()) + string(os.PathSeparator)
 	child := filepath.Join(root, "assets", "index.css")

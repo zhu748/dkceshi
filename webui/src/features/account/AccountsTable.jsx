@@ -1,6 +1,73 @@
-import { useState } from 'react'
-import { ChevronLeft, ChevronRight, Check, Copy, Pencil, Play, Plus, Trash2, FolderX } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, Check, Copy, Pencil, Play, Plus, Trash2, FolderX, Pin } from 'lucide-react'
 import clsx from 'clsx'
+
+import AccountProxySelect from './AccountProxySelect'
+import { formatMuteUntil } from './formatMuteUntil.js'
+
+// 代理下拉框默认最大宽度（与原有布局一致的视觉宽度上限）。
+const PROXY_SELECT_MAX_WIDTH = 180
+// 收窄后的最小可用宽度：窄屏到极限时仍要保证能显示一个省略号占位，
+// 且不能把操作区的固定按钮挤出容器（320px 视口下约需 48px 以内）。
+const PROXY_SELECT_MIN_WIDTH = 44
+
+// 仅当账号行的操作区（开关 + 代理下拉框 + 编辑/刷新/删除按钮）在窄屏放不下时，
+// 才把代理下拉框收窄；收窄到刚好放下全部按钮为止。宽屏或标签较少时保持原样。
+function AccountActions({ children }) {
+    const containerRef = useRef(null)
+    const selectRef = useRef(null)
+    const [proxyWidth, setProxyWidth] = useState(PROXY_SELECT_MAX_WIDTH)
+
+    const measure = useCallback(() => {
+        const container = containerRef.current
+        const select = selectRef.current
+        if (!container || !select) return
+
+        // 操作区在当前布局中真正可用的宽度。
+        const available = container.clientWidth
+        if (available <= 0) return
+
+        // 除下拉框外的固定元素（开关、三个按钮）占用宽度 + 元素间距。
+        // 这些元素全部 shrink-0，因此宽度即 offsetWidth，不会随容器变化。
+        const children = Array.from(container.children)
+        let fixed = 0
+        children.forEach((child) => {
+            if (child === select) return
+            fixed += child.offsetWidth
+        })
+        // 从计算样式读取真实的 gap（响应式下可能是 6px 或 8px），避免硬编码失配。
+        const gap = parseFloat(getComputedStyle(container).columnGap) || 0
+        const gaps = Math.max(0, children.length - 1) * gap
+
+        const needed = available - fixed - gaps
+        if (needed >= PROXY_SELECT_MAX_WIDTH) {
+            setProxyWidth((prev) => (prev === PROXY_SELECT_MAX_WIDTH ? prev : PROXY_SELECT_MAX_WIDTH))
+            return
+        }
+
+        // 收窄到刚好放下全部按钮；若已到下限仍放不下，保持下限。
+        const target = Math.max(PROXY_SELECT_MIN_WIDTH, Math.ceil(needed))
+        setProxyWidth((prev) => (prev === target ? prev : target))
+    }, [])
+
+    useEffect(() => {
+        const container = containerRef.current
+        if (!container) return
+
+        measure()
+
+        if (typeof ResizeObserver === 'undefined') {
+            window.addEventListener('resize', measure)
+            return () => window.removeEventListener('resize', measure)
+        }
+
+        const observer = new ResizeObserver(() => measure())
+        observer.observe(container)
+        return () => observer.disconnect()
+    }, [measure])
+
+    return children({ containerRef, selectRef, proxyWidth })
+}
 
 export default function AccountsTable({
     t,
@@ -12,27 +79,57 @@ export default function AccountsTable({
     sessionCounts,
     deletingSessions,
     updatingProxy,
+    togglingEnabled,
+    togglingAllEnabled,
+    deletingBanned,
     totalAccounts,
     page,
     pageSize,
     totalPages,
     resolveAccountIdentifier,
     proxies,
+    bridgeNodes,
+    bridgeNodesAvailable,
+    loadingBridgeNodes,
+    elasticPoolEnabled,
+    onOpenElasticPool,
     onTestAll,
     onShowAddAccount,
     onEditAccount,
     onTestAccount,
     onDeleteAccount,
     onDeleteAllSessions,
-    onUpdateAccountProxy,
+    onUpdateAccountBinding,
+    onReloadBridgeNodes,
+    onToggleAccountEnabled,
+    onToggleAllAccountsEnabled,
+    onDeleteBannedAccounts,
     onPrevPage,
     onNextPage,
     onPageSizeChange,
     searchQuery,
     onSearchChange,
+    filterStatus = 'all',
+    onFilterChange,
+    accountCounts = {},
     envBacked = false,
+    deviceIdMode = 'manual',
+    deviceIdRemaining,
+    onOpenDeviceIds,
 }) {
     const [copiedId, setCopiedId] = useState(null)
+    // auto 模式不使用手工号池，剩余计数没有意义（入口按钮保留：内容随模式切换）。
+    const showDeviceIdPoolBadge = deviceIdMode !== 'auto' && deviceIdMode !== 'android'
+    const deviceIdRemainingKnown = deviceIdRemaining !== undefined && deviceIdRemaining !== null
+    const deviceIdRemainingLow = deviceIdRemainingKnown && Number(deviceIdRemaining) < 3
+    const hasAnyAccounts = (accountCounts?.total ?? totalAccounts) > 0
+    const counts = {
+        total: accountCounts?.total ?? totalAccounts ?? 0,
+        enabled: accountCounts?.enabled ?? 0,
+        disabled: accountCounts?.disabled ?? 0,
+        muted: accountCounts?.muted ?? 0,
+        banned: accountCounts?.banned ?? 0,
+    }
 
     const copyId = (id) => {
         navigator.clipboard.writeText(id).then(() => {
@@ -57,11 +154,17 @@ export default function AccountsTable({
                     />
                     <button
                         onClick={onTestAll}
-                        disabled={testingAll || totalAccounts === 0}
+                        disabled={testingAll || !hasAnyAccounts}
                         className="flex items-center px-3 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors text-xs font-medium border border-border disabled:opacity-50"
                     >
                         {testingAll ? <span className="animate-spin mr-2">⟳</span> : <Play className="w-3 h-3 mr-2" />}
                         {t('accountManager.testAll')}
+                    </button>
+                    <button
+                        onClick={onOpenDeviceIds}
+                        className="flex items-center px-3 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors text-xs font-medium border border-border"
+                    >
+                        {t('accountManager.manageDeviceId')}
                     </button>
                     <button
                         onClick={onShowAddAccount}
@@ -71,6 +174,114 @@ export default function AccountsTable({
                         {t('accountManager.addAccount')}
                     </button>
                 </div>
+            </div>
+
+            <div className="px-6 py-3 border-b border-border flex items-center justify-between gap-2">
+                <button
+                    onClick={onOpenElasticPool}
+                    className="flex items-center px-3 py-1.5 rounded-lg transition-colors text-xs font-medium border bg-primary text-primary-foreground border-primary hover:bg-primary/90"
+                >
+                    {t('accountManager.elasticPool')}
+                </button>
+                <div className="flex flex-wrap gap-2">
+                    {showDeviceIdPoolBadge && (
+                        <span
+                            className={clsx(
+                                "flex items-center px-2 py-1.5 rounded-lg text-xs font-medium border",
+                                deviceIdRemainingLow
+                                    ? "bg-red-500/15 text-red-600 border-red-500/40"
+                                    : "bg-transparent text-muted-foreground border-transparent"
+                            )}
+                        >
+                            {t('accountManager.deviceIdRemaining', { count: deviceIdRemainingKnown ? Number(deviceIdRemaining) : 0 })}
+                        </span>
+                    )}
+                    <button
+                        onClick={onDeleteBannedAccounts}
+                        disabled={deletingBanned || testingAll || !hasAnyAccounts}
+                        className="flex items-center px-3 py-1.5 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg hover:bg-destructive/20 transition-colors text-xs font-medium disabled:opacity-50"
+                    >
+                        {deletingBanned && <span className="animate-spin mr-2">⟳</span>}
+                        {t('accountManager.deleteBannedAccounts')}
+                    </button>
+                    <button
+                        onClick={() => onToggleAllAccountsEnabled(false)}
+                        disabled={elasticPoolEnabled || togglingAllEnabled || testingAll || !hasAnyAccounts}
+                        className="flex items-center px-3 py-1.5 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg hover:bg-destructive/20 transition-colors text-xs font-medium disabled:opacity-50"
+                    >
+                        {togglingAllEnabled && <span className="animate-spin mr-2">⟳</span>}
+                        {t('accountManager.disableAllAccounts')}
+                    </button>
+                    <button
+                        onClick={() => onToggleAllAccountsEnabled(true)}
+                        disabled={elasticPoolEnabled || togglingAllEnabled || testingAll || !hasAnyAccounts}
+                        className="flex items-center px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors text-xs font-medium border border-border disabled:opacity-50"
+                    >
+                        {t('accountManager.enableAllAccounts')}
+                    </button>
+                </div>
+            </div>
+
+            <div className="px-6 py-3 border-b border-border bg-muted/20 flex items-center justify-end gap-1.5 flex-wrap">
+                <button
+                    onClick={() => onFilterChange?.('all')}
+                    className={clsx(
+                        'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
+                        filterStatus === 'all'
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-card text-muted-foreground border-border hover:bg-secondary'
+                    )}
+                >
+                    {t('accountManager.filterAll', { count: counts.total })}
+                </button>
+                <button
+                    onClick={() => onFilterChange?.('enabled')}
+                    className={clsx(
+                        'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
+                        filterStatus === 'enabled'
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-card text-muted-foreground border-border hover:bg-secondary'
+                    )}
+                >
+                    {t('accountManager.filterEnabled', { count: counts.enabled })}
+                </button>
+                <button
+                    onClick={() => onFilterChange?.('disabled')}
+                    className={clsx(
+                        'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
+                        filterStatus === 'disabled'
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-card text-muted-foreground border-border hover:bg-secondary'
+                    )}
+                >
+                    {t('accountManager.filterDisabled', { count: counts.disabled })}
+                </button>
+                {counts.muted > 0 && (
+                    <button
+                        onClick={() => onFilterChange?.('muted')}
+                        className={clsx(
+                            'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
+                            filterStatus === 'muted'
+                                ? 'bg-destructive text-destructive-foreground border-destructive'
+                                : 'bg-card text-destructive border-border hover:bg-destructive/10'
+                        )}
+                    >
+                        {t('accountManager.filterMuted', { count: counts.muted })}
+                    </button>
+                )}
+                {counts.banned > 0 && (
+                    <button
+                        onClick={() => onFilterChange?.('banned')}
+                        className={clsx(
+                            'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
+                            filterStatus === 'banned'
+                                ? 'bg-destructive text-destructive-foreground border-destructive'
+                                : 'bg-card text-destructive border-border hover:bg-destructive/10'
+                        )}
+                    >
+                        {t('accountManager.filterBanned', { count: counts.banned })}
+                    </button>
+                )}
             </div>
 
             {testingAll && batchProgress.total > 0 && (
@@ -108,12 +319,22 @@ export default function AccountsTable({
                         const id = resolveAccountIdentifier(acc)
                         const assignedProxy = proxies.find(proxy => proxy.id === acc.proxy_id)
                         const runtimeUnknown = envBacked && !acc.test_status
-                        const isActive = acc.test_status === 'ok' || acc.has_token
+                        const isDisabled = acc.enabled === false
+                        const isBanned = acc.banned === true
+                        const isMuted = acc.muted === true
+                        const mutedRecoverAt = formatMuteUntil(acc.muted_until)
+                        const isActive = !isDisabled && !isBanned && !isMuted && (acc.test_status === 'ok' || acc.has_token)
                         return (
-                            <div key={i} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-muted/50 transition-colors">
+                            <div key={i} className={clsx(
+                                "p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-muted/50 transition-colors min-w-0",
+                                (isDisabled || isBanned || isMuted) && "opacity-60"
+                            )}>
                                 <div className="flex items-center gap-3 min-w-0">
                                     <div className={clsx(
                                         "w-2 h-2 rounded-full shrink-0",
+                                        isDisabled ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" :
+                                        isBanned ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" :
+                                        isMuted ? "bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]" :
                                         acc.test_status === 'failed' ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" :
                                         isActive ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
                                         runtimeUnknown ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" : "bg-amber-500"
@@ -133,8 +354,23 @@ export default function AccountsTable({
                                         {acc.remark && (
                                             <div className="text-xs text-muted-foreground truncate mt-0.5">{acc.remark}</div>
                                         )}
-                                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                                            <span>{acc.test_status === 'failed' ? t('accountManager.testStatusFailed') : isActive ? t('accountManager.sessionActive') : runtimeUnknown ? t('accountManager.runtimeStatusUnknown') : t('accountManager.reauthRequired')}</span>
+                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mt-0.5 min-w-0">
+                                            <span>{isBanned ? (acc.disabled_reason || t('accountManager.accountBanned')) : isDisabled ? t('accountManager.accountDisabled') : isMuted ? t('accountManager.accountMuted') : acc.test_status === 'failed' ? t('accountManager.testStatusFailed') : isActive ? t('accountManager.sessionActive') : runtimeUnknown ? t('accountManager.runtimeStatusUnknown') : t('accountManager.reauthRequired')}</span>
+                                            {isDisabled && !isBanned && (
+                                                <span className="font-mono bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded text-[10px]" title={t('accountManager.accountDisabledHint')}>
+                                                    {t('accountManager.accountDisabled')}
+                                                </span>
+                                            )}
+                                            {isBanned && (
+                                                <span className="font-mono bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded text-[10px]" title={acc.disabled_reason || t('accountManager.accountBannedHint')}>
+                                                    {acc.disabled_reason || t('accountManager.accountBanned')}
+                                                </span>
+                                            )}
+                                            {isMuted && (
+                                                <span className="font-mono bg-orange-500/10 text-orange-500 px-1.5 py-0.5 rounded text-[10px]" title={t('accountManager.accountMutedHint')}>
+                                                    {t('accountManager.accountMutedRecoverAt', { time: mutedRecoverAt })}
+                                                </span>
+                                            )}
                                             {acc.token_preview && (
                                                 <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-[10px]">
                                                     {acc.token_preview}
@@ -164,27 +400,75 @@ export default function AccountsTable({
                                                     {t('accountManager.proxyBadge', { name: assignedProxy ? (assignedProxy.name || `${assignedProxy.host}:${assignedProxy.port}`) : acc.proxy_id })}
                                                 </span>
                                             )}
+                                            {acc.manual_binding && acc.proxy_id && (
+                                                <span
+                                                    className="flex items-center gap-1 font-mono bg-sky-500/10 text-sky-500 px-1.5 py-0.5 rounded text-[10px]"
+                                                    title={t('accountManager.manualBindingHint')}
+                                                >
+                                                    <Pin className="w-2.5 h-2.5" />
+                                                    {t('accountManager.manualBindingBadge')}
+                                                </span>
+                                            )}
+                                            {acc.pool_type === 'no_tools' && (
+                                                <span className="font-mono bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded text-[10px]">
+                                                    {t('accountManager.poolBadgeNoTools')}
+                                                </span>
+                                            )}
+                                            {acc.pool_type === 'tools_only' && (
+                                                <span className="font-mono bg-purple-500/10 text-purple-500 px-1.5 py-0.5 rounded text-[10px]">
+                                                    {t('accountManager.poolBadgeToolsOnly')}
+                                                </span>
+                                            )}
+                                            {acc.device_id_type === 'auto' && (
+                                                <span className="font-mono bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded text-[10px]" title={t('accountManager.deviceBadgeRealTitle')}>
+                                                    {t('accountManager.deviceBadgeReal')}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2 self-start lg:self-auto ml-5 lg:ml-0">
-                                    <select
-                                        value={acc.proxy_id || ''}
-                                        onChange={e => onUpdateAccountProxy(id, e.target.value)}
-                                        disabled={updatingProxy?.[id]}
-                                        className="max-w-[180px] px-2.5 py-1.5 text-[10px] lg:text-xs bg-secondary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                                <AccountActions key={i}>
+                                    {({ containerRef, selectRef, proxyWidth }) => (
+                                <div
+                                    ref={containerRef}
+                                    className="flex items-center gap-1.5 sm:gap-2 w-[calc(100%-1.25rem)] md:w-auto self-stretch md:self-auto ml-5 lg:ml-0 min-w-0 overflow-hidden"
+                                >
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={!isDisabled}
+                                        onClick={() => onToggleAccountEnabled(id, isDisabled)}
+                                        disabled={elasticPoolEnabled || togglingEnabled?.[id]}
+                                        title={isDisabled ? t('accountManager.enableAccount') : t('accountManager.disableAccount')}
+                                        className={clsx(
+                                            "relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0",
+                                            isDisabled ? "bg-muted-foreground/30" : "bg-primary"
+                                        )}
                                     >
-                                        <option value="">{t('accountManager.proxyNone')}</option>
-                                        {proxies.map(proxy => (
-                                            <option key={proxy.id} value={proxy.id}>
-                                                {proxy.name || `${proxy.host}:${proxy.port}`}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        <span className={clsx(
+                                            "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm",
+                                            isDisabled ? "translate-x-1" : "translate-x-[18px]"
+                                        )} />
+                                    </button>
+                                    <AccountProxySelect
+                                        t={t}
+                                        selectRef={selectRef}
+                                        width={proxyWidth}
+                                        disabled={updatingProxy?.[id]}
+                                        proxyID={acc.proxy_id || ''}
+                                        manualBinding={acc.manual_binding === true}
+                                        noProxy={acc.no_proxy === true}
+                                        proxies={proxies}
+                                        nodes={bridgeNodes}
+                                        nodesAvailable={bridgeNodesAvailable}
+                                        loadingNodes={loadingBridgeNodes}
+                                        onReloadNodes={onReloadBridgeNodes}
+                                        onSelect={value => onUpdateAccountBinding(id, value)}
+                                    />
                                     <button
                                         onClick={() => onEditAccount(acc)}
                                         disabled={!id}
-                                        className="p-1 lg:p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                        className="p-1 lg:p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                                         title={id ? t('accountManager.editAccountTitle') : t('accountManager.invalidIdentifier')}
                                     >
                                         <Pencil className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
@@ -192,22 +476,24 @@ export default function AccountsTable({
                                     <button
                                         onClick={() => onTestAccount(id)}
                                         disabled={testing[id]}
-                                        className="px-2 lg:px-3 py-1 lg:py-1.5 text-[10px] lg:text-xs font-medium border border-border rounded-md hover:bg-secondary transition-colors disabled:opacity-50"
+                                        className="px-2 lg:px-3 py-1 lg:py-1.5 text-[10px] lg:text-xs font-medium border border-border rounded-md hover:bg-secondary transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
                                     >
                                         {testing[id] ? t('actions.testing') : t('actions.test')}
                                     </button>
                                     <button
                                         onClick={() => onDeleteAccount(id)}
-                                        className="p-1 lg:p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                                        className="p-1 lg:p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors shrink-0"
                                     >
                                         <Trash2 className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
                                     </button>
                                 </div>
+                                    )}
+                                </AccountActions>
                             </div>
                         )
                     })
                 ) : (
-                    <div className="p-8 text-center text-muted-foreground">{searchQuery ? t('accountManager.searchNoResults') : t('accountManager.noAccounts')}</div>
+                    <div className="p-8 text-center text-muted-foreground">{(searchQuery || filterStatus !== 'all') ? t('accountManager.searchNoResults') : t('accountManager.noAccounts')}</div>
                 )}
             </div>
 

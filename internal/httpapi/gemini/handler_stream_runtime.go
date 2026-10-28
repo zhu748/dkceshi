@@ -11,11 +11,13 @@ import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
 	"ds2api/internal/completionruntime"
+	"ds2api/internal/config"
 	dsprotocol "ds2api/internal/deepseek/protocol"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
+	"ds2api/internal/toolcall"
 )
 
 //nolint:unused // retained for native Gemini stream handling path.
@@ -27,6 +29,9 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[gemini_stream] captcha challenge detected on initial response", "detail", detail)
+		}
 		if historySession != nil {
 			historySession.Error(resp.StatusCode, strings.TrimSpace(string(body)), "error", "", "")
 		}
@@ -41,7 +46,10 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 
 	rc := http.NewResponseController(w)
 	_, canFlush := w.(http.Flusher)
-	runtime := newGeminiStreamRuntime(w, rc, canFlush, model, finalPrompt, thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw, historySession)
+	// This entry point has no normalized request to ask about the system-text
+	// tool branch, so it keeps the tools-array gate; the production path is
+	// handleStreamGenerateContentWithRetry, which passes the real answer.
+	runtime := newGeminiStreamRuntime(w, rc, canFlush, model, finalPrompt, thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw, false, historySession)
 
 	initialType := "text"
 	if thinkingEnabled {
@@ -72,26 +80,42 @@ type geminiStreamRuntime struct {
 	model       string
 	finalPrompt string
 
-	thinkingEnabled       bool
-	searchEnabled         bool
+	thinkingEnabled bool
+	searchEnabled   bool
+	// bufferContent is the sieve gate: while it is set, per-chunk text is not
+	// forwarded and the whole answer is emitted once from the finalized turn, so
+	// tool-call markup is parsed into functionCall parts instead of leaking into
+	// the visible text. It follows the prompt — a request whose prompt may demand
+	// tool calls (a top-level tools array, or the system-text branch) is sieved;
+	// see newGeminiStreamRuntime.
 	bufferContent         bool
 	stripReferenceMarkers bool
 	toolNames             []string
 	toolsRaw              any
+	accumulator           *assistantturn.Accumulator
+	contentFilter         bool
+	upstreamErr           string
+	responseMessageID     int
+	finalErrorStatus      int
+	finalErrorMessage     string
+	finalErrorCode        string
+	history               *responsehistory.Session
 
-	accumulator       *assistantturn.Accumulator
-	contentFilter     bool
-	responseMessageID int
-	finalErrorStatus  int
-	finalErrorMessage string
-	finalErrorCode    string
-	history           *responsehistory.Session
+	// toolCallRepair / toolCallRepairCtx wire the phase-3 finalize-only LLM
+	// tool-call repair into the streaming finalize path (M4). Nil unless the
+	// handler enabled repair; the per-chunk sieve never receives them.
+	toolCallRepair    toolcall.ToolCallRepairInvoker
+	toolCallRepairCtx context.Context
+	toolMarker        string
 }
 
-func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload any, pow string, stdReq promptcompat.StandardRequest, model, finalPrompt string, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, historySession *responsehistory.Session) {
+func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow string, stdReq promptcompat.StandardRequest, model, finalPrompt string, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, historySession *responsehistory.Session) {
 	if resp.StatusCode != http.StatusOK {
 		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[gemini_stream_retry] captcha challenge detected on initial response", "account", a.AccountID, "detail", detail)
+		}
 		if historySession != nil {
 			historySession.Error(resp.StatusCode, strings.TrimSpace(string(body)), "error", "", "")
 		}
@@ -106,19 +130,28 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 
 	rc := http.NewResponseController(w)
 	_, canFlush := w.(http.Flusher)
-	runtime := newGeminiStreamRuntime(w, rc, canFlush, model, finalPrompt, thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw, historySession)
+	// The sieve gate follows the prompt: a request whose prompt may demand tool
+	// calls must have its tool-call markup sieved, whatever shape carried the
+	// catalog (see newGeminiStreamRuntime).
+	runtime := newGeminiStreamRuntime(w, rc, canFlush, model, finalPrompt, thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw, stdReq.SystemTextToolsApply(), historySession)
+	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
+	runtime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)
+	runtime.toolCallRepairCtx = r.Context()
+	runtime.toolMarker = a.ToolMarker
 
 	completionruntime.ExecuteStreamWithRetry(r.Context(), h.DS, a, resp, payload, pow, completionruntime.StreamRetryOptions{
-		Surface:          "gemini.generate_content",
-		Stream:           true,
-		RetryEnabled:     true,
-		MaxAttempts:      3,
-		UsagePrompt:      finalPrompt,
-		Request:          stdReq,
-		CurrentInputFile: h.Store,
+		Surface:             "gemini.generate_content",
+		Stream:              true,
+		RetryEnabled:        true,
+		MaxAttempts:         3,
+		UsagePrompt:         finalPrompt,
+		Request:             stdReq,
+		CurrentInputFile:    h.Store,
+		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
-		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) (bool, bool) {
-			return h.consumeGeminiStreamAttempt(r.Context(), currentResp, runtime, thinkingEnabled, allowDeferEmpty)
+		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
+			terminalWritten, retryable := h.consumeGeminiStreamAttempt(r.Context(), currentResp, runtime, thinkingEnabled, allowDeferEmpty)
+			return completionruntime.ConsumeAttemptResult{Terminal: terminalWritten, Retryable: retryable}
 		},
 		Finalize: func(_ int) {
 			runtime.finalize(false)
@@ -132,11 +165,21 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 		OnRetryFailure: func(status int, message, _ string) {
 			runtime.sendErrorChunk(status, strings.TrimSpace(message))
 		},
+		EmptyOutputError: func() *assistantturn.OutputError {
+			if runtime.finalErrorCode == "" {
+				return nil
+			}
+			return &assistantturn.OutputError{Status: runtime.finalErrorStatus, Message: runtime.finalErrorMessage, Code: runtime.finalErrorCode}
+		},
 	})
 }
 
 func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Response, runtime *geminiStreamRuntime, thinkingEnabled bool, allowDeferEmpty bool) (bool, bool) {
 	defer func() { _ = resp.Body.Close() }()
+	// A new attempt reads a new upstream response, so the content rules start
+	// over: a cut that ended the previous attempt (an empty-output retry, or a
+	// retry on another account) must not keep discarding this one's text.
+	runtime.accumulator.ResetContentPolicy()
 	initialType := "text"
 	if thinkingEnabled {
 		initialType = "thinking"
@@ -173,6 +216,7 @@ func newGeminiStreamRuntime(
 	stripReferenceMarkers bool,
 	toolNames []string,
 	toolsRaw any,
+	systemTextTools bool,
 	history *responsehistory.Session,
 ) *geminiStreamRuntime {
 	return &geminiStreamRuntime{
@@ -183,7 +227,7 @@ func newGeminiStreamRuntime(
 		finalPrompt:           finalPrompt,
 		thinkingEnabled:       thinkingEnabled,
 		searchEnabled:         searchEnabled,
-		bufferContent:         len(toolNames) > 0,
+		bufferContent:         len(toolNames) > 0 || systemTextTools,
 		stripReferenceMarkers: stripReferenceMarkers,
 		toolNames:             toolNames,
 		toolsRaw:              toolsRaw,
@@ -248,6 +292,9 @@ func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		if parsed.ContentFilter {
 			s.contentFilter = true
 		}
+		if parsed.ErrorMessage != "" {
+			s.upstreamErr = parsed.ErrorMessage
+		}
 		return streamengine.ParsedDecision{Stop: true}
 	}
 
@@ -297,7 +344,9 @@ func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 			responsehistory.TextForArchive(rawText, text),
 		)
 	}
-	return streamengine.ParsedDecision{ContentSeen: accumulated.ContentSeen}
+	// 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）在此统一收口：
+	// 结束读取，保留已生成内容走正常收尾。
+	return streamengine.StopForCut(accumulated.Cut, "gemini_stream", "gemini", accumulated.ContentSeen)
 }
 
 //nolint:unused // retained for native Gemini stream handling path.
@@ -310,6 +359,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 		VisibleThinking:   thinking,
 		DetectionThinking: detectionThinking,
 		ContentFilter:     s.contentFilter,
+		UpstreamError:     s.upstreamErr,
 		ResponseMessageID: s.responseMessageID,
 	}, assistantturn.BuildOptions{
 		Model:                 s.model,
@@ -318,6 +368,9 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 		StripReferenceMarkers: s.stripReferenceMarkers,
 		ToolNames:             s.toolNames,
 		ToolsRaw:              s.toolsRaw,
+		ToolCallRepair:        s.toolCallRepair,
+		ToolCallRepairCtx:     s.toolCallRepairCtx,
+		ToolMarker:            s.toolMarker,
 	})
 	outcome := assistantturn.FinalizeTurn(turn, assistantturn.FinalizeOptions{})
 	if outcome.ShouldFail {

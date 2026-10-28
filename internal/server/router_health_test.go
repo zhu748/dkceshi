@@ -14,6 +14,7 @@ func TestHealthEndpointsSupportHEAD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewApp() error: %v", err)
 	}
+	t.Cleanup(app.Close)
 
 	for _, path := range []string{"/healthz", "/readyz"} {
 		req := httptest.NewRequest(http.MethodHead, path, nil)

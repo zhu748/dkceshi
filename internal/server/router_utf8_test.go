@@ -16,6 +16,7 @@ func TestJSONRequestsRejectInvalidUTF8BeforeDecode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewApp() error: %v", err)
 	}
+	t.Cleanup(app.Close)
 
 	body := append([]byte(`{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"`), 0xff)
 	body = append(body, []byte(`"}]}`)...)
@@ -43,6 +44,7 @@ func TestKnownJSONRequestsRejectInvalidUTF8WithoutJSONContentType(t *testing.T) 
 	if err != nil {
 		t.Fatalf("NewApp() error: %v", err)
 	}
+	t.Cleanup(app.Close)
 
 	body := append([]byte(`{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"`), 0xff)
 	body = append(body, []byte(`"}]}`)...)
@@ -70,6 +72,7 @@ func TestJSONRequestsRejectTrailingInvalidUTF8AfterCompleteJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewApp() error: %v", err)
 	}
+	t.Cleanup(app.Close)
 
 	body := append([]byte(`{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"ok"}]}`), 0xff)
 

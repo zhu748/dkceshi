@@ -2,29 +2,23 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
+// ValidateConfig checks a whole config. The registered settings and the
+// registered sections are validated from their own declarations (settings.go,
+// sections.go), so a new one is covered without a line here.
 func ValidateConfig(c Config) error {
-	if err := ValidateProxyConfig(c.Proxies); err != nil {
+	for _, acc := range c.Accounts {
+		if err := ValidateAccountDeviceProfile(acc); err != nil {
+			return err
+		}
+	}
+	if err := ValidateRegisteredSettings(c); err != nil {
 		return err
 	}
-	if err := ValidateAdminConfig(c.Admin); err != nil {
-		return err
-	}
-	if err := ValidateRuntimeConfig(c.Runtime); err != nil {
-		return err
-	}
-	if err := ValidateResponsesConfig(c.Responses); err != nil {
-		return err
-	}
-	if err := ValidateEmbeddingsConfig(c.Embeddings); err != nil {
-		return err
-	}
-	if err := ValidateAutoDeleteConfig(c.AutoDelete); err != nil {
-		return err
-	}
-	if err := ValidateCurrentInputFileConfig(c.CurrentInputFile); err != nil {
+	if err := validateRegisteredSections(c); err != nil {
 		return err
 	}
 	if err := ValidateAccountProxyReferences(c.Accounts, c.Proxies); err != nil {
@@ -99,26 +93,62 @@ func ValidateRuntimeConfig(runtime RuntimeConfig) error {
 	if runtime.AccountMaxInflight > 0 && runtime.GlobalMaxInflight > 0 && runtime.GlobalMaxInflight < runtime.AccountMaxInflight {
 		return fmt.Errorf("runtime.global_max_inflight must be >= runtime.account_max_inflight")
 	}
+	if err := ValidateAccountRateLimitConfig(runtime.AccountRateLimit); err != nil {
+		return err
+	}
+	if err := ValidateAccountDailyLimitConfig(runtime.AccountDailyLimit); err != nil {
+		return err
+	}
+	return ValidateMuteReportConfig(runtime.MuteReport)
+}
+
+// ValidateAccountRateLimitConfig 校验单账号速率限制参数。
+func ValidateAccountRateLimitConfig(cfg AccountRateLimitConfig) error {
+	if cfg.MaxPerMinute < 0 {
+		return fmt.Errorf("runtime.account_rate_limit.max_per_minute must be >= 1")
+	}
+	if cfg.MaxPerMinute > 0 {
+		return ValidateIntRange("runtime.account_rate_limit.max_per_minute", cfg.MaxPerMinute, 1, 100000, false)
+	}
 	return nil
 }
 
-func ValidateResponsesConfig(responses ResponsesConfig) error {
-	return ValidateIntRange("responses.store_ttl_seconds", responses.StoreTTLSeconds, 30, 86400, false)
+// ValidateAccountDailyLimitConfig 校验 24h 速率限制参数。
+// 0 是合法值，表示"没填数值"（该功能不生效）；因此这里不因开关打开而要求数值
+// 存在——把一个手写配置挡住会让服务起不来，而"没填数字"只是没生效。号池侧对该
+// 状态打日志说明（见 internal/account/pool_daily_limit.go）。
+func ValidateAccountDailyLimitConfig(cfg AccountDailyLimitConfig) error {
+	if cfg.MaxPerDay < 0 {
+		return fmt.Errorf("runtime.account_daily_limit.max_per_day must be >= 0 (0 means unset)")
+	}
+	if cfg.MaxPerDay > 0 {
+		return ValidateIntRange("runtime.account_daily_limit.max_per_day", cfg.MaxPerDay, 1, MaxAccountDailyLimitMaxPerDay, false)
+	}
+	return nil
 }
 
-func ValidateEmbeddingsConfig(embeddings EmbeddingsConfig) error {
-	return ValidateTrimmedString("embeddings.provider", embeddings.Provider, false)
+// ValidateMuteReportConfig 校验禁言/封号上报地址。
+// 空地址视为合法（关闭或使用默认地址）；非空时必须是带 host 的 http(s) URL。
+func ValidateMuteReportConfig(cfg MuteReportConfig) error {
+	raw := strings.TrimSpace(cfg.URL)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("runtime.mute_report.url is not a valid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("runtime.mute_report.url must use http or https scheme")
+	}
+	if strings.TrimSpace(u.Host) == "" {
+		return fmt.Errorf("runtime.mute_report.url must include a host")
+	}
+	return nil
 }
 
 func ValidateAutoDeleteConfig(autoDelete AutoDeleteConfig) error {
 	return ValidateAutoDeleteMode(autoDelete.Mode)
-}
-
-func ValidateCurrentInputFileConfig(currentInputFile CurrentInputFileConfig) error {
-	if currentInputFile.MinChars != 0 {
-		return ValidateIntRange("current_input_file.min_chars", currentInputFile.MinChars, 1, 100000000, true)
-	}
-	return nil
 }
 
 func ValidateIntRange(name string, value, min, max int, required bool) error {

@@ -10,8 +10,9 @@ const {
   formatOpenAIStreamToolCalls,
 } = require('../helpers/stream-tool-sieve');
 const { BASE_HEADERS } = require('../shared/deepseek-constants');
-const { writeOpenAIError, openAIErrorType } = require('./error_shape');
-const { parseChunkForContent, isCitation } = require('./sse_parse');
+const { serializeAppPayload } = require('../shared/deepseek-wire');
+const { writeOpenAIError, writeOpenAIErrorWithCode, openAIErrorType } = require('./error_shape');
+const { parseChunkForContent, isCitation, shouldSkipPath } = require('./sse_parse');
 const { buildUsage } = require('./token_usage');
 const {
   resolveToolcallPolicy,
@@ -32,12 +33,51 @@ const {
 const {
   trimContinuationOverlap,
 } = require('./dedupe');
+const {
+  CUT_NONE,
+  createContentPolicy,
+  feedContentPolicy,
+  feedContentPolicyTail,
+  contentPolicyCut,
+} = require('./content_policy');
+const {
+  createMarkerNormalizer,
+} = require('./marker');
 
 const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
 const DEEPSEEK_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
-const EMPTY_OUTPUT_RETRY_SUFFIX = 'The previous reply produced no visible output. Please regenerate the visible final answer or tool call now.';
+const EMPTY_OUTPUT_RETRY_SUFFIX = 'Previous reply had no visible output. Please regenerate the visible final answer or tool call now.';
 const EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS = 1;
-const AUTO_CONTINUE_MAX_ROUNDS = 8;
+const AUTO_CONTINUE_MAX_ROUNDS = 32;
+const TRANSIENT_SWITCH_MAX_ATTEMPTS = 3;
+const TRANSIENT_UPSTREAM_STATUS = new Set([500, 502, 503, 504]);
+const TRANSIENT_UPSTREAM_KEYWORDS = [
+  '暂时', '稍后', '请重试', '繁忙', '超时',
+  'temporarily', 'try again', 'unavailable', 'timeout', 'overloaded', 'busy',
+];
+
+function isTransientUpstreamStatus(status) {
+  return TRANSIENT_UPSTREAM_STATUS.has(Number(status) || 0);
+}
+
+function isTransientUpstreamMessage(message) {
+  const normalized = asString(message).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return TRANSIENT_UPSTREAM_KEYWORDS.some((keyword) => normalized.includes(keyword.toLowerCase()));
+}
+
+// 401 表示上游以鉴权失败拒绝了本次请求。它和临时 5xx 一样属于"换号就能救回来"
+// 的失败：Go 侧拿到 auth_failed 会把该账号计入连续鉴权失败，连续达到阈值后
+// 账号被移出号池，弹性号池随即让休眠账号补位。
+function isAccountAuthFailureStatus(status) {
+  return Number(status) === 401;
+}
+
+function switchOptionsForStatus(status) {
+  return isAccountAuthFailureStatus(status) ? { disable: true, auth_failed: true } : { disable: true };
+}
 
 async function handleVercelStream(req, res, rawBody, payload) {
   const prep = await fetchStreamPrepare(req, rawBody);
@@ -65,7 +105,19 @@ async function handleVercelStream(req, res, rawBody, payload) {
     return;
   }
 
-  const releaseLease = createLeaseReleaser(req, leaseID);
+  let baseHeaders = prep.body.base_headers && typeof prep.body.base_headers === 'object'
+    ? { ...BASE_HEADERS, ...prep.body.base_headers }
+    : { ...BASE_HEADERS };
+  const updateBaseHeaders = (switchedBody) => {
+    if (switchedBody && switchedBody.base_headers && typeof switchedBody.base_headers === 'object') {
+      baseHeaders = { ...BASE_HEADERS, ...switchedBody.base_headers };
+    }
+  };
+
+  // leaseCompletion 由流式收尾路径填充，release 时上报给 Go 侧，用于
+  // 回填聊天历史并记录 Token 用量。
+  let leaseCompletion = {};
+  const releaseLease = createLeaseReleaser(req, leaseID, () => leaseCompletion);
   const upstreamController = new AbortController();
   let clientClosed = false;
   let reader = null;
@@ -119,11 +171,11 @@ async function handleVercelStream(req, res, rawBody, payload) {
         return await fetch(url, {
           method: 'POST',
           headers: {
-            ...BASE_HEADERS,
+            ...baseHeaders,
             authorization: `Bearer ${deepseekToken}`,
             'x-ds-pow-response': powHeader,
           },
-          body: JSON.stringify(bodyPayload),
+          body: serializeAppPayload(url, bodyPayload),
           signal: upstreamController.signal,
         });
       } catch (err) {
@@ -146,6 +198,15 @@ async function handleVercelStream(req, res, rawBody, payload) {
         fallback_to_resume: true,
       }, powHeader);
     };
+    // applySwitchedPayload 把 __stream_switch 返回的新账号 payload / token / PoW
+    // / session 应用到当前流式请求，供首包与重试阶段的临时上游故障切号复用。
+    const applySwitchedPayload = (switched) => {
+      completionPayload = switched.body.payload;
+      deepseekToken = asString(switched.body.deepseek_token) || deepseekToken;
+      currentPowHeader = asString(switched.body.pow_header) || currentPowHeader;
+      activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
+      updateBaseHeaders(switched.body);
+    };
 
     let completionRes = await fetchCompletion(completionPayload);
     if (completionRes === null) {
@@ -155,11 +216,87 @@ async function handleVercelStream(req, res, rawBody, payload) {
       return;
     }
 
+    // 当 DeepSeek 返回封号/停用 JSON（HTTP 200 + JSON body）时，持久化状态并
+    // 切换账号。循环切换直到拿到健康的 SSE 流，或没有更多可调度账号；每次切换
+    // 都会让 Go 侧持久化状态并触发弹性号池补位，因此全程无需人工干预。
+    let accountSwitchCount = 0;
+    while (true) {
+      const detection = await detectMutedOrBannedResponse(completionRes);
+      if (detection.response) {
+        completionRes = detection.response;
+        break;
+      }
+      if (!detection.banned && !(detection.mutedUntil > 0)) {
+        // JSON body 但既非封号也非禁言：无可切换依据，交给下游按空输出处理。
+        break;
+      }
+      accountSwitchCount += 1;
+      const switchOptions = detection.banned
+        ? { banned: true, banned_reason: '账户已被停用' }
+        : { mute_until: detection.mutedUntil };
+      const switched = await fetchStreamSwitch(req, leaseID, switchOptions);
+      if (!(switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object')) {
+        await releaseLease();
+        if (detection.banned) {
+          writeOpenAIErrorWithCode(res, 403, 'Account is banned by upstream.', 'account_banned');
+        } else {
+          writeOpenAIErrorWithCode(res, 403, 'Account is muted by upstream.', 'account_muted');
+        }
+        return;
+      }
+      console.warn('[vercel_stream_account_switch] retrying on alternate account after upstream mute/ban', {
+        switch_count: accountSwitchCount,
+        reason: detection.banned ? 'banned' : 'muted',
+      });
+      completionPayload = switched.body.payload;
+      deepseekToken = asString(switched.body.deepseek_token) || deepseekToken;
+      currentPowHeader = asString(switched.body.pow_header) || currentPowHeader;
+      activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
+      updateBaseHeaders(switched.body);
+      completionRes = await fetchCompletion(completionPayload);
+      if (completionRes === null) {
+        return;
+      }
+      if (clientClosed) {
+        return;
+      }
+    }
+
     if (!completionRes.ok || !completionRes.body) {
-      const detail = completionRes.body ? await completionRes.text() : '';
-      const status = completionRes.ok ? 500 : completionRes.status || 500;
-      writeOpenAIError(res, status, detail);
-      return;
+      let status = completionRes.ok ? 500 : completionRes.status || 500;
+      let detail = completionRes.body ? await completionRes.text() : '';
+      // 临时上游故障（500/502/503/504）与账号级鉴权失败（401）都先尝试切号重放，
+      // 而不是把上游报错原样透传给客户端；与 Go 侧 StartCompletion 的临时错误
+      // 升级、retryManagedAuthFailure 的刷新 Token 后换号保持一致。
+      let switchAttempts = 0;
+      while (
+        (isTransientUpstreamStatus(status) || isAccountAuthFailureStatus(status))
+        && switchAttempts < TRANSIENT_SWITCH_MAX_ATTEMPTS
+      ) {
+        const switched = await fetchStreamSwitch(req, leaseID, switchOptionsForStatus(status));
+        if (!(switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object')) {
+          break;
+        }
+        switchAttempts += 1;
+        console.warn('[vercel_stream_account_switch] retrying after upstream status', {
+          status,
+          switch_count: switchAttempts,
+        });
+        applySwitchedPayload(switched);
+        completionRes = await fetchCompletion(completionPayload);
+        if (completionRes === null) {
+          return;
+        }
+        if (completionRes.ok && completionRes.body) {
+          break;
+        }
+        status = completionRes.ok ? 500 : completionRes.status || 500;
+        detail = completionRes.body ? await completionRes.text() : '';
+      }
+      if (!completionRes.ok || !completionRes.body) {
+        writeOpenAIError(res, status, detail);
+        return;
+      }
     }
 
     res.statusCode = 200;
@@ -175,9 +312,19 @@ async function handleVercelStream(req, res, rawBody, payload) {
     let currentType = thinkingEnabled ? 'thinking' : 'text';
     let thinkingText = '';
     let outputText = '';
+    // 上游正文通道的内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）统一由
+    // 该策略持有，与 Go 侧 sse.ContentPolicy 语义一致；新增规则只需改策略本身。
+    // 每个上游轮次在 processStream 的轮循环顶部重建一次（见下），因为规则状态
+    // 属于一条上游流：上一轮命中的截断不能继续吞掉这一轮的正文。
+    let contentPolicy = createContentPolicy();
     let usagePrompt = finalPrompt;
     const toolSieveEnabled = toolPolicy.toolSieveEnabled;
     const toolSieveState = createToolSieveState();
+    // 调用者专属工具调用标识（由 Go 侧按 API Key 派生并随 prepare 下发）。
+    // 上游只会输出该标识，而 sieve / 独立解析 / 复读守卫都只认 EPSE，
+    // 因此所有流入文本都要先经它有状态地归一化回 EPSE（跨分片标识会被
+    // 暂存到下一片，避免半截标识泄漏成正文）。
+    const markerNormalizer = createMarkerNormalizer(prep.body.tool_marker);
     let toolCallsEmitted = false;
     let toolCallsDoneEmitted = false;
     const streamToolCallIDs = new Map();
@@ -185,6 +332,7 @@ async function handleVercelStream(req, res, rawBody, payload) {
     const decoder = new TextDecoder();
     let buffered = '';
     let ended = false;
+    let lastEmptyDetail = null;
     const { sendFrame, sendDeltaFrame } = createChatCompletionEmitter({
       res,
       sessionID: responseID,
@@ -200,17 +348,36 @@ async function handleVercelStream(req, res, rawBody, payload) {
       }
       if (clientClosed || res.writableEnded || res.destroyed) {
         ended = true;
+        leaseCompletion = {
+          finish_reason: 'stopped',
+          usage: buildUsage(usagePrompt, thinkingText, outputText),
+          thinking: thinkingText,
+          content: outputText,
+          error: '',
+        };
         await releaseLease();
         return true;
       }
       deltaCoalescer.flush();
+      // 收尾前释放归一化器暂存的标识残片，并并入累计文本，使 finish 阶段的
+      // 独立工具调用解析与逐片 sieve 看到同一份 EPSE 形态文本。残片只可能是
+      // 调用方标识（字母表不含 `[`）的前缀，因此只喂复读守卫、不喂角色标记
+      // 守卫——后者会把残片与它自己暂存的标记前缀合并后一起放行，把本该丢弃的
+      // `[To` 泄漏成正文（见 feedContentPolicyTail）。
+      const markerTail = markerNormalizer.flush();
+      if (markerTail) {
+        outputText += markerTail;
+        feedContentPolicyTail(contentPolicy, markerTail);
+      }
       const detected = parseStandaloneToolCalls(outputText, toolNames);
       if (detected.length > 0 && !toolCallsDoneEmitted) {
         toolCallsEmitted = true;
         toolCallsDoneEmitted = true;
         sendDeltaFrame({ tool_calls: formatOpenAIStreamToolCalls(detected, streamToolCallIDs, payload.tools) });
       } else if (toolSieveEnabled) {
-        const tailEvents = flushToolSieve(toolSieveState, toolNames);
+        const tailEvents = markerTail
+          ? processToolSieveChunk(toolSieveState, markerTail, toolNames).concat(flushToolSieve(toolSieveState, toolNames))
+          : flushToolSieve(toolSieveState, toolNames);
         for (const evt of tailEvents) {
           if (evt.type === 'tool_calls' && Array.isArray(evt.calls) && evt.calls.length > 0) {
             deltaCoalescer.flush();
@@ -221,6 +388,10 @@ async function handleVercelStream(req, res, rawBody, payload) {
             continue;
           }
           if (evt.text) {
+            // 已发出 tool_calls 后，收尾阶段剩余的工具块后正文同样丢弃，与流式处理一致。
+            if (toolCallsEmitted) {
+              continue;
+            }
             deltaCoalescer.append('content', evt.text);
           }
         }
@@ -231,10 +402,12 @@ async function handleVercelStream(req, res, rawBody, payload) {
       }
       if (detected.length === 0 && !toolCallsEmitted && outputText.trim() === '') {
         if (options.deferEmpty && reason !== 'content_filter') {
+          lastEmptyDetail = upstreamEmptyOutputDetail(reason === 'content_filter', outputText, thinkingText);
           return false;
         }
         ended = true;
         const detail = upstreamEmptyOutputDetail(reason === 'content_filter', outputText, thinkingText);
+        leaseCompletion = { finish_reason: reason, usage: null, thinking: thinkingText, content: outputText, error: detail.message };
         sendFailedChunk(res, detail.status, detail.message, detail.code);
         await releaseLease();
         if (!res.writableEnded && !res.destroyed) {
@@ -243,17 +416,25 @@ async function handleVercelStream(req, res, rawBody, payload) {
         return true;
       }
       ended = true;
+      const finalUsage = buildUsage(usagePrompt, thinkingText, outputText);
       sendFrame({
         id: responseID,
         object: 'chat.completion.chunk',
         created,
         model,
         choices: [{ delta: {}, index: 0, finish_reason: reason }],
-        usage: buildUsage(usagePrompt, thinkingText, outputText),
+        usage: finalUsage,
       });
       if (!res.writableEnded && !res.destroyed) {
         res.write('data: [DONE]\n\n');
       }
+      leaseCompletion = {
+        finish_reason: reason,
+        usage: finalUsage,
+        thinking: thinkingText,
+        content: outputText,
+        error: '',
+      };
       await releaseLease();
       if (!res.writableEnded && !res.destroyed) {
         res.end();
@@ -265,8 +446,15 @@ async function handleVercelStream(req, res, rawBody, payload) {
       let currentResponse = initialResponse;
       let continueState = createContinueState(activeDeepSeekSessionID);
       let continueRounds = 0;
+      let contentCut = CUT_NONE;
       // eslint-disable-next-line no-constant-condition
       while (true) {
+        // 每一轮都是一次新的上游响应——自动续答轮、换号重试轮都从这里进入——
+        // 因此内容规则重新开始：上一轮命中的截断只属于上一轮，若继续生效，
+        // 这一轮的健康正文会被静默丢弃，客户端最后只会拿到
+        // upstream_unavailable。与 Go 侧每个 attempt 重置一次对齐
+        // （consume*StreamAttempt → ResetContentPolicy）。
+        contentPolicy = createContentPolicy();
         reader = currentResponse.body.getReader();
         buffered = '';
         let streamEnded = false;
@@ -295,6 +483,7 @@ async function handleVercelStream(req, res, rawBody, payload) {
                 continue;
               }
               if (dataStr === '[DONE]') {
+                continueState.sawDone = true;
                 streamEnded = true;
                 break;
               }
@@ -311,6 +500,12 @@ async function handleVercelStream(req, res, rawBody, payload) {
               }
               currentType = parsed.newType;
               if (parsed.errorMessage) {
+                // 临时上游错误（如“服务器暂时不可用”）可重试：交给外层重试/切号
+                // 循环处理，而不是伪装成 content_filter 直接终止。
+                if (isTransientUpstreamMessage(parsed.errorMessage)) {
+                  lastEmptyDetail = { status: 503, message: parsed.errorMessage, code: 'upstream_unavailable' };
+                  return { terminal: false, retryable: true, responseMessageID: continueState.responseMessageID, interrupted: false };
+                }
                 return { terminal: await finish('content_filter'), retryable: false };
               }
               if (parsed.contentFilter) {
@@ -335,19 +530,34 @@ async function handleVercelStream(req, res, rawBody, payload) {
                     deltaCoalescer.append('reasoning_content', trimmed);
                   }
                 } else {
-                  const trimmed = trimContinuationOverlap(outputText, p.text);
+                  // 先归一化再进入复读守卫 / 累计文本 / sieve：三者都只认 EPSE。
+                  // thinking 通道刻意不做归一化，与 Go 侧
+                  // chatStreamRuntime.onParsed 保持一致（Go 只在 assistantturn
+                  // 收口时归一化 thinking，流式 reasoning_content 片段原样下发）。
+                  const normalizedText = markerNormalizer.write(p.text);
+                  if (!normalizedText) {
+                    continue;
+                  }
+                  const trimmed = trimContinuationOverlap(outputText, normalizedText);
                   if (!trimmed) {
                     continue;
                   }
-                  if (searchEnabled && isCitation(trimmed)) {
+                  // 内容策略可能在此截断正文通道：编造的 `[Tool]:` 角色标记及其后
+                  // 全是虚构对话，复读死循环之后的输出也已退化。两种情况都只保留
+                  // 截断点之前的正文。
+                  const safeText = feedContentPolicy(contentPolicy, trimmed);
+                  if (!safeText) {
                     continue;
                   }
-                  outputText += trimmed;
+                  if (searchEnabled && isCitation(safeText)) {
+                    continue;
+                  }
+                  outputText += safeText;
                   if (!toolSieveEnabled) {
-                    deltaCoalescer.append('content', trimmed);
+                    deltaCoalescer.append('content', safeText);
                     continue;
                   }
-                  const events = processToolSieveChunk(toolSieveState, trimmed, toolNames);
+                  const events = processToolSieveChunk(toolSieveState, safeText, toolNames);
                   for (const evt of events) {
                     if (evt.type === 'tool_call_deltas') {
                       if (!emitEarlyToolDeltas) {
@@ -371,10 +581,23 @@ async function handleVercelStream(req, res, rawBody, payload) {
                       continue;
                     }
                     if (evt.text) {
+                      // 已发出 tool_calls 后，工具调用块之后追加的尾巴正文不再透传
+                      // （OpenAI 规范中 tool_calls 回合的 content 应为空）。
+                      if (toolCallsEmitted) {
+                        continue;
+                      }
                       deltaCoalescer.append('content', evt.text);
                     }
                   }
                 }
+              }
+              if (contentPolicyCut(contentPolicy) !== CUT_NONE) {
+                // 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）触发：
+                // 停止读取上游，保留已生成内容交给正常收尾（工具筛分 /
+                // finish 帧 / [DONE]），仍是 200。
+                contentCut = contentPolicyCut(contentPolicy);
+                streamEnded = true;
+                break;
               }
               if (streamEnded) {
                 break;
@@ -387,10 +610,36 @@ async function handleVercelStream(req, res, rawBody, payload) {
         } catch (err) {
           if (clientClosed || isAbortError(err)) {
             await finish('stop');
-            return { terminal: true, retryable: false };
+            return { terminal: true, retryable: false, interrupted: false };
           }
-          await finish('stop');
-          return { terminal: true, retryable: false };
+          // Upstream stream interrupted mid-body (RST / EOF without terminal
+          // status). If the response already produced visible content and the
+          // upstream had not signalled completion with [DONE], try to resume
+          // the same message via the continue endpoint instead of silently
+          // delivering a truncated response.
+          if ((outputText.trim() !== '' || thinkingText.trim() !== '') && !continueState.sawDone && shouldAutoContinue(continueState) && continueRounds < AUTO_CONTINUE_MAX_ROUNDS) {
+            continueRounds += 1;
+            const nextRes = await fetchContinue(continueState.responseMessageID);
+            if (nextRes !== null && nextRes.ok && nextRes.body) {
+              continueState = prepareContinueStateForNextRound(continueState);
+              currentResponse = nextRes;
+              continue;
+            }
+          }
+          if (outputText.trim() !== '' || thinkingText.trim() !== '') {
+            return { terminal: false, retryable: false, interrupted: true, responseMessageID: continueState.responseMessageID };
+          }
+          // No partial output: fall through to the normal empty-output path.
+          break;
+        }
+
+        if (contentCut !== CUT_NONE) {
+          // 复读死循环 / 编造的 `[Tool]:` 角色标记已打断：主动取消上游读取，
+          // 且不再走 auto-continue，否则续答只会立刻重新进入同一种退化输出。
+          if (reader && typeof reader.cancel === 'function') {
+            await Promise.resolve(reader.cancel()).catch(() => {});
+          }
+          break;
         }
 
         if (shouldAutoContinue(continueState) && continueRounds < AUTO_CONTINUE_MAX_ROUNDS) {
@@ -410,16 +659,28 @@ async function handleVercelStream(req, res, rawBody, payload) {
       }
 
       const terminal = await finish('stop', { deferEmpty: allowDeferEmpty });
-      return { terminal, retryable: !terminal && allowDeferEmpty, responseMessageID: continueState.responseMessageID };
+      return { terminal, retryable: !terminal && allowDeferEmpty, responseMessageID: continueState.responseMessageID, interrupted: false };
     };
 
     let retryAttempts = 0;
     let accountSwitchAttempted = false;
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const allowDeferEmpty = retryAttempts < EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS || !accountSwitchAttempted;
+      const isUpstreamUnavailable = lastEmptyDetail && lastEmptyDetail.code === 'upstream_unavailable';
+      const isAccountUnauthorized = lastEmptyDetail && lastEmptyDetail.code === 'account_unauthorized';
+      const isInputContentBlocked = lastEmptyDetail && lastEmptyDetail.code === 'input_content_blocked';
+      const allowDeferEmpty = retryAttempts < EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS || !accountSwitchAttempted || isUpstreamUnavailable || isAccountUnauthorized;
       const processed = await processStream(completionRes, allowDeferEmpty);
       if (processed.terminal) {
+        return;
+      }
+      if (processed.interrupted) {
+        // The upstream stream was cut after partial output and the in-stream
+        // continue resume did not recover it: surface the interruption instead
+        // of finishing with a truncated "complete" response.
+        leaseCompletion = { finish_reason: 'upstream_interrupted', usage: null, thinking: thinkingText, content: outputText, error: 'Upstream stream interrupted before completion.' };
+        await releaseLease();
+        sendFailedChunk(res, 502, 'Upstream stream interrupted before completion.', 'upstream_interrupted');
         return;
       }
       if (!processed.retryable) {
@@ -427,6 +688,39 @@ async function handleVercelStream(req, res, rawBody, payload) {
         return;
       }
       if (retryAttempts >= EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS) {
+        if (isInputContentBlocked) {
+          await finish('stop');
+          return;
+        }
+        if (isUpstreamUnavailable || isAccountUnauthorized) {
+          const switched = await fetchStreamSwitch(
+            req,
+            leaseID,
+            isAccountUnauthorized ? { disable: true, auth_failed: true } : { disable: true },
+          );
+          if (switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object') {
+            completionPayload = switched.body.payload;
+            deepseekToken = asString(switched.body.deepseek_token) || deepseekToken;
+            currentPowHeader = asString(switched.body.pow_header) || currentPowHeader;
+            activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
+            updateBaseHeaders(switched.body);
+            usagePrompt = finalPrompt;
+            lastEmptyDetail = null;
+            outputText = '';
+            thinkingText = '';
+            completionRes = await fetchCompletion(completionPayload);
+            if (completionRes === null) {
+              return;
+            }
+            if (!completionRes.ok || !completionRes.body) {
+              await finish('stop');
+              return;
+            }
+            continue;
+          }
+          await finish('stop');
+          return;
+        }
         if (!accountSwitchAttempted) {
           accountSwitchAttempted = true;
           const switched = await fetchStreamSwitch(req, leaseID);
@@ -435,7 +729,10 @@ async function handleVercelStream(req, res, rawBody, payload) {
             deepseekToken = asString(switched.body.deepseek_token) || deepseekToken;
             currentPowHeader = asString(switched.body.pow_header) || currentPowHeader;
             activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
+            updateBaseHeaders(switched.body);
             usagePrompt = finalPrompt;
+            outputText = '';
+            thinkingText = '';
             completionRes = await fetchCompletion(completionPayload);
             if (completionRes === null) {
               return;
@@ -471,6 +768,16 @@ async function handleVercelStream(req, res, rawBody, payload) {
         return;
       }
       if (!completionRes.ok || !completionRes.body) {
+        const retryStatus = completionRes.ok ? 500 : completionRes.status || 500;
+        if (isTransientUpstreamStatus(retryStatus) || isAccountAuthFailureStatus(retryStatus)) {
+          const retryDetail = completionRes.body ? await completionRes.text() : '';
+          lastEmptyDetail = {
+            status: retryStatus,
+            message: retryDetail,
+            code: isAccountAuthFailureStatus(retryStatus) ? 'account_unauthorized' : 'upstream_unavailable',
+          };
+          continue;
+        }
         await finish('stop');
         return;
       }
@@ -524,6 +831,8 @@ function createContinueState(sessionID) {
     responseMessageID: 0,
     lastStatus: '',
     finished: false,
+    sawContent: false,
+    sawDone: false,
   };
 }
 
@@ -532,12 +841,17 @@ function prepareContinueStateForNextRound(state) {
     ...state,
     lastStatus: '',
     finished: false,
+    sawContent: false,
+    sawDone: false,
   };
 }
 
 function observeContinueState(state, chunk) {
   if (!state || !chunk || typeof chunk !== 'object') {
     return;
+  }
+  if (!state.sawContent && chunkHasVisibleContent(chunk)) {
+    state.sawContent = true;
   }
   const topID = numberValue(chunk.response_message_id);
   if (topID > 0) {
@@ -642,7 +956,94 @@ function shouldAutoContinue(state) {
   if (!state || state.finished || !state.sessionID || state.responseMessageID <= 0) {
     return false;
   }
-  return ['INCOMPLETE', 'AUTO_CONTINUE'].includes(asString(state.lastStatus).trim().toUpperCase());
+  const status = asString(state.lastStatus).trim().toUpperCase();
+  if (['INCOMPLETE', 'AUTO_CONTINUE'].includes(status)) {
+    return true;
+  }
+  // Relaxation: the stream ended (EOF or mid-body error) without reaching a
+  // terminal status but the message produced visible content — treat it as an
+  // interrupted response and resume via continue. A stream that already
+  // signalled completion with [DONE] is never resumed.
+  return !!state.sawContent && !state.sawDone;
+}
+
+const CONTINUE_METADATA_PATHS = new Set([
+  'response/status', 'status',
+  'response/quasi_status', 'quasi_status',
+  'response/auto_continue', 'auto_continue',
+  'conversation_mode', 'accumulated_token_usage',
+  'response/message_id', 'message_id',
+  'request_message_id', 'response/request_message_id',
+  'response/has_pending_fragment', 'has_pending_fragment',
+  'response/search_status',
+]);
+
+function isContinueMetadataPath(path) {
+  return CONTINUE_METADATA_PATHS.has(asString(path).trim());
+}
+
+// Mirrors the Go-side heuristic: reports whether an SSE JSON chunk carries
+// visible content (text / thinking / tool fragments) as opposed to envelope,
+// status or heartbeat frames.
+function chunkHasVisibleContent(chunk) {
+  if (!chunk || typeof chunk !== 'object') {
+    return false;
+  }
+  const path = asString(chunk.p);
+  if (path && shouldSkipPath(path)) {
+    return false;
+  }
+  if (!('v' in chunk)) {
+    return false;
+  }
+  const v = chunk.v;
+  if (typeof v === 'string') {
+    const trimmed = v.trim();
+    if (!trimmed) {
+      return false;
+    }
+    const upper = trimmed.toUpperCase();
+    if (['FINISHED', 'WIP', 'INCOMPLETE', 'AUTO_CONTINUE', 'CONTENT_FILTER'].includes(upper)) {
+      return false;
+    }
+    return true;
+  }
+  if (Array.isArray(v)) {
+    for (const item of v) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+      const itemPath = asString(item.p);
+      if (itemPath) {
+        if (shouldSkipPath(itemPath) || isContinueMetadataPath(itemPath)) {
+          continue;
+        }
+        if (itemPath.includes('content')) {
+          return true;
+        }
+      }
+      if (item.content !== undefined || item.v !== undefined) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (typeof v === 'object') {
+    if (v.response !== undefined) {
+      return false; // initial envelope, not content
+    }
+    if (asString(v.text) !== '') {
+      return true;
+    }
+    if (asString(v.content) !== '') {
+      return true;
+    }
+    if (Array.isArray(v.fragments) && v.fragments.length > 0) {
+      return true;
+    }
+    return false;
+  }
+  return false;
 }
 
 function numberValue(v) {
@@ -653,6 +1054,8 @@ function numberValue(v) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const MODERATION_BLOCKED_THINKING_PHRASE = '你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧';
+
 function upstreamEmptyOutputDetail(contentFilter, _text, thinking) {
   if (contentFilter) {
     return {
@@ -662,6 +1065,13 @@ function upstreamEmptyOutputDetail(contentFilter, _text, thinking) {
     };
   }
   if (thinking !== '') {
+    if (thinking.includes(MODERATION_BLOCKED_THINKING_PHRASE)) {
+      return {
+        status: 400,
+        message: '输入内容被审核拦截',
+        code: 'input_content_blocked',
+      };
+    }
     return {
       status: 429,
       message: 'Upstream account hit a rate limit and returned reasoning without visible output.',
@@ -691,6 +1101,104 @@ function sendFailedChunk(res, status, message, code) {
   if (typeof res.flush === 'function') {
     res.flush();
   }
+}
+
+// 检测 DeepSeek 是否返回了封号/停用 JSON 响应（HTTP 200 但 body 是 JSON 而非 SSE）。
+// 与 Go 侧 detectMutedCompletion / isUserBannedResponse 对齐：先 peek 第一个字节，只有 JSON 才读取全部 body。
+// 返回 { mutedUntil, banned, response }：
+//   - mutedUntil > 0 时表示检测到禁言，response 为 null；
+//   - banned 为 true 时表示检测到 USER_IS_BANNED，response 为 null；
+//   - 均未检测到时，response 为可能经过恢复的 Response（SSE body 未被消耗）。
+async function detectMutedOrBannedResponse(res) {
+  if (!res || !res.ok || !res.body) {
+    return { mutedUntil: 0, banned: false, response: res };
+  }
+  const reader = res.body.getReader();
+  let firstChunk;
+  try {
+    const result = await reader.read();
+    if (result.done || !result.value || result.value.length === 0) {
+      reader.releaseLock();
+      return { mutedUntil: 0, banned: false, response: res };
+    }
+    firstChunk = result.value;
+  } catch (_err) {
+    try { reader.releaseLock(); } catch (_e) {}
+    return { mutedUntil: 0, banned: false, response: res };
+  }
+  if (firstChunk[0] !== 0x7b) { // '{'
+    const newBody = new ReadableStream({
+      start(controller) {
+        controller.enqueue(firstChunk);
+        const pump = () => reader.read().then(({ done, value }) => {
+          if (done) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(value);
+          return pump();
+        }).catch(err => controller.error(err));
+        pump();
+      },
+    });
+    return { mutedUntil: 0, banned: false, response: new Response(newBody, res) };
+  }
+  const chunks = [firstChunk];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  try {
+    const data = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+    return { mutedUntil: extractMuteUntil(data), banned: isBannedJSONResponse(data), response: null };
+  } catch (_err) {
+    return { mutedUntil: 0, banned: false, response: null };
+  }
+}
+
+// 判断 DeepSeek JSON 响应是否表示 USER_IS_BANNED。
+// 匹配规则与 Go 侧 isUserBannedResponse 对齐：data.biz_code == 10 或 data.biz_msg 包含 user_is_banned。
+function isBannedJSONResponse(data) {
+  if (!data || typeof data !== 'object') {
+    return false;
+  }
+  const d = data.data;
+  if (!d || typeof d !== 'object') {
+    return false;
+  }
+  const bizMsg = asString(d.biz_msg).toLowerCase();
+  const bizCode = Number(d.biz_code) || 0;
+  return bizCode === 10 || bizMsg.includes('user_is_banned');
+}
+
+// 从 DeepSeek 响应中解析 mute_until。
+// 匹配规则与 Go 侧 detectMutedCompletion/isMutedJSONResponse 对齐：
+// - data.biz_code == 5 或 14，或 data.biz_msg 包含 "muted"，视为封号；
+// - 优先取 data.biz_data.mute_until 或 data.mute_until。
+function extractMuteUntil(data) {
+  if (!data || typeof data !== 'object') {
+    return 0;
+  }
+  const d = data.data;
+  if (!d || typeof d !== 'object') {
+    return 0;
+  }
+  const bizMsg = asString(d.biz_msg).toLowerCase();
+  const bizCode = Number(d.biz_code) || 0;
+  if (bizCode !== 5 && bizCode !== 14 && !bizMsg.includes('muted')) {
+    return 0;
+  }
+  const topMuteUntil = Number(d.mute_until);
+  if (Number.isFinite(topMuteUntil) && topMuteUntil > 0) {
+    return topMuteUntil;
+  }
+  const bizData = d.biz_data;
+  if (!bizData || typeof bizData !== 'object') {
+    return 0;
+  }
+  const muteUntil = Number(bizData.mute_until);
+  return Number.isFinite(muteUntil) && muteUntil > 0 ? muteUntil : 0;
 }
 
 module.exports = {

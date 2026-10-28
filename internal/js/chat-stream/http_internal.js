@@ -85,14 +85,27 @@ async function fetchStreamPow(req, leaseID) {
   };
 }
 
-async function fetchStreamSwitch(req, leaseID) {
+async function fetchStreamSwitch(req, leaseID, options = {}) {
   const url = buildInternalGoURL(req);
   url.searchParams.set('__stream_switch', '1');
 
+  const switchBody = { lease_id: leaseID };
+  if (options.disable) {
+    switchBody.disable = true;
+  }
+  if (options.mute_until && typeof options.mute_until === 'number' && options.mute_until > 0) {
+    switchBody.mute_until = options.mute_until;
+  }
+  if (options.banned) {
+    switchBody.banned = true;
+    if (options.banned_reason) {
+      switchBody.banned_reason = asString(options.banned_reason);
+    }
+  }
   const upstream = await fetch(url.toString(), {
     method: 'POST',
     headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),
-    body: Buffer.from(JSON.stringify({ lease_id: leaseID })),
+    body: Buffer.from(JSON.stringify(switchBody)),
   });
 
   const text = await upstream.text();
@@ -174,7 +187,7 @@ function buildInternalGoHeaders(req, opts = {}) {
   return headers;
 }
 
-function createLeaseReleaser(req, leaseID) {
+function createLeaseReleaser(req, leaseID, getMeta) {
   let released = false;
   return async () => {
     if (released || !leaseID) {
@@ -182,17 +195,18 @@ function createLeaseReleaser(req, leaseID) {
     }
     released = true;
     try {
-      await releaseStreamLease(req, leaseID);
+      await releaseStreamLease(req, leaseID, getMeta ? getMeta() : undefined);
     } catch (_err) {
       // Ignore release errors. Lease TTL cleanup on Go side still prevents permanent leaks.
     }
   };
 }
 
-async function releaseStreamLease(req, leaseID) {
+async function releaseStreamLease(req, leaseID, meta) {
   const url = buildInternalGoURL(req);
   url.searchParams.set('__stream_release', '1');
-  const body = Buffer.from(JSON.stringify({ lease_id: leaseID }));
+  const releaseBody = meta && typeof meta === 'object' ? { ...meta, lease_id: leaseID } : { lease_id: leaseID };
+  const body = Buffer.from(JSON.stringify(releaseBody));
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1500);

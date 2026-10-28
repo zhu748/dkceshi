@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
+	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
 )
 
@@ -43,6 +45,7 @@ type chatStreamRuntime struct {
 	streamToolNames   map[int]string
 	accumulator       shared.StreamAccumulator
 	responseMessageID int
+	upstreamErr       string
 
 	finalThinking     string
 	finalText         string
@@ -51,6 +54,12 @@ type chatStreamRuntime struct {
 	finalErrorStatus  int
 	finalErrorMessage string
 	finalErrorCode    string
+
+	// toolCallRepair / toolCallRepairCtx wire the phase-3 finalize-only LLM
+	// tool-call repair into the streaming finalize path (M4). They are nil
+	// unless the handler enabled repair; the per-chunk sieve never sees them.
+	toolCallRepair    toolcall.ToolCallRepairInvoker
+	toolCallRepairCtx context.Context
 }
 
 type chatDeltaBatch struct {
@@ -226,6 +235,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		VisibleThinking:       finalThinking,
 		DetectionThinking:     finalToolDetectionThinking,
 		ContentFilter:         finishReason == "content_filter",
+		UpstreamError:         s.upstreamErr,
 		ResponseMessageID:     s.responseMessageID,
 		AlreadyEmittedCalls:   s.toolCallsEmitted,
 		AlreadyEmittedToolRaw: s.toolCallsDoneEmitted,
@@ -238,6 +248,9 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		ToolNames:             s.toolNames,
 		ToolsRaw:              s.toolsRaw,
 		ToolChoice:            s.toolChoice,
+		ToolCallRepair:        s.toolCallRepair,
+		ToolCallRepairCtx:     s.toolCallRepairCtx,
+		ToolMarker:            s.toolSieve.Marker,
 	})
 	s.finalThinking = turn.Thinking
 	s.finalText = turn.Text
@@ -259,7 +272,9 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 				})
 				s.resetStreamToolCallState()
 			}
-			if evt.Content == "" {
+			if evt.Content == "" || s.toolCallsEmitted {
+				// 已发出 tool_calls 后，Flush 剩余的尾巴正文同样丢弃，
+				// 与 onParsed 中的行为保持一致。
 				continue
 			}
 			cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)
@@ -313,7 +328,8 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReasonHandlerRequested}
 	}
 	if parsed.ErrorMessage != "" {
-		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReason("content_filter")}
+		s.upstreamErr = parsed.ErrorMessage
+		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReason("upstream_error")}
 	}
 	if parsed.Stop {
 		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReasonHandlerRequested}
@@ -369,6 +385,13 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 					continue
 				}
 				if evt.Content != "" {
+					// 本回合已发出过 tool_calls 后，后续正文（模型在工具调用块
+					// 之后追加的尾巴文字）不再透传给客户端，避免工具调用
+					// 的最后几行结果泄漏到正文。OpenAI 规范中 tool_calls
+					// 回合的 content 本应为 null/空。
+					if s.toolCallsEmitted {
+						continue
+					}
 					cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)
 					if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 						continue
@@ -379,5 +402,8 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 		}
 	}
 	batch.flush()
-	return streamengine.ParsedDecision{ContentSeen: accumulated.ContentSeen}
+	// 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）在此统一收口：
+	// 结束读取，把已生成内容交给正常收尾（tool 筛分 / 修复 / finish 帧），
+	// 仍返回 200。
+	return streamengine.StopForCut(accumulated.Cut, "openai_chat_stream", "chat.completions", accumulated.ContentSeen)
 }

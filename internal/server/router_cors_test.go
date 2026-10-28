@@ -65,6 +65,7 @@ func TestAppCORSPreflightIsUnifiedAcrossInterfaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewApp() error: %v", err)
 	}
+	t.Cleanup(app.Close)
 
 	cases := []struct {
 		name    string

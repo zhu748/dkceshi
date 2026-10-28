@@ -14,6 +14,16 @@ const {
 const {
   setCorsHeaders,
 } = require('../../internal/js/chat-stream/http_internal.js');
+const {
+  REPEAT_LOOP_THRESHOLD,
+  createRepeatLoopGuard,
+  feedRepeatLoopGuard,
+} = require('../../internal/js/chat-stream/repeat_guard.js');
+const {
+  TOOL_ROLE_MARKER,
+  createToolRoleMarkerGuard,
+  feedToolRoleMarkerGuard,
+} = require('../../internal/js/chat-stream/tool_role_marker_guard.js');
 
 const {
   parseChunkForContent,
@@ -29,6 +39,7 @@ const {
   isNodeStreamSupportedPath,
   extractPathname,
   trimContinuationOverlap,
+  createMarkerNormalizer,
 } = handler.__test;
 
 function createMockResponse() {
@@ -184,13 +195,40 @@ test('chat-stream exposes parser test hooks', () => {
 });
 
 test('vercel stream emits Go-parity empty-output failure on DONE', async () => {
-  const { frames } = await runMockVercelStream(['data: [DONE]\n\n']);
-  assert.equal(frames.length, 2);
-  const failed = JSON.parse(frames[0]);
-  assert.equal(failed.status_code, 503);
-  assert.equal(failed.error.type, 'service_unavailable_error');
-  assert.equal(failed.error.code, 'upstream_unavailable');
-  assert.equal(frames[1], '[DONE]');
+    const { frames } = await runMockVercelStream(['data: [DONE]\n\n']);
+    assert.equal(frames.length, 2);
+    const failed = JSON.parse(frames[0]);
+    assert.equal(failed.status_code, 503);
+    assert.equal(failed.error.type, 'service_unavailable_error');
+    assert.equal(failed.error.code, 'upstream_unavailable');
+    assert.equal(frames[1], '[DONE]');
+});
+
+test('vercel stream reports completion usage on lease release', async () => {
+    const { fetchBodies } = await runMockVercelStreamSequence([
+        ['data: {"p":"response/content","v":"visible"}\n\n', 'data: [DONE]\n\n'],
+    ]);
+    const releaseBodies = fetchBodies.filter((body) => Object.hasOwn(body, 'finish_reason'));
+    assert.equal(releaseBodies.length, 1);
+    const release = releaseBodies[0];
+    assert.equal(release.lease_id, 'lease-test');
+    assert.equal(release.finish_reason, 'stop');
+    assert.equal(release.error, '');
+    assert.equal(release.content, 'visible');
+    assert.ok(release.usage);
+    assert.ok(Number.isFinite(release.usage.prompt_tokens) && release.usage.prompt_tokens > 0);
+    assert.ok(Number.isFinite(release.usage.completion_tokens) && release.usage.completion_tokens > 0);
+    assert.ok(Number.isFinite(release.usage.total_tokens) && release.usage.total_tokens > 0);
+});
+
+test('vercel stream reports failure detail on lease release for empty output', async () => {
+    const { fetchBodies } = await runMockVercelStream(['data: [DONE]\n\n']);
+    const releaseBodies = fetchBodies.filter((body) => Object.hasOwn(body, 'finish_reason'));
+    assert.equal(releaseBodies.length, 1);
+    const release = releaseBodies[0];
+    assert.equal(release.lease_id, 'lease-test');
+    assert.equal(release.usage, null);
+    assert.equal(release.error, 'Upstream service is unavailable and returned no output.');
 });
 
 test('vercel stream retries empty output once and keeps one terminal frame', async () => {
@@ -206,7 +244,22 @@ test('vercel stream retries empty output once and keeps one terminal frame', asy
   assert.equal(parsed[0].choices[0].delta.content, 'visible');
   assert.equal(parsed[1].choices[0].finish_reason, 'stop');
   assert.equal(parsed[0].id, parsed[1].id);
-  assert.match(completionBodies[1].prompt, /The previous reply produced no visible output\. Please regenerate the visible final answer or tool call now\.$/);
+  assert.match(completionBodies[1].prompt, /Previous reply had no visible output\. Please regenerate the visible final answer or tool call now\.$/);
+});
+
+// 截断状态属于它命中的那一条上游流：第一轮开头就编造 `[Tool]:`（命中角色标记
+// 规则且没有可见正文）时，空输出重试会去读一条新的上游流，那一轮的正文必须能到达
+// 客户端。修复前策略是每请求一份，命中后永久停止转发，重试轮的健康正文被静默丢弃，
+// 客户端最后只拿到 upstream_unavailable。
+test('vercel stream restarts the content rules for the retry round after a cut', async () => {
+  const { frames } = await runMockVercelStreamSequence([
+    ['data: {"p":"response/content","v":"[Tool]:编造的工具结果"}\n\n', 'data: [DONE]\n\n'],
+    ['data: {"p":"response/content","v":"healthy answer"}\n\n', 'data: [DONE]\n\n'],
+  ]);
+  const body = frames.join('\n');
+  assert.ok(body.includes('healthy answer'), body);
+  assert.ok(!body.includes('upstream_unavailable'), body);
+  assert.ok(!body.includes('[Tool]:'), body);
 });
 
 test('vercel stream retries thinking-only output once', async () => {
@@ -222,6 +275,23 @@ test('vercel stream retries thinking-only output once', async () => {
   assert.equal(parsed[0].choices[0].delta.reasoning_content, 'plan');
   assert.equal(parsed[1].choices[0].delta.content, 'visible');
   assert.equal(parsed[2].choices[0].finish_reason, 'stop');
+});
+
+test('vercel stream reports input moderation block from thinking without switching accounts', async () => {
+  const phrase = '你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧';
+  const line = `data: {"response_message_id":42,"p":"response/thinking_content","v":${JSON.stringify(phrase)}}\n\n`;
+  const { frames, fetchURLs } = await runMockVercelStreamSequence([
+    [line, 'data: [DONE]\n\n'],
+    [line, 'data: [DONE]\n\n'],
+  ], { thinking_enabled: true });
+  assert.equal(fetchURLs.filter((url) => url.includes('__stream_switch=1')).length, 0);
+  const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+  const failed = parsed.find((frame) => frame.status_code);
+  assert.ok(failed, `expected failure frame, frames=${JSON.stringify(frames)}`);
+  assert.equal(failed.status_code, 400);
+  assert.equal(failed.error.code, 'input_content_blocked');
+  assert.equal(failed.error.message, '输入内容被审核拦截');
+  assert.equal(frames.at(-1), '[DONE]');
 });
 
 test('vercel stream switches managed account after empty retry exhaustion', async () => {
@@ -287,7 +357,7 @@ test('vercel stream switches managed account after empty retry exhaustion', asyn
     const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
     assert.equal(fetchURLs.filter((url) => url.includes('__stream_switch=1')).length, 1);
     assert.equal(completionBodies.length, 3);
-    assert.match(completionBodies[1].prompt, /The previous reply produced no visible output/);
+    assert.match(completionBodies[1].prompt, /Previous reply had no visible output/);
     assert.equal(completionBodies[1].parent_message_id, 41);
     assert.equal(completionBodies[2].prompt, 'hello');
     assert.deepEqual(completionBodies[2].ref_file_ids, ['file-2']);
@@ -343,7 +413,135 @@ test('vercel stream exhausts DeepSeek continue before synthetic retry', async ()
   assert.equal(fetchURLs.filter((url) => url.includes('__stream_pow=1')).length, 1);
   assert.equal(parsed[0].choices[0].delta.content, 'continued');
   assert.equal(parsed[1].choices[0].finish_reason, 'stop');
-  assert.equal(fetchBodies.some((body) => String(body.prompt || '').includes('The previous reply produced no visible output')), false);
+  assert.equal(fetchBodies.some((body) => String(body.prompt || '').includes('Previous reply had no visible output')), false);
+});
+
+function erroringSSEResponse(lines, err) {
+  const encoder = new TextEncoder();
+  let idx = 0;
+  return new Response(new ReadableStream({
+    pull(controller) {
+      if (idx < lines.length) {
+        controller.enqueue(encoder.encode(lines[idx]));
+        idx += 1;
+        return;
+      }
+      controller.error(err);
+    },
+  }), {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  });
+}
+
+test('vercel stream resumes interrupted partial stream via continue', async () => {
+  const originalFetch = global.fetch;
+  const fetchURLs = [];
+  let continueCalls = 0;
+  global.fetch = async (url, init = {}) => {
+    const textURL = String(url);
+    fetchURLs.push(textURL);
+    if (textURL.includes('__stream_prepare=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-resume',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'token-1',
+        pow_header: 'pow-1',
+        payload: { chat_session_id: 'session-1', prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_pow=1')) {
+      return jsonResponse({ pow_header: 'pow-2' });
+    }
+    if (textURL.includes('__stream_release=1')) {
+      return jsonResponse({ success: true });
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/continue') {
+      continueCalls += 1;
+      return sseResponse([
+        'data: {"response_message_id":8,"p":"response/content","v":"-resumed-part"}\n\n',
+        'data: {"p":"response/status","v":"FINISHED"}\n\n',
+      ]);
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/completion') {
+      return erroringSSEResponse(
+        ['data: {"response_message_id":7,"p":"response/content","v":"partial-code"}\n\n'],
+        new Error('connection reset by peer'),
+      );
+    }
+    throw new Error(`unexpected fetch url: ${textURL}`);
+  };
+  try {
+    const req = new MockStreamRequest();
+    const res = new MockStreamResponse();
+    const payload = { model: 'gpt-test', stream: true };
+    await handleVercelStream(req, res, Buffer.from(JSON.stringify(payload)), payload);
+    const frames = parseSSEDataFrames(res.bodyText());
+    const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+    assert.equal(continueCalls, 1);
+    const content = parsed.filter((item) => item.choices?.[0]?.delta?.content).map((item) => item.choices[0].delta.content).join('');
+    assert.equal(content, 'partial-code-resumed-part');
+    assert.equal(parsed.at(-1).choices[0].finish_reason, 'stop');
+    assert.equal(frames.at(-1), '[DONE]');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('vercel stream surfaces interruption when continue resume fails', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url, init = {}) => {
+    const textURL = String(url);
+    if (textURL.includes('__stream_prepare=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-fail',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'token-1',
+        pow_header: 'pow-1',
+        payload: { chat_session_id: 'session-1', prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_pow=1')) {
+      return jsonResponse({ pow_header: 'pow-2' });
+    }
+    if (textURL.includes('__stream_release=1')) {
+      return jsonResponse({ success: true });
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/continue') {
+      return jsonResponse({ error: 'rate limited' }, 429);
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/completion') {
+      return erroringSSEResponse(
+        ['data: {"response_message_id":7,"p":"response/content","v":"partial-code"}\n\n'],
+        new Error('connection reset by peer'),
+      );
+    }
+    throw new Error(`unexpected fetch url: ${textURL}`);
+  };
+  try {
+    const req = new MockStreamRequest();
+    const res = new MockStreamResponse();
+    const payload = { model: 'gpt-test', stream: true };
+    await handleVercelStream(req, res, Buffer.from(JSON.stringify(payload)), payload);
+    const frames = parseSSEDataFrames(res.bodyText());
+    const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+    const errorFrame = parsed.find((item) => item.error);
+    assert.ok(errorFrame, `expected an error frame, got ${JSON.stringify(parsed)}`);
+    assert.equal(errorFrame.status_code, 502);
+    assert.equal(errorFrame.error.code, 'upstream_interrupted');
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test('vercel stream continues direct quasi_status incomplete before final tool call', async () => {
@@ -365,6 +563,158 @@ test('vercel stream continues direct quasi_status incomplete before final tool c
   assert.ok(toolDelta);
   const args = JSON.parse(toolDelta.choices[0].delta.tool_calls[0].function.arguments);
   assert.equal(args.content, 'part-one-part-two');
+  assert.equal(parsed.at(-1).choices[0].finish_reason, 'tool_calls');
+});
+
+test('vercel stream intercepts EPSE tool calls without client tools', async () => {
+  const { frames } = await runMockVercelStream([
+    'data: {"p":"response/content","v":"<|EPSE|tool_calls><|EPSE|invoke name=\\"search\\"><|EPSE|parameter name=\\"q\\">golang</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>"}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+  const toolDelta = parsed.find((item) => item.choices?.[0]?.delta?.tool_calls);
+  assert.ok(toolDelta, `expected tool_calls delta, frames=${JSON.stringify(frames)}`);
+  const content = parsed.map((item) => item.choices?.[0]?.delta?.content || '').join('');
+  assert.equal(content.includes('<|EPSE|'), false, `expected no raw EPSE leak, content=${JSON.stringify(content)}`);
+  assert.equal(parsed.at(-1).choices[0].finish_reason, 'tool_calls');
+});
+
+test('marker normalizer rewrites the caller marker back to EPSE', () => {
+  const normalizer = createMarkerNormalizer('Q7ZK3M');
+  assert.equal(normalizer.active, true);
+  assert.equal(normalizer.write('a <|Q7ZK3M|tool_calls> b'), 'a <|EPSE|tool_calls> b');
+  assert.equal(normalizer.flush(), '');
+});
+
+test('marker normalizer is inert for empty and canonical markers', () => {
+  for (const marker of ['', '   ', 'EPSE', 'epse', undefined, null]) {
+    const normalizer = createMarkerNormalizer(marker);
+    assert.equal(normalizer.active, false, `marker=${String(marker)}`);
+    assert.equal(normalizer.write('<|EPSE|tool_calls>'), '<|EPSE|tool_calls>');
+    assert.equal(normalizer.flush(), '');
+  }
+});
+
+test('marker normalizer rewrites a marker split one character at a time', () => {
+  const normalizer = createMarkerNormalizer('Q7ZK3M');
+  let out = '';
+  for (const ch of '<|Q7ZK3M|tool_calls>') {
+    out += normalizer.write(ch);
+  }
+  out += normalizer.flush();
+  assert.equal(out, '<|EPSE|tool_calls>');
+});
+
+test('marker normalizer never forwards a partial marker', () => {
+  const normalizer = createMarkerNormalizer('Q7ZK3M');
+  let out = '';
+  for (const ch of '<|Q7ZK3M|invoke>') {
+    out += normalizer.write(ch);
+    assert.equal(out.includes('Q7Z'), false, `partial marker leaked: ${JSON.stringify(out)}`);
+  }
+  out += normalizer.flush();
+  assert.equal(out, '<|EPSE|invoke>');
+});
+
+test('marker normalizer holds a partial marker and releases it on flush', () => {
+  const normalizer = createMarkerNormalizer('Q7ZK3M');
+  assert.equal(normalizer.write('tail Q7Z'), 'tail ');
+  assert.equal(normalizer.flush(), 'Q7Z');
+});
+
+test('marker normalizer matches the marker case-insensitively', () => {
+  const normalizer = createMarkerNormalizer('q7zk3m');
+  assert.equal(normalizer.write('<|q7ZK3m|invoke>'), '<|EPSE|invoke>');
+});
+
+// Markers whose own tail is also a prefix of themselves ('N3KZ5N') used to be
+// split when a chunk ended exactly on the complete marker: the head was
+// released un-rewritten and the tail withheld, leaking the raw marker.
+const selfOverlappingMarkers = ['N3KZ5N', 'ABABAB', 'A2B2A2', 'M29MM2', 'ABCDEA'];
+
+test('marker normalizer rewrites a self-overlapping marker ending a chunk', () => {
+  for (const marker of selfOverlappingMarkers) {
+    const normalizer = createMarkerNormalizer(marker);
+    assert.equal(normalizer.write(`<|${marker}`), '<|EPSE', `marker=${marker}`);
+    assert.equal(normalizer.write('|tool_calls>'), '|tool_calls>', `marker=${marker}`);
+    assert.equal(normalizer.flush(), '', `marker=${marker}`);
+  }
+});
+
+test('marker normalizer rewrites a self-overlapping marker at every chunk size', () => {
+  const want = '<|EPSE|invoke name="read_file"><|EPSE|parameter name="path">README.MD</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>';
+  for (const marker of selfOverlappingMarkers) {
+    const input = `<|${marker}|invoke name="read_file"><|${marker}|parameter name="path">README.MD</|${marker}|parameter></|${marker}|invoke></|${marker}|tool_calls>`;
+    for (const size of [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]) {
+      const normalizer = createMarkerNormalizer(marker);
+      let out = '';
+      for (let i = 0; i < input.length; i += size) {
+        out += normalizer.write(input.slice(i, i + size));
+      }
+      out += normalizer.flush();
+      assert.equal(out, want, `marker=${marker} chunk=${size}`);
+    }
+  }
+});
+
+test('vercel stream normalizes a self-overlapping marker tool call split across one-char chunks', async () => {
+  const marker = 'N3KZ5N';
+  const raw = `<|${marker}|tool_calls><|${marker}|invoke name="search"><|${marker}|parameter name="q">golang</|${marker}|parameter></|${marker}|invoke></|${marker}|tool_calls>`;
+  const lines = [...raw].map((ch) => `data: ${JSON.stringify({ p: 'response/content', v: ch })}\n\n`);
+  lines.push('data: [DONE]\n\n');
+
+  const { frames } = await runMockVercelStream(lines, { tool_marker: marker });
+  const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+  const toolDelta = parsed.find((item) => item.choices?.[0]?.delta?.tool_calls);
+  assert.ok(toolDelta, `expected tool_calls delta, frames=${JSON.stringify(frames)}`);
+  const args = JSON.parse(toolDelta.choices[0].delta.tool_calls[0].function.arguments);
+  assert.equal(args.q, 'golang');
+  const content = parsed.map((item) => item.choices?.[0]?.delta?.content || '').join('');
+  assert.equal(content.includes(marker), false, `expected no marker leak, content=${JSON.stringify(content)}`);
+  assert.equal(content.includes('<|EPSE|'), false, `expected no EPSE leak, content=${JSON.stringify(content)}`);
+  assert.equal(parsed.at(-1).choices[0].finish_reason, 'tool_calls');
+});
+
+test('vercel stream normalizes a marker tool call split across one-char chunks', async () => {
+  const marker = 'Q7ZK3M';
+  const raw = `<|${marker}|tool_calls><|${marker}|invoke name="search"><|${marker}|parameter name="q">golang</|${marker}|parameter></|${marker}|invoke></|${marker}|tool_calls>`;
+  const lines = [...raw].map((ch) => `data: ${JSON.stringify({ p: 'response/content', v: ch })}\n\n`);
+  lines.push('data: [DONE]\n\n');
+
+  const { frames } = await runMockVercelStream(lines, { tool_marker: marker });
+  const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+  const toolDelta = parsed.find((item) => item.choices?.[0]?.delta?.tool_calls);
+  assert.ok(toolDelta, `expected tool_calls delta, frames=${JSON.stringify(frames)}`);
+  const args = JSON.parse(toolDelta.choices[0].delta.tool_calls[0].function.arguments);
+  assert.equal(args.q, 'golang');
+  const content = parsed.map((item) => item.choices?.[0]?.delta?.content || '').join('');
+  assert.equal(content.includes(marker), false, `expected no marker leak, content=${JSON.stringify(content)}`);
+  assert.equal(content.includes('<|EPSE|'), false, `expected no EPSE leak, content=${JSON.stringify(content)}`);
+  assert.equal(parsed.at(-1).choices[0].finish_reason, 'tool_calls');
+});
+
+test('vercel stream does not leak the marker into visible prose', async () => {
+  const { frames } = await runMockVercelStream([
+    'data: {"p":"response/content","v":"see <|Q7ZK3M|tool_calls> in the docs"}\n\n',
+    'data: [DONE]\n\n',
+  ], { tool_marker: 'Q7ZK3M' });
+  const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+  const content = parsed.map((item) => item.choices?.[0]?.delta?.content || '').join('');
+  assert.equal(content.includes('Q7ZK3M'), false, `expected no marker leak, content=${JSON.stringify(content)}`);
+  assert.equal(content.includes('in the docs'), true, `expected prose kept, content=${JSON.stringify(content)}`);
+});
+
+test('vercel stream drops text after tool call block', async () => {
+  const { frames } = await runMockVercelStream([
+    'data: {"p":"response/content","v":"前置文本\\n<tool_calls>\\n  <invoke name=\\"read_file\\">\\n    <parameter name=\\"path\\">README.MD</parameter>\\n  </invoke>\\n</tool_calls>\\n尾巴文本"}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+  const toolDelta = parsed.find((item) => item.choices?.[0]?.delta?.tool_calls);
+  assert.ok(toolDelta, `expected tool_calls delta, frames=${JSON.stringify(frames)}`);
+  const content = parsed.map((item) => item.choices?.[0]?.delta?.content || '').join('');
+  assert.equal(content.includes('前置文本'), true, `expected pre-block text streamed, content=${JSON.stringify(content)}`);
+  assert.equal(content.includes('尾巴文本'), false, `expected post-block text dropped, content=${JSON.stringify(content)}`);
   assert.equal(parsed.at(-1).choices[0].finish_reason, 'tool_calls');
 });
 
@@ -616,6 +966,42 @@ test('parseChunkForContent detects nested status FINISHED in array payload', () 
   assert.deepEqual(parsed.parts, []);
 });
 
+test('parseChunkForContent ignores fragment-scoped status FINISHED and routes tool content to thinking', () => {
+  const chunk = {
+    p: 'response/fragments/-1',
+    v: [
+      { p: 'status', v: 'FINISHED' },
+      { p: 'content', v: '已搜索到相关图片' },
+    ],
+  };
+  const parsed = parseChunkForContent(chunk, true, 'thinking');
+  assert.equal(parsed.finished, false);
+  assert.deepEqual(parsed.parts, [{ text: '已搜索到相关图片', type: 'thinking' }]);
+});
+
+test('parseChunkForContent routes TOOL_SEARCH fragment content to thinking', () => {
+  const chunk = {
+    p: 'response',
+    o: 'BATCH',
+    v: [
+      {
+        p: 'fragments',
+        o: 'APPEND',
+        v: [{ id: 3, type: 'TOOL_SEARCH', status: 'WIP', content: '正在搜索图片' }],
+      },
+    ],
+  };
+  const parsed = parseChunkForContent(chunk, true, 'thinking');
+  assert.equal(parsed.finished, false);
+  assert.deepEqual(parsed.parts, [{ text: '正在搜索图片', type: 'thinking' }]);
+});
+
+test('parseChunkForContent still stops on top-level response/status FINISHED', () => {
+  const parsed = parseChunkForContent({ p: 'response/status', o: 'SET', v: 'FINISHED' }, true, 'text');
+  assert.equal(parsed.finished, true);
+});
+
+
 test('parseChunkForContent ignores items without v to match Go parser behavior', () => {
   const chunk = {
     p: 'response',
@@ -641,6 +1027,132 @@ test('parseChunkForContent handles response/fragments APPEND with thinking and r
   assert.deepEqual(parsed.parts, [
     { text: '思考中', type: 'thinking' },
     { text: '结论', type: 'text' },
+  ]);
+});
+
+test('parseChunkForContent flips sticky cursor inside response BATCH fragments (THINK then RESPONSE)', () => {
+  const chunk = {
+    p: 'response',
+    o: 'BATCH',
+    v: [
+      { p: 'fragments', o: 'APPEND', v: [{ type: 'THINK', content: 'deep thought' }] },
+      { p: 'fragments', o: 'APPEND', v: [{ type: 'RESPONSE', content: 'answer' }] },
+    ],
+  };
+  const parsed = parseChunkForContent(chunk, true, 'thinking');
+  assert.equal(parsed.finished, false);
+  assert.equal(parsed.newType, 'text');
+  assert.deepEqual(parsed.parts, [
+    { text: 'deep thought', type: 'thinking' },
+    { text: 'answer', type: 'text' },
+  ]);
+});
+
+test('parseChunkForContent routes bare relative fragments/-1/content by sticky cursor', () => {
+  const thinking = parseChunkForContent({ p: 'fragments/-1/content', o: 'APPEND', v: ' thought' }, true, 'thinking');
+  assert.equal(thinking.finished, false);
+  assert.equal(thinking.newType, 'thinking');
+  assert.deepEqual(thinking.parts, [{ text: ' thought', type: 'thinking' }]);
+
+  const body = parseChunkForContent({ p: 'fragments/-1/content', o: 'APPEND', v: ' body' }, true, 'text');
+  assert.equal(body.finished, false);
+  assert.equal(body.newType, 'text');
+  assert.deepEqual(body.parts, [{ text: ' body', type: 'text' }]);
+});
+
+test('parseChunkForContent keeps nested fragments BATCH v payload without content field', () => {
+  const chunk = {
+    p: 'response',
+    o: 'BATCH',
+    v: [
+      { p: 'accumulated_token_usage', v: 2016 },
+      {
+        p: 'fragments',
+        o: 'BATCH',
+        v: [
+          { p: '-1/content', o: 'APPEND', v: '        pass\n```' },
+          { p: '', v: [{ id: 4, type: 'TIP', content: '提示', style: 'WARNING', hide_on_wip: true }] },
+        ],
+      },
+      { p: 'quasi_status', o: 'SET', v: 'FINISHED' },
+    ],
+  };
+  const parsed = parseChunkForContent(chunk, true, 'text');
+  assert.equal(parsed.finished, false);
+  assert.equal(parsed.newType, 'text');
+  assert.equal(parsed.parts.length, 1);
+  assert.deepEqual(parsed.parts[0], { text: '        pass\n```', type: 'text' });
+});
+
+test('parseChunkForContent drops THINK replay after body started (one-size-fits-all)', () => {
+  const replay = parseChunkForContent(
+    { v: { response: { message_id: 2, fragments: [{ id: 2, type: 'THINK', content: 'We need answer.' }] } } },
+    true,
+    'text',
+  );
+  assert.equal(replay.newType, 'text');
+  assert.deepEqual(replay.parts, []);
+
+  const followUp = parseChunkForContent({ v: 'total order' }, true, replay.newType);
+  assert.equal(followUp.newType, 'text');
+  assert.deepEqual(followUp.parts, [{ text: 'total order', type: 'text' }]);
+});
+
+test('parseChunkForContent drops all thinking increments after body started (one-size-fits-all)', () => {
+  let currentType = 'thinking';
+  const emitted = [];
+
+  const step = (chunk) => {
+    const parsed = parseChunkForContent(chunk, true, currentType);
+    currentType = parsed.newType;
+    emitted.push(...parsed.parts);
+  };
+
+  step({ p: 'response/fragments', o: 'APPEND', v: [{ type: 'THINK', content: '第一段思考' }] });
+  step({ p: 'response/fragments', o: 'APPEND', v: [{ type: 'RESPONSE', content: '正文开始' }] });
+  step({ p: 'response/content', v: '正文结尾' });
+  // The upstream bug: reasoning keeps arriving after the body began.
+  step({ p: 'response/thinking_content', v: '残余思考不该出现' });
+  step({ p: 'response/fragments', o: 'APPEND', v: [{ type: 'THINK', content: '更不该出现' }] });
+
+  assert.deepEqual(
+    emitted,
+    [
+      { text: '第一段思考', type: 'thinking' },
+      { text: '正文开始', type: 'text' },
+      { text: '正文结尾', type: 'text' },
+    ],
+  );
+  assert.equal(currentType, 'text');
+});
+
+test('parseChunkForContent does not recover thinking_content as body text after body started', () => {
+  const parsed = parseChunkForContent({ p: 'response/thinking_content', v: 'leaked reasoning' }, true, 'text');
+  assert.equal(parsed.finished, false);
+  assert.equal(parsed.newType, 'text');
+  assert.deepEqual(parsed.parts, []);
+});
+
+test('parseChunkForContent drops leaked </think> thinking increment after body started', () => {
+  const parsed = parseChunkForContent({ p: 'response/thinking_content', v: 'leaked</think>still leaked' }, true, 'text');
+  assert.equal(parsed.newType, 'text');
+  assert.deepEqual(parsed.parts, []);
+});
+
+test('parseChunkForContent keeps THINK before RESPONSE in the same reasoning chunk', () => {
+  const chunk = {
+    p: 'response/fragments',
+    o: 'APPEND',
+    v: [
+      { type: 'THINK', content: 'deep thought' },
+      { type: 'RESPONSE', content: 'answer' },
+    ],
+  };
+  const parsed = parseChunkForContent(chunk, true, 'thinking');
+  assert.equal(parsed.newType, 'text');
+  assert.deepEqual(parsed.parts, [
+    { text: 'deep thought', type: 'thinking' },
+    { text: 'answer', type: 'text' },
   ]);
 });
 
@@ -914,4 +1426,431 @@ test('trimContinuationOverlap preserves short normal tokens and trims long snaps
   const existing = '我们被问到：这是一个很长的续答快照前缀，用来验证去重逻辑不会误伤正常 token。';
   const incoming = `${existing}继续分析`;
   assert.equal(trimContinuationOverlap(existing, incoming), '继续分析');
+});
+
+test('vercel stream detects muted JSON and switches account', async () => {
+  const originalFetch = global.fetch;
+  const fetchURLs = [];
+  let completionCalls = 0;
+  global.fetch = async (url, init = {}) => {
+    const textURL = String(url);
+    fetchURLs.push(textURL);
+    if (textURL.includes('__stream_prepare=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-test',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'token-1',
+        pow_header: 'pow-1',
+        payload: { prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_switch=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-test',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'token-2',
+        pow_header: 'pow-2',
+        payload: { prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_release=1')) {
+      return jsonResponse({ success: true });
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/completion') {
+      completionCalls += 1;
+      if (completionCalls === 1) {
+        return jsonResponse({
+          code: 0,
+          data: {
+            biz_code: 5,
+            biz_msg: 'user is muted',
+            biz_data: { mute_until: 1234567890 },
+          },
+        });
+      }
+      return sseResponse(['data: {"p":"response/content","v":"visible"}\n\n', 'data: [DONE]\n\n']);
+    }
+    throw new Error(`unexpected fetch url: ${textURL}`);
+  };
+  try {
+    const req = new MockStreamRequest();
+    const res = new MockStreamResponse();
+    const payload = { model: 'gpt-test', stream: true };
+    await handleVercelStream(req, res, Buffer.from(JSON.stringify(payload)), payload);
+    const frames = parseSSEDataFrames(res.bodyText());
+    const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+    assert.equal(fetchURLs.filter((url) => url.includes('__stream_switch=1')).length, 1);
+    assert.equal(completionCalls, 2);
+    assert.equal(parsed[0].choices[0].delta.content, 'visible');
+    assert.equal(parsed[1].choices[0].finish_reason, 'stop');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('vercel stream loops account switches across multiple muted accounts', async () => {
+  const originalFetch = global.fetch;
+  const fetchURLs = [];
+  let completionCalls = 0;
+  let switchCalls = 0;
+  global.fetch = async (url) => {
+    const textURL = String(url);
+    fetchURLs.push(textURL);
+    if (textURL.includes('__stream_prepare=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-test',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'token-1',
+        pow_header: 'pow-1',
+        payload: { prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_switch=1')) {
+      switchCalls += 1;
+      return jsonResponse({
+        session_id: 'chatcmpl-test',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: `token-${switchCalls + 1}`,
+        pow_header: `pow-${switchCalls + 1}`,
+        payload: { prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_release=1')) {
+      return jsonResponse({ success: true });
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/completion') {
+      completionCalls += 1;
+      if (completionCalls <= 2) {
+        return jsonResponse({
+          code: 0,
+          data: {
+            biz_code: 5,
+            biz_msg: 'user is muted',
+            biz_data: { mute_until: 1234567890 },
+          },
+        });
+      }
+      return sseResponse(['data: {"p":"response/content","v":"visible"}\n\n', 'data: [DONE]\n\n']);
+    }
+    throw new Error(`unexpected fetch url: ${textURL}`);
+  };
+  try {
+    const req = new MockStreamRequest();
+    const res = new MockStreamResponse();
+    const payload = { model: 'gpt-test', stream: true };
+    await handleVercelStream(req, res, Buffer.from(JSON.stringify(payload)), payload);
+    const frames = parseSSEDataFrames(res.bodyText());
+    const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+    assert.equal(switchCalls, 2);
+    assert.equal(completionCalls, 3);
+    assert.equal(parsed[0].choices[0].delta.content, 'visible');
+    assert.equal(parsed[1].choices[0].finish_reason, 'stop');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('vercel stream detects USER_IS_BANNED JSON and switches account', async () => {
+  const originalFetch = global.fetch;
+  const fetchURLs = [];
+  const fetchBodies = [];
+  let completionCalls = 0;
+  global.fetch = async (url, init = {}) => {
+    const textURL = String(url);
+    fetchURLs.push(textURL);
+    if (init.body) {
+      fetchBodies.push(JSON.parse(Buffer.from(init.body).toString('utf-8')));
+    }
+    if (textURL.includes('__stream_prepare=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-test',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'token-1',
+        pow_header: 'pow-1',
+        payload: { prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_switch=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-test',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'token-2',
+        pow_header: 'pow-2',
+        payload: { prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_release=1')) {
+      return jsonResponse({ success: true });
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/completion') {
+      completionCalls += 1;
+      if (completionCalls === 1) {
+        return jsonResponse({
+          code: 0,
+          data: {
+            biz_code: 10,
+            biz_msg: 'USER_IS_BANNED',
+            biz_data: null,
+          },
+        });
+      }
+      return sseResponse(['data: {"p":"response/content","v":"visible"}\n\n', 'data: [DONE]\n\n']);
+    }
+    throw new Error(`unexpected fetch url: ${textURL}`);
+  };
+  try {
+    const req = new MockStreamRequest();
+    const res = new MockStreamResponse();
+    const payload = { model: 'gpt-test', stream: true };
+    await handleVercelStream(req, res, Buffer.from(JSON.stringify(payload)), payload);
+    const frames = parseSSEDataFrames(res.bodyText());
+    const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+    const switchCalls = fetchBodies.filter((body) => body.banned === true);
+    assert.equal(switchCalls.length, 1);
+    assert.equal(switchCalls[0].banned_reason, '账户已被停用');
+    assert.equal(fetchURLs.filter((url) => url.includes('__stream_switch=1')).length, 1);
+    assert.equal(completionCalls, 2);
+    assert.equal(parsed[0].choices[0].delta.content, 'visible');
+    assert.equal(parsed[1].choices[0].finish_reason, 'stop');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('vercel stream does not consume SSE body during mute detection', async () => {
+  const originalFetch = global.fetch;
+  const fetchURLs = [];
+  global.fetch = async (url, init = {}) => {
+    const textURL = String(url);
+    fetchURLs.push(textURL);
+    if (textURL.includes('__stream_prepare=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-test',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'deepseek-token',
+        pow_header: 'pow-header',
+        payload: { prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_release=1')) {
+      return jsonResponse({ success: true });
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/completion') {
+      return sseResponse(['data: {"p":"response/content","v":"hello from stream"}\n\n', 'data: [DONE]\n\n']);
+    }
+    throw new Error(`unexpected fetch url: ${textURL}`);
+  };
+  try {
+    const req = new MockStreamRequest();
+    const res = new MockStreamResponse();
+    const payload = { model: 'gpt-test', stream: true };
+    await handleVercelStream(req, res, Buffer.from(JSON.stringify(payload)), payload);
+    const frames = parseSSEDataFrames(res.bodyText());
+    const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+    assert.equal(fetchURLs.filter((url) => url.includes('__stream_switch=1')).length, 0);
+    assert.equal(parsed[0].choices[0].delta.content, 'hello from stream');
+    assert.equal(parsed[1].choices[0].finish_reason, 'stop');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('repeat loop guard trips only on consecutive protocol closing tags', () => {
+  const tripped = (fragments, threshold) => {
+    const guard = createRepeatLoopGuard(threshold);
+    let hit = false;
+    for (const fragment of fragments) {
+      if (feedRepeatLoopGuard(guard, fragment)) {
+        hit = true;
+      }
+    }
+    return hit;
+  };
+  const N = REPEAT_LOOP_THRESHOLD;
+  const shorthand = '</|EPSE>';
+  const invokeClose = '</|EPSE|invoke>';
+  const toolCallsClose = '</|EPSE|tool_calls>';
+
+  assert.equal(tripped([shorthand.repeat(N - 1)]), false);
+  assert.equal(tripped([shorthand.repeat(N)]), true);
+  assert.equal(tripped([`${shorthand}\n`.repeat(N)]), true);
+  // The observed loop alternates between two different closing shells.
+  assert.equal(tripped([`${invokeClose}\n${toolCallsClose}\n`.repeat(N)]), true);
+  assert.equal(tripped([`${shorthand.repeat(N - 1)}x${shorthand.repeat(N - 1)}`]), false);
+  // Split across SSE fragments must still be counted.
+  const fragments = [];
+  for (let i = 0; i < N; i += 1) {
+    fragments.push('</|', 'EPSE>', '</|EP', 'SE|invoke>', '</|EPSE|tool', '_calls>');
+  }
+  assert.equal(tripped(fragments), true);
+  // The observed loop also emits the normalized canonical shells, which are
+  // plain XML closing tags. Any long run of non-HTML closing tags must trip now.
+  assert.equal(tripped(['</invoke>\n</parameter>\n'.repeat(N)]), true);
+  assert.equal(tripped(['</think>\n'.repeat(N * 3)]), true);
+  assert.equal(tripped(['</parameter>\n'.repeat(N * 3)]), true);
+  // Common HTML/SVG closing tags legitimately stack in deeply nested markup and
+  // are excluded by name, so a long run of them must not trip.
+  assert.equal(tripped(['</div>\n'.repeat(N * 3)]), false);
+  assert.equal(tripped(['</span>\n'.repeat(N * 3)]), false);
+  assert.equal(tripped(['</li>\n'.repeat(N * 3)]), false);
+  assert.equal(tripped(['</td>\n'.repeat(N * 3)]), false);
+  assert.equal(tripped(['</DIV >\n'.repeat(N * 3)]), false);
+  // Over-closing and format-explaining prose are the longest legitimate runs.
+  assert.equal(tripped([`<|EPSE|parameter name="a"><![CDATA[v]]></|EPSE|parameter></|EPSE|parameter></|EPSE|parameter>${invokeClose}${toolCallsClose}`]), false);
+  // Six variants is the documented longest legitimate run; keep it below the
+  // threshold so format-explaining prose is not cut.
+  const variants = [
+    shorthand, '</|EPSE|parameter>', invokeClose, toolCallsClose,
+    '</epse|parameter>', '</|EPSE parameter>',
+  ].join('\n');
+  assert.equal(tripped([`闭合外壳的各种写法：\n${variants}\n`]), false);
+  // A well-formed tool call breaks every deeper level up with an opening tag, so
+  // it must never trip.
+  let call = '<|EPSE|tool_calls>';
+  for (let i = 0; i < 10; i += 1) {
+    call += '<|EPSE|invoke name="Bash">';
+    for (let j = 0; j < 5; j += 1) {
+      call += `<|EPSE|parameter name="command"><![CDATA[pwd]]>${shorthand}`;
+    }
+    call += invokeClose;
+  }
+  call += toolCallsClose;
+  assert.equal(tripped([call]), false);
+  // An unterminated `</|` must not be buffered forever.
+  assert.equal(tripped([`</|${'a'.repeat(1024)}`]), false);
+});
+
+test('vercel stream cuts upstream repeat loop and finishes with 200', async () => {
+  const lines = ['data: {"response_message_id":91,"p":"response/content","v":"visible answer"}\n\n'];
+  const loopTags = ['</|EPSE|invoke>', '</|EPSE|tool_calls>'];
+  for (let i = 0; i < REPEAT_LOOP_THRESHOLD + 2; i += 1) {
+    lines.push(`data: ${JSON.stringify({ p: 'response/content', v: `${loopTags[i % loopTags.length]}\n` })}\n\n`);
+  }
+  lines.push('data: {"p":"response/content","v":"never consumed tail"}\n\n');
+  lines.push('data: [DONE]\n\n');
+
+  const { res, frames, fetchURLs } = await runMockVercelStream(lines);
+  const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+  assert.equal(res.statusCode, 200);
+  assert.equal(frames.at(-1), '[DONE]');
+  assert.equal(parsed.some((item) => item.status_code), false, `expected no error frame, frames=${JSON.stringify(frames)}`);
+  assert.equal(parsed.at(-1).choices[0].finish_reason, 'stop');
+  const content = parsed.map((item) => item.choices?.[0]?.delta?.content || '').join('');
+  assert.equal(content.includes('visible answer'), true, `expected pre-loop content kept, content=${JSON.stringify(content)}`);
+  assert.equal(content.includes('never consumed tail'), false, `expected post-loop chunks dropped, content=${JSON.stringify(content)}`);
+  // The loop must not be resumed via the continue endpoint.
+  assert.equal(fetchURLs.filter((url) => url.includes('/continue')).length, 0);
+});
+
+test('tool role marker guard cuts the marker and everything after it', () => {
+  const guard = createToolRoleMarkerGuard();
+  const forwarded = [];
+  for (const fragment of ['命令已执行。\n', '[Tool]:\n输出：ok\n', '[Assistant]: 继续\n']) {
+    forwarded.push(feedToolRoleMarkerGuard(guard, fragment));
+  }
+  assert.equal(forwarded.join(''), '命令已执行。\n');
+  assert.equal(guard.tripped, true);
+  // Once tripped the guard stays tripped and forwards nothing.
+  assert.equal(feedToolRoleMarkerGuard(guard, '后续自言自语'), '');
+});
+
+test('tool role marker guard withholds a marker split across fragments', () => {
+  const guard = createToolRoleMarkerGuard();
+  const forwarded = [];
+  for (const fragment of ['好的，', '[To', 'ol', ']:', '编造的工具结果']) {
+    forwarded.push(feedToolRoleMarkerGuard(guard, fragment));
+  }
+  assert.equal(forwarded.join(''), '好的，');
+  assert.equal(guard.tripped, true);
+});
+
+test('tool role marker guard releases a withheld prefix once disambiguated', () => {
+  const guard = createToolRoleMarkerGuard();
+  assert.equal(feedToolRoleMarkerGuard(guard, '答案[Too'), '答案');
+  assert.equal(guard.tripped, false);
+  assert.equal(feedToolRoleMarkerGuard(guard, 'ls are useful'), '[Tools are useful');
+  assert.equal(guard.tripped, false);
+  // Matching is case-insensitive, so a drifted marker is cut too.
+  assert.equal(feedToolRoleMarkerGuard(guard, '正文[tool]:编造内容'), '正文');
+  assert.equal(guard.tripped, true);
+});
+
+test('vercel stream cuts hallucinated [Tool]: role marker and finishes with 200', async () => {
+  const lines = ['data: {"response_message_id":92,"p":"response/content","v":"命令已执行。"}\n\n'];
+  lines.push(`data: ${JSON.stringify({ p: 'response/content', v: `\n${TOOL_ROLE_MARKER}\n输出：ok\n` })}\n\n`);
+  lines.push('data: {"p":"response/content","v":"never consumed tail"}\n\n');
+  lines.push('data: [DONE]\n\n');
+
+  const { res, frames, fetchURLs } = await runMockVercelStream(lines);
+  const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+  assert.equal(res.statusCode, 200);
+  assert.equal(frames.at(-1), '[DONE]');
+  assert.equal(parsed.some((item) => item.status_code), false, `expected no error frame, frames=${JSON.stringify(frames)}`);
+  assert.equal(parsed.at(-1).choices[0].finish_reason, 'stop');
+  const content = parsed.map((item) => item.choices?.[0]?.delta?.content || '').join('');
+  assert.equal(content.includes('命令已执行。'), true, `expected pre-marker content kept, content=${JSON.stringify(content)}`);
+  assert.equal(content.includes(TOOL_ROLE_MARKER), false, `expected the marker dropped, content=${JSON.stringify(content)}`);
+  assert.equal(content.includes('输出：ok'), false, `expected fabricated tool result dropped, content=${JSON.stringify(content)}`);
+  assert.equal(content.includes('never consumed tail'), false, `expected post-marker chunks dropped, content=${JSON.stringify(content)}`);
+  // The cut must not be resumed via the continue endpoint.
+  assert.equal(fetchURLs.filter((url) => url.includes('/continue')).length, 0);
+});
+
+// Regression: the end-of-stream flush fed the marker normalizer's withheld tail
+// back through the whole content policy, including the `[Tool]:` role guard. The
+// guard merged the tail with the fragment it was deliberately withholding and
+// released that fragment, leaking a marker prefix into the client content.
+test('vercel stream does not release the withheld [Tool]: prefix at end of stream', async () => {
+  // The last content part ends in `[To` (withheld by the role guard) and in a
+  // proper prefix of the caller marker (withheld by the normalizer), so the
+  // flush releases `Z2Q7` as the tail. `[To` is fabricated text and must stay
+  // dropped; the tail itself is real text and must still be forwarded.
+  const { frames, fetchBodies } = await runMockVercelStream([
+    `data: ${JSON.stringify({ p: 'response/content', v: '答案[ToZ2Q7' })}\n\n`,
+    'data: [DONE]\n\n',
+  ], { tool_marker: 'Z2Q7AB' });
+  const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+  const content = parsed.map((item) => item.choices?.[0]?.delta?.content || '').join('');
+  assert.equal(content.includes('[To'), false, `expected the withheld role-marker prefix dropped, content=${JSON.stringify(content)}`);
+  assert.equal(content, '答案Z2Q7', `expected the flush tail appended, content=${JSON.stringify(content)}`);
+  // The same text is reported back for history/usage, so it must not carry the
+  // withheld prefix either.
+  const release = fetchBodies.find((body) => Object.hasOwn(body, 'finish_reason'));
+  assert.ok(release, 'expected a lease release body');
+  assert.equal(release.content.includes('[To'), false, `expected no withheld prefix in reported content, content=${JSON.stringify(release.content)}`);
 });

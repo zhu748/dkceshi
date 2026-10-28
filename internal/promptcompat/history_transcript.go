@@ -1,114 +1,173 @@
 package promptcompat
 
 import (
-        "fmt"
-        "strings"
+	"fmt"
+	"strings"
 )
 
-// CurrentInputContextFilename 仅作为历史兼容常量保留，不再用于真实上传。
-// 真实上传的文件名由 history.Service 在每次上传时随机生成（参考真实 App 抓包
-// 中 111.txt / 222.txt 这类用户风格命名）。
-const CurrentInputContextFilename = "chat_context.txt"
+const CurrentInputContextFilename = "HISTORY.txt"
 
-// 早期实现使用了 "# Session Snapshot" / "Aggregated dialogue state and prior function-call results."
-// 这种固定标题作为文件内容首行，是极强的内容指纹。现在改为更自然的引导句，
-// 每次请求时还会拼接一个时间戳变化的尾巴，避免文件首部哈希稳定。
-const historyTranscriptIntro = "The dialogue up to this point. Pick up from the most recent user message."
+const historyTranscriptTitle = "# HISTORY.txt"
+const historyTranscriptSummary = "Prior conversation history and tool progress."
 
-func BuildOpenAIHistoryTranscript(messages []any) string {
-        return buildOpenAIHistoryTranscript(messages)
+// BuildOpenAIHistoryTranscript renders the prompt-visible transcript (with the
+// HISTORY.txt header) for the given messages. The optional toolMarker is the
+// caller-specific tool-call marker: assistant history that carries the marker
+// form is normalized back to EPSE before the tool-markup probe runs, so the
+// entry renders as the canonical shell either way.
+func BuildOpenAIHistoryTranscript(messages []any, toolMarker ...string) string {
+	return buildOpenAIHistoryTranscript(messages, firstToolMarker(toolMarker))
 }
 
-func BuildOpenAICurrentUserInputTranscript(text string) string {
-        if strings.TrimSpace(text) == "" {
-                return ""
-        }
-        return buildOpenAIHistoryTranscript([]any{
-                map[string]any{"role": "user", "content": text},
-        })
+func BuildOpenAICurrentUserInputTranscript(text string, toolMarker ...string) string {
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	return buildOpenAIHistoryTranscript([]any{
+		map[string]any{"role": "user", "content": text},
+	}, firstToolMarker(toolMarker))
 }
 
-func BuildOpenAICurrentInputContextTranscript(messages []any) string {
-        return buildOpenAIHistoryTranscript(messages)
+func BuildOpenAICurrentInputContextTranscript(messages []any, toolMarker ...string) string {
+	return buildOpenAIHistoryTranscript(messages, firstToolMarker(toolMarker))
 }
 
-func buildOpenAIHistoryTranscript(messages []any) string {
-        if len(messages) == 0 {
-                return ""
-        }
-        var b strings.Builder
-        b.WriteString(historyTranscriptIntro)
-        b.WriteString("\n\n")
-
-        entry := 0
-        for _, raw := range messages {
-                msg, ok := raw.(map[string]any)
-                if !ok {
-                        continue
-                }
-                role := normalizeOpenAIRoleForPrompt(strings.ToLower(strings.TrimSpace(asString(msg["role"]))))
-                content := strings.TrimSpace(buildOpenAIHistoryEntry(role, msg))
-                if content == "" {
-                        continue
-                }
-                entry++
-                // 早期实现使用 "=== N. SYSTEM ===" 这种结构化分隔符，与真实 App 用户上传的
-                // 文本文件格式差异极大。现在改成自然段标签 [system] / [user] / [assistant] / [tool]，
-                // 既保持可读性，又避免被首行/分隔符特征命中。
-                fmt.Fprintf(&b, "[%s]\n%s\n\n", roleLabelForHistory(role), content)
-        }
-
-        transcript := strings.TrimSpace(b.String())
-        if transcript == "" {
-                return ""
-        }
-        return transcript + "\n"
+// SplitTrailingUserTurn splits messages into the leading history and the text of
+// the trailing user turn, so callers can upload the history as context while
+// keeping the newest user request inline in the live prompt.
+//
+// It reports ok=false when the last transcript-visible entry is not a user turn,
+// or when removing that turn would leave no history to upload at all (a
+// single-turn request). In the latter case the caller must keep uploading the
+// full transcript, otherwise a long single-turn input would stop being split out
+// of the live prompt.
+func SplitTrailingUserTurn(messages []any) ([]any, string, bool) {
+	last := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg, isMap := messages[i].(map[string]any)
+		if !isMap {
+			continue
+		}
+		role := normalizeOpenAIRoleForPrompt(strings.ToLower(strings.TrimSpace(asString(msg["role"]))))
+		if strings.TrimSpace(buildOpenAIHistoryEntry(role, msg, "")) == "" {
+			continue
+		}
+		if role != "user" {
+			return nil, "", false
+		}
+		last = i
+		break
+	}
+	if last < 0 {
+		return nil, "", false
+	}
+	msg, _ := messages[last].(map[string]any)
+	text := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
+	if text == "" {
+		return nil, "", false
+	}
+	history := messages[:last]
+	// buildOpenAIHistoryTranscript still emits its title/summary header for a
+	// slice whose entries all render empty, so count real entries instead of
+	// testing the rendered string.
+	if countHistoryTranscriptEntries(history) == 0 {
+		return nil, "", false
+	}
+	return history, text, true
 }
 
-func buildOpenAIHistoryEntry(role string, msg map[string]any) string {
-        switch role {
-        case "assistant":
-                return strings.TrimSpace(buildAssistantContentForPrompt(msg))
-        case "tool", "function":
-                return strings.TrimSpace(buildToolHistoryContent(msg))
-        case "system", "user":
-                return strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
-        default:
-                return strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
-        }
+func countHistoryTranscriptEntries(messages []any) int {
+	count := 0
+	for _, raw := range messages {
+		msg, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		role := normalizeOpenAIRoleForPrompt(strings.ToLower(strings.TrimSpace(asString(msg["role"]))))
+		if strings.TrimSpace(buildOpenAIHistoryEntry(role, msg, "")) == "" {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func buildOpenAIHistoryTranscript(messages []any, marker string) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(historyTranscriptTitle)
+	b.WriteString("\n")
+	b.WriteString(historyTranscriptSummary)
+	b.WriteString("\n\n")
+
+	entry := 0
+	for _, raw := range messages {
+		msg, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		role := normalizeOpenAIRoleForPrompt(strings.ToLower(strings.TrimSpace(asString(msg["role"]))))
+		content := strings.TrimSpace(buildOpenAIHistoryEntry(role, msg, marker))
+		if content == "" {
+			continue
+		}
+		entry++
+		fmt.Fprintf(&b, "=== %d. %s ===\n%s\n\n", entry, strings.ToUpper(roleLabelForHistory(role)), content)
+	}
+
+	transcript := strings.TrimSpace(b.String())
+	if transcript == "" {
+		return ""
+	}
+	return transcript + "\n"
+}
+
+func buildOpenAIHistoryEntry(role string, msg map[string]any, marker string) string {
+	switch role {
+	case "assistant":
+		return strings.TrimSpace(buildAssistantContentForPrompt(msg, marker))
+	case "tool", "function":
+		return strings.TrimSpace(buildToolHistoryContent(msg))
+	case "system", "user":
+		return strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
+	default:
+		return strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
+	}
 }
 
 func buildToolHistoryContent(msg map[string]any) string {
-        content := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
-        parts := make([]string, 0, 2)
-        if name := strings.TrimSpace(asString(msg["name"])); name != "" {
-                parts = append(parts, "function="+name)
-        }
-        if callID := strings.TrimSpace(asString(msg["tool_call_id"])); callID != "" {
-                parts = append(parts, "invocation_id="+callID)
-        }
-        header := ""
-        if len(parts) > 0 {
-                header = "[" + strings.Join(parts, " ") + "]"
-        }
-        switch {
-        case header != "" && content != "":
-                return header + "\n" + content
-        case header != "":
-                return header
-        default:
-                return content
-        }
+	content := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
+	parts := make([]string, 0, 2)
+	if name := strings.TrimSpace(asString(msg["name"])); name != "" {
+		parts = append(parts, "name="+name)
+	}
+	if callID := strings.TrimSpace(asString(msg["tool_call_id"])); callID != "" {
+		parts = append(parts, "tool_call_id="+callID)
+	}
+	header := ""
+	if len(parts) > 0 {
+		header = "[" + strings.Join(parts, " ") + "]"
+	}
+	switch {
+	case header != "" && content != "":
+		return header + "\n" + content
+	case header != "":
+		return header
+	default:
+		return content
+	}
 }
 
 func roleLabelForHistory(role string) string {
-        role = strings.ToLower(strings.TrimSpace(role))
-        switch role {
-        case "function":
-                return "tool"
-        case "":
-                return "unknown"
-        default:
-                return role
-        }
+	role = strings.ToLower(strings.TrimSpace(role))
+	switch role {
+	case "function":
+		return "tool"
+	case "":
+		return "unknown"
+	default:
+		return role
+	}
 }

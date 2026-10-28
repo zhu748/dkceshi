@@ -2,6 +2,7 @@ package stream
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"time"
 
@@ -17,6 +18,18 @@ const (
 	StopReasonIdleTimeout       StopReason = "idle_timeout"
 	StopReasonUpstreamCompleted StopReason = "upstream_completed"
 	StopReasonHandlerRequested  StopReason = "handler_requested"
+	// StopReasonRepeatLoop marks a stream cut short because the upstream
+	// output degenerated into a repetition loop. It is a clean stop: the
+	// content produced before the loop is kept and the caller runs its normal
+	// finish path (HTTP 200) rather than reporting an interruption.
+	StopReasonRepeatLoop StopReason = "repeat_loop"
+	// StopReasonToolRoleMarker marks a stream cut short because the upstream
+	// hallucinated a `[Tool]:` role marker — the model invented a tool result
+	// and kept answering its own invented dialogue. Like StopReasonRepeatLoop
+	// it is a clean stop: the text produced before the marker is kept, the
+	// marker and everything after it is dropped, and the caller runs its normal
+	// finish path (HTTP 200) rather than reporting an interruption.
+	StopReasonToolRoleMarker StopReason = "tool_role_marker"
 )
 
 type ConsumeConfig struct {
@@ -41,6 +54,15 @@ type ConsumeHooks struct {
 	OnFinalize    func(reason StopReason, scannerErr error)
 	OnContextDone func()
 }
+
+// finalize reports the end of a consume pass. reason describes how the pass
+// ended; scannerErr, when non-nil, is the underlying stream read error that
+// terminated the upstream body. A clean upstream EOF arrives as
+// StopReasonUpstreamCompleted with a nil scannerErr; engine-generated idle and
+// no-content timeouts arrive as StopReasonIdleTimeout /
+// StopReasonNoContentTimeout with a descriptive scannerErr so callers can tell
+// an interrupted stream apart from a cleanly completed one instead of silently
+// masquerading a truncation as a normal stop.
 
 func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 	if cfg.Context == nil {
@@ -98,12 +120,12 @@ func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 			if !hasContent {
 				keepaliveCount++
 				if cfg.MaxKeepAliveNoInput > 0 && keepaliveCount >= cfg.MaxKeepAliveNoInput {
-					finalize(StopReasonNoContentTimeout, nil)
+					finalize(StopReasonNoContentTimeout, fmt.Errorf("no content received from upstream within %d keepalive intervals", cfg.MaxKeepAliveNoInput))
 					return
 				}
 			}
 			if hasContent && cfg.IdleTimeout > 0 && time.Since(lastContent) > cfg.IdleTimeout {
-				finalize(StopReasonIdleTimeout, nil)
+				finalize(StopReasonIdleTimeout, fmt.Errorf("no content received from upstream for %s", cfg.IdleTimeout))
 				return
 			}
 			if hooks.OnKeepAlive != nil {

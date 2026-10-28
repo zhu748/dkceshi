@@ -7,12 +7,14 @@ import (
 
 	"ds2api/internal/chathistory"
 	"ds2api/internal/textclean"
+	"ds2api/internal/usagestats"
 	"ds2api/internal/util"
 )
 
 var writeJSON = util.WriteJSON
 
 type Handler struct {
+	Usage       *usagestats.Store
 	Store       ConfigReader
 	Auth        AuthResolver
 	DS          DeepSeekCaller

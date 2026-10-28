@@ -31,7 +31,7 @@ export default function BehaviorSection({ t, form, setForm }) {
                 <label className="flex items-start gap-3 rounded-lg border border-border bg-background/60 p-4">
                     <input
                         type="checkbox"
-                        checked={Boolean(form.thinking_injection?.enabled ?? true)}
+                        checked={Boolean(form.thinking_injection?.enabled ?? false)}
                         onChange={(e) => setForm((prev) => ({
                             ...prev,
                             thinking_injection: {
@@ -62,6 +62,23 @@ export default function BehaviorSection({ t, form, setForm }) {
                         className="w-full bg-background border border-border rounded-lg px-3 py-2 resize-y min-h-32"
                     />
                     <p className="text-xs text-muted-foreground">{t('settings.thinkingInjectionPromptHelp')}</p>
+                </label>
+                <label className="flex items-start gap-3 rounded-lg border border-border bg-background/60 p-4 md:col-span-2">
+                    <input type="checkbox" checked={Boolean(form.bottom_format_injection?.enabled ?? true)}
+                        onChange={(e) => setForm((prev) => ({ ...prev, bottom_format_injection: { ...prev.bottom_format_injection, enabled: e.target.checked } }))}
+                        className="mt-1 h-4 w-4 rounded border-border" />
+                    <div className="space-y-1">
+                        <span className="text-sm font-medium block">{t('settings.bottomFormatInjectionTitle')}</span>
+                        <span className="text-xs text-muted-foreground block">{t('settings.bottomFormatInjectionDesc')}</span>
+                    </div>
+                </label>
+                <label className="text-sm space-y-2 md:col-span-2">
+                    <span className="text-muted-foreground">{t('settings.bottomFormatInjectionPrompt')}</span>
+                    <textarea rows={5} value={form.bottom_format_injection?.prompt || ''}
+                        placeholder={form.bottom_format_injection?.default_prompt || ''}
+                        onChange={(e) => setForm((prev) => ({ ...prev, bottom_format_injection: { ...prev.bottom_format_injection, prompt: e.target.value } }))}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 resize-y min-h-32" />
+                    <p className="text-xs text-muted-foreground">{t('settings.bottomFormatInjectionPromptHelp')}</p>
                 </label>
             </div>
         </div>

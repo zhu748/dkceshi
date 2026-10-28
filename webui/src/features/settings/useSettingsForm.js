@@ -6,19 +6,17 @@ import {
     postImportData,
     postPassword,
     putSettings,
-} from './settingsApi'
+} from './settingsApi.js'
 
 const MAX_AUTO_FETCH_FAILURES = 3
 
 const DEFAULT_FORM = {
-    admin: { jwt_expire_hours: 24 },
-    runtime: { account_max_inflight: 2, account_max_queue: 10, global_max_inflight: 10, token_refresh_interval_hours: 6 },
-    responses: { store_ttl_seconds: 900 },
-    embeddings: { provider: '' },
-    auto_delete: { mode: 'none' },
-    current_input_file: { enabled: true, min_chars: 0 },
-    thinking_injection: { enabled: false, prompt: '', default_prompt: '' },
     model_aliases_text: '{}',
+    // Registered settings (internal/config/settings.go), keyed by their registry
+    // key and then by field name, and registered sections (sections.go), keyed
+    // by their config key. Both are built from the server's setting_specs /
+    // section_specs payload, so a new setting or section needs no change here.
+    settings: {},
 }
 
 function parseJSONMap(raw, fieldName, t) {
@@ -38,71 +36,184 @@ function parseJSONMap(raw, fieldName, t) {
     return parsed
 }
 
-function normalizeAutoDeleteMode(raw) {
-    const mode = String(raw?.mode || '').trim().toLowerCase()
-    if (mode === 'none' || mode === 'single' || mode === 'all') {
-        return mode
+// A declared int field's bounds, as the server sends them. A bound the
+// declaration does not carry stays undefined and is not enforced.
+function intFieldBounds(field) {
+    return {
+        min: Number.isFinite(field?.min) ? field.min : undefined,
+        max: Number.isFinite(field?.max) ? field.max : undefined,
     }
-    if (Boolean(raw?.sessions)) {
-        return 'all'
-    }
-    return 'none'
 }
 
-function fromServerForm(data) {
-    const currentInputFileEnabled = data.current_input_file?.enabled ?? true
+// intFieldAccepts reports whether value may be sent for a declared int field.
+// The rule comes from the declaration rather than from a hard-coded minimum, so
+// a field whose bounds start at 0 (input_file.min_chars) still accepts it while
+// a min-1 field (runtime.account_max_inflight) does not. A non-integer is
+// rejected too: the backend decodes an int field with strconv.Atoi, so 5.5
+// would fail the same way an out-of-range value does.
+export function intFieldAccepts(field, value) {
+    if (typeof value !== 'number' || !Number.isInteger(value)) {
+        return false
+    }
+    const { min, max } = intFieldBounds(field)
+    if (min !== undefined && value < min) {
+        return false
+    }
+    if (max !== undefined && value > max) {
+        return false
+    }
+    return true
+}
+
+// parseIntFieldInput turns the text of an int field's box into the value its
+// control should report. It returns undefined for anything the declaration does
+// not accept — an empty box, a half-typed or non-integer number, a value
+// outside [min, max] — and the control then reports nothing, which leaves the
+// field's previous value in place. Coercing an empty box to 0 instead would
+// hand the backend a value it rejects (a section int the request mentions must
+// be inside [min, max], and 0 is not "unset" there) and would cost the user
+// every other edit in the same save.
+export function parseIntFieldInput(field, text) {
+    const raw = String(text ?? '').trim()
+    if (!raw) {
+        return undefined
+    }
+    const value = Number(raw)
+    return intFieldAccepts(field, value) ? value : undefined
+}
+
+// fromServerSections rebuilds the registry-driven sections from the settings
+// response: the registry describes the fields, and each section's values live
+// under its own key — the same key the config file uses. The section object is
+// copied as it arrived, so server-side extras (admin's has_password_hash) reach
+// the components that show them.
+export function fromServerSections(data, sectionSpecs) {
+    const out = {}
+    for (const spec of Array.isArray(sectionSpecs) ? sectionSpecs : []) {
+        const key = String(spec?.key || '')
+        if (!key) {
+            continue
+        }
+        out[key] = data?.[key] && typeof data[key] === 'object' ? { ...data[key] } : {}
+    }
+    return out
+}
+
+function fromServerForm(data, sectionSpecs) {
     return {
-        admin: { jwt_expire_hours: Number(data.admin?.jwt_expire_hours || 24) },
-        runtime: {
-            account_max_inflight: Number(data.runtime?.account_max_inflight || 2),
-            account_max_queue: Number(data.runtime?.account_max_queue || 10),
-            global_max_inflight: Number(data.runtime?.global_max_inflight || 10),
-            token_refresh_interval_hours: Number(data.runtime?.token_refresh_interval_hours || 6),
-        },
-        responses: {
-            store_ttl_seconds: Number(data.responses?.store_ttl_seconds || 900),
-        },
-        embeddings: {
-            provider: data.embeddings?.provider || '',
-        },
-        auto_delete: {
-            mode: normalizeAutoDeleteMode(data.auto_delete),
-        },
-        current_input_file: {
-            enabled: currentInputFileEnabled,
-            min_chars: Number(data.current_input_file?.min_chars ?? 0),
-        },
-        thinking_injection: {
-            enabled: data.thinking_injection?.enabled ?? false,
-            prompt: data.thinking_injection?.prompt || '',
-            default_prompt: data.thinking_injection?.default_prompt || '',
-        },
+        ...fromServerSections(data, sectionSpecs),
         model_aliases_text: JSON.stringify(data.model_aliases || {}, null, 2),
+        settings: fromServerSettings(data),
     }
 }
 
-function toServerPayload(form) {
-    const currentInputFileEnabled = Boolean(form.current_input_file?.enabled)
-    return {
-        admin: { jwt_expire_hours: Number(form.admin.jwt_expire_hours) },
-        runtime: {
-            account_max_inflight: Number(form.runtime.account_max_inflight),
-            account_max_queue: Number(form.runtime.account_max_queue),
-            global_max_inflight: Number(form.runtime.global_max_inflight),
-            token_refresh_interval_hours: Number(form.runtime.token_refresh_interval_hours),
-        },
-        responses: { store_ttl_seconds: Number(form.responses.store_ttl_seconds) },
-        embeddings: { provider: String(form.embeddings.provider || '').trim() },
-        auto_delete: { mode: normalizeAutoDeleteMode(form.auto_delete) },
-        current_input_file: {
-            enabled: currentInputFileEnabled,
-            min_chars: Number(form.current_input_file?.min_chars ?? 0),
-        },
-        thinking_injection: {
-            enabled: Boolean(form.thinking_injection?.enabled ?? true),
-            prompt: String(form.thinking_injection?.prompt || '').trim(),
-        },
+// fromServerSettings rebuilds the registry-driven settings from the settings
+// response: the registry describes the fields, and each setting's value lives
+// under its own key in the same `{ <field>: <value> }` shape a hand-written
+// section uses. Values the server did not report fall back to the declared
+// default, so a field is never rendered as undefined.
+//
+// The section object is copied as it arrived, so server-side extras such as
+// `default_prompt` reach the components that show them.
+export function fromServerSettings(data) {
+    const out = {}
+    for (const spec of Array.isArray(data?.setting_specs) ? data.setting_specs : []) {
+        const key = String(spec?.key || '')
+        if (!key) {
+            continue
+        }
+        const section = data?.[key] && typeof data[key] === 'object' ? { ...data[key] } : {}
+        for (const field of Array.isArray(spec?.fields) ? spec.fields : []) {
+            const name = String(field?.name || '')
+            if (!name || name in section) {
+                continue
+            }
+            section[name] = field?.default
+        }
+        out[key] = section
     }
+    return out
+}
+
+// declaredFieldsByName indexes one declaration's fields, so the payload builder
+// can ask what the values it holds are allowed to be.
+function declaredFieldsByName(fields) {
+    const index = new Map()
+    for (const field of Array.isArray(fields) ? fields : []) {
+        const name = String(field?.name || '')
+        if (name) {
+            index.set(name, field)
+        }
+    }
+    return index
+}
+
+// declaredFieldsByKey indexes a spec list (setting_specs / section_specs) the
+// same way, one level up: config key to declared fields by name.
+function declaredFieldsByKey(specs) {
+    const index = new Map()
+    for (const spec of Array.isArray(specs) ? specs : []) {
+        const key = String(spec?.key || '')
+        if (key) {
+            index.set(key, declaredFieldsByName(spec?.fields))
+        }
+    }
+    return index
+}
+
+// sectionPayloadFields copies the values of one section — or of a nested group —
+// for the settings request. A declared int field whose value the declaration
+// does not accept is left out instead of sent: the backend answers 400 for such
+// a value (a section int the request mentions must be inside [min, max]) and
+// discards the whole save with it, while a field the request does not mention
+// keeps its stored value. That is what keeps a value the page loaded from the
+// backend (DS2API_ACCOUNT_MAX_QUEUE=0 arrives as 0 in a min-1 field) from being
+// echoed back and blocking every other edit.
+function sectionPayloadFields(section, fieldsByName) {
+    const out = {}
+    for (const [name, value] of Object.entries(section)) {
+        // `default_<field>` entries are server-supplied display text, not
+        // fields the user edits, so they never travel back.
+        if (name.startsWith('default_')) {
+            continue
+        }
+        const field = fieldsByName.get(name)
+        if (field?.kind === 'int' && !intFieldAccepts(field, value)) {
+            continue
+        }
+        if (field?.kind === 'group' && value && typeof value === 'object' && !Array.isArray(value)) {
+            out[name] = sectionPayloadFields(value, declaredFieldsByName(field.fields))
+            continue
+        }
+        out[name] = value
+    }
+    return out
+}
+
+export function toServerPayload(form, sectionSpecs = [], settingSpecs = []) {
+    const payload = {}
+    // Registered sections travel under their own config key, in the
+    // `{ <field>: <value> }` shape the config file uses. Only the sections the
+    // form knows about are sent, so a stale page never resets one the server
+    // added; the server ignores any field it does not declare.
+    for (const [key, fieldsByName] of declaredFieldsByKey(sectionSpecs)) {
+        const section = form?.[key]
+        if (!section || typeof section !== 'object') {
+            continue
+        }
+        payload[key] = sectionPayloadFields(section, fieldsByName)
+    }
+    // Registry-driven settings travel the same way, one level down under
+    // `settings`. A key the form holds but no spec describes (a stale page after
+    // a setting was removed) travels unfiltered, exactly as it did before.
+    const settingFields = declaredFieldsByKey(settingSpecs)
+    for (const [key, section] of Object.entries(form.settings || {})) {
+        if (!key || !section || typeof section !== 'object') {
+            continue
+        }
+        payload[key] = sectionPayloadFields(section, settingFields.get(key) || new Map())
+    }
+    return payload
 }
 
 export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogout, isVercel = false }) {
@@ -123,6 +234,12 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
         needs_vercel_sync: false,
     })
     const [form, setForm] = useState(DEFAULT_FORM)
+    // The registries as reported by the settings API: what to render and how to
+    // label it, straight from internal/config/settings.go and sections.go.
+    const [settingSpecs, setSettingSpecs] = useState([])
+    const [sectionSpecs, setSectionSpecs] = useState([])
+    // Which settings share a card, and where each card sits on the page.
+    const [settingCardSpecs, setSettingCardSpecs] = useState([])
 
     const trackLoadFailure = useCallback(() => {
         setConsecutiveFailures((prev) => {
@@ -156,7 +273,10 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
                 env_backed: Boolean(data.env_backed),
                 needs_vercel_sync: Boolean(data.needs_vercel_sync),
             })
-            setForm(fromServerForm(data))
+            setForm(fromServerForm(data, data.section_specs))
+            setSettingSpecs(Array.isArray(data.setting_specs) ? data.setting_specs : [])
+            setSectionSpecs(Array.isArray(data.section_specs) ? data.section_specs : [])
+            setSettingCardSpecs(Array.isArray(data.setting_cards) ? data.setting_cards : [])
         } catch (e) {
             const detail = e?.message || t('settings.loadFailed')
             setLastError(detail)
@@ -188,7 +308,7 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
         }
 
         const payload = {
-            ...toServerPayload(form),
+            ...toServerPayload(form, sectionSpecs, settingSpecs),
             model_aliases: modelAliases,
         }
 
@@ -211,7 +331,7 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
         } finally {
             setSaving(false)
         }
-    }, [apiFetch, form, loadSettings, onMessage, onRefresh, t])
+    }, [apiFetch, form, loadSettings, onMessage, onRefresh, sectionSpecs, settingSpecs, t])
 
     const updatePassword = useCallback(async () => {
         if (String(newPassword || '').trim().length < 4) {
@@ -335,6 +455,9 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
     return {
         form,
         setForm,
+        settingSpecs,
+        sectionSpecs,
+        settingCardSpecs,
         loading,
         saving,
         changingPassword,

@@ -15,7 +15,10 @@ import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
 	"ds2api/internal/completionruntime"
+	"ds2api/internal/config"
+	"ds2api/internal/httpapi/openai/files"
 	"ds2api/internal/httpapi/openai/history"
+	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/httpapi/requestbody"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
@@ -53,9 +56,12 @@ func isGeminiVercelProxyRequest(r *http.Request) bool {
 }
 
 func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, stream bool) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
+		if requestbody.IsTooLarge(err) {
+			writeGeminiError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		} else if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
 			writeGeminiError(w, http.StatusBadRequest, "invalid json")
 		} else {
 			writeGeminiError(w, http.StatusBadRequest, "invalid body")
@@ -68,6 +74,9 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 		writeGeminiError(w, http.StatusBadRequest, "invalid json")
 		return true
 	}
+	// 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。
+	// 按 Key 的开关由 promptcompat.ApplyCallerFlags 在判定之前应用。
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
 	stdReq, err := normalizeGeminiRequest(h.Store, routeModel, req, stream)
 	if err != nil {
 		writeGeminiError(w, http.StatusBadRequest, err.Error())
@@ -79,6 +88,24 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 		return true
 	}
 	defer h.Auth.Release(a)
+	if err := files.PreprocessInlineFiles(r.Context(), a, req, h.DS, stdReq.ResolvedModel, stdReq.Thinking); err != nil {
+		status, message := files.InlineFileErrorDetails(err)
+		writeGeminiError(w, status, message)
+		return true
+	}
+	stdReq, err = normalizeGeminiRequest(h.Store, routeModel, req, stream)
+	if err != nil {
+		writeGeminiError(w, http.StatusBadRequest, err.Error())
+		return true
+	}
+	stdReq.FinalPrompt = toolcall.ApplyToolMarker(stdReq.FinalPrompt, a.ToolMarker)
+	stdReq.ToolMarker = a.ToolMarker
+	// Usage 口径必须等于实际发送的那份 prompt：OpenAI 出口在
+	// NormalizeOpenAIChatRequest / NormalizeOpenAIResponsesRequest 内把
+	// PromptTokenText 与出口替换后的 FinalPrompt 一起赋值，这里同步一次，
+	// 否则同一个设置（思考注入 / input_file 续写）开与不开会让 Gemini 的
+	// prompt 计数分别按两种形态计算。
+	stdReq.PromptTokenText = stdReq.FinalPrompt
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
 		status, message := mapCurrentInputFileError(err)
@@ -86,6 +113,7 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 		return true
 	}
 	historySession := responsehistory.Start(responsehistory.StartParams{
+		Usage:    h.Usage,
 		Store:    h.ChatHistory,
 		Request:  r,
 		Auth:     a,
@@ -97,12 +125,19 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 		return true
 	}
 	result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-		RetryEnabled:     true,
-		CurrentInputFile: h.Store,
+		RetryEnabled:          true,
+		CurrentInputFile:      h.Store,
+		ExpertPromptSegment:   h.Store,
+		ToolCallRepairEnabled: true,
+		ChatHistory:           h.ChatHistory,
 	})
 	if outErr != nil {
 		if historySession != nil {
-			historySession.ErrorTurn(outErr.Status, outErr.Message, outErr.Code, result.Turn)
+			if completionruntime.IsDirectTokenAuthError(outErr) {
+				historySession.Discard()
+			} else {
+				historySession.ErrorTurn(outErr.Status, outErr.Message, outErr.Code, result.Turn)
+			}
 		}
 		writeGeminiError(w, outErr.Status, outErr.Message)
 		return true
@@ -118,6 +153,7 @@ func (h *Handler) applyCurrentInputFile(ctx context.Context, a *auth.RequestAuth
 	if h == nil {
 		return stdReq, nil
 	}
+	stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
 	return (history.Service{Store: h.Store, DS: h.DS}).ApplyCurrentInputFile(ctx, a, stdReq)
 }
 
@@ -127,11 +163,16 @@ func mapCurrentInputFileError(err error) (int, string) {
 
 func (h *Handler) handleGeminiDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session) {
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-		CurrentInputFile: h.Store,
+		CurrentInputFile:    h.Store,
+		ExpertPromptSegment: h.Store,
 	})
 	if outErr != nil {
 		if historySession != nil {
-			historySession.Error(outErr.Status, outErr.Message, outErr.Code, "", "")
+			if completionruntime.IsDirectTokenAuthError(outErr) {
+				historySession.Discard()
+			} else {
+				historySession.Error(outErr.Status, outErr.Message, outErr.Code, "", "")
+			}
 		}
 		writeGeminiError(w, outErr.Status, outErr.Message)
 		return
@@ -141,9 +182,12 @@ func (h *Handler) handleGeminiDirectStream(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream bool) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
+		if requestbody.IsTooLarge(err) {
+			writeGeminiError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		} else if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
 			writeGeminiError(w, http.StatusBadRequest, "invalid json")
 		} else {
 			writeGeminiError(w, http.StatusBadRequest, "invalid body")
@@ -324,6 +368,9 @@ func (h *Handler) handleNonStreamGenerateContent(w http.ResponseWriter, resp *ht
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[gemini_nonstream] captcha challenge detected on initial response", "detail", detail)
+		}
 		writeGeminiError(w, resp.StatusCode, strings.TrimSpace(string(body)))
 		return
 	}

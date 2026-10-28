@@ -4,18 +4,31 @@ import (
 	"context"
 	"crypto/sha256"
 	dsprotocol "ds2api/internal/deepseek/protocol"
-	"encoding/hex"
+	"encoding/base64"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"unicode"
 
 	"ds2api/internal/auth"
+	"ds2api/internal/banreport"
 	"ds2api/internal/config"
 )
 
 func (c *Client) Login(ctx context.Context, acc config.Account) (string, error) {
+	if c.Store != nil {
+		if profile, ok := c.Store.EnsureAccountDeviceProfile(acc.Identifier()); ok {
+			acc.DeviceID = profile.DeviceID
+			acc.DeviceModel = profile.DeviceModel
+			acc.AndroidAPILevel = profile.AndroidAPILevel
+			if acc.RangersID == "" {
+				acc.RangersID = profile.RangersID
+			}
+			if acc.Locale == "" {
+				acc.Locale = profile.Locale
+			}
+		}
+	}
 	clients := c.requestClientsForAccount(acc)
 	payload := map[string]any{
 		"password":  strings.TrimSpace(acc.Password),
@@ -37,18 +50,30 @@ func (c *Client) Login(ctx context.Context, acc config.Account) (string, error) 
 	}
 	code := intFrom(resp["code"])
 	if code != 0 {
-		return "", fmt.Errorf("login failed: %v", resp["msg"])
+		return "", loginRejectedError("login failed: %v", resp["msg"])
 	}
 	data, _ := resp["data"].(map[string]any)
-	if intFrom(data["biz_code"]) != 0 {
-		return "", fmt.Errorf("login failed: %v", data["biz_msg"])
+	if bizCode := intFrom(data["biz_code"]); bizCode != 0 {
+		bizMsg, _ := data["biz_msg"].(string)
+		if isUserBannedResponse(bizCode, bizMsg) {
+			c.persistBannedAccount(acc.Identifier(), "账户已被停用", banreport.SourceLogin)
+		}
+		return "", loginRejectedError("login failed: %v", data["biz_msg"])
 	}
 	bizData, _ := data["biz_data"].(map[string]any)
 	user, _ := bizData["user"].(map[string]any)
 	token, _ := user["token"].(string)
 	if strings.TrimSpace(token) == "" {
-		return "", errors.New("missing login token")
+		return "", loginRejectedError("missing login token")
 	}
+	if chat, _ := user["chat"].(map[string]any); chat != nil && intFrom(chat["is_muted"]) == 1 {
+		until, _ := chat["mute_until"].(float64)
+		c.persistMutedUntil(acc.Identifier(), until, banreport.SourceLogin)
+	}
+	if acc.Banned {
+		c.clearBannedAccount(acc.Identifier())
+	}
+	c.noteLoginSuccess(acc.Identifier())
 	return token, nil
 }
 
@@ -56,10 +81,9 @@ func (c *Client) CreateSession(ctx context.Context, a *auth.RequestAuth, maxAtte
 	if maxAttempts <= 0 {
 		maxAttempts = c.maxRetries
 	}
-	clients := c.requestClientsForAuth(ctx, a)
 	attempts := 0
-	refreshed := false
 	for attempts < maxAttempts {
+		clients := c.requestClientsForAuth(ctx, a)
 		headers := c.authHeadersForAuth(a)
 		// 真实 Android App 发送空 body（content-length: 0），项目对齐
 		resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekCreateSessionURL, headers, nil)
@@ -76,18 +100,15 @@ func (c *Client) CreateSession(ctx context.Context, a *auth.RequestAuth, maxAtte
 			}
 		}
 		config.Logger.Warn("[create_session] failed", "status", status, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "use_config_token", a.UseConfigToken, "account", a.AccountID)
-		if a.UseConfigToken {
-			if !refreshed && shouldAttemptRefresh(status, code, bizCode, msg, bizMsg) {
-				if c.Auth.RefreshToken(ctx, a) {
-					refreshed = true
-					continue
-				}
-			}
-			if c.Auth.SwitchAccount(ctx, a) {
-				refreshed = false
+		if kind := c.observeAccountFailure(a, resp, "request"); kind != FailureUnknown {
+			if a.UseConfigToken && c.Auth != nil && c.Auth.SwitchAccount(ctx, a) {
 				attempts++
 				continue
 			}
+			return "", &RequestFailure{Op: "request", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
+		}
+		if c.recoverManagedAuth(ctx, a, &attempts, status, code, bizCode, msg, bizMsg) {
+			continue
 		}
 		attempts++
 	}
@@ -137,12 +158,11 @@ func (c *Client) fetchPowSync(ctx context.Context, a *auth.RequestAuth, targetPa
 	if targetPath == "" {
 		targetPath = dsprotocol.DeepSeekCompletionTargetPath
 	}
-	clients := c.requestClientsForAuth(ctx, a)
 	attempts := 0
-	refreshed := false
 	lastFailureKind := FailureUnknown
 	lastFailureMessage := ""
 	for attempts < maxAttempts {
+		clients := c.requestClientsForAuth(ctx, a)
 		headers := c.authHeadersForAuth(a)
 		resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekCreatePowURL, headers, map[string]any{"target_path": targetPath})
 		if err != nil {
@@ -171,18 +191,15 @@ func (c *Client) fetchPowSync(ctx context.Context, a *auth.RequestAuth, targetPa
 		} else {
 			lastFailureKind = FailureUnknown
 		}
-		if a.UseConfigToken {
-			if !refreshed && shouldAttemptRefresh(status, code, bizCode, msg, bizMsg) {
-				if c.Auth.RefreshToken(ctx, a) {
-					refreshed = true
-					continue
-				}
-			}
-			if c.Auth.SwitchAccount(ctx, a) {
-				refreshed = false
+		if kind := c.observeAccountFailure(a, resp, "request"); kind != FailureUnknown {
+			if a.UseConfigToken && c.Auth != nil && c.Auth.SwitchAccount(ctx, a) {
 				attempts++
 				continue
 			}
+			return "", &RequestFailure{Op: "request", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
+		}
+		if c.recoverManagedAuth(ctx, a, &attempts, status, code, bizCode, msg, bizMsg) {
+			continue
 		}
 		attempts++
 	}
@@ -200,13 +217,13 @@ func (c *Client) authHeadersForAuth(a *auth.RequestAuth) map[string]string {
 	if a == nil {
 		return c.authHeaders("")
 	}
-	headers := dsprotocol.BaseHeadersForRangersSeed(accountHeaderSeed(a))
+	headers := BaseHeadersForAuth(a)
 	headers["authorization"] = "Bearer " + a.DeepSeekToken
 	return headers
 }
 
 func accountBaseHeaders(acc config.Account) map[string]string {
-	return dsprotocol.BaseHeadersForRangersSeed(accountIdentifierSeed(acc))
+	return BaseHeadersForAuth(&auth.RequestAuth{Account: acc, AccountID: acc.Identifier()})
 }
 
 func accountHeaderSeed(a *auth.RequestAuth) string {
@@ -233,6 +250,12 @@ func accountIdentifierSeed(acc config.Account) string {
 }
 
 func loginDeviceID(acc config.Account) string {
+	if v := strings.TrimSpace(acc.DeviceID); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(dsprotocol.BaseHeaders["x-device-id"]); v != "" {
+		return v
+	}
 	identifier := strings.ToLower(strings.TrimSpace(acc.Identifier()))
 	if identifier == "" {
 		identifier = strings.ToLower(strings.TrimSpace(acc.Email))
@@ -244,7 +267,7 @@ func loginDeviceID(acc config.Account) string {
 		return "deepseek_to_api"
 	}
 	sum := sha256.Sum256([]byte("ds2api:deepseek:android:" + identifier))
-	return hex.EncodeToString(sum[:8])
+	return base64.StdEncoding.EncodeToString(sum[:])
 }
 
 func isTokenInvalid(status int, code int, bizCode int, msg string, bizMsg string) bool {

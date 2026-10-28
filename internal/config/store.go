@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -16,8 +18,20 @@ type Store struct {
 	path    string
 	fromEnv bool
 	keyMap  map[string]struct{} // O(1) API key lookup index
-	accMap  map[string]int      // O(1) account lookup: identifier -> slice index
-	accTest map[string]string   // runtime-only account test status cache
+	// keyFlags 是 O(1) 的按 Key 凭据开关索引（见 credential_flags.go）：
+	// key -> 仅收录与该开关声明默认值不同的项，未命中即视为默认值。
+	keyFlags map[string]map[string]bool
+	accMap   map[string]int    // O(1) account lookup: identifier -> slice index
+	accTest  map[string]string // runtime-only account test status cache
+
+	// 持久化脏位：避免每次 Store 变更都全量重写两份文件。
+	// cfgDirty 表示 config.json 需要重写；mihomoDirty 表示
+	// mihomo_subscriptions.json 需要重写（仅订阅/端口映射变化时置位）。
+	// mihomoMigratePending 在加载到 config.json 内嵌旧式订阅时置位，
+	// 下次保存强制同时重写两份文件完成迁移。
+	cfgDirty             bool
+	mihomoDirty          bool
+	mihomoMigratePending bool
 }
 
 func LoadStore() *Store {
@@ -44,10 +58,18 @@ func LoadStoreWithError() (*Store, error) {
 func loadStore() (*Store, error) {
 	cfg, fromEnv, err := loadConfig()
 	cfg.NormalizeCredentials()
+	if subErr := loadMihomoSubscriptionsFile(&cfg); subErr != nil {
+		// 独立订阅文件损坏时仅告警，不影响配置加载（保留 config.json 旧式订阅）。
+		Logger.Warn("[config] load mihomo subscriptions file failed", "path", MihomoSubscriptionsPath(), "error", subErr)
+	}
 	if validateErr := ValidateConfig(cfg); validateErr != nil {
 		err = errors.Join(err, validateErr)
 	}
-	return &Store{cfg: cfg, path: ConfigPath(), fromEnv: fromEnv}, err
+	store := &Store{cfg: cfg, path: ConfigPath(), fromEnv: fromEnv}
+	// config.json 仍内嵌旧式 mihomo 订阅时，标记待迁移：
+	// 下次保存强制同时重写 config.json（剔除订阅）与独立订阅文件。
+	store.mihomoMigratePending = !IsVercel() && configFileHasLegacyMihomoSubs(store.path)
+	return store, err
 }
 
 func loadConfig() (Config, bool, error) {
@@ -101,6 +123,13 @@ func loadConfig() (Config, bool, error) {
 			// Vercel may start without writable/present config; keep in-memory bootstrap config.
 			return Config{}, true, nil
 		}
+		if errors.Is(err, os.ErrNotExist) && bootstrapConfigFromExample(path) {
+			if exampleCfg, exampleErr := loadConfigFromFile(path); exampleErr == nil {
+				Logger.Info("[config] bootstrapped config.json from config.example.json", "path", path)
+				return exampleCfg, false, nil
+			}
+			Logger.Warn("[config] loaded bootstrapped config.json failed", "path", path)
+		}
 		if shouldBootstrapMissingConfigFile(err) {
 			Logger.Warn("[config] config file missing; starting with empty file-backed config", "path", path)
 			return Config{}, false, nil
@@ -116,6 +145,30 @@ func loadConfig() (Config, bool, error) {
 
 func shouldBootstrapMissingConfigFile(err error) bool {
 	return errors.Is(err, os.ErrNotExist) && strings.TrimSpace(os.Getenv("DS2API_CONFIG_PATH")) != ""
+}
+
+// bootstrapConfigFromExample 在配置文件缺失时，尝试把同目录下的
+// config.example.json 复制为 config.json，让全新部署无需手动创建即可启动。
+// 返回 true 表示已成功复制；示例文件不存在或复制失败时返回 false（失败会记录告警）。
+func bootstrapConfigFromExample(path string) bool {
+	dir := filepath.Dir(path)
+	if dir == "" {
+		dir = "."
+	}
+	examplePath := filepath.Join(dir, "config.example.json")
+	content, err := os.ReadFile(examplePath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			Logger.Warn("[config] read config.example.json failed", "path", examplePath, "error", err)
+		}
+		return false
+	}
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		Logger.Warn("[config] copy config.example.json -> config.json failed", "path", path, "error", err)
+		return false
+	}
+	Logger.Info("[config] bootstrapped config.json from config.example.json", "path", path)
+	return true
 }
 
 func loadConfigFromFile(path string) (Config, error) {
@@ -148,6 +201,44 @@ func (s *Store) HasAPIKey(k string) bool {
 	defer s.mu.RUnlock()
 	_, ok := s.keyMap[k]
 	return ok
+}
+
+// APIKeyFlag reports the value of a registered credential flag for the managed
+// API key k. A key that does not set the flag — and an unknown key — reads as
+// the flag's declared default, and an unregistered flag name reads as false.
+func (s *Store) APIKeyFlag(k, flag string) bool {
+	spec, ok := LookupCredentialFlag(flag)
+	if !ok {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if flags, ok := s.keyFlags[k]; ok {
+		if value, ok := flags[flag]; ok {
+			return value
+		}
+	}
+	return spec.Default
+}
+
+// APIKeyFlags reports every registered credential flag of the managed API key k,
+// each falling back to its declared default, so a caller can read a whole key's
+// switches in one pass. The admin key payload reports the same values through
+// APIKey.MarshalJSON; this is the direct read path for callers that are not
+// rendering a key record.
+func (s *Store) APIKeyFlags(k string) map[string]bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	stored := s.keyFlags[k]
+	out := make(map[string]bool, len(CredentialFlagSpecs()))
+	for _, spec := range CredentialFlagSpecs() {
+		if value, ok := stored[spec.Name]; ok {
+			out[spec.Name] = value
+			continue
+		}
+		out[spec.Name] = spec.Default
+	}
+	return out
 }
 
 func (s *Store) Keys() []string {
@@ -226,6 +317,8 @@ func (s *Store) Replace(cfg Config) error {
 	cfg.NormalizeCredentials()
 	s.cfg = cfg.Clone()
 	s.rebuildIndexes()
+	s.cfgDirty = true
+	s.mihomoDirty = true
 	return s.saveLocked()
 }
 
@@ -241,7 +334,38 @@ func (s *Store) Update(mutator func(*Config) error) error {
 	cfg.NormalizeCredentials()
 	s.cfg = cfg
 	s.rebuildIndexes()
+	s.markDirty(base, cfg)
 	return s.saveLocked()
+}
+
+// markDirty 根据事务前后配置差异标记持久化脏位：
+// mihomoDirty 仅在订阅/端口映射变化时置位（mihomo_subscriptions.json），
+// cfgDirty 在其它配置变化时置位（config.json）。测速结果等纯 mihomo 数据
+// 更新不再连带重写 config.json。
+func (s *Store) markDirty(base, cfg Config) {
+	if !mihomoSubsEqual(base.Mihomo, cfg.Mihomo) {
+		s.mihomoDirty = true
+	}
+	if !configNonMihomoEqual(base, cfg) {
+		s.cfgDirty = true
+	}
+}
+
+func mihomoSubsEqual(a, b MihomoConfig) bool {
+	if len(a.Subscriptions) != len(b.Subscriptions) || len(a.PortMap) != len(b.PortMap) {
+		return false
+	}
+	return reflect.DeepEqual(a.Subscriptions, b.Subscriptions) && reflect.DeepEqual(a.PortMap, b.PortMap)
+}
+
+// configNonMihomoEqual 比较两份配置中除订阅/端口映射外的其余部分
+// （订阅与端口映射由 mihomo_subscriptions.json 独立持久化，不计入 config.json）。
+func configNonMihomoEqual(a, b Config) bool {
+	a.Mihomo.Subscriptions = nil
+	a.Mihomo.PortMap = nil
+	b.Mihomo.Subscriptions = nil
+	b.Mihomo.PortMap = nil
+	return reflect.DeepEqual(a, b)
 }
 
 func (s *Store) Save() error {
@@ -251,17 +375,10 @@ func (s *Store) Save() error {
 		Logger.Info("[save_config] source from env, skip write")
 		return nil
 	}
-	persistCfg := s.cfg.Clone()
-	persistCfg.ClearAccountTokens()
-	b, err := json.MarshalIndent(persistCfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := writeConfigBytes(s.path, b); err != nil {
-		return err
-	}
-	s.fromEnv = false
-	return nil
+	// 显式保存（如配置导入/手动保存）：强制重写两份文件。
+	s.cfgDirty = true
+	s.mihomoDirty = true
+	return s.saveLocked()
 }
 
 func (s *Store) saveLocked() error {
@@ -269,17 +386,39 @@ func (s *Store) saveLocked() error {
 		Logger.Info("[save_config] source from env, skip write")
 		return nil
 	}
+	if s.mihomoDirty || s.mihomoMigratePending {
+		if err := saveMihomoSubscriptionsFile(s.cfg.Mihomo); err != nil {
+			return err
+		}
+		s.mihomoDirty = false
+	}
+	if s.cfgDirty || s.mihomoMigratePending {
+		if err := s.writeConfigJSONLocked(); err != nil {
+			return err
+		}
+		s.cfgDirty = false
+		s.mihomoMigratePending = false
+		s.fromEnv = false
+		return nil
+	}
+	// 主配置文件尚不存在时兜底创建，避免纯 mihomo 变更流程下 config.json 一直缺失。
+	if _, statErr := os.Stat(s.path); os.IsNotExist(statErr) {
+		if err := s.writeConfigJSONLocked(); err != nil {
+			return err
+		}
+		s.fromEnv = false
+	}
+	return nil
+}
+
+func (s *Store) writeConfigJSONLocked() error {
 	persistCfg := s.cfg.Clone()
 	persistCfg.ClearAccountTokens()
 	b, err := json.MarshalIndent(persistCfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := writeConfigBytes(s.path, b); err != nil {
-		return err
-	}
-	s.fromEnv = false
-	return nil
+	return writeConfigBytes(s.path, b)
 }
 
 func (s *Store) IsEnvBacked() bool {
@@ -301,6 +440,10 @@ func (s *Store) ExportJSONAndBase64() (string, string, error) {
 	defer s.mu.RUnlock()
 	exportCfg := s.cfg.Clone()
 	exportCfg.ClearAccountTokens()
+	// tool_marker_secret is server-internal and must never leave the instance in
+	// an export payload; a re-import keeps the running secret instead (see the
+	// admin config import replace path).
+	exportCfg.ToolMarkerSecret = ""
 	b, err := json.Marshal(exportCfg)
 	if err != nil {
 		return "", "", err

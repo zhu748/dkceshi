@@ -43,6 +43,16 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 	go func() {
 		defer close(out)
 
+		// If the underlying body is closable, close it when the context is
+		// cancelled so a scan goroutine blocked on a dead upstream connection
+		// (no data, no EOF) is unblocked instead of leaking forever while
+		// holding the connection and its buffers.
+		stopBodyClose := func() bool { return false }
+		if closer, ok := body.(io.Closer); ok {
+			stopBodyClose = context.AfterFunc(ctx, func() { _ = closer.Close() })
+		}
+		defer stopBodyClose()
+
 		reader := bufio.NewReaderSize(body, lineReaderBufferSize)
 		currentType := initialType
 

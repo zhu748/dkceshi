@@ -12,41 +12,32 @@ import (
 	openaifmt "ds2api/internal/format/openai"
 	"ds2api/internal/prompt"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/usagestats"
 )
 
 type chatHistorySession struct {
 	store       *chathistory.Store
+	usage       *usagestats.Store
 	entryID     string
 	startedAt   time.Time
 	lastPersist time.Time
 	finalPrompt string
+	recordModel string
 	startParams chathistory.StartParams
 	disabled    bool
 }
 
 func startChatHistory(store *chathistory.Store, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) *chatHistorySession {
-	if store == nil || r == nil || a == nil {
+	return startChatHistoryWithUsage(store, nil, r, a, stdReq)
+}
+
+func startChatHistoryWithUsage(store *chathistory.Store, usage *usagestats.Store, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) *chatHistorySession {
+	if r == nil || a == nil || !shouldCaptureChatHistory(r) {
 		return nil
 	}
-	if !store.Enabled() {
-		return nil
-	}
-	if !shouldCaptureChatHistory(r) {
-		return nil
-	}
-	entry, err := store.Start(chathistory.StartParams{
-		CallerID:    strings.TrimSpace(a.CallerID),
-		AccountID:   strings.TrimSpace(a.AccountID),
-		Surface:     "openai.chat_completions",
-		Model:       strings.TrimSpace(stdReq.ResponseModel),
-		Stream:      stdReq.Stream,
-		UserInput:   extractSingleUserInput(stdReq.Messages),
-		Messages:    extractAllMessages(stdReq.Messages),
-		HistoryText: stdReq.HistoryText,
-		FinalPrompt: stdReq.FinalPrompt,
-	})
 	startParams := chathistory.StartParams{
 		CallerID:    strings.TrimSpace(a.CallerID),
+		UserAgent:   strings.TrimSpace(a.UserAgent),
 		AccountID:   strings.TrimSpace(a.AccountID),
 		Surface:     "openai.chat_completions",
 		Model:       strings.TrimSpace(stdReq.ResponseModel),
@@ -58,27 +49,56 @@ func startChatHistory(store *chathistory.Store, r *http.Request, a *auth.Request
 	}
 	session := &chatHistorySession{
 		store:       store,
-		entryID:     entry.ID,
+		usage:       usage,
 		startedAt:   time.Now(),
 		lastPersist: time.Now(),
 		finalPrompt: stdReq.FinalPrompt,
+		recordModel: recordModelForUsage(stdReq),
 		startParams: startParams,
+	}
+	historyEnabled := store != nil && store.Enabled()
+	if !historyEnabled {
+		if usage == nil {
+			return nil
+		}
+		return session
+	}
+	entry, err := store.Start(startParams)
+	if entry.ID != "" {
+		session.entryID = entry.ID
 	}
 	if err != nil {
 		if entry.ID == "" {
 			config.Logger.Warn("[chat_history] start failed", "error", err)
-			return nil
+			session.store = nil
+			if session.usage == nil {
+				return nil
+			}
+			return session
 		}
 		config.Logger.Warn("[chat_history] start persisted in memory after write failure", "error", err)
 	}
 	return session
 }
 
+func recordModelForUsage(stdReq promptcompat.StandardRequest) string {
+	model := strings.TrimSpace(stdReq.ResolvedModel)
+	if model == "" {
+		model = strings.TrimSpace(stdReq.ResponseModel)
+	}
+	if model == "" {
+		return "unknown"
+	}
+	return model
+}
+
 func shouldCaptureChatHistory(r *http.Request) bool {
 	if r == nil {
 		return false
 	}
-	if isVercelStreamPrepareRequest(r) || isVercelStreamReleaseRequest(r) {
+	// prepare 是无正文的内部预请求，不采集；release 需要放行——Vercel
+	// Node 流式路径在 release 时回填聊天历史并记录 Token 用量。
+	if isVercelStreamPrepareRequest(r) {
 		return false
 	}
 	return true
@@ -92,6 +112,23 @@ func extractSingleUserInput(messages []any) string {
 		}
 		role := strings.ToLower(strings.TrimSpace(asString(msg["role"])))
 		if role != "user" {
+			continue
+		}
+		if normalized := strings.TrimSpace(prompt.NormalizeContent(msg["content"])); normalized != "" {
+			return normalized
+		}
+	}
+	// The current-input-file continuation path replaces every turn with a
+	// single system-role placeholder, so there is no user turn left to label
+	// the archived entry. Fall back to the last non-empty turn instead of
+	// persisting an empty title.
+	return lastNonEmptyMessageContent(messages)
+}
+
+func lastNonEmptyMessageContent(messages []any) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg, ok := messages[i].(map[string]any)
+		if !ok {
 			continue
 		}
 		if normalized := strings.TrimSpace(prompt.NormalizeContent(msg["content"])); normalized != "" {
@@ -140,7 +177,11 @@ func (s *chatHistorySession) progress(thinking, content string) {
 }
 
 func (s *chatHistorySession) success(statusCode int, thinking, content, finishReason string, usage map[string]any) {
-	if s == nil || s.store == nil || s.disabled {
+	if s == nil {
+		return
+	}
+	s.recordUsage(usage)
+	if s.store == nil || s.disabled {
 		return
 	}
 	s.persistUpdate(chathistory.UpdateParams{
@@ -172,7 +213,12 @@ func (s *chatHistorySession) error(statusCode int, message, finishReason, thinki
 }
 
 func (s *chatHistorySession) stopped(thinking, content, finishReason string) {
-	if s == nil || s.store == nil || s.disabled {
+	if s == nil {
+		return
+	}
+	usage := openaifmt.BuildChatUsage(s.finalPrompt, thinking, content)
+	s.recordUsage(usage)
+	if s.store == nil || s.disabled {
 		return
 	}
 	s.persistUpdate(chathistory.UpdateParams{
@@ -182,9 +228,29 @@ func (s *chatHistorySession) stopped(thinking, content, finishReason string) {
 		StatusCode:       http.StatusOK,
 		ElapsedMs:        time.Since(s.startedAt).Milliseconds(),
 		FinishReason:     finishReason,
-		Usage:            openaifmt.BuildChatUsage(s.finalPrompt, thinking, content),
+		Usage:            usage,
 		Completed:        true,
 	})
+}
+
+// recordUsage 把一次请求的 Token 用量计入全局账本。即使聊天历史关闭，
+// 只要注入了 usage store 就会生效。
+func (s *chatHistorySession) recordUsage(usage map[string]any) {
+	if s == nil || s.usage == nil {
+		return
+	}
+	s.usage.Record(s.recordModel, s.startParams.CallerID, usage, s.startedAt)
+}
+
+func (s *chatHistorySession) discard() {
+	if s == nil || s.store == nil || s.disabled {
+		return
+	}
+	if err := s.store.Delete(s.entryID); err != nil {
+		if !isChatHistoryMissingError(err) && !errors.Is(err, chathistory.ErrDisabled) {
+			config.Logger.Warn("[chat_history] discard failed", "error", err)
+		}
+	}
 }
 
 func historyTextForArchive(raw, visible string) string {

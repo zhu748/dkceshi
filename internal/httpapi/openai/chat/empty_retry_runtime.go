@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -17,10 +18,13 @@ import (
 	streamengine "ds2api/internal/stream"
 )
 
-func (h *Handler) handleNonStreamWithRetry(w http.ResponseWriter, ctx context.Context, a *auth.RequestAuth, resp *http.Response, payload any, pow, completionID, model, finalPrompt string, refFileTokens int, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, historySession *chatHistorySession) {
+func (h *Handler) handleNonStreamWithRetry(w http.ResponseWriter, ctx context.Context, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow, completionID, model, finalPrompt string, refFileTokens int, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, historySession *chatHistorySession) {
 	if resp.StatusCode != http.StatusOK {
 		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[openai_chat] captcha challenge detected on initial response", "account", a.AccountID, "detail", detail)
+		}
 		if historySession != nil {
 			historySession.error(resp.StatusCode, string(body), "error", "", "")
 		}
@@ -47,8 +51,11 @@ func (h *Handler) handleNonStreamWithRetry(w http.ResponseWriter, ctx context.Co
 		Response:  resp,
 		Request:   stdReq,
 	}, completionruntime.Options{
-		RetryEnabled:     retryEnabled,
-		RetryMaxAttempts: emptyOutputRetryMaxAttempts(),
+		RetryEnabled:          retryEnabled,
+		RetryMaxAttempts:      emptyOutputRetryMaxAttempts(),
+		ExpertPromptSegment:   h.Store,
+		ToolCallRepairEnabled: true,
+		ChatHistory:           h.ChatHistory,
 	})
 	if outErr != nil {
 		if historySession != nil {
@@ -66,22 +73,29 @@ func (h *Handler) handleNonStreamWithRetry(w http.ResponseWriter, ctx context.Co
 	writeJSON(w, http.StatusOK, respBody)
 }
 
-func (h *Handler) handleStreamWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload any, pow, completionID string, sessionIDRef *string, stdReq promptcompat.StandardRequest, model, finalPrompt string, refFileTokens int, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, toolChoice promptcompat.ToolChoicePolicy, historySession *chatHistorySession) {
+func (h *Handler) handleStreamWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow, completionID string, sessionIDRef *string, stdReq promptcompat.StandardRequest, model, finalPrompt string, refFileTokens int, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, toolChoice promptcompat.ToolChoicePolicy, historySession *chatHistorySession) {
 	streamRuntime, initialType, ok := h.prepareChatStreamRuntime(w, resp, completionID, model, finalPrompt, refFileTokens, thinkingEnabled, searchEnabled, toolNames, toolsRaw, toolChoice, historySession)
 	if !ok {
 		return
 	}
+	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize so
+	// bad tool-call text can be replaced by repaired tool_calls before the
+	// final frame is delivered. The per-chunk sieve never receives the invoker.
+	streamRuntime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)
+	streamRuntime.toolCallRepairCtx = r.Context()
+	streamRuntime.toolSieve.Marker = a.ToolMarker
 	completionruntime.ExecuteStreamWithRetry(r.Context(), h.DS, a, resp, payload, pow, completionruntime.StreamRetryOptions{
-		Surface:          "chat.completions",
-		Stream:           true,
-		RetryEnabled:     emptyOutputRetryEnabled(),
-		RetryMaxAttempts: emptyOutputRetryMaxAttempts(),
-		MaxAttempts:      3,
-		UsagePrompt:      finalPrompt,
-		Request:          stdReq,
-		CurrentInputFile: h.Store,
+		Surface:             "chat.completions",
+		Stream:              true,
+		RetryEnabled:        emptyOutputRetryEnabled(),
+		RetryMaxAttempts:    emptyOutputRetryMaxAttempts(),
+		MaxAttempts:         3,
+		UsagePrompt:         finalPrompt,
+		Request:             stdReq,
+		CurrentInputFile:    h.Store,
+		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
-		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) (bool, bool) {
+		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 			return h.consumeChatStreamAttempt(r, currentResp, streamRuntime, initialType, thinkingEnabled, historySession, allowDeferEmpty)
 		},
 		Finalize: func(attempts int) {
@@ -106,6 +120,12 @@ func (h *Handler) handleStreamWithRetry(w http.ResponseWriter, r *http.Request, 
 		OnTerminal: func(attempts int) {
 			logChatStreamTerminal(streamRuntime, attempts)
 		},
+		EmptyOutputError: func() *assistantturn.OutputError {
+			if streamRuntime.finalErrorCode == "" {
+				return nil
+			}
+			return &assistantturn.OutputError{Status: streamRuntime.finalErrorStatus, Message: streamRuntime.finalErrorMessage, Code: streamRuntime.finalErrorCode}
+		},
 	})
 }
 
@@ -113,6 +133,9 @@ func (h *Handler) prepareChatStreamRuntime(w http.ResponseWriter, resp *http.Res
 	if resp.StatusCode != http.StatusOK {
 		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[openai_chat_stream] captcha challenge detected on initial response", "detail", detail)
+		}
 		if historySession != nil {
 			historySession.error(resp.StatusCode, string(body), "error", "", "")
 		}
@@ -136,20 +159,43 @@ func (h *Handler) prepareChatStreamRuntime(w http.ResponseWriter, resp *http.Res
 		w, rc, canFlush, completionID, time.Now().Unix(), model, finalPrompt,
 		thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw,
 		toolChoice,
-		len(toolNames) > 0, h.toolcallFeatureMatchEnabled() && h.toolcallEarlyEmitHighConfidence(),
+		// 无论客户端是否传 tools，都启用 toolSieve 流式拦截：
+		// 模型在提示词中被要求使用 <|EPSE|tool_calls> 格式输出工具调用，
+		// 若客户端未传 tools（如 opencode/rikkahub 的“继续会话”请求），
+		// bufferToolContent 为 false 会导致 EPSE 原文作为正文透传给客户端，
+		// 产生乱码。toolSieve 解析不依赖 toolNames 过滤，空列表也能正常拦截。
+		true, h.toolcallFeatureMatchEnabled() && h.toolcallEarlyEmitHighConfidence(),
 	)
 	streamRuntime.refFileTokens = refFileTokens
 	return streamRuntime, initialType, true
 }
 
-func (h *Handler) consumeChatStreamAttempt(r *http.Request, resp *http.Response, streamRuntime *chatStreamRuntime, initialType string, thinkingEnabled bool, historySession *chatHistorySession, allowDeferEmpty bool) (bool, bool) {
+func (h *Handler) consumeChatStreamAttempt(r *http.Request, resp *http.Response, streamRuntime *chatStreamRuntime, initialType string, thinkingEnabled bool, historySession *chatHistorySession, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 	defer func() { _ = resp.Body.Close() }()
+	// A new attempt reads a new upstream response, so the content rules start
+	// over: a cut that ended the previous attempt (an empty-output retry, or a
+	// retry on another account) must not keep discarding this one's text.
+	streamRuntime.accumulator.ResetContentPolicy()
+	// On a continue/resume (or retry) round the stream has already consumed
+	// part of the message. Never blindly re-seed the segment cursor to
+	// "thinking" in that case: if the message already entered the content
+	// segment, restart the pump as "text" so the replayed envelope and the
+	// pathless body blocks that follow keep classifying as content instead of
+	// being swallowed into reasoning_content.
+	attemptInitialType := initialType
+	if streamRuntime.accumulator.RawText.Len() > 0 {
+		attemptInitialType = "text"
+	} else if streamRuntime.accumulator.RawThinking.Len() > 0 {
+		attemptInitialType = "thinking"
+	}
 	finalReason := "stop"
+	var scannerErr error
+	var stopReason streamengine.StopReason
 	streamengine.ConsumeSSE(streamengine.ConsumeConfig{
 		Context:             r.Context(),
 		Body:                resp.Body,
 		ThinkingEnabled:     thinkingEnabled,
-		InitialType:         initialType,
+		InitialType:         attemptInitialType,
 		KeepAliveInterval:   time.Duration(dsprotocol.KeepAliveTimeout) * time.Second,
 		IdleTimeout:         time.Duration(dsprotocol.StreamIdleTimeout) * time.Second,
 		MaxKeepAliveNoInput: dsprotocol.MaxKeepaliveCount,
@@ -162,7 +208,9 @@ func (h *Handler) consumeChatStreamAttempt(r *http.Request, resp *http.Response,
 			}
 			return decision
 		},
-		OnFinalize: func(reason streamengine.StopReason, _ error) {
+		OnFinalize: func(reason streamengine.StopReason, err error) {
+			stopReason = reason
+			scannerErr = err
 			if string(reason) == "content_filter" {
 				finalReason = "content_filter"
 			}
@@ -175,14 +223,31 @@ func (h *Handler) consumeChatStreamAttempt(r *http.Request, resp *http.Response,
 		},
 	})
 	if streamRuntime.finalErrorCode == string(streamengine.StopReasonContextCancelled) {
-		return true, false
+		return completionruntime.ConsumeAttemptResult{Terminal: true}
+	}
+
+	// An upstream stream that died mid-body (read error) or stalled past the
+	// idle / no-content window after producing partial output must not be
+	// silently finalized as a normal "stop": schedule a continue-resume so the
+	// same message is completed, or surface an explicit interruption error.
+	interrupted := scannerErr != nil || stopReason == streamengine.StopReasonIdleTimeout || stopReason == streamengine.StopReasonNoContentTimeout
+	if interrupted && streamRuntime.responseMessageID > 0 && streamRuntime.accumulator.HasPartialOutput() {
+		config.Logger.Warn("[openai_chat_stream] upstream stream interrupted; scheduling continue-resume",
+			"surface", "chat.completions", "stream", true, "reason", stopReason, "error", fmt.Sprint(scannerErr), "response_message_id", streamRuntime.responseMessageID)
+		return completionruntime.ConsumeAttemptResult{Retryable: true, ResumeContinue: true}
+	}
+	if interrupted && streamRuntime.accumulator.HasPartialOutput() {
+		// Partial output but no resumable message id: surface the truncation.
+		streamRuntime.sendFailedChunk(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.", "upstream_interrupted")
+		recordChatStreamHistory(streamRuntime, historySession)
+		return completionruntime.ConsumeAttemptResult{Terminal: true}
 	}
 	terminalWritten := streamRuntime.finalize(finalReason, allowDeferEmpty && finalReason != "content_filter")
 	if terminalWritten {
 		recordChatStreamHistory(streamRuntime, historySession)
-		return true, false
+		return completionruntime.ConsumeAttemptResult{Terminal: true}
 	}
-	return false, true
+	return completionruntime.ConsumeAttemptResult{Retryable: true}
 }
 
 func recordChatStreamHistory(streamRuntime *chatStreamRuntime, historySession *chatHistorySession) {

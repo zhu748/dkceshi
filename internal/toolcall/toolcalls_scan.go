@@ -9,13 +9,13 @@ import (
 type toolMarkupNameAlias struct {
 	raw       string
 	canonical string
-	dsmlOnly  bool
+	epseOnly  bool
 }
 
 var toolMarkupNames = []toolMarkupNameAlias{
 	{raw: "tool_calls", canonical: "tool_calls"},
-	{raw: "tool-calls", canonical: "tool_calls", dsmlOnly: true},
-	{raw: "toolcalls", canonical: "tool_calls", dsmlOnly: true},
+	{raw: "tool-calls", canonical: "tool_calls", epseOnly: true},
+	{raw: "toolcalls", canonical: "tool_calls", epseOnly: true},
 	{raw: "invoke", canonical: "invoke"},
 	{raw: "parameter", canonical: "parameter"},
 }
@@ -28,15 +28,15 @@ type ToolMarkupTag struct {
 	Name        string
 	Closing     bool
 	SelfClosing bool
-	DSMLLike    bool
+	EPSELike    bool
 	Canonical   bool
 }
 
-func ContainsToolMarkupSyntaxOutsideIgnored(text string) (hasDSML, hasCanonical bool) {
+func ContainsToolMarkupSyntaxOutsideIgnored(text string) (hasEPSE, hasCanonical bool) {
 	for i := 0; i < len(text); {
 		next, advanced, blocked := skipXMLIgnoredSection(text, i)
 		if blocked {
-			return hasDSML, hasCanonical
+			return hasEPSE, hasCanonical
 		}
 		if advanced {
 			i = next
@@ -47,12 +47,12 @@ func ContainsToolMarkupSyntaxOutsideIgnored(text string) (hasDSML, hasCanonical 
 			continue
 		}
 		if tag, ok := scanToolMarkupTagAt(text, i); ok {
-			if tag.DSMLLike {
-				hasDSML = true
+			if tag.EPSELike {
+				hasEPSE = true
 			} else {
 				hasCanonical = true
 			}
-			if hasDSML && hasCanonical {
+			if hasEPSE && hasCanonical {
 				return true, true
 			}
 			i = tag.End + 1
@@ -60,14 +60,14 @@ func ContainsToolMarkupSyntaxOutsideIgnored(text string) (hasDSML, hasCanonical 
 		}
 		i++
 	}
-	return hasDSML, hasCanonical
+	return hasEPSE, hasCanonical
 }
 
-func ContainsToolCallWrapperSyntaxOutsideIgnored(text string) (hasDSML, hasCanonical bool) {
+func ContainsToolCallWrapperSyntaxOutsideIgnored(text string) (hasEPSE, hasCanonical bool) {
 	for i := 0; i < len(text); {
 		next, advanced, blocked := skipXMLIgnoredSection(text, i)
 		if blocked {
-			return hasDSML, hasCanonical
+			return hasEPSE, hasCanonical
 		}
 		if advanced {
 			i = next
@@ -82,12 +82,12 @@ func ContainsToolCallWrapperSyntaxOutsideIgnored(text string) (hasDSML, hasCanon
 				i = tag.End + 1
 				continue
 			}
-			if tag.DSMLLike {
-				hasDSML = true
+			if tag.EPSELike {
+				hasEPSE = true
 			} else {
 				hasCanonical = true
 			}
-			if hasDSML && hasCanonical {
+			if hasEPSE && hasCanonical {
 				return true, true
 			}
 			i = tag.End + 1
@@ -95,7 +95,7 @@ func ContainsToolCallWrapperSyntaxOutsideIgnored(text string) (hasDSML, hasCanon
 		}
 		i++
 	}
-	return hasDSML, hasCanonical
+	return hasEPSE, hasCanonical
 }
 
 func FindToolMarkupTagOutsideIgnored(text string, start int) (ToolMarkupTag, bool) {
@@ -166,20 +166,27 @@ func scanToolMarkupTagAt(text string, start int) (ToolMarkupTag, bool) {
 		i = next
 	}
 	prefixStart := i
-	i, dsmlLike := consumeToolMarkupNamePrefix(text, i)
-	name, nameLen := matchToolMarkupName(text, i, dsmlLike)
+	i, epseLike := consumeToolMarkupNamePrefix(text, i)
+	name, nameLen := matchToolMarkupName(text, i, epseLike)
+	shorthandParameter := false
 	if nameLen == 0 {
 		fallbackName, fallbackStart, fallbackLen, ok := matchToolMarkupNameAfterArbitraryPrefix(text, prefixStart)
 		if !ok {
-			return ToolMarkupTag{}, false
+			if !epseLike || !isEPSEShorthandParameter(text, i, closing) {
+				return ToolMarkupTag{}, false
+			}
+			name = "parameter"
+			nameLen = 0
+			shorthandParameter = true
+		} else {
+			if !closing && toolMarkupPrefixContainsSlash(text[prefixStart:fallbackStart]) {
+				closing = true
+			}
+			name = fallbackName
+			i = fallbackStart
+			nameLen = fallbackLen
+			epseLike = true
 		}
-		if !closing && toolMarkupPrefixContainsSlash(text[prefixStart:fallbackStart]) {
-			closing = true
-		}
-		name = fallbackName
-		i = fallbackStart
-		nameLen = fallbackLen
-		dsmlLike = true
 	}
 	nameEnd := i + nameLen
 	nameEndBeforeSeparators := nameEnd
@@ -187,7 +194,7 @@ func scanToolMarkupTagAt(text string, start int) (ToolMarkupTag, bool) {
 		nameEnd = next
 	}
 	hasTrailingSeparator := nameEnd > nameEndBeforeSeparators
-	if !hasToolMarkupBoundary(text, nameEnd) {
+	if !shorthandParameter && !hasToolMarkupBoundary(text, nameEnd) {
 		return ToolMarkupTag{}, false
 	}
 	end := findXMLTagEnd(text, nameEnd)
@@ -211,14 +218,47 @@ func scanToolMarkupTagAt(text string, start int) (ToolMarkupTag, bool) {
 		Name:        name,
 		Closing:     closing,
 		SelfClosing: strings.HasSuffix(trimmed, "/>"),
-		DSMLLike:    dsmlLike,
-		Canonical:   !dsmlLike,
+		EPSELike:    epseLike,
+		Canonical:   !epseLike,
 	}, true
+}
+
+// isEPSEShorthandParameter reports whether text[i:] starts a shorthand EPSE
+// parameter tag: the model emitted the <|EPSE ...> shell but omitted the
+// `|parameter` local-name segment. It accepts two forms:
+//   - a closing shorthand such as `</|EPSE>` that ends immediately after the
+//     prefix, and
+//   - an opening shorthand such as `<|EPSE name="workdir">` whose attribute
+//     block carries a `name=` attribute.
+//
+// The open form is only treated as a parameter when it actually carries a
+// `name=` attribute, so `<|EPSE foo="bar">` and a bare `<|EPSE>` remain
+// unrecognized rather than being misread as tool calls.
+func isEPSEShorthandParameter(text string, i int, closing bool) bool {
+	if i < 0 || i >= len(text) {
+		return false
+	}
+	end := findXMLTagEnd(text, i)
+	if end < 0 {
+		return false
+	}
+	if closing {
+		return strings.TrimSpace(text[i:end]) == ""
+	}
+	for _, attr := range parseCanonicalToolMarkupAttrs(text, i) {
+		if attr.Key == "name" {
+			return true
+		}
+	}
+	return false
 }
 
 func IsPartialToolMarkupTagPrefix(text string) bool {
 	if text == "" || text[0] != '<' || strings.Contains(text, ">") || strings.Contains(text, "＞") {
 		return false
+	}
+	if isPartialDSMLTagPrefix(text) {
+		return true
 	}
 	i := 1
 	for i < len(text) && text[i] == '<' {
@@ -237,7 +277,7 @@ func IsPartialToolMarkupTagPrefix(text string) bool {
 		if hasToolMarkupNamePrefix(text, i) {
 			return true
 		}
-		if hasASCIIPartialPrefixFoldAt(text, i, "dsml") {
+		if hasASCIIPartialPrefixFoldAt(text, i, "epse") {
 			return true
 		}
 		if hasPartialToolMarkupNameAfterArbitraryPrefix(text, i) {
@@ -252,15 +292,60 @@ func IsPartialToolMarkupTagPrefix(text string) bool {
 	return false
 }
 
+// isPartialDSMLTagPrefix reports whether text is an as-yet-unterminated
+// DSML-prefixed tag. Any DSML tag is a streaming interception trigger, so a
+// half-arrived `<DSML ...` (with or without a local-name suffix) must be held
+// back instead of leaking as visible text.
+func isPartialDSMLTagPrefix(text string) bool {
+	if text == "" || text[0] != '<' || strings.Contains(text, ">") || strings.Contains(text, "＞") {
+		return false
+	}
+	i := 1
+	for i < len(text) && text[i] == '<' {
+		i++
+	}
+	if i >= len(text) {
+		return true
+	}
+	if text[i] == '/' {
+		i++
+	}
+	for {
+		next, ok := consumeToolMarkupSeparator(text, i)
+		if ok {
+			i = next
+			continue
+		}
+		if spacingLen := toolMarkupWhitespaceLikeLenAt(text, i); spacingLen > 0 {
+			i += spacingLen
+			continue
+		}
+		break
+	}
+	if i >= len(text) {
+		return true
+	}
+	afterDSML, matched := consumeToolKeyword(text, i, "dsml")
+	if !matched {
+		return hasASCIIPartialPrefixFoldAt(text, i, "dsml")
+	}
+	if b, size := normalizedASCIIAt(text, afterDSML); size > 0 {
+		if (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
 func consumeToolMarkupNamePrefix(text string, idx int) (int, bool) {
-	dsmlLike := false
+	epseLike := false
 	for {
 		next, ok := consumeToolMarkupNamePrefixOnce(text, idx)
 		if !ok {
-			return idx, dsmlLike
+			return idx, epseLike
 		}
 		idx = next
-		dsmlLike = true
+		epseLike = true
 	}
 }
 
@@ -272,7 +357,7 @@ func consumeToolMarkupNamePrefixOnce(text string, idx int) (int, bool) {
 	if spacingLen := toolMarkupWhitespaceLikeLenAt(text, idx); spacingLen > 0 {
 		return idx + spacingLen, true
 	}
-	if next, ok := consumeToolKeyword(text, idx, "dsml"); ok {
+	if next, ok := consumeToolKeyword(text, idx, "epse"); ok {
 		if dashLen := toolMarkupDashLenAt(text, next); dashLen > 0 {
 			next += dashLen
 		} else if underscoreLen := toolMarkupUnderscoreLenAt(text, next); underscoreLen > 0 {
@@ -362,9 +447,9 @@ func hasToolMarkupNamePrefix(text string, start int) bool {
 	return false
 }
 
-func matchToolMarkupName(text string, start int, dsmlLike bool) (string, int) {
+func matchToolMarkupName(text string, start int, epseLike bool) (string, int) {
 	for _, name := range toolMarkupNames {
-		if name.dsmlOnly && !dsmlLike {
+		if name.epseOnly && !epseLike {
 			continue
 		}
 		if next, ok := consumeToolKeyword(text, start, name.raw); ok {
@@ -406,7 +491,7 @@ func hasPartialToolMarkupNameAfterArbitraryPrefix(text string, start int) bool {
 		if toolMarkupPrefixAllowsLocalNameAt(text, start, idx) && hasToolMarkupNamePrefix(text, idx) {
 			return true
 		}
-		if toolMarkupPrefixAllowsLocalNameAt(text, start, idx) && hasDSMLNamePrefixOrPartial(text, idx) {
+		if toolMarkupPrefixAllowsLocalNameAt(text, start, idx) && hasEPSENamePrefixOrPartial(text, idx) {
 			return true
 		}
 		_, size := utf8.DecodeRuneInString(text[idx:])
@@ -437,15 +522,15 @@ func toolMarkupPrefixAllowsLocalNameAt(text string, start, localStart int) bool 
 	return isASCIIAlphaNumeric(normalizeFullwidthASCII(prev)) && isASCIIUpper(normalizeFullwidthASCII(next))
 }
 
-func hasDSMLNamePrefixOrPartial(text string, start int) bool {
-	return hasASCIIPrefixFoldAt(text, start, "dsml") || hasASCIIPartialPrefixFoldAt(text, start, "dsml")
+func hasEPSENamePrefixOrPartial(text string, start int) bool {
+	return hasASCIIPrefixFoldAt(text, start, "epse") || hasASCIIPartialPrefixFoldAt(text, start, "epse")
 }
 
 func toolMarkupPrefixAllowsLocalName(prefix string) bool {
 	if prefix == "" {
 		return false
 	}
-	if strings.Contains(normalizedASCIILowerString(prefix), "dsml") {
+	if strings.Contains(normalizedASCIILowerString(prefix), "epse") {
 		return true
 	}
 	if strings.ContainsAny(prefix, "=\"'") {

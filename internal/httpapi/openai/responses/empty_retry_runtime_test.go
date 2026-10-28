@@ -2,6 +2,7 @@ package responses
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,7 @@ func TestConsumeResponsesStreamAttemptMarksContextCancelledState(t *testing.T) {
 		http.NewResponseController(rec),
 		true,
 		"resp-cancelled",
-		"deepseek-v4-flash",
+		"deepseek-v4.1-flash",
 		"prompt",
 		false,
 		false,
@@ -55,9 +56,9 @@ func TestConsumeResponsesStreamAttemptMarksContextCancelledState(t *testing.T) {
 	)
 
 	h := &Handler{}
-	terminalWritten, retryable := h.consumeResponsesStreamAttempt(req, resp, streamRuntime, "text", false, true)
-	if !terminalWritten || retryable {
-		t.Fatalf("expected cancelled attempt to terminate without retry, got terminalWritten=%v retryable=%v", terminalWritten, retryable)
+	res := h.consumeResponsesStreamAttempt(req, resp, streamRuntime, "text", false, true)
+	if !res.Terminal || res.Retryable {
+		t.Fatalf("expected cancelled attempt to terminate without retry, got result=%+v", res)
 	}
 	if !streamRuntime.failed {
 		t.Fatalf("expected cancelled response stream to be marked failed")
@@ -67,5 +68,61 @@ func TestConsumeResponsesStreamAttemptMarksContextCancelledState(t *testing.T) {
 	}
 	if streamRuntime.finalErrorMessage == "" {
 		t.Fatalf("expected cancelled final error message to be preserved")
+	}
+}
+
+type erroringResponsesSSEBody struct {
+	chunks []string
+	err    error
+	idx    int
+}
+
+func (b *erroringResponsesSSEBody) Read(p []byte) (int, error) {
+	if b.idx < len(b.chunks) {
+		chunk := b.chunks[b.idx]
+		b.idx++
+		return copy(p, chunk), nil
+	}
+	return 0, b.err
+}
+
+func (b *erroringResponsesSSEBody) Close() error { return nil }
+
+func TestConsumeResponsesStreamAttemptSchedulesResumeOnInterruptedPartialStream(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	streamRuntime := newResponsesStreamRuntime(
+		rec,
+		http.NewResponseController(rec),
+		true,
+		"resp-interrupted",
+		"deepseek-v4.1-flash",
+		"prompt",
+		false,
+		false,
+		true,
+		nil,
+		nil,
+		false,
+		false,
+		promptcompat.DefaultToolChoicePolicy(),
+		"",
+		nil,
+		nil,
+	)
+	body := "data: {\"response_message_id\":88,\"p\":\"response/content\",\"v\":\"partial\"}\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       &erroringResponsesSSEBody{chunks: []string{body}, err: errors.New("connection reset by peer")},
+	}
+
+	h := &Handler{}
+	res := h.consumeResponsesStreamAttempt(req, resp, streamRuntime, "text", false, false)
+	if res.Terminal || !res.Retryable || !res.ResumeContinue {
+		t.Fatalf("expected interrupted partial stream to schedule continue-resume, got result=%+v", res)
+	}
+	if got := streamRuntime.responseMessageID; got != 88 {
+		t.Fatalf("expected runtime to track response_message_id 88, got %d", got)
 	}
 }

@@ -14,7 +14,6 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
 	dsclient "ds2api/internal/deepseek/client"
-	"ds2api/internal/promptcompat"
 )
 
 type testingDSMock struct {
@@ -42,7 +41,7 @@ func (m *testingDSMock) GetPow(_ context.Context, _ *auth.RequestAuth, _ int) (s
 	return "", errors.New("should not call GetPow in this test")
 }
 
-func (m *testingDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+func (m *testingDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
 	m.callCompletionCalls++
 	return nil, errors.New("should not call CallCompletion in this test")
 }
@@ -58,10 +57,6 @@ func (m *testingDSMock) DeleteAllSessionsForToken(_ context.Context, _ string) e
 	}
 	return nil
 }
-func (m *testingDSMock) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
-	return nil, errors.New("CallEditMessage not implemented in stub")
-}
-
 
 func (m *testingDSMock) GetSessionCountForToken(_ context.Context, _ string) (*dsclient.SessionStats, error) {
 	return &dsclient.SessionStats{Success: true}, nil
@@ -77,7 +72,7 @@ func TestTestAccount_BatchModeOnlyCreatesSession(t *testing.T) {
 		t.Fatal("expected test account")
 	}
 
-	result := h.testAccount(context.Background(), acc, "deepseek-v4-flash", "")
+	result := h.testAccount(context.Background(), acc, "deepseek-v4.1-flash", "")
 
 	if ok, _ := result["success"].(bool); !ok {
 		t.Fatalf("expected success=true, got %#v", result)
@@ -141,7 +136,7 @@ func TestDeleteAllSessions_RetryWithReloginOnDeleteFailure(t *testing.T) {
 }
 
 type completionPayloadDSMock struct {
-	payload any
+	payload map[string]any
 }
 
 func (m *completionPayloadDSMock) Login(_ context.Context, _ config.Account) (string, error) {
@@ -156,7 +151,7 @@ func (m *completionPayloadDSMock) GetPow(_ context.Context, _ *auth.RequestAuth,
 	return "pow-ok", nil
 }
 
-func (m *completionPayloadDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
+func (m *completionPayloadDSMock) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
 	m.payload = payload
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -164,32 +159,15 @@ func (m *completionPayloadDSMock) CallCompletion(_ context.Context, _ *auth.Requ
 	}, nil
 }
 
-func (m *completionPayloadDSMock) payloadMap() map[string]any {
-	if m.payload == nil {
-		return nil
-	}
-	if o, ok := m.payload.(*promptcompat.OrderedJSONMap); ok {
-		return o.AsMap()
-	}
-	if mp, ok := m.payload.(map[string]any); ok {
-		return mp
-	}
-	return nil
-}
-
 func (m *completionPayloadDSMock) DeleteAllSessionsForToken(_ context.Context, _ string) error {
 	return nil
 }
-func (m *completionPayloadDSMock) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
-	return nil, errors.New("CallEditMessage not implemented in stub")
-}
-
 
 func (m *completionPayloadDSMock) GetSessionCountForToken(_ context.Context, _ string) (*dsclient.SessionStats, error) {
 	return &dsclient.SessionStats{Success: true}, nil
 }
 
-func TestTestAccount_MessageModeUsesExpertModelTypeForExpertModel(t *testing.T) {
+func TestTestAccount_MessageModeUsesDefaultModelTypeForMergedModel(t *testing.T) {
 	t.Setenv("DS2API_CONFIG_JSON", `{"accounts":[{"email":"batch@example.com","password":"pwd","token":"seed-token"}]}`)
 	store := config.LoadStore()
 	ds := &completionPayloadDSMock{}
@@ -199,20 +177,20 @@ func TestTestAccount_MessageModeUsesExpertModelTypeForExpertModel(t *testing.T) 
 		t.Fatal("expected test account")
 	}
 
-	result := h.testAccount(context.Background(), acc, "deepseek-v4-pro", "hello")
+	result := h.testAccount(context.Background(), acc, "deepseek-v4.1-flash", "hello")
 
 	if ok, _ := result["success"].(bool); !ok {
 		t.Fatalf("expected success=true, got %#v", result)
 	}
-	if got := ds.payloadMap()["model_type"]; got != "expert" {
-		t.Fatalf("expected model_type expert, got %#v", got)
+	if got := ds.payload["model_type"]; got != "default" {
+		t.Fatalf("expected model_type default, got %#v", got)
 	}
-	if got := ds.payloadMap()["chat_session_id"]; got != "session-id" {
+	if got := ds.payload["chat_session_id"]; got != "session-id" {
 		t.Fatalf("unexpected chat_session_id: %#v", got)
 	}
 }
 
-func TestTestAccount_MessageModeUsesVisionModelTypeForVisionModel(t *testing.T) {
+func TestTestAccount_MessageModeUsesDefaultModelTypeForSearchModel(t *testing.T) {
 	t.Setenv("DS2API_CONFIG_JSON", `{"accounts":[{"email":"batch@example.com","password":"pwd","token":"seed-token"}]}`)
 	store := config.LoadStore()
 	ds := &completionPayloadDSMock{}
@@ -222,12 +200,12 @@ func TestTestAccount_MessageModeUsesVisionModelTypeForVisionModel(t *testing.T) 
 		t.Fatal("expected test account")
 	}
 
-	result := h.testAccount(context.Background(), acc, "deepseek-v4-vision", "hello")
+	result := h.testAccount(context.Background(), acc, "deepseek-v4.1-flash-search", "hello")
 
 	if ok, _ := result["success"].(bool); !ok {
 		t.Fatalf("expected success=true, got %#v", result)
 	}
-	if got := ds.payloadMap()["model_type"]; got != "vision" {
-		t.Fatalf("expected model_type vision, got %#v", got)
+	if got := ds.payload["model_type"]; got != "default" {
+		t.Fatalf("expected model_type default, got %#v", got)
 	}
 }

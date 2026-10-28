@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"errors"
 	"context"
 	"encoding/json"
 	"io"
@@ -37,7 +36,13 @@ func (streamStatusAuthStub) DetermineCaller(_ *http.Request) (*auth.RequestAuth,
 	}, nil
 }
 
+func (streamStatusAuthStub) CredentialFlagForRequest(_ *http.Request, _ string) bool { return false }
+
 func (streamStatusAuthStub) Release(_ *auth.RequestAuth) {}
+
+func (streamStatusAuthStub) SetAccountMutedUntil(_ *auth.RequestAuth, _ float64) {}
+
+func (streamStatusAuthStub) SetAccountBanned(_ *auth.RequestAuth, _ string) {}
 
 type streamStatusDSStub struct {
 	resp *http.Response
@@ -55,8 +60,16 @@ func (m streamStatusDSStub) UploadFile(_ context.Context, _ *auth.RequestAuth, _
 	return &dsclient.UploadFileResult{ID: "file-id", Filename: "file.txt", Bytes: 1, Status: "uploaded"}, nil
 }
 
-func (m streamStatusDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+func (m streamStatusDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
 	return m.resp, nil
+}
+
+func (m streamStatusDSStub) StopStream(_ context.Context, _ *auth.RequestAuth, _ string, _ int) error {
+	return nil
+}
+
+func (m streamStatusDSStub) FireCompletionAndStop(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string) (int, error) {
+	return 0, nil
 }
 
 func (m streamStatusDSStub) DeleteSessionForToken(_ context.Context, _ string, _ string) (*dsclient.DeleteSessionResult, error) {
@@ -66,14 +79,10 @@ func (m streamStatusDSStub) DeleteSessionForToken(_ context.Context, _ string, _
 func (m streamStatusDSStub) DeleteAllSessionsForToken(_ context.Context, _ string) error {
 	return nil
 }
-func (m streamStatusDSStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
-	return nil, errors.New("CallEditMessage not implemented in stub")
-}
-
 
 type streamStatusDSSeqStub struct {
 	resps    []*http.Response
-	payloads []any
+	payloads []map[string]any
 }
 
 func (m *streamStatusDSSeqStub) CreateSession(_ context.Context, _ *auth.RequestAuth, _ int) (string, error) {
@@ -88,14 +97,25 @@ func (m *streamStatusDSSeqStub) UploadFile(_ context.Context, _ *auth.RequestAut
 	return &dsclient.UploadFileResult{ID: "file-id", Filename: "file.txt", Bytes: 1, Status: "uploaded"}, nil
 }
 
-func (m *streamStatusDSSeqStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
-	// 保留 payload 原值（OrderedJSONMap 或 map[string]any），存为 any
-	m.payloads = append(m.payloads, payload)
+func (m *streamStatusDSSeqStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
+	clone := make(map[string]any, len(payload))
+	for k, v := range payload {
+		clone[k] = v
+	}
+	m.payloads = append(m.payloads, clone)
 	idx := len(m.payloads) - 1
 	if idx >= len(m.resps) {
 		idx = len(m.resps) - 1
 	}
 	return m.resps[idx], nil
+}
+
+func (m *streamStatusDSSeqStub) StopStream(_ context.Context, _ *auth.RequestAuth, _ string, _ int) error {
+	return nil
+}
+
+func (m *streamStatusDSSeqStub) FireCompletionAndStop(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string) (int, error) {
+	return 0, nil
 }
 
 func (m *streamStatusDSSeqStub) DeleteSessionForToken(_ context.Context, _ string, _ string) (*dsclient.DeleteSessionResult, error) {
@@ -105,10 +125,6 @@ func (m *streamStatusDSSeqStub) DeleteSessionForToken(_ context.Context, _ strin
 func (m *streamStatusDSSeqStub) DeleteAllSessionsForToken(_ context.Context, _ string) error {
 	return nil
 }
-func (m *streamStatusDSSeqStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
-	return nil, errors.New("CallEditMessage not implemented in stub")
-}
-
 
 func makeOpenAISSEHTTPResponse(lines ...string) *http.Response {
 	body := strings.Join(lines, "\n")
@@ -149,7 +165,7 @@ func TestChatCompletionsStreamStatusCapturedAs200(t *testing.T) {
 	r.Use(captureStatusMiddleware(&statuses))
 	registerOpenAITestRoutes(r, h)
 
-	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -178,7 +194,7 @@ func TestResponsesStreamStatusCapturedAs200(t *testing.T) {
 	r.Use(captureStatusMiddleware(&statuses))
 	registerOpenAITestRoutes(r, h)
 
-	reqBody := `{"model":"deepseek-v4-flash","input":"hi","stream":true}`
+	reqBody := `{"model":"deepseek-v4.1-flash","input":"hi","stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -211,7 +227,7 @@ func TestChatCompletionsStreamContentFilterStopsNormallyWithoutLeak(t *testing.T
 	r.Use(captureStatusMiddleware(&statuses))
 	registerOpenAITestRoutes(r, h)
 
-	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -257,7 +273,7 @@ func TestChatCompletionsStreamEmitsFailureFrameWhenUpstreamOutputEmpty(t *testin
 	r.Use(captureStatusMiddleware(&statuses))
 	registerOpenAITestRoutes(r, h)
 
-	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -299,7 +315,7 @@ func TestChatCompletionsStreamRetriesEmptyOutputOnSameSession(t *testing.T) {
 		Auth:  streamStatusAuthStub{},
 		DS:    ds,
 	}
-	reqBody := `{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -312,16 +328,16 @@ func TestChatCompletionsStreamRetriesEmptyOutputOnSameSession(t *testing.T) {
 	if len(ds.payloads) != 2 {
 		t.Fatalf("expected one synthetic retry call, got %d", len(ds.payloads))
 	}
-	if asMap(ds.payloads[0])["chat_session_id"] != asMap(ds.payloads[1])["chat_session_id"] {
+	if ds.payloads[0]["chat_session_id"] != ds.payloads[1]["chat_session_id"] {
 		t.Fatalf("expected retry to reuse session, payloads=%#v", ds.payloads)
 	}
-	retryPrompt := asString(asMap(ds.payloads[1])["prompt"])
-	if !strings.Contains(retryPrompt, "The previous reply produced no visible output. Please regenerate the visible final answer or tool call now.") {
+	retryPrompt := asString(ds.payloads[1]["prompt"])
+	if !strings.Contains(retryPrompt, "Previous reply had no visible output. Please regenerate the visible final answer or tool call now.") {
 		t.Fatalf("expected retry suffix in prompt, got %q", retryPrompt)
 	}
 	// Verify multi-turn chaining: retry must set parent_message_id from first call's response_message_id.
-	if parentID, ok := asMap(ds.payloads[1])["parent_message_id"].(int); !ok || parentID != 42 {
-		t.Fatalf("expected retry parent_message_id=42, got %#v", asMap(ds.payloads[1])["parent_message_id"])
+	if parentID, ok := ds.payloads[1]["parent_message_id"].(int); !ok || parentID != 42 {
+		t.Fatalf("expected retry parent_message_id=42, got %#v", ds.payloads[1]["parent_message_id"])
 	}
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
@@ -359,7 +375,7 @@ func TestChatCompletionsNonStreamRetriesThinkingOnlyOutput(t *testing.T) {
 		Auth:  streamStatusAuthStub{},
 		DS:    ds,
 	}
-	reqBody := `{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"hi"}],"stream":false}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi"}],"stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -373,8 +389,8 @@ func TestChatCompletionsNonStreamRetriesThinkingOnlyOutput(t *testing.T) {
 		t.Fatalf("expected one synthetic retry call, got %d", len(ds.payloads))
 	}
 	// Verify multi-turn chaining.
-	if parentID, ok := asMap(ds.payloads[1])["parent_message_id"].(int); !ok || parentID != 99 {
-		t.Fatalf("expected retry parent_message_id=99, got %#v", asMap(ds.payloads[1])["parent_message_id"])
+	if parentID, ok := ds.payloads[1]["parent_message_id"].(int); !ok || parentID != 99 {
+		t.Fatalf("expected retry parent_message_id=99, got %#v", ds.payloads[1]["parent_message_id"])
 	}
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
@@ -398,7 +414,7 @@ func TestChatCompletionsContentFilterDoesNotRetry(t *testing.T) {
 		Auth:  streamStatusAuthStub{},
 		DS:    ds,
 	}
-	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":false}`
+	reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi"}],"stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -427,7 +443,7 @@ func TestResponsesStreamUsageIgnoresBatchAccumulatedTokenUsage(t *testing.T) {
 	r.Use(captureStatusMiddleware(&statuses))
 	registerOpenAITestRoutes(r, h)
 
-	reqBody := `{"model":"deepseek-v4-flash","input":"hi","stream":true}`
+	reqBody := `{"model":"deepseek-v4.1-flash","input":"hi","stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -471,7 +487,7 @@ func TestResponsesStreamRetriesThinkingOnlyOutput(t *testing.T) {
 		Auth:  streamStatusAuthStub{},
 		DS:    ds,
 	}
-	reqBody := `{"model":"deepseek-v4-pro","input":"hi","stream":true}`
+	reqBody := `{"model":"deepseek-v4.1-flash","input":"hi","stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -485,14 +501,14 @@ func TestResponsesStreamRetriesThinkingOnlyOutput(t *testing.T) {
 		t.Fatalf("expected one synthetic retry call, got %d", len(ds.payloads))
 	}
 	// Verify multi-turn chaining.
-	if parentID, ok := asMap(ds.payloads[1])["parent_message_id"].(int); !ok || parentID != 77 {
-		t.Fatalf("expected retry parent_message_id=77, got %#v", asMap(ds.payloads[1])["parent_message_id"])
+	if parentID, ok := ds.payloads[1]["parent_message_id"].(int); !ok || parentID != 77 {
+		t.Fatalf("expected retry parent_message_id=77, got %#v", ds.payloads[1]["parent_message_id"])
 	}
 	body := rec.Body.String()
 	if strings.Contains(body, "response.failed") {
 		t.Fatalf("did not expect premature response.failed, body=%s", body)
 	}
-	if !strings.Contains(body, "response.reasoning.delta") || !strings.Contains(body, "response.output_text.delta") || !strings.Contains(body, "response.completed") {
+	if !strings.Contains(body, "response.reasoning_text.delta") || !strings.Contains(body, "response.output_text.delta") || !strings.Contains(body, "response.completed") {
 		t.Fatalf("expected reasoning, text delta, and completed events, body=%s", body)
 	}
 	if strings.Count(body, "data: [DONE]") != 1 {
@@ -510,7 +526,7 @@ func TestResponsesNonStreamRetriesThinkingOnlyOutput(t *testing.T) {
 		Auth:  streamStatusAuthStub{},
 		DS:    ds,
 	}
-	reqBody := `{"model":"deepseek-v4-pro","input":"hi","stream":false}`
+	reqBody := `{"model":"deepseek-v4.1-flash","input":"hi","stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -524,8 +540,8 @@ func TestResponsesNonStreamRetriesThinkingOnlyOutput(t *testing.T) {
 		t.Fatalf("expected one synthetic retry call, got %d", len(ds.payloads))
 	}
 	// Verify multi-turn chaining.
-	if parentID, ok := asMap(ds.payloads[1])["parent_message_id"].(int); !ok || parentID != 88 {
-		t.Fatalf("expected retry parent_message_id=88, got %#v", asMap(ds.payloads[1])["parent_message_id"])
+	if parentID, ok := ds.payloads[1]["parent_message_id"].(int); !ok || parentID != 88 {
+		t.Fatalf("expected retry parent_message_id=88, got %#v", ds.payloads[1]["parent_message_id"])
 	}
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
@@ -538,21 +554,26 @@ func TestResponsesNonStreamRetriesThinkingOnlyOutput(t *testing.T) {
 	if len(output) == 0 {
 		t.Fatalf("expected output items, got %#v", out)
 	}
-	item, _ := output[0].(map[string]any)
-	content, _ := item["content"].([]any)
-	if len(content) == 0 {
-		t.Fatalf("expected content entries, got %#v", item)
-	}
 	var textEntry map[string]any
-	for _, entry := range content {
-		obj, _ := entry.(map[string]any)
-		if asString(obj["type"]) == "output_text" {
-			textEntry = obj
+	for _, it := range output {
+		item, _ := it.(map[string]any)
+		content, _ := item["content"].([]any)
+		for _, entry := range content {
+			obj, _ := entry.(map[string]any)
+			if asString(obj["type"]) == "output_text" {
+				textEntry = obj
+				break
+			}
+		}
+		if textEntry != nil {
 			break
 		}
 	}
+	if textEntry == nil {
+		t.Fatalf("expected output_text entry, got %#v", out["output"])
+	}
 	if asString(textEntry["text"]) != "visible" {
-		t.Fatalf("expected visible text entry, got %#v", content)
+		t.Fatalf("expected visible text entry, got %#v", textEntry)
 	}
 }
 
@@ -570,7 +591,7 @@ func TestResponsesNonStreamUsageIgnoresPromptAndOutputTokenUsage(t *testing.T) {
 	r.Use(captureStatusMiddleware(&statuses))
 	registerOpenAITestRoutes(r, h)
 
-	reqBody := `{"model":"deepseek-v4-flash","input":"hi","stream":false}`
+	reqBody := `{"model":"deepseek-v4.1-flash","input":"hi","stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")

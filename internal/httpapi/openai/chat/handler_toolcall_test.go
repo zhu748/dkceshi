@@ -85,6 +85,21 @@ func streamFinishReason(frames []map[string]any) string {
 	return ""
 }
 
+func collectStreamContent(frames []map[string]any) string {
+	var b strings.Builder
+	for _, frame := range frames {
+		choices, _ := frame["choices"].([]any)
+		for _, item := range choices {
+			choice, _ := item.(map[string]any)
+			delta, _ := choice["delta"].(map[string]any)
+			if c, ok := delta["content"].(string); ok {
+				b.WriteString(c)
+			}
+		}
+	}
+	return b.String()
+}
+
 func TestHandleNonStreamSingleAttemptReturns503WhenUpstreamOutputEmpty(t *testing.T) {
 	h := &Handler{}
 	resp := makeSSEHTTPResponse(
@@ -93,7 +108,7 @@ func TestHandleNonStreamSingleAttemptReturns503WhenUpstreamOutputEmpty(t *testin
 	)
 	rec := httptest.NewRecorder()
 
-	h.handleNonStream(rec, resp, "cid-empty", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, nil)
+	h.handleNonStream(rec, resp, "cid-empty", "deepseek-v4.1-flash", "prompt", 0, false, false, nil, nil, nil)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status 503 for empty upstream output, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -112,7 +127,7 @@ func TestHandleNonStreamSingleAttemptReturnsContentFilterErrorWhenUpstreamFilter
 	)
 	rec := httptest.NewRecorder()
 
-	h.handleNonStream(rec, resp, "cid-empty-filtered", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, nil)
+	h.handleNonStream(rec, resp, "cid-empty-filtered", "deepseek-v4.1-flash", "prompt", 0, false, false, nil, nil, nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400 for filtered upstream output, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -131,7 +146,7 @@ func TestHandleNonStreamSingleAttemptReturns429WhenUpstreamHasOnlyThinking(t *te
 	)
 	rec := httptest.NewRecorder()
 
-	h.handleNonStream(rec, resp, "cid-thinking-only", "deepseek-v4-pro", "prompt", 0, true, false, nil, nil, nil)
+	h.handleNonStream(rec, resp, "cid-thinking-only", "deepseek-v4.1-flash", "prompt", 0, true, false, nil, nil, nil)
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected status 429 for thinking-only upstream output, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -139,6 +154,25 @@ func TestHandleNonStreamSingleAttemptReturns429WhenUpstreamHasOnlyThinking(t *te
 	errObj, _ := out["error"].(map[string]any)
 	if asString(errObj["code"]) != "upstream_empty_output" {
 		t.Fatalf("expected code=upstream_empty_output, got %#v", out)
+	}
+}
+
+func TestHandleNonStreamSingleAttemptReturnsInputContentBlockedWhenThinkingIsModerationRefusal(t *testing.T) {
+	h := &Handler{}
+	resp := makeSSEHTTPResponse(
+		`data: {"p":"response/thinking_content","v":"你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧"}`,
+		`data: [DONE]`,
+	)
+	rec := httptest.NewRecorder()
+
+	h.handleNonStream(rec, resp, "cid-moderation", "deepseek-v4.1-flash", "prompt", 0, true, false, nil, nil, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for moderation-blocked thinking, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	out := decodeJSONBody(t, rec.Body.String())
+	errObj, _ := out["error"].(map[string]any)
+	if asString(errObj["code"]) != "input_content_blocked" {
+		t.Fatalf("expected code=input_content_blocked, got %#v", out)
 	}
 }
 
@@ -150,7 +184,7 @@ func TestHandleNonStreamPromotesThinkingToolCallsWhenTextEmpty(t *testing.T) {
 	)
 	rec := httptest.NewRecorder()
 
-	h.handleNonStream(rec, resp, "cid-thinking-tool", "deepseek-v4-pro", "prompt", 0, true, false, []string{"search"}, nil, nil)
+	h.handleNonStream(rec, resp, "cid-thinking-tool", "deepseek-v4.1-flash", "prompt", 0, true, false, []string{"search"}, nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for thinking tool calls, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -173,15 +207,15 @@ func TestHandleNonStreamPromotesThinkingToolCallsWhenTextEmpty(t *testing.T) {
 	}
 }
 
-func TestHandleNonStreamPromotesHiddenThinkingDSMLToolCallsWhenTextEmpty(t *testing.T) {
+func TestHandleNonStreamPromotesHiddenThinkingEPSEToolCallsWhenTextEmpty(t *testing.T) {
 	h := &Handler{}
 	resp := makeSSEHTTPResponse(
-		`data: {"p":"response/thinking_content","v":"<|DSML|tool_calls><|DSML|invoke name=\"search\"><|DSML|parameter name=\"q\">from-hidden-thinking</|DSML|parameter></|DSML|invoke></|DSML|tool_calls>"}`,
+		`data: {"p":"response/thinking_content","v":"<|EPSE|tool_calls><|EPSE|invoke name=\"search\"><|EPSE|parameter name=\"q\">from-hidden-thinking</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>"}`,
 		`data: [DONE]`,
 	)
 	rec := httptest.NewRecorder()
 
-	h.handleNonStream(rec, resp, "cid-hidden-thinking-tool", "deepseek-v4-pro", "prompt", 0, false, false, []string{"search"}, nil, nil)
+	h.handleNonStream(rec, resp, "cid-hidden-thinking-tool", "deepseek-v4.1-flash", "prompt", 0, false, false, []string{"search"}, nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for hidden thinking tool calls, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -211,7 +245,7 @@ func TestHandleStreamToolsPlainTextStreamsBeforeFinish(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	h.handleStream(rec, req, resp, "cid6", "deepseek-v4-flash", "prompt", 0, false, false, []string{"search"}, nil, nil)
+	h.handleStream(rec, req, resp, "cid6", "deepseek-v4.1-flash", "prompt", 0, false, false, []string{"search"}, nil, nil)
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
 	if !done {
@@ -252,7 +286,7 @@ func TestHandleStreamThinkingDisabledDoesNotLeakHiddenFragmentContinuations(t *t
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	h.handleStream(rec, req, resp, "cid-hidden-fragment", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, nil)
+	h.handleStream(rec, req, resp, "cid-hidden-fragment", "deepseek-v4.1-flash", "prompt", 0, false, false, nil, nil, nil)
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
 	if !done {
@@ -283,7 +317,7 @@ func TestHandleStreamEmitsSingleChoiceFramesForMultipleParsedParts(t *testing.T)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	h.handleStream(rec, req, resp, "cid-multi-parts", "deepseek-v4-pro", "prompt", 0, true, false, nil, nil, nil)
+	h.handleStream(rec, req, resp, "cid-multi-parts", "deepseek-v4.1-flash", "prompt", 0, true, false, nil, nil, nil)
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
 	if !done {
@@ -323,7 +357,7 @@ func TestHandleStreamCoalescesSmallContentDeltas(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	h.handleStream(rec, req, resp, "cid-coalesce", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, nil)
+	h.handleStream(rec, req, resp, "cid-coalesce", "deepseek-v4.1-flash", "prompt", 0, false, false, nil, nil, nil)
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
 	if !done {
@@ -360,7 +394,7 @@ func TestHandleStreamIncompleteCapturedToolJSONFlushesAsTextOnFinalize(t *testin
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	h.handleStream(rec, req, resp, "cid10", "deepseek-v4-flash", "prompt", 0, false, false, []string{"search"}, nil, nil)
+	h.handleStream(rec, req, resp, "cid10", "deepseek-v4.1-flash", "prompt", 0, false, false, []string{"search"}, nil, nil)
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
 	if !done {
@@ -394,7 +428,7 @@ func TestHandleStreamPromotesThinkingToolCallsOnFinalizeWithoutMidstreamIntercep
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	h.handleStream(rec, req, resp, "cid-thinking-stream", "deepseek-v4-pro", "prompt", 0, true, false, []string{"search"}, nil, nil)
+	h.handleStream(rec, req, resp, "cid-thinking-stream", "deepseek-v4.1-flash", "prompt", 0, true, false, []string{"search"}, nil, nil)
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
 	if !done {
@@ -418,16 +452,16 @@ func TestHandleStreamPromotesThinkingToolCallsOnFinalizeWithoutMidstreamIntercep
 	}
 }
 
-func TestHandleStreamPromotesHiddenThinkingDSMLToolCallsOnFinalize(t *testing.T) {
+func TestHandleStreamPromotesHiddenThinkingEPSEToolCallsOnFinalize(t *testing.T) {
 	h := &Handler{}
 	resp := makeSSEHTTPResponse(
-		`data: {"p":"response/thinking_content","v":"<|DSML|tool_calls><|DSML|invoke name=\"search\"><|DSML|parameter name=\"q\">from-hidden-thinking</|DSML|parameter></|DSML|invoke></|DSML|tool_calls>"}`,
+		`data: {"p":"response/thinking_content","v":"<|EPSE|tool_calls><|EPSE|invoke name=\"search\"><|EPSE|parameter name=\"q\">from-hidden-thinking</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>"}`,
 		`data: [DONE]`,
 	)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	h.handleStream(rec, req, resp, "cid-hidden-thinking-stream", "deepseek-v4-pro", "prompt", 0, false, false, []string{"search"}, nil, nil)
+	h.handleStream(rec, req, resp, "cid-hidden-thinking-stream", "deepseek-v4.1-flash", "prompt", 0, false, false, []string{"search"}, nil, nil)
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
 	if !done {
@@ -461,7 +495,7 @@ func TestHandleStreamEmitsDistinctToolCallIDsAcrossSeparateToolBlocks(t *testing
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	h.handleStream(rec, req, resp, "cid-multi", "deepseek-v4-flash", "prompt", 0, false, false, []string{"read_file", "search"}, nil, nil)
+	h.handleStream(rec, req, resp, "cid-multi", "deepseek-v4.1-flash", "prompt", 0, false, false, []string{"read_file", "search"}, nil, nil)
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
 	if !done {
@@ -499,6 +533,62 @@ func TestHandleStreamEmitsDistinctToolCallIDsAcrossSeparateToolBlocks(t *testing
 	}
 }
 
+func TestHandleStreamNoToolsInterceptsEPSEToolCalls(t *testing.T) {
+	h := &Handler{}
+	resp := makeSSEHTTPResponse(
+		`data: {"p":"response/content","v":"<|EPSE|tool_calls><|EPSE|invoke name=\"search\"><|EPSE|parameter name=\"q\">golang</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>"}`,
+		`data: [DONE]`,
+	)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	h.handleStream(rec, req, resp, "cid-no-tools-epse", "deepseek-v4.1-flash", "prompt", 0, false, false, nil, nil, nil)
+
+	frames, done := parseSSEDataFrames(t, rec.Body.String())
+	if !done {
+		t.Fatalf("expected [DONE], body=%s", rec.Body.String())
+	}
+	if !streamHasToolCallsDelta(frames) {
+		t.Fatalf("expected tool_calls delta for EPSE block without client tools, body=%s", rec.Body.String())
+	}
+	if content := collectStreamContent(frames); strings.Contains(content, "EPSE") || strings.Contains(content, "<|") {
+		t.Fatalf("expected no raw EPSE markup leaked into content, got %q", content)
+	}
+	if streamFinishReason(frames) != "tool_calls" {
+		t.Fatalf("expected finish_reason=tool_calls, body=%s", rec.Body.String())
+	}
+}
+
+func TestHandleStreamDropsTextAfterToolCallBlock(t *testing.T) {
+	h := &Handler{}
+	resp := makeSSEHTTPResponse(
+		`data: {"p":"response/content","v":"前置文本\n<tool_calls>\n  <invoke name=\"read_file\">\n    <parameter name=\"path\">README.MD</parameter>\n  </invoke>\n</tool_calls>\n尾巴文本"}`,
+		`data: [DONE]`,
+	)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	h.handleStream(rec, req, resp, "cid-tail-drop", "deepseek-v4.1-flash", "prompt", 0, false, false, []string{"read_file"}, nil, nil)
+
+	frames, done := parseSSEDataFrames(t, rec.Body.String())
+	if !done {
+		t.Fatalf("expected [DONE], body=%s", rec.Body.String())
+	}
+	if !streamHasToolCallsDelta(frames) {
+		t.Fatalf("expected tool_calls delta, body=%s", rec.Body.String())
+	}
+	content := collectStreamContent(frames)
+	if !strings.Contains(content, "前置文本") {
+		t.Fatalf("expected text before tool block to be streamed, got %q", content)
+	}
+	if strings.Contains(content, "尾巴文本") {
+		t.Fatalf("expected text after tool block to be dropped, got %q", content)
+	}
+	if streamFinishReason(frames) != "tool_calls" {
+		t.Fatalf("expected finish_reason=tool_calls, body=%s", rec.Body.String())
+	}
+}
+
 func TestHandleStreamCoercesSchemaDeclaredStringArgumentsOnFinalize(t *testing.T) {
 	h := &Handler{}
 	line := func(v string) string {
@@ -527,7 +617,7 @@ func TestHandleStreamCoercesSchemaDeclaredStringArgumentsOnFinalize(t *testing.T
 		},
 	}
 
-	h.handleStream(rec, req, resp, "cid-string-protect", "deepseek-v4-flash", "prompt", 0, false, false, []string{"Write"}, toolsRaw, nil)
+	h.handleStream(rec, req, resp, "cid-string-protect", "deepseek-v4.1-flash", "prompt", 0, false, false, []string{"Write"}, toolsRaw, nil)
 
 	frames, done := parseSSEDataFrames(t, rec.Body.String())
 	if !done {
@@ -569,7 +659,7 @@ func TestHandleNonStreamWithRetryIncludesRefFileTokensInUsage(t *testing.T) {
 			`data: [DONE]`,
 		)
 		rec := httptest.NewRecorder()
-		h.handleNonStreamWithRetry(rec, context.Background(), nil, resp, nil, "", "cid-ref", "deepseek-v4-flash", "prompt", refFileTokens, false, false, nil, nil, nil)
+		h.handleNonStreamWithRetry(rec, context.Background(), nil, resp, nil, "", "cid-ref", "deepseek-v4.1-flash", "prompt", refFileTokens, false, false, nil, nil, nil)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 		}

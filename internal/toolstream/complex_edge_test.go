@@ -182,17 +182,17 @@ func TestSieve_FourBacktickNestedThreeWithToolCall(t *testing.T) {
 	}
 }
 
-// ---- DSML 变体在围栏内不触发 ----
+// ---- EPSE 变体在围栏内不触发 ----
 
-func TestSieve_DSMLInsideFenceIgnored(t *testing.T) {
+func TestSieve_EPSEInsideFenceIgnored(t *testing.T) {
 	var state State
 	chunks := []string{
 		"```\n",
-		"<|DSML|tool_calls>\n",
-		`<|DSML|invoke name="read_file">`,
-		`<|DSML|parameter name="path">x</|DSML|parameter>`,
-		"</|DSML|invoke>\n",
-		"</|DSML|tool_calls>\n",
+		"<|EPSE|tool_calls>\n",
+		`<|EPSE|invoke name="read_file">`,
+		`<|EPSE|parameter name="path">x</|EPSE|parameter>`,
+		"</|EPSE|invoke>\n",
+		"</|EPSE|tool_calls>\n",
 		"```\n",
 		"结束",
 	}
@@ -207,7 +207,7 @@ func TestSieve_DSMLInsideFenceIgnored(t *testing.T) {
 		tc += len(e.ToolCalls)
 	}
 	if tc != 0 {
-		t.Fatalf("围栏内的 DSML 工具调用不应触发，got %d", tc)
+		t.Fatalf("围栏内的 EPSE 工具调用不应触发，got %d", tc)
 	}
 }
 
@@ -312,14 +312,14 @@ func TestSieve_CharByCharToolCall(t *testing.T) {
 
 // ---- 混合格式变体 ----
 
-// 全宽竖线 wrapper + DSML invoke
-func TestSieve_FullwidthPipeWrapperDSMLInvoke(t *testing.T) {
+// 全宽竖线 wrapper + EPSE invoke
+func TestSieve_FullwidthPipeWrapperEPSEInvoke(t *testing.T) {
 	var state State
 	chunks := []string{
 		"<|tool_calls>\n",
-		"<|DSML|invoke name=\"read_file\">\n",
-		"<|DSML|parameter name=\"path\">README.md</|DSML|parameter>\n",
-		"</|DSML|invoke>\n",
+		"<|EPSE|invoke name=\"read_file\">\n",
+		"<|EPSE|parameter name=\"path\">README.md</|EPSE|parameter>\n",
+		"</|EPSE|invoke>\n",
 		"</|tool_calls>",
 	}
 	var events []Event
@@ -335,10 +335,10 @@ func TestSieve_FullwidthPipeWrapperDSMLInvoke(t *testing.T) {
 		tc += len(e.ToolCalls)
 	}
 	if tc != 1 {
-		t.Fatalf("全宽+DSML混合应解析成功，got %d", tc)
+		t.Fatalf("全宽+EPSE混合应解析成功，got %d", tc)
 	}
-	if strings.Contains(strings.ToLower(text.String()), "dsml") {
-		t.Fatalf("DSML 标签泄漏, got %q", text.String())
+	if strings.Contains(strings.ToLower(text.String()), "epse") {
+		t.Fatalf("EPSE 标签泄漏, got %q", text.String())
 	}
 }
 
@@ -375,20 +375,20 @@ func TestSieve_UnclosedToolCallBlockFallsBack(t *testing.T) {
 
 // ---- 文本中 mention 标签变体名 + 真正的工具调用 ----
 
-// 模型输出 commit message 文本中包含 <dsml|tool_calls> 等 mention，
-// 紧随其后是真正的 DSML 工具调用。mention 的变体和实际工具调用变体不同。
+// 模型输出 commit message 文本中包含 <epse|tool_calls> 等 mention，
+// 紧随其后是真正的 EPSE 工具调用。mention 的变体和实际工具调用变体不同。
 func TestSieve_TagMentionInTextThenRealToolCall(t *testing.T) {
 	var state State
 	chunks := []string{
-		"建议的 commit message：\n\nfeat: expand DSML alias support\n\n",
-		"Add support for <dsml|tool_calls>, ",
+		"建议的 commit message：\n\nfeat: expand EPSE alias support\n\n",
+		"Add support for <epse|tool_calls>, ",
 		"<|tool_calls> (pipe alias),\n",
 		"and <|tool_calls> wrapper variants.\n\n",
-		"<|DSML|tool_calls>\n",
-		"<|DSML|invoke name=\"Bash\">\n",
-		"<|DSML|parameter name=\"command\"><![CDATA[git status]]></|DSML|parameter>\n",
-		"</|DSML|invoke>\n",
-		"</|DSML|tool_calls>",
+		"<|EPSE|tool_calls>\n",
+		"<|EPSE|invoke name=\"Bash\">\n",
+		"<|EPSE|parameter name=\"command\"><![CDATA[git status]]></|EPSE|parameter>\n",
+		"</|EPSE|invoke>\n",
+		"</|EPSE|tool_calls>",
 	}
 	var events []Event
 	for _, c := range chunks {
@@ -421,12 +421,12 @@ func TestSieve_TagMentionInTextThenRealToolCall(t *testing.T) {
 func TestSieve_SameVariantTagMentionInTextThenRealToolCall(t *testing.T) {
 	var state State
 	chunks := []string{
-		"Summary: support canonical <tool_calls> and DSML <|DSML|tool_calls> wrappers.\n\n",
-		"<|DSML|tool_calls>\n",
-		"<|DSML|invoke name=\"Bash\">\n",
-		"<|DSML|parameter name=\"command\"><![CDATA[git status]]></|DSML|parameter>\n",
-		"</|DSML|invoke>\n",
-		"</|DSML|tool_calls>",
+		"Summary: support canonical <tool_calls> and EPSE <|EPSE|tool_calls> wrappers.\n\n",
+		"<|EPSE|tool_calls>\n",
+		"<|EPSE|invoke name=\"Bash\">\n",
+		"<|EPSE|parameter name=\"command\"><![CDATA[git status]]></|EPSE|parameter>\n",
+		"</|EPSE|invoke>\n",
+		"</|EPSE|tool_calls>",
 	}
 	var events []Event
 	for _, c := range chunks {
@@ -466,17 +466,17 @@ func TestSieve_ReviewSampleWithAliasMentionsPreservesBodyAndToolCalls(t *testing
 	chunks := []string{
 		"Done reviewing the diff. Here's my analysis before we commit:\n\n",
 		"Summary of Changes\n",
-		"DSML wrapper variant support — recognize aliases (<dsml|tool_calls>, <|tool_calls>) alongside canonical <tool_calls> and <|DSML|tool_calls> wrappers.\n\n",
-		"<|DSML|tool_calls>\n",
-		"<|DSML|invoke name=\"Bash\">\n",
-		"<|DSML|parameter name=\"command\"><![CDATA[git add docs/toolcall-semantics.md internal/toolstream/tool_sieve_xml.go]]></|DSML|parameter>\n",
-		"<|DSML|parameter name=\"description\"><![CDATA[Stage all relevant changed files]]></|DSML|parameter>\n",
-		"</|DSML|invoke>\n",
-		"<|DSML|invoke name=\"Bash\">\n",
-		"<|DSML|parameter name=\"command\"><![CDATA[git commit -m \"$(cat <<'EOF'\nfeat(toolstream): expand DSML wrapper detection\n\nSupport DSML wrapper aliases: <dsml|tool_calls> and <|tool_calls> alongside existing canonical wrappers.\nEOF\n)\"]]></|DSML|parameter>\n",
-		"<|DSML|parameter name=\"description\"><![CDATA[Create commit with all staged changes]]></|DSML|parameter>\n",
-		"</|DSML|invoke>\n",
-		"</|DSML|tool_calls>",
+		"EPSE wrapper variant support — recognize aliases (<epse|tool_calls>, <|tool_calls>) alongside canonical <tool_calls> and <|EPSE|tool_calls> wrappers.\n\n",
+		"<|EPSE|tool_calls>\n",
+		"<|EPSE|invoke name=\"Bash\">\n",
+		"<|EPSE|parameter name=\"command\"><![CDATA[git add docs/toolcall-semantics.md internal/toolstream/tool_sieve_xml.go]]></|EPSE|parameter>\n",
+		"<|EPSE|parameter name=\"description\"><![CDATA[Stage all relevant changed files]]></|EPSE|parameter>\n",
+		"</|EPSE|invoke>\n",
+		"<|EPSE|invoke name=\"Bash\">\n",
+		"<|EPSE|parameter name=\"command\"><![CDATA[git commit -m \"$(cat <<'EOF'\nfeat(toolstream): expand EPSE wrapper detection\n\nSupport EPSE wrapper aliases: <epse|tool_calls> and <|tool_calls> alongside existing canonical wrappers.\nEOF\n)\"]]></|EPSE|parameter>\n",
+		"<|EPSE|parameter name=\"description\"><![CDATA[Create commit with all staged changes]]></|EPSE|parameter>\n",
+		"</|EPSE|invoke>\n",
+		"</|EPSE|tool_calls>",
 	}
 	var events []Event
 	for _, c := range chunks {
@@ -499,8 +499,8 @@ func TestSieve_ReviewSampleWithAliasMentionsPreservesBodyAndToolCalls(t *testing
 	if len(commands) != 2 {
 		t.Fatalf("应解析出 2 个 Bash 工具调用，got %d, text=%q", len(commands), text.String())
 	}
-	if !strings.Contains(text.String(), "<|DSML|tool_calls> wrappers") {
-		t.Fatalf("正文中的 DSML mention 应保留, got %q", text.String())
+	if !strings.Contains(text.String(), "<|EPSE|tool_calls> wrappers") {
+		t.Fatalf("正文中的 EPSE mention 应保留, got %q", text.String())
 	}
 	if !strings.Contains(text.String(), "Summary of Changes") {
 		t.Fatalf("前置正文应完整保留, got %q", text.String())
@@ -513,19 +513,19 @@ func TestSieve_ReviewSampleWithAliasMentionsPreservesBodyAndToolCalls(t *testing
 	}
 }
 
-func TestSieve_ChineseReviewSamplePreservesInlineDSMLMention(t *testing.T) {
+func TestSieve_ChineseReviewSamplePreservesInlineEPSEMention(t *testing.T) {
 	var state State
 	chunks := []string{
 		"# Context from my IDE setup:\n\n## My request for Codex:\n",
-		"基于我的审查，这是工作区更改的总结和提交。\n\n## 审查报告\n\n### 文档\n\nAPI.md 中的工具调用部分缺少针对新 DSML 别名的更新——它只提到了 `",
-		"<|DSML|tool_calls>` 和 canonical `<tool_calls>`。由于这涉及 API 兼容性和文档准确性，需要在下游进行记录。\n\n",
-		"### 代码\n\n所有更改现在一致地处理四个 DSML wrapper 变体。\n\n现在提交已暂存的更改。\n\n",
-		"<|DSML|tool_calls>\n",
-		"  <|DSML|invoke name=\"Bash\">\n",
-		"    <|DSML|parameter name=\"command\"><![CDATA[git commit -m \"$(cat <<'EOF'\nfeat: expand DSML tool-call alias and fence handling\nEOF\n)\"]]></|DSML|parameter>\n",
-		"    <|DSML|parameter name=\"description\"><![CDATA[Commit staged changes]]></|DSML|parameter>\n",
-		"  </|DSML|invoke>\n",
-		"</|DSML|tool_calls>\n\n补充",
+		"基于我的审查，这是工作区更改的总结和提交。\n\n## 审查报告\n\n### 文档\n\nAPI.md 中的工具调用部分缺少针对新 EPSE 别名的更新——它只提到了 `",
+		"<|EPSE|tool_calls>` 和 canonical `<tool_calls>`。由于这涉及 API 兼容性和文档准确性，需要在下游进行记录。\n\n",
+		"### 代码\n\n所有更改现在一致地处理四个 EPSE wrapper 变体。\n\n现在提交已暂存的更改。\n\n",
+		"<|EPSE|tool_calls>\n",
+		"  <|EPSE|invoke name=\"Bash\">\n",
+		"    <|EPSE|parameter name=\"command\"><![CDATA[git commit -m \"$(cat <<'EOF'\nfeat: expand EPSE tool-call alias and fence handling\nEOF\n)\"]]></|EPSE|parameter>\n",
+		"    <|EPSE|parameter name=\"description\"><![CDATA[Commit staged changes]]></|EPSE|parameter>\n",
+		"  </|EPSE|invoke>\n",
+		"</|EPSE|tool_calls>\n\n补充",
 	}
 	var events []Event
 	for _, c := range chunks {
@@ -543,34 +543,34 @@ func TestSieve_ChineseReviewSamplePreservesInlineDSMLMention(t *testing.T) {
 	if callCount != 1 {
 		t.Fatalf("应解析出 1 个工具调用，got %d, text=%q", callCount, text.String())
 	}
-	want := "它只提到了 `<|DSML|tool_calls>` 和 canonical `<tool_calls>`。由于这涉及 API 兼容性"
+	want := "它只提到了 `<|EPSE|tool_calls>` 和 canonical `<tool_calls>`。由于这涉及 API 兼容性"
 	if !strings.Contains(text.String(), want) {
-		t.Fatalf("正文不应在 inline DSML mention 处截断, want contains %q, got %q", want, text.String())
+		t.Fatalf("正文不应在 inline EPSE mention 处截断, want contains %q, got %q", want, text.String())
 	}
 	if !strings.Contains(text.String(), "补充") {
 		t.Fatalf("工具块后的正文应保留, got %q", text.String())
 	}
-	if strings.Contains(text.String(), "<|DSML|invoke") {
+	if strings.Contains(text.String(), "<|EPSE|invoke") {
 		t.Fatalf("真实工具块不应泄漏到正文, got %q", text.String())
 	}
 }
 
-func TestSieve_HyphenatedDSMLShellWithHereDocCDATA(t *testing.T) {
+func TestSieve_HyphenatedEPSEShellWithHereDocCDATA(t *testing.T) {
 	var state State
 	chunks := []string{
-		"<dsml-tool-calls>\n",
-		"<dsml-invoke name=\"Bash\">\n",
-		"<dsml-parameter name=\"command\"><![CDATA[git commit -m \"$(cat <<'EOF'\n",
+		"<epse-tool-calls>\n",
+		"<epse-invoke name=\"Bash\">\n",
+		"<epse-parameter name=\"command\"><![CDATA[git commit -m \"$(cat <<'EOF'\n",
 		"docs: add missing directory entries and package descriptions to architecture docs\n",
 		"Fill gaps identified in architecture audit: add artifacts/ and static/ to\n",
 		"directory tree, and document 7 auxiliary internal/ packages (textclean,\n",
 		"claudeconv, compat, rawsample, devcapture, util, version) in Section 3.\n\n",
 		"Co-Authored-By: Claude Opus 4.7 noreply@anthropic.com\n",
 		"EOF\n",
-		")\"]]></dsml-parameter>\n",
-		"<dsml-parameter name=\"description\"><![CDATA[Create commit with architecture doc updates]]></dsml-parameter>\n",
-		"</dsml-invoke>\n",
-		"</dsml-tool-calls>",
+		")\"]]></epse-parameter>\n",
+		"<epse-parameter name=\"description\"><![CDATA[Create commit with architecture doc updates]]></epse-parameter>\n",
+		"</epse-invoke>\n",
+		"</epse-tool-calls>",
 	}
 	var events []Event
 	for _, c := range chunks {
@@ -590,25 +590,25 @@ func TestSieve_HyphenatedDSMLShellWithHereDocCDATA(t *testing.T) {
 	}
 
 	if callCount != 1 {
-		t.Fatalf("应解析出 1 个 hyphenated DSML 工具调用，got %d, text=%q", callCount, text.String())
+		t.Fatalf("应解析出 1 个 hyphenated EPSE 工具调用，got %d, text=%q", callCount, text.String())
 	}
 	if !strings.Contains(command, `git commit -m "$(cat <<'EOF'`) || !strings.Contains(command, "Co-Authored-By: Claude Opus 4.7") {
 		t.Fatalf("here-doc command 未完整保留, got %q", command)
 	}
-	if strings.Contains(text.String(), "dsml-tool-calls") || strings.Contains(text.String(), "git commit -m") {
+	if strings.Contains(text.String(), "epse-tool-calls") || strings.Contains(text.String(), "git commit -m") {
 		t.Fatalf("真实工具块不应泄漏到正文, got %q", text.String())
 	}
 }
 
-func TestSieve_ToleratesDSMLSpaceSeparatorTypo(t *testing.T) {
+func TestSieve_ToleratesEPSESpaceSeparatorTypo(t *testing.T) {
 	var state State
 	chunks := []string{
 		"准备读取文件。\n",
-		"<|DSML tool_calls>\n",
-		"<|DSML invoke name=\"Read\">\n",
-		"<|DSML parameter name=\"file_path\"><![CDATA[/tmp/input.txt]]></|DSML parameter>\n",
-		"</|DSML invoke>\n",
-		"</|DSML tool_calls>",
+		"<|EPSE tool_calls>\n",
+		"<|EPSE invoke name=\"Read\">\n",
+		"<|EPSE parameter name=\"file_path\"><![CDATA[/tmp/input.txt]]></|EPSE parameter>\n",
+		"</|EPSE invoke>\n",
+		"</|EPSE tool_calls>",
 	}
 	var events []Event
 	for _, c := range chunks {
@@ -636,14 +636,14 @@ func TestSieve_ToleratesDSMLSpaceSeparatorTypo(t *testing.T) {
 	if !strings.Contains(text.String(), "准备读取文件") {
 		t.Fatalf("前置正文应保留, got %q", text.String())
 	}
-	if strings.Contains(text.String(), "<|DSML invoke") {
+	if strings.Contains(text.String(), "<|EPSE invoke") {
 		t.Fatalf("真实工具块不应泄漏到正文, got %q", text.String())
 	}
 }
 
-func TestSieve_DSMLSpaceLookalikeTagNameStaysText(t *testing.T) {
+func TestSieve_EPSESpaceLookalikeTagNameStaysText(t *testing.T) {
 	var state State
-	input := "<|DSML tool_calls_extra><|DSML invoke name=\"Read\"><|DSML parameter name=\"file_path\">/tmp/input.txt</|DSML parameter></|DSML invoke></|DSML tool_calls_extra>"
+	input := "<|EPSE tool_calls_extra><|EPSE invoke name=\"Read\"><|EPSE parameter name=\"file_path\">/tmp/input.txt</|EPSE parameter></|EPSE invoke></|EPSE tool_calls_extra>"
 	events := ProcessChunk(&state, input, []string{"Read"})
 	events = append(events, Flush(&state, []string{"Read"})...)
 
@@ -661,11 +661,11 @@ func TestSieve_DSMLSpaceLookalikeTagNameStaysText(t *testing.T) {
 	}
 }
 
-func TestSieve_DSMLCollapsedTagNamesWithPrefixText(t *testing.T) {
+func TestSieve_EPSECollapsedTagNamesWithPrefixText(t *testing.T) {
 	var state State
 	todos := `[x] 检查 toolcalls_format.go 格式化逻辑
 [x] 检查 toolcalls_parse.go 解析逻辑
-[x] 检查 toolcalls_xml.go 和 toolcalls_dsml.go
+[x] 检查 toolcalls_xml.go 和 toolcalls_epse.go
 [x] 检查 toolcalls_markup.go 和 toolcalls_json_repair.go
 [x] 检查 prompt/tool_calls.go 注入逻辑
 [x] 检查 toolstream 流式解析
@@ -673,11 +673,11 @@ func TestSieve_DSMLCollapsedTagNamesWithPrefixText(t *testing.T) {
 [x] 给出调查结论`
 	chunks := []string{
 		"[]\n",
-		"<DSMLtool_calls>\n",
-		"<DSMLinvoke name=\"update_todo_list\">\n",
-		"<DSMLparameter name=\"todos\"><![CDATA[" + todos + "]]></DSMLparameter>\n",
-		"</DSMLinvoke>\n",
-		"</DSMLtool_calls>",
+		"<EPSEtool_calls>\n",
+		"<EPSEinvoke name=\"update_todo_list\">\n",
+		"<EPSEparameter name=\"todos\"><![CDATA[" + todos + "]]></EPSEparameter>\n",
+		"</EPSEinvoke>\n",
+		"</EPSEtool_calls>",
 	}
 	var events []Event
 	for _, c := range chunks {
@@ -706,9 +706,9 @@ func TestSieve_DSMLCollapsedTagNamesWithPrefixText(t *testing.T) {
 	}
 }
 
-func TestSieve_DSMLCollapsedLookalikeTagNameStaysText(t *testing.T) {
+func TestSieve_EPSECollapsedLookalikeTagNameStaysText(t *testing.T) {
 	var state State
-	input := "<DSMLtool_calls_extra><DSMLinvoke name=\"update_todo_list\"><DSMLparameter name=\"todos\">x</DSMLparameter></DSMLinvoke></DSMLtool_calls_extra>"
+	input := "<EPSEtool_calls_extra><EPSEinvoke name=\"update_todo_list\"><EPSEparameter name=\"todos\">x</EPSEparameter></EPSEinvoke></EPSEtool_calls_extra>"
 	events := ProcessChunk(&state, input, []string{"update_todo_list"})
 	events = append(events, Flush(&state, []string{"update_todo_list"})...)
 

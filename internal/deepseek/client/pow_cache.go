@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -184,6 +183,3 @@ func (c *powPrefetchCache) Size() int {
 	defer c.mu.Unlock()
 	return len(c.entries)
 }
-
-// errPoWCacheMiss 是内部 sentinel，用于 GetPow 内部判断是否需要 fallback 到同步获取。
-var errPoWCacheMiss = errors.New("pow cache miss")

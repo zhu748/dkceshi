@@ -81,8 +81,8 @@ func canonicalizeRecognizedToolMarkupTag(raw string, tag ToolMarkupTag) string {
 	if tag.Closing {
 		b.WriteByte('/')
 	}
-	if tag.DSMLLike {
-		b.WriteString("|DSML|")
+	if tag.EPSELike {
+		b.WriteString("|EPSE|")
 	}
 	b.WriteString(tag.Name)
 	for _, attr := range attrs {

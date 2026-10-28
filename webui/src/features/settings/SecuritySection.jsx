@@ -19,7 +19,7 @@ export default function SecuritySection({
                         type="number"
                         min={1}
                         max={720}
-                        value={form.admin.jwt_expire_hours}
+                        value={Number(form.admin?.jwt_expire_hours ?? 24)}
                         onChange={(e) => setForm((prev) => ({
                             ...prev,
                             admin: { ...prev.admin, jwt_expire_hours: Number(e.target.value || 1) },

@@ -50,11 +50,25 @@ func (h *Handler) GetResponseByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, openAIGeneralMaxSize)
+	var req map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "too large") {
+			writeOpenAIError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
+		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	// 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。
+	// 按 Key 的开关由 promptcompat.ApplyCallerFlags 在判定之前应用。
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
+
 	a, err := h.Auth.Determine(r)
 	if err != nil {
 		status := http.StatusUnauthorized
 		detail := err.Error()
-		if err == auth.ErrNoAccount {
+		if auth.IsNoIdleAccountError(err) {
 			status = http.StatusTooManyRequests
 		}
 		writeOpenAIError(w, status, detail)
@@ -68,26 +82,26 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, openAIGeneralMaxSize)
-	var req map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "too large") {
-			writeOpenAIError(w, http.StatusRequestEntityTooLarge, "request body too large")
-			return
-		}
-		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
+	// 图片处理分三步且顺序固定：先判定（此时图片块还在，上传要用），再在两轮
+	// 内联上传之后剥离图片块（图片改经 ref_file_ids 送达），最后在标准化之后
+	// 还原客户端请求的模型名。
+	imageRoute := promptcompat.PlanImageRoute(req, h.Store)
 	if err := h.preprocessInlineFileInputs(r.Context(), a, req); err != nil {
 		writeOpenAIInlineFileError(w, err)
 		return
 	}
+	if err := h.preprocessInlineTextFilesForExpert(r.Context(), a, req); err != nil {
+		writeOpenAIInlineFileError(w, err)
+		return
+	}
+	imageRoute.StripImages(req)
 	traceID := requestTraceID(r)
-	stdReq, err := promptcompat.NormalizeOpenAIResponsesRequest(h.Store, req, traceID)
+	stdReq, err := promptcompat.NormalizeOpenAIResponsesRequest(h.Store, req, traceID, a.ToolMarker)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	imageRoute.RestoreModelName(&stdReq)
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
 		status, message := mapCurrentInputFileError(err)
@@ -97,6 +111,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 
 	responseID := "resp_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	historySession := responsehistory.Start(responsehistory.StartParams{
+		Usage:    h.Usage,
 		Store:    h.ChatHistory,
 		Request:  r,
 		Auth:     a,
@@ -105,12 +120,19 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 	})
 	if !stdReq.Stream {
 		result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-			RetryEnabled:     true,
-			CurrentInputFile: h.Store,
+			RetryEnabled:          true,
+			CurrentInputFile:      h.Store,
+			ExpertPromptSegment:   h.Store,
+			ToolCallRepairEnabled: true,
+			ChatHistory:           h.ChatHistory,
 		})
 		if outErr != nil {
 			if historySession != nil {
-				historySession.ErrorTurn(outErr.Status, outErr.Message, outErr.Code, result.Turn)
+				if completionruntime.IsDirectTokenAuthError(outErr) {
+					historySession.Discard()
+				} else {
+					historySession.ErrorTurn(outErr.Status, outErr.Message, outErr.Code, result.Turn)
+				}
 			}
 			writeOpenAIErrorWithCode(w, outErr.Status, outErr.Message, outErr.Code)
 			return
@@ -126,11 +148,16 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-		CurrentInputFile: h.Store,
+		CurrentInputFile:    h.Store,
+		ExpertPromptSegment: h.Store,
 	})
 	if outErr != nil {
 		if historySession != nil {
-			historySession.Error(outErr.Status, outErr.Message, outErr.Code, "", "")
+			if completionruntime.IsDirectTokenAuthError(outErr) {
+				historySession.Discard()
+			} else {
+				historySession.Error(outErr.Status, outErr.Message, outErr.Code, "", "")
+			}
 		}
 		writeOpenAIErrorWithCode(w, outErr.Status, outErr.Message, outErr.Code)
 		return
@@ -145,6 +172,9 @@ func (h *Handler) handleResponsesNonStream(w http.ResponseWriter, resp *http.Res
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[openai_responses_nonstream] captcha challenge detected on initial response", "detail", detail)
+		}
 		writeOpenAIError(w, resp.StatusCode, strings.TrimSpace(string(body)))
 		return
 	}
@@ -176,6 +206,9 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[openai_responses_stream] captcha challenge detected on initial response", "detail", detail)
+		}
 		writeOpenAIError(w, resp.StatusCode, strings.TrimSpace(string(body)))
 		return
 	}
@@ -190,7 +223,12 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	if thinkingEnabled {
 		initialType = "thinking"
 	}
-	bufferToolContent := len(toolNames) > 0
+	// 无论客户端是否传 tools，都启用 toolSieve 流式拦截：
+	// 模型在提示词中被要求使用 <|EPSE|tool_calls> 格式输出工具调用，
+	// 若客户端未传 tools（如"继续会话"请求），bufferToolContent 为 false
+	// 会导致 EPSE 原文作为正文透传给客户端，产生乱码。
+	// toolSieve 解析不依赖 toolNames 过滤，空列表也能正常拦截。
+	bufferToolContent := true
 	emitEarlyToolDeltas := h.toolcallFeatureMatchEnabled() && h.toolcallEarlyEmitHighConfidence()
 	stripReferenceMarkers := stripReferenceMarkersEnabled()
 

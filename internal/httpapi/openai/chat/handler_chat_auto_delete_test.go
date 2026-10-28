@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"errors"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -32,8 +31,16 @@ func (m *autoDeleteModeDSStub) UploadFile(_ context.Context, _ *auth.RequestAuth
 	return &dsclient.UploadFileResult{ID: "file-id", Filename: "file.txt", Bytes: 1, Status: "uploaded"}, nil
 }
 
-func (m *autoDeleteModeDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
+func (m *autoDeleteModeDSStub) CallCompletion(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string, _ int) (*http.Response, error) {
 	return m.resp, nil
+}
+
+func (m *autoDeleteModeDSStub) StopStream(_ context.Context, _ *auth.RequestAuth, _ string, _ int) error {
+	return nil
+}
+
+func (m *autoDeleteModeDSStub) FireCompletionAndStop(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string) (int, error) {
+	return 0, nil
 }
 
 func (m *autoDeleteModeDSStub) DeleteSessionForToken(_ context.Context, _ string, sessionID string) (*dsclient.DeleteSessionResult, error) {
@@ -46,10 +53,6 @@ func (m *autoDeleteModeDSStub) DeleteAllSessionsForToken(_ context.Context, _ st
 	m.allCalls++
 	return nil
 }
-func (m *autoDeleteModeDSStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
-	return nil, errors.New("CallEditMessage not implemented in stub")
-}
-
 
 func (m *autoDeleteModeDSStub) DeleteSessionForTokenCtx(ctx context.Context, _ string, sessionID string) (*dsclient.DeleteSessionResult, error) {
 	m.singleCalls++
@@ -86,7 +89,7 @@ func TestChatCompletionsAutoDeleteModes(t *testing.T) {
 				DS:   ds,
 			}
 
-			reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":false}`
+			reqBody := `{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi"}],"stream":false}`
 			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 			req.Header.Set("Authorization", "Bearer direct-token")
 			req.Header.Set("Content-Type", "application/json")
@@ -122,10 +125,6 @@ func (m *autoDeleteCtxDSStub) DeleteAllSessionsForToken(_ context.Context, _ str
 	m.allCalls++
 	return nil
 }
-func (m *autoDeleteCtxDSStub) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
-	return nil, errors.New("CallEditMessage not implemented in stub")
-}
-
 
 func TestAutoDeleteRemoteSessionIgnoresCanceledParentContext(t *testing.T) {
 	ds := &autoDeleteCtxDSStub{}
@@ -139,77 +138,12 @@ func TestAutoDeleteRemoteSessionIgnoresCanceledParentContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	h.autoDeleteRemoteSession(ctx, a, "session-id", "deepseek-v4-flash")
+	h.autoDeleteRemoteSession(ctx, a, "session-id")
 
 	if ds.singleCalls != 1 {
 		t.Fatalf("single delete calls=%d want=1", ds.singleCalls)
 	}
 	if ds.lastCtxErr != nil {
 		t.Fatalf("delete ctx should not inherit cancellation, got %v", ds.lastCtxErr)
-	}
-}
-
-// TestAutoDeleteRemoteSessionSuffixModelOverridesNone 验证 -autodelete 后缀模型
-// 在全局 mode=none 时降级为删除本次对话，对应 App 抓包里的
-// POST /api/v0/chat_session/delete 动作。
-func TestAutoDeleteRemoteSessionSuffixModelOverridesNone(t *testing.T) {
-	tests := []struct {
-		name          string
-		globalMode    string
-		resolvedModel string
-		wantSingle    int
-		wantAll       int
-	}{
-		{
-			name:          "none + suffix model -> single delete",
-			globalMode:    "none",
-			resolvedModel: "deepseek-v4-flash-autodelete",
-			wantSingle:    1,
-		},
-		{
-			name:          "single + suffix model -> still single (no double delete)",
-			globalMode:    "single",
-			resolvedModel: "deepseek-v4-flash-autodelete",
-			wantSingle:    1,
-		},
-		{
-			name:          "all + suffix model -> all (global wins)",
-			globalMode:    "all",
-			resolvedModel: "deepseek-v4-flash-autodelete",
-			wantAll:       1,
-		},
-		{
-			name:          "none + plain model -> no delete",
-			globalMode:    "none",
-			resolvedModel: "deepseek-v4-flash",
-		},
-		{
-			name:          "none + alias-resolved suffix model -> single delete",
-			globalMode:    "none",
-			resolvedModel: "deepseek-v4-pro-search-autodelete",
-			wantSingle:    1,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ds := &autoDeleteModeDSStub{}
-			h := &Handler{
-				Store: mockOpenAIConfig{
-					autoDeleteMode: tc.globalMode,
-				},
-				DS: ds,
-			}
-			a := &auth.RequestAuth{DeepSeekToken: "token", AccountID: "acct"}
-
-			h.autoDeleteRemoteSession(context.Background(), a, "session-id", tc.resolvedModel)
-
-			if ds.singleCalls != tc.wantSingle {
-				t.Fatalf("single delete calls=%d want=%d", ds.singleCalls, tc.wantSingle)
-			}
-			if ds.allCalls != tc.wantAll {
-				t.Fatalf("all delete calls=%d want=%d", ds.allCalls, tc.wantAll)
-			}
-		})
 	}
 }

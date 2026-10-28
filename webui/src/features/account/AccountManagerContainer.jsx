@@ -1,16 +1,26 @@
+import { useState } from 'react'
+import AndroidDeviceModal from './AndroidDeviceModal'
 import { useI18n } from '../../i18n'
 import { useAccountsData } from './useAccountsData'
 import { useAccountActions } from './useAccountActions'
+import { useBridgeNodes } from './useBridgeNodes'
+import { useDeviceIdPool } from './useDeviceIdPool'
+import { useRealDeviceIds } from './useRealDeviceIds'
 import QueueCards from './QueueCards'
 import ApiKeysPanel from './ApiKeysPanel'
 import AccountsTable from './AccountsTable'
 import AddKeyModal from './AddKeyModal'
 import AddAccountModal from './AddAccountModal'
 import EditAccountModal from './EditAccountModal'
+import ElasticPoolModal from './ElasticPoolModal'
+import DeviceIdModal from './DeviceIdModal'
+import RealDeviceIdModal from './RealDeviceIdModal'
+import ManualTokenModal from './ManualTokenModal'
 
 export default function AccountManagerContainer({ config, onRefresh, onMessage, authFetch }) {
     const { t } = useI18n()
     const apiFetch = authFetch || fetch
+ const [showAndroidDevices,setShowAndroidDevices] = useState(false)
 
     const {
         queueStatus,
@@ -27,7 +37,19 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
         resolveAccountIdentifier,
         searchQuery,
         handleSearchChange,
-    } = useAccountsData({ apiFetch })
+        filterStatus,
+        handleFilterChange,
+        accountCounts,
+    } = useAccountsData({ apiFetch, onConfigRefresh: onRefresh })
+
+    // 代理桥节点清单：账号的代理下拉要列出全部可用节点（不只是已绑定的），
+    // 节点健康与延迟随时在变，所以下拉打开时会按需刷新。
+    const {
+        nodes: bridgeNodes,
+        available: bridgeNodesAvailable,
+        loading: loadingBridgeNodes,
+        reload: reloadBridgeNodes,
+    } = useBridgeNodes({ apiFetch })
 
     const {
         showAddKey,
@@ -57,6 +79,9 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
         sessionCounts,
         deletingSessions,
         updatingProxy,
+        togglingEnabled,
+        togglingAllEnabled,
+        deletingBanned,
         addKey,
         deleteKey,
         addAccount,
@@ -65,7 +90,25 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
         testAccount,
         testAllAccounts,
         deleteAllSessions,
-        updateAccountProxy,
+        updateAccountBinding,
+        toggleAccountEnabled,
+        toggleAllAccountsEnabled,
+        deleteBannedAccounts,
+        showElasticPool,
+        openElasticPool,
+        closeElasticPool,
+        elasticPool,
+        setElasticPool,
+        savingElasticPool,
+        saveElasticPool,
+        showManualToken,
+        manualTokenAccount,
+        manualToken,
+        setManualToken,
+        submittingManualToken,
+        openManualTokenModal,
+        closeManualTokenModal,
+        submitManualToken,
     } = useAccountActions({
         apiFetch,
         t,
@@ -74,7 +117,50 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
         config,
         fetchAccounts,
         resolveAccountIdentifier,
+        // 绑定变更会改变节点上的"已绑定账号数"，这里强制刷新（跳过新鲜度节流）。
+        onBridgeNodesRefresh: () => reloadBridgeNodes(true),
     })
+
+    const {
+        showDeviceIds,
+        openDeviceIds,
+        closeDeviceIds,
+        deviceIdItems,
+        addingDeviceId,
+        deletingDeviceId,
+        addDeviceId,
+        deleteDeviceId,
+    } = useDeviceIdPool({ apiFetch, t, onMessage, onRefresh, fetchAccounts })
+
+    const {
+        showRealDeviceIds,
+        openRealDeviceIds,
+        closeRealDeviceIds,
+        realDeviceIdItems,
+        loadingRealDeviceIds,
+        realDevicePage,
+        realDevicePageSize,
+        realDeviceTotal,
+        realDeviceTotalAll,
+        realDeviceTotalPages,
+        realDeviceQuery,
+        changeRealDevicePageSize,
+        prevRealDevicePage,
+        nextRealDevicePage,
+        searchRealDeviceIds,
+        refreshingRealDeviceId,
+        bulkRefreshing,
+        bulkErrors,
+        refreshRealDeviceId,
+        refreshAllRealDeviceIds,
+    } = useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccounts })
+
+    const nativeAndroid = queueStatus?.device_profile_kind === 'android'
+ const deviceIdMode = nativeAndroid ? 'android' : (queueStatus?.device_id_mode || config?.runtime?.device_id_mode || 'manual')
+    // auto 模式不使用手工号池，同一个按钮打开的是真实设备 id 清单（内容由模式决定）。
+    const openDeviceIdManager = nativeAndroid ? () => setShowAndroidDevices(true) : (deviceIdMode === 'auto' ? openRealDeviceIds : openDeviceIds)
+    // 队列状态是轮询获取的，未拿到前传 undefined，避免误报"数量不足"。
+    const deviceIdRemaining = queueStatus?.device_id_remaining
 
     return (
         <div className="space-y-6">
@@ -123,30 +209,49 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
                 sessionCounts={sessionCounts}
                 deletingSessions={deletingSessions}
                 updatingProxy={updatingProxy}
+                togglingEnabled={togglingEnabled}
+                togglingAllEnabled={togglingAllEnabled}
+                deletingBanned={deletingBanned}
                 totalAccounts={totalAccounts}
                 page={page}
                 pageSize={pageSize}
                 totalPages={totalPages}
                 resolveAccountIdentifier={resolveAccountIdentifier}
                 proxies={config?.proxies || []}
+                bridgeNodes={bridgeNodes}
+                bridgeNodesAvailable={bridgeNodesAvailable}
+                loadingBridgeNodes={loadingBridgeNodes}
+                elasticPoolEnabled={Boolean(config?.elastic_pool?.enabled)}
+                onOpenElasticPool={openElasticPool}
                 onTestAll={testAllAccounts}
                 onShowAddAccount={openAddAccount}
                 onEditAccount={openEditAccount}
                 onTestAccount={testAccount}
                 onDeleteAccount={deleteAccount}
                 onDeleteAllSessions={deleteAllSessions}
-                onUpdateAccountProxy={updateAccountProxy}
+                onUpdateAccountBinding={updateAccountBinding}
+                onReloadBridgeNodes={reloadBridgeNodes}
+                onToggleAccountEnabled={toggleAccountEnabled}
+                onToggleAllAccountsEnabled={toggleAllAccountsEnabled}
+                onDeleteBannedAccounts={deleteBannedAccounts}
                 onPrevPage={() => fetchAccounts(page - 1)}
                 onNextPage={() => fetchAccounts(page + 1)}
                 onPageSizeChange={changePageSize}
                 searchQuery={searchQuery}
                 onSearchChange={handleSearchChange}
+                filterStatus={filterStatus}
+                onFilterChange={handleFilterChange}
+                accountCounts={accountCounts}
                 envBacked={Boolean(config?.env_backed)}
+                deviceIdMode={deviceIdMode}
+                deviceIdRemaining={deviceIdRemaining}
+                onOpenDeviceIds={openDeviceIdManager}
             />
 
             <AddKeyModal
                 show={showAddKey}
                 t={t}
+                config={config}
                 editingKey={editingKey}
                 newKey={newKey}
                 setNewKey={setNewKey}
@@ -174,6 +279,67 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
                 loading={loading}
                 onClose={closeEditAccount}
                 onSave={updateAccount}
+                onManualToken={() => openManualTokenModal(editingAccount?.identifier)}
+            />
+
+            <ElasticPoolModal
+                show={showElasticPool}
+                t={t}
+                elasticPool={elasticPool}
+                setElasticPool={setElasticPool}
+                loading={savingElasticPool}
+                onClose={closeElasticPool}
+                onSave={saveElasticPool}
+            />
+
+            {showAndroidDevices && <AndroidDeviceModal accounts={accounts} apiFetch={apiFetch} t={t} onClose={() => setShowAndroidDevices(false)} onSaved={fetchAccounts} onMessage={onMessage} />}
+
+            <DeviceIdModal
+                show={showDeviceIds}
+                t={t}
+                items={deviceIdItems}
+                loading={addingDeviceId}
+                deleting={deletingDeviceId}
+                onClose={closeDeviceIds}
+                onAdd={addDeviceId}
+                onDelete={deleteDeviceId}
+            />
+
+            <RealDeviceIdModal
+                show={showRealDeviceIds}
+                t={t}
+                items={realDeviceIdItems}
+                loading={loadingRealDeviceIds}
+                page={realDevicePage}
+                pageSize={realDevicePageSize}
+                totalPages={realDeviceTotalPages}
+                totalItems={realDeviceTotal}
+                totalAll={realDeviceTotalAll}
+                query={realDeviceQuery}
+                refreshing={refreshingRealDeviceId}
+                bulkRefreshing={bulkRefreshing}
+                errors={bulkErrors}
+                onClose={closeRealDeviceIds}
+                onRefresh={identifier => refreshRealDeviceId(identifier, false)}
+                onReset={identifier => refreshRealDeviceId(identifier, true)}
+                onRefreshAll={() => refreshAllRealDeviceIds(false)}
+                onResetAll={() => refreshAllRealDeviceIds(true)}
+                onPrevPage={prevRealDevicePage}
+                onNextPage={nextRealDevicePage}
+                onPageSizeChange={changeRealDevicePageSize}
+                onSearchChange={searchRealDeviceIds}
+            />
+
+            <ManualTokenModal
+                show={showManualToken}
+                t={t}
+                account={manualTokenAccount}
+                token={manualToken}
+                setToken={setManualToken}
+                loading={submittingManualToken}
+                onClose={closeManualTokenModal}
+                onConfirm={submitManualToken}
+                onMessage={onMessage}
             />
         </div>
     )

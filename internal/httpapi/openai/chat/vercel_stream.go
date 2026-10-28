@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"ds2api/internal/auth"
+	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
+	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/httpapi/openai/history"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/util"
@@ -31,10 +33,20 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	var req map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	// 与非流式链路一致：是否注入工具提示词与号池路由均按“body 是否携带工具
+	// 定义”决定，写入上下文供 Determine 读取（保持 Vercel 流式镜像与主链路行为一致）。
+	// 按 Key 的开关同样经 promptcompat.ApplyCallerFlags 生效，两条链路不会分叉。
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
+
 	a, err := h.Auth.Determine(r)
 	if err != nil {
 		status := http.StatusUnauthorized
-		if err == auth.ErrNoAccount {
+		if auth.IsNoIdleAccountError(err) {
 			status = http.StatusTooManyRequests
 		}
 		writeOpenAIError(w, status, err.Error())
@@ -48,24 +60,29 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 	}()
 	r = r.WithContext(auth.WithAuth(r.Context(), a))
 
-	var req map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
+	// 图片处理分三步且顺序固定，与非流式主链路一致：先判定（此时图片块还在，
+	// 上传要用），再在两轮内联上传之后剥离图片块（图片改经 ref_file_ids 送达），
+	// 最后在标准化之后还原客户端请求的模型名。
+	imageRoute := promptcompat.PlanImageRoute(req, h.Store)
 	if err := h.preprocessInlineFileInputs(r.Context(), a, req); err != nil {
 		writeOpenAIInlineFileError(w, err)
 		return
 	}
+	if err := h.preprocessInlineTextFilesForExpert(r.Context(), a, req); err != nil {
+		writeOpenAIInlineFileError(w, err)
+		return
+	}
+	imageRoute.StripImages(req)
 	if !util.ToBool(req["stream"]) {
 		writeOpenAIError(w, http.StatusBadRequest, "stream must be true")
 		return
 	}
-	stdReq, err := promptcompat.NormalizeOpenAIChatRequest(h.Store, req, requestTraceID(r))
+	stdReq, err := promptcompat.NormalizeOpenAIChatRequest(h.Store, req, requestTraceID(r), a.ToolMarker)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	imageRoute.RestoreModelName(&stdReq)
 	if !stdReq.Stream {
 		writeOpenAIError(w, http.StatusBadRequest, "stream must be true")
 		return
@@ -77,18 +94,12 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	sessionID, err := h.DS.CreateSession(r.Context(), a, 3)
-	if err != nil {
-		if a.UseConfigToken {
-			writeOpenAIError(w, http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin.")
-		} else {
-			writeOpenAIError(w, http.StatusUnauthorized, "Invalid token. If this should be a DS2API key, add it to config.keys first.")
-		}
-		return
-	}
-	powHeader, err := h.DS.GetPow(r.Context(), a, 3)
-	if err != nil {
-		writeOpenAIError(w, http.StatusUnauthorized, "Failed to get PoW (invalid token or unknown error).")
+	sessionID, powHeader, payload, outErr := completionruntime.PrepareCompletionPayload(r.Context(), h.DS, a, stdReq, completionruntime.Options{
+		CurrentInputFile:    h.Store,
+		ExpertPromptSegment: h.Store,
+	}, 3)
+	if outErr != nil {
+		writeOpenAIError(w, outErr.Status, outErr.Message)
 		return
 	}
 	if strings.TrimSpace(a.DeepSeekToken) == "" {
@@ -96,7 +107,6 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	payload := stdReq.CompletionPayload(sessionID)
 	leaseID := h.holdStreamLease(a, stdReq, sessionID)
 	if leaseID == "" {
 		writeOpenAIError(w, http.StatusInternalServerError, "failed to create stream lease")
@@ -111,9 +121,14 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		"thinking_enabled": stdReq.Thinking,
 		"search_enabled":   stdReq.Search,
 		"tool_names":       stdReq.ToolNames,
-		"deepseek_token":   a.DeepSeekToken,
-		"pow_header":       powHeader,
-		"payload":          payload,
+		// The Node stream mirror performs the tool sieve itself, so it needs the
+		// caller-specific marker to normalize the model's output back to EPSE
+		// before parsing (the Go path does the same inside toolstream.State).
+		"tool_marker":    stdReq.ToolMarker,
+		"deepseek_token": a.DeepSeekToken,
+		"pow_header":     powHeader,
+		"payload":        payload,
+		"base_headers":   dsclient.BaseHeadersForAuth(a),
 	})
 }
 
@@ -150,9 +165,47 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 		defer h.Auth.Release(lease.Auth)
 	}
 	if lease.Auth != nil {
-		h.autoDeleteRemoteSession(r.Context(), lease.Auth, lease.SessionID, lease.Standard.ResolvedModel)
+		h.autoDeleteRemoteSession(r.Context(), lease.Auth, lease.SessionID)
 	}
+	h.recordVercelStreamCompletion(r, lease.Auth, lease.Standard, req)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// recordVercelStreamCompletion 在 Vercel Node 流式路径收尾（release）时
+// 把最终结果回填到聊天历史并记录 Token 用量。Node 侧会在 release 请求里
+// 携带 finish_reason/usage/thinking/content/error。
+func (h *Handler) recordVercelStreamCompletion(r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, req map[string]any) {
+	if a == nil {
+		return
+	}
+	finishReason := strings.TrimSpace(asString(req["finish_reason"]))
+	if finishReason == "" {
+		finishReason = "stop"
+	}
+	thinking := asString(req["thinking"])
+	content := asString(req["content"])
+	errorMessage := strings.TrimSpace(asString(req["error"]))
+	usage, _ := req["usage"].(map[string]any)
+
+	// 流尚未建立就失败（例如上游连接失败）的 release 不产生任何有意义的
+	// 记录，跳过以免写入空的历史条目。
+	if usage == nil && thinking == "" && content == "" && errorMessage == "" {
+		return
+	}
+
+	session := startChatHistoryWithUsage(h.ChatHistory, h.Usage, r, a, stdReq)
+	if session == nil {
+		return
+	}
+	if errorMessage != "" {
+		session.error(http.StatusInternalServerError, errorMessage, finishReason, thinking, content)
+		return
+	}
+	if finishReason == "stopped" {
+		session.stopped(thinking, content, finishReason)
+		return
+	}
+	session.success(http.StatusOK, thinking, content, finishReason, usage)
 }
 
 func (h *Handler) handleVercelStreamPow(w http.ResponseWriter, r *http.Request) {
@@ -223,8 +276,59 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	a := lease.Auth
-	if !a.UseConfigToken || !a.SwitchAccount(r.Context()) {
-		writeOpenAIErrorWithCode(w, http.StatusTooManyRequests, "Upstream account hit a rate limit and returned reasoning without visible output.", "upstream_empty_output")
+	disable, _ := req["disable"].(bool)
+	mutedUntil, _ := req["mute_until"].(float64)
+	banned, _ := req["banned"].(bool)
+	bannedReason, _ := req["banned_reason"].(string)
+	authFailed, _ := req["auth_failed"].(bool)
+	if mutedUntil > 0 && a.UseConfigToken {
+		if notifier, ok := h.Auth.(interface {
+			SetAccountMutedUntil(*auth.RequestAuth, float64)
+		}); ok {
+			notifier.SetAccountMutedUntil(a, mutedUntil)
+		}
+	}
+	if banned && a.UseConfigToken {
+		if strings.TrimSpace(bannedReason) == "" {
+			bannedReason = "账户已被停用"
+		}
+		if notifier, ok := h.Auth.(interface {
+			SetAccountBanned(*auth.RequestAuth, string)
+		}); ok {
+			notifier.SetAccountBanned(a, bannedReason)
+		}
+	}
+	// Node 镜像在上游以 401 拒绝本账号时带上 auth_failed 标记：恢复顺序（先为同一
+	// 账号强制刷新 Token，再换号）由 auth 层共享，与 client 层的上游调用点和
+	// completionruntime 同源，见 auth.RequestAuth.RecoverAuthFailure。
+	//
+	// 只有"本请求内已成功刷新过、但新 Token 仍被上游拒绝"才计入账号级鉴权失败，
+	// 该判定也在共享步骤内；刷新本身失败的原因（登录被上游拒绝 / 网络抖动）由
+	// auth.Resolver 在 RefreshTokenErr 内按错误类型判定。
+	//
+	// RecoverAuthFailure 内部已经完成"刷新失败则换号"的完整尝试，返回
+	// AuthRecoveryNone 即表示刷新与换号都不成，调用方只按失败路径处理：这里不能
+	// 再调一次 SwitchAccount，否则会重复 Release 当前账号（引用计数多减一次，可能
+	// 把并发请求仍在使用的账号名额提前放回号池）。非鉴权失败（空输出 / 禁言 /
+	// 封号）没有可刷新的凭据问题，仍由 SwitchAccount 换一次号。
+	authRecovered := false
+	if authFailed && a.UseConfigToken {
+		authRecovered = a.RecoverAuthFailure(r.Context()) != auth.AuthRecoveryNone
+	} else if !authFailed && a.UseConfigToken {
+		authRecovered = a.SwitchAccount(r.Context())
+	}
+	if !authRecovered {
+		if banned {
+			writeOpenAIErrorWithCode(w, http.StatusForbidden, "Account is banned by upstream.", "account_banned")
+		} else if mutedUntil > 0 {
+			writeOpenAIErrorWithCode(w, http.StatusForbidden, "Account is muted by upstream.", "account_muted")
+		} else if authFailed {
+			writeOpenAIErrorWithCode(w, http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin.", "account_unauthorized")
+		} else if disable {
+			writeOpenAIErrorWithCode(w, http.StatusServiceUnavailable, "Upstream service is unavailable and returned no output.", "upstream_unavailable")
+		} else {
+			writeOpenAIErrorWithCode(w, http.StatusTooManyRequests, "Upstream account hit a rate limit and returned reasoning without visible output.", "upstream_empty_output")
+		}
 		return
 	}
 
@@ -238,14 +342,12 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	sessionID, err := h.DS.CreateSession(r.Context(), a, 3)
-	if err != nil {
-		writeOpenAIError(w, http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin.")
-		return
-	}
-	powHeader, err := h.DS.GetPow(r.Context(), a, 3)
-	if err != nil {
-		writeOpenAIError(w, http.StatusUnauthorized, "Failed to get PoW (invalid token or unknown error).")
+	sessionID, powHeader, payload, outErr := completionruntime.PrepareCompletionPayload(r.Context(), h.DS, a, stdReq, completionruntime.Options{
+		CurrentInputFile:    h.Store,
+		ExpertPromptSegment: h.Store,
+	}, 3)
+	if outErr != nil {
+		writeOpenAIError(w, outErr.Status, outErr.Message)
 		return
 	}
 	if strings.TrimSpace(a.DeepSeekToken) == "" {
@@ -261,9 +363,11 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 		"thinking_enabled": stdReq.Thinking,
 		"search_enabled":   stdReq.Search,
 		"tool_names":       stdReq.ToolNames,
+		"tool_marker":      stdReq.ToolMarker,
 		"deepseek_token":   a.DeepSeekToken,
 		"pow_header":       powHeader,
-		"payload":          stdReq.CompletionPayload(sessionID),
+		"payload":          payload,
+		"base_headers":     dsclient.BaseHeadersForAuth(a),
 	})
 }
 

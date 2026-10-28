@@ -3,10 +3,7 @@ import { AlertTriangle, Save } from 'lucide-react'
 import { useI18n } from '../../i18n'
 import { useSettingsForm } from './useSettingsForm'
 import SecuritySection from './SecuritySection'
-import RuntimeSection from './RuntimeSection'
-import BehaviorSection from './BehaviorSection'
-import CurrentInputFileSection from './CurrentInputFileSection'
-import AutoDeleteSection from './AutoDeleteSection'
+import RegistrySettingsSection from './RegistrySettingsSection'
 import ModelSection from './ModelSection'
 import BackupSection from './BackupSection'
 
@@ -17,6 +14,9 @@ export default function SettingsContainer({ onRefresh, onMessage, authFetch, onF
     const {
         form,
         setForm,
+        settingSpecs,
+        sectionSpecs,
+        settingCardSpecs,
         loading,
         saving,
         changingPassword,
@@ -91,13 +91,18 @@ export default function SettingsContainer({ onRefresh, onMessage, authFetch, onF
                 onUpdatePassword={updatePassword}
             />
 
-            <RuntimeSection t={t} form={form} setForm={setForm} />
-
-            <BehaviorSection t={t} form={form} setForm={setForm} />
-
-            <CurrentInputFileSection t={t} form={form} setForm={setForm} />
-
-            <AutoDeleteSection t={t} form={form} setForm={setForm} />
+            {/* Every setting declared in internal/config/settings.go and every
+                section form declared in internal/config/sections.go renders here,
+                from the server's setting_cards / setting_specs / section_specs
+                payload. */}
+            <RegistrySettingsSection
+                t={t}
+                form={form}
+                setForm={setForm}
+                specs={settingSpecs}
+                sectionSpecs={sectionSpecs}
+                cardSpecs={settingCardSpecs}
+            />
 
             <ModelSection t={t} form={form} setForm={setForm} />
 

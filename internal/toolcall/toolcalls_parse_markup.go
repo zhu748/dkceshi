@@ -40,7 +40,16 @@ func parseXMLToolCalls(text string) []ParsedToolCall {
 }
 
 func findToolCallElementBlocksOutsideIgnored(text string) []xmlElementBlock {
-	if text == "" {
+	return findToolMarkupElementBlocksByName(text, "tool_calls")
+}
+
+// findToolMarkupElementBlocksByName scans EPSE-aware markup for balanced blocks
+// of the given local name (e.g. "tool_calls" or "invoke") outside CDATA /
+// comments / fenced or inline code, returning each block's absolute Start/End
+// and Body. Coordinates are absolute in text, so it can be run directly on the
+// pre-normalization original to locate deduction regions (§4.2).
+func findToolMarkupElementBlocksByName(text, name string) []xmlElementBlock {
+	if text == "" || name == "" {
 		return nil
 	}
 	var out []xmlElementBlock
@@ -49,7 +58,7 @@ func findToolCallElementBlocksOutsideIgnored(text string) []xmlElementBlock {
 		if !ok {
 			break
 		}
-		if tag.Closing || tag.Name != "tool_calls" {
+		if tag.Closing || tag.Name != name {
 			searchFrom = tag.End + 1
 			continue
 		}
@@ -332,6 +341,18 @@ func findToolCDATAEnd(text string, from int) int {
 		return -1
 	}
 	firstNonFenceEnd := -1
+	// Direction 3: `]]>` is a hard CDATA boundary. An odd number of markdown
+	// fences inside the CDATA body (e.g. an unclosed ``` opener in file-writing
+	// / code parameters) makes cdataOffsetIsInsideMarkdownFence report "inside
+	// fence" for the whole body and skip the only structural `]]>`, so the real
+	// close would be lost. When the body carries no tool-markup sample (plain
+	// code / text, not a fenced tool-call example), fall back to the first
+	// structural `]]>` so the hard boundary survives. When the body DOES carry
+	// tool-markup (a fenced tool-call example), keep the conservative
+	// fence-aware path so a mid-stream buffer does not mistake an example `]]>`
+	// for the real close.
+	firstStructuralEnd := -1
+	bodyHasToolMarkup := toolMarkupPresent(text[from:])
 	for searchFrom := from; searchFrom < len(text); {
 		end := indexToolCDATAClose(text, searchFrom)
 		if end < 0 {
@@ -339,17 +360,43 @@ func findToolCDATAEnd(text string, from int) int {
 		}
 		closeLen := toolCDATACloseLenAt(text, end)
 		searchFrom = end + closeLen
+		structural := cdataEndLooksStructural(text, searchFrom)
+		if structural && firstStructuralEnd < 0 {
+			firstStructuralEnd = end
+		}
 		if cdataOffsetIsInsideMarkdownFence(text[from:end]) {
 			continue
 		}
-		if cdataEndLooksStructural(text, searchFrom) {
+		if structural {
 			return end
 		}
 		if firstNonFenceEnd < 0 {
 			firstNonFenceEnd = end
 		}
 	}
-	return firstNonFenceEnd
+	if firstNonFenceEnd >= 0 {
+		return firstNonFenceEnd
+	}
+	if !bodyHasToolMarkup {
+		return firstStructuralEnd
+	}
+	return -1
+}
+
+// toolMarkupPresent reports whether s contains a recognizable tool-call markup
+// fragment (EPSE or canonical XML). It distinguishes a fenced tool-call example
+// (which must keep the fence-aware CDATA path so an example `]]>` is not taken
+// for the real close) from plain code/text that merely carries an odd markdown
+// fence (where the structural `]]>` really is the close).
+func toolMarkupPresent(s string) bool {
+	for _, marker := range []string{
+		"<|EPSE|", "<tool_calls", "<invoke", "<parameter", "<epse-",
+	} {
+		if strings.Contains(s, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func indexToolCDATAClose(text string, from int) int {

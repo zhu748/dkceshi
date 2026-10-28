@@ -18,7 +18,8 @@ type Doer interface {
 type DialContextFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 
 type Client struct {
-	http *http.Client
+	http    *http.Client
+	ordered *H2FramedClient
 }
 
 type fingerprintProfile struct {
@@ -29,10 +30,6 @@ type fingerprintProfile struct {
 
 var defaultTLSFingerprintProfiles = []fingerprintProfile{
 	{name: "android-okhttp", helloID: utls.HelloAndroid_11_OkHttp, alpnProtocols: []string{"h2", "http/1.1"}},
-	{name: "chrome-auto", helloID: utls.HelloChrome_Auto, alpnProtocols: []string{"h2", "http/1.1"}},
-	{name: "safari-auto", helloID: utls.HelloSafari_Auto, alpnProtocols: []string{"h2", "http/1.1"}},
-	{name: "randomized-alpn", helloID: utls.HelloRandomizedALPN, alpnProtocols: []string{"h2", "http/1.1"}},
-	{name: "randomized-no-alpn", helloID: utls.HelloRandomizedNoALPN, alpnProtocols: []string{"http/1.1"}},
 }
 
 func New(timeout time.Duration) *Client {
@@ -50,37 +47,51 @@ func NewWithDialContext(timeout time.Duration, dialContext DialContextFunc) *Cli
 		MaxIdleConnsPerHost: 100,
 		IdleConnTimeout:     90 * time.Second,
 		DialContext:         dialContext,
-		DialTLSContext:      fingerprintTLSDialer(dialContext, defaultTLSFingerprintProfiles),
+		DialTLSContext:      fingerprintTLSDialer(dialContext, http1FingerprintProfiles()),
 		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 	if useEnvProxy {
 		base.Proxy = http.ProxyFromEnvironment
 	}
-	return &Client{http: &http.Client{Timeout: timeout, Transport: base}}
+	orderedDial := dialContext
+	if useEnvProxy {
+		orderedDial = environmentProxyDialer(orderedDial)
+	}
+	return &Client{http: &http.Client{Timeout: timeout, Transport: base}, ordered: NewFramedH2WithDialContext(timeout, orderedDial)}
 }
 
-// NewFramedH2WithDialContext 创建一个使用自定义 HTTP/2 framing 的 Client，
-// 可精确控制 header 顺序与 HPACK 编码行为，对齐真实 Android OkHttp App 抓包。
-// dialContext 用于注入 utls fingerprint dialer，与 NewWithDialContext 共用。
-//
-// timeout=0 表示无超时（用于流式响应）。
+// NewFramedH2WithDialContext preserves observable HTTP/2 header ordering.
+// The Android TLS preset is a compatibility baseline, not measured from HAR.
 func NewFramedH2WithDialContext(timeout time.Duration, dialContext DialContextFunc) *H2FramedClient {
 	if dialContext == nil {
-		dialContext = (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+		dialContext = environmentProxyDialer((&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext)
 	}
 	// 用 utls fingerprint dialer 包装 raw dialer，得到已握手的 utls conn
 	fpDialer := fingerprintTLSDialer(dialContext, defaultTLSFingerprintProfiles)
-	return &H2FramedClient{
-		Timeout: timeout,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// fingerprintTLSDialer 签名是 func(ctx, network, addr) (net.Conn, error)
-			return fpDialer(ctx, network, addr)
-		},
-	}
+	return &H2FramedClient{Timeout: timeout, DialContext: fpDialer}
 }
 
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	if UseFramedH2() && req.URL.Scheme == "https" {
+		return c.ordered.Do(req)
+	}
 	return c.http.Do(req)
+}
+
+func (c *Client) CloseIdleConnections() {
+	if c != nil && c.http != nil {
+		c.http.CloseIdleConnections()
+	}
+}
+
+// net/http does not recognize a uTLS connection as crypto/tls.Conn. Keep its
+// legacy transport on HTTP/1.1; the framed transport owns HTTP/2 negotiation.
+func http1FingerprintProfiles() []fingerprintProfile {
+	profiles := append([]fingerprintProfile(nil), defaultTLSFingerprintProfiles...)
+	for i := range profiles {
+		profiles[i].alpnProtocols = []string{"http/1.1"}
+	}
+	return profiles
 }
 
 func NewFallbackClient(timeout time.Duration, dialContext DialContextFunc) *http.Client {
@@ -120,18 +131,18 @@ func fingerprintTLSDialer(dialContext DialContextFunc, profiles []fingerprintPro
 			uCfg := &utls.Config{ServerName: host}
 			uConn := utls.UClient(plainConn, uCfg, profile.helloID)
 			if err := forceALPN(uConn, profile.alpnProtocols); err != nil {
-				_ = plainConn.Close()
+				closeTransportConn(plainConn)
 				errs = append(errs, fmt.Errorf("%s build handshake: %w", profile.name, err))
 				continue
 			}
 			if err := uConn.HandshakeContext(ctx); err != nil {
-				_ = plainConn.Close()
+				closeTransportConn(plainConn)
 				errs = append(errs, fmt.Errorf("%s handshake: %w", profile.name, err))
 				continue
 			}
 			negotiated := uConn.ConnectionState().NegotiatedProtocol
 			if !allowedNegotiatedALPN(negotiated, profile.alpnProtocols) {
-				_ = uConn.Close()
+				closeTransportConn(uConn)
 				errs = append(errs, fmt.Errorf("%s negotiated unexpected ALPN protocol: %s", profile.name, negotiated))
 				continue
 			}
@@ -154,9 +165,10 @@ func forceALPN(uConn *utls.UConn, protocols []string) error {
 			continue
 		}
 		alpnExt.AlpnProtocols = append([]string(nil), protocols...)
-		return nil
+		return uConn.BuildHandshakeState()
 	}
-	return nil
+	uConn.Extensions = append(uConn.Extensions, &utls.ALPNExtension{AlpnProtocols: append([]string(nil), protocols...)})
+	return uConn.BuildHandshakeState()
 }
 
 func allowedNegotiatedALPN(negotiated string, allowed []string) bool {

@@ -3,6 +3,7 @@ import { Check, ChevronDown, Copy, Pencil, Plus, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 
 import { maskSecret } from '../../utils/maskSecret'
+import { credentialFlagSpecs, credentialFlagValue } from './credentialFlags'
 
 function fallbackCopyText(text) {
     const textArea = document.createElement('textarea')
@@ -107,6 +108,13 @@ export default function ApiKeysPanel({
                                         {maskSecret(item.key)}
                                     </button>
                                     <div className="text-sm text-muted-foreground truncate">{item.remark || '-'}</div>
+                                    {credentialFlagSpecs(config).map((spec) => (
+                                        credentialFlagValue(item, spec) && spec.badge_key ? (
+                                            <span key={spec.name} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium w-fit bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                                                {t(spec.badge_key)}
+                                            </span>
+                                        ) : null
+                                    ))}
                                     {copiedKey === item.key && (
                                         <span className="text-xs text-green-500 animate-pulse">{t('accountManager.copied')}</span>
                                     )}

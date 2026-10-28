@@ -72,7 +72,7 @@ func TestProcessToolSieveMarkdownDocumentationExamplesDoNotTrigger(t *testing.T)
 		"  </invoke>\n",
 		"</tool_calls>\n",
 		"```\n\n",
-		"DSML 风格形如 `<invoke name=\"tool\">...</invoke>`，也可能提到 `<tool_calls>` 包裹。\n",
+		"EPSE 风格形如 `<invoke name=\"tool\">...</invoke>`，也可能提到 `<tool_calls>` 包裹。\n",
 	}
 	var events []Event
 	for _, c := range chunks {
@@ -90,7 +90,7 @@ func TestProcessToolSieveMarkdownDocumentationExamplesDoNotTrigger(t *testing.T)
 	if toolCalls != 0 {
 		t.Fatalf("expected markdown documentation examples to stay text, got %d tool calls", toolCalls)
 	}
-	if !strings.Contains(textContent.String(), "标准 XML 结构") || !strings.Contains(textContent.String(), "DSML 风格") {
+	if !strings.Contains(textContent.String(), "标准 XML 结构") || !strings.Contains(textContent.String(), "EPSE 风格") {
 		t.Fatalf("expected documentation text preserved, got %q", textContent.String())
 	}
 }

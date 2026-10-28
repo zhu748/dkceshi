@@ -12,6 +12,12 @@ type Handler struct {
 	DS          adminshared.DeepSeekCaller
 	OpenAI      adminshared.OpenAIChatCaller
 	ChatHistory *chathistory.Store
+	// ResetProxyClients 在代理配置（CRUD / 账号改绑）变化后清理
+	// DeepSeek client 侧缓存的代理连接池；nil 时跳过。
+	ResetProxyClients func()
+	// OnAccountsChanged 在账号被交回自动调度（mode=auto）后请求代理桥立即调和：
+	// 按已有测速结果为该账号补位分配健康节点，不必等下一轮巡检；桥未装配时为 nil。
+	OnAccountsChanged func()
 }
 
 var writeJSON = adminshared.WriteJSON

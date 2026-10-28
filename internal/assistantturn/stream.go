@@ -52,6 +52,15 @@ func (a *Accumulator) Apply(parsed sse.LineResult) shared.StreamAccumulatorResul
 	return a.inner.Apply(parsed)
 }
 
+// ResetContentPolicy starts a new upstream round, see
+// shared.StreamAccumulator.ResetContentPolicy.
+func (a *Accumulator) ResetContentPolicy() {
+	if a == nil {
+		return
+	}
+	a.inner.ResetContentPolicy()
+}
+
 func (a *Accumulator) Snapshot() (rawText, text, rawThinking, thinking, detectionThinking string) {
 	if a == nil {
 		return "", "", "", "", ""

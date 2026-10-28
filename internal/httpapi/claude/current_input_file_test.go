@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"errors"
 	"context"
 	"io"
 	"net/http"
@@ -13,19 +12,23 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
 	dsclient "ds2api/internal/deepseek/client"
-	"ds2api/internal/promptcompat"
 )
 
 type claudeCurrentInputAuth struct{}
 
 type claudeHistoryConfig struct {
 	aliases map[string]string
+	// thinkingInjection 对应「思考注入」设置；零值即关闭，既有测试行为不变。
+	thinkingInjection bool
 }
 
 func (m claudeHistoryConfig) ModelAliases() map[string]string { return m.aliases }
 func (claudeHistoryConfig) CurrentInputFileEnabled() bool     { return false }
 func (claudeHistoryConfig) CurrentInputFileMinChars() int     { return 0 }
-func (claudeHistoryConfig) AutoDeleteMode() string            { return "none" }
+func (claudeHistoryConfig) ExpertPromptSegmentEnabled() bool  { return false }
+func (claudeHistoryConfig) ExpertPromptSegmentMaxChars() int  { return 120000 }
+func (m claudeHistoryConfig) ThinkingInjectionEnabled() bool  { return m.thinkingInjection }
+func (claudeHistoryConfig) ThinkingInjectionPrompt() string   { return "" }
 
 func (claudeCurrentInputAuth) Determine(*http.Request) (*auth.RequestAuth, error) {
 	return &auth.RequestAuth{
@@ -39,7 +42,7 @@ func TestClaudeDirectRecordsResponseHistory(t *testing.T) {
 	ds := &claudeCurrentInputDS{}
 	historyStore := chathistory.New(filepath.Join(t.TempDir(), "history.json"))
 	h := &Handler{
-		Store:       claudeHistoryConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store:       claudeHistoryConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4.1-flash"}},
 		Auth:        claudeCurrentInputAuth{},
 		DS:          ds,
 		ChatHistory: historyStore,
@@ -79,11 +82,17 @@ func TestClaudeDirectRecordsResponseHistory(t *testing.T) {
 	}
 }
 
+func (claudeCurrentInputAuth) CredentialFlagForRequest(*http.Request, string) bool { return false }
+
 func (claudeCurrentInputAuth) Release(*auth.RequestAuth) {}
+
+func (claudeCurrentInputAuth) SetAccountMutedUntil(_ *auth.RequestAuth, _ float64) {}
+
+func (claudeCurrentInputAuth) SetAccountBanned(_ *auth.RequestAuth, _ string) {}
 
 type claudeCurrentInputDS struct {
 	uploads []dsclient.UploadFileRequest
-	payload any
+	payload map[string]any
 }
 
 func (d *claudeCurrentInputDS) CreateSession(context.Context, *auth.RequestAuth, int) (string, error) {
@@ -103,7 +112,7 @@ func (d *claudeCurrentInputDS) UploadFile(_ context.Context, _ *auth.RequestAuth
 	return &dsclient.UploadFileResult{ID: id}, nil
 }
 
-func (d *claudeCurrentInputDS) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload any, _ string, _ int) (*http.Response, error) {
+func (d *claudeCurrentInputDS) CallCompletion(_ context.Context, _ *auth.RequestAuth, payload map[string]any, _ string, _ int) (*http.Response, error) {
 	d.payload = payload
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -112,37 +121,19 @@ func (d *claudeCurrentInputDS) CallCompletion(_ context.Context, _ *auth.Request
 	}, nil
 }
 
-func (d *claudeCurrentInputDS) DeleteSessionForToken(_ context.Context, _ string, sessionID string) (*dsclient.DeleteSessionResult, error) {
-	return &dsclient.DeleteSessionResult{SessionID: sessionID, Success: true}, nil
-}
-
-func (d *claudeCurrentInputDS) DeleteAllSessionsForToken(_ context.Context, _ string) error {
+func (d *claudeCurrentInputDS) StopStream(_ context.Context, _ *auth.RequestAuth, _ string, _ int) error {
 	return nil
 }
-func (d *claudeCurrentInputDS) CallEditMessage(_ context.Context, _ *auth.RequestAuth, _ any, _ string, _ int) (*http.Response, error) {
-	return nil, errors.New("CallEditMessage not implemented in stub")
-}
 
-
-// payloadMap 将存储的 payload 转为 map[string]any 视图，便于测试中按 key 读取。
-func (d *claudeCurrentInputDS) payloadMap() map[string]any {
-	if d.payload == nil {
-		return nil
-	}
-	if m, ok := d.payload.(*promptcompat.OrderedJSONMap); ok {
-		return m.AsMap()
-	}
-	if m, ok := d.payload.(map[string]any); ok {
-		return m
-	}
-	return nil
+func (d *claudeCurrentInputDS) FireCompletionAndStop(_ context.Context, _ *auth.RequestAuth, _ map[string]any, _ string) (int, error) {
+	return 0, nil
 }
 
 func TestClaudeDirectAppliesCurrentInputFile(t *testing.T) {
 	ds := &claudeCurrentInputDS{}
 	historyStore := chathistory.New(filepath.Join(t.TempDir(), "history.json"))
 	h := &Handler{
-		Store:       mockClaudeConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store:       mockClaudeConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4.1-flash"}},
 		Auth:        claudeCurrentInputAuth{},
 		DS:          ds,
 		ChatHistory: historyStore,
@@ -160,16 +151,19 @@ func TestClaudeDirectAppliesCurrentInputFile(t *testing.T) {
 	if len(ds.uploads) != 1 {
 		t.Fatalf("expected one current input upload, got %d", len(ds.uploads))
 	}
-	if !strings.HasSuffix(ds.uploads[0].Filename, ".txt") {
+	if ds.uploads[0].Filename != "HISTORY.txt" {
 		t.Fatalf("unexpected upload filename: %q", ds.uploads[0].Filename)
 	}
-	refIDs, _ := ds.payloadMap()["ref_file_ids"].([]any)
+	refIDs, _ := ds.payload["ref_file_ids"].([]any)
 	if len(refIDs) != 1 || refIDs[0] != "file-claude-history" {
-		t.Fatalf("expected uploaded history ref id, got %#v", ds.payloadMap()["ref_file_ids"])
+		t.Fatalf("expected uploaded history ref id, got %#v", ds.payload["ref_file_ids"])
 	}
-	prompt, _ := ds.payloadMap()["prompt"].(string)
-	if !strings.Contains(prompt, "The attached file holds the earlier conversation.") {
+	prompt, _ := ds.payload["prompt"].(string)
+	if !strings.Contains(prompt, "继续会话") {
 		t.Fatalf("expected continuation prompt, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "[System]:继续会话") {
+		t.Fatalf("expected continuation prompt to render as a system turn, got %q", prompt)
 	}
 	snapshot, err := historyStore.Snapshot()
 	if err != nil {
@@ -185,15 +179,18 @@ func TestClaudeDirectAppliesCurrentInputFile(t *testing.T) {
 	if full.HistoryText != string(ds.uploads[0].Data) {
 		t.Fatalf("expected uploaded current input file to be persisted in history text")
 	}
-	if len(full.Messages) != 1 || !strings.Contains(full.Messages[0].Content, "The attached file holds the earlier conversation.") {
+	if len(full.Messages) != 1 || !strings.Contains(full.Messages[0].Content, "继续会话") {
 		t.Fatalf("expected persisted message to match upstream continuation prompt, got %#v", full.Messages)
+	}
+	if full.Messages[0].Role != "system" {
+		t.Fatalf("expected continuation prompt to be persisted as a system turn, got %#v", full.Messages[0])
 	}
 }
 
 func TestClaudeCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 	ds := &claudeCurrentInputDS{}
 	h := &Handler{
-		Store: mockClaudeConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store: mockClaudeConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4.1-flash"}},
 		Auth:  claudeCurrentInputAuth{},
 		DS:    ds,
 	}
@@ -210,26 +207,134 @@ func TestClaudeCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 	if len(ds.uploads) != 2 {
 		t.Fatalf("expected history and tools uploads, got %d", len(ds.uploads))
 	}
-	if !strings.HasSuffix(ds.uploads[0].Filename, ".txt") || !strings.HasSuffix(ds.uploads[1].Filename, ".txt") {
+	if ds.uploads[0].Filename != "HISTORY.txt" || ds.uploads[1].Filename != "TOOLS.txt" {
 		t.Fatalf("unexpected upload filenames: %#v", ds.uploads)
 	}
 	historyText := string(ds.uploads[0].Data)
-	if strings.Contains(historyText, "The functions listed below are available for you to invoke during this turn") || strings.Contains(historyText, "description: Search docs") {
+	if strings.Contains(historyText, "You have access to these tools") || strings.Contains(historyText, "Description: Search docs") {
 		t.Fatalf("history transcript should not embed tool descriptions, got %q", historyText)
 	}
 	toolsText := string(ds.uploads[1].Data)
-	if !strings.Contains(toolsText, "The functions listed below are available for you to invoke during this turn.") || !strings.Contains(toolsText, "name: search") || !strings.Contains(toolsText, "description: Search docs") {
+	if !strings.Contains(toolsText, "# TOOLS.txt") || !strings.Contains(toolsText, "Tool: search") || !strings.Contains(toolsText, "Description: Search docs") {
 		t.Fatalf("expected tools transcript to include tool schema, got %q", toolsText)
 	}
-	refIDs, _ := ds.payloadMap()["ref_file_ids"].([]any)
+	refIDs, _ := ds.payload["ref_file_ids"].([]any)
 	if len(refIDs) < 2 || refIDs[0] != "file-claude-history" || refIDs[1] != "file-claude-tools" {
-		t.Fatalf("expected history and tools ref ids first, got %#v", ds.payloadMap()["ref_file_ids"])
+		t.Fatalf("expected history and tools ref ids first, got %#v", ds.payload["ref_file_ids"])
 	}
-	prompt, _ := ds.payloadMap()["prompt"].(string)
-	if !strings.Contains(prompt, "attached file") || !strings.Contains(prompt, "When you choose to invoke a function") {
-		t.Fatalf("expected live prompt to reference tools file and retain format instructions, got %q", prompt)
+	prompt, _ := ds.payload["prompt"].(string)
+	if !strings.Contains(prompt, "继续会话") || !strings.Contains(prompt, "工具调用格式规范") {
+		t.Fatalf("expected live prompt to retain continuation and format instructions, got %q", prompt)
 	}
-	if strings.Contains(prompt, "description: Search docs") {
+	if strings.Contains(prompt, "TOOLS.txt") {
+		t.Fatalf("live prompt should not reference tools file by filename, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Description: Search docs") {
 		t.Fatalf("live prompt should not inline tool descriptions, got %q", prompt)
+	}
+}
+
+// 响应记录按同一份 Messages 归档，因此 system 轮也进入本地记录（与上游实际收到的
+// prompt 一致）；UserInput 仍取最后一条 user turn，不受新增 system 轮影响。
+func TestClaudeDirectRecordsSystemPromptInHistory(t *testing.T) {
+	historyStore := chathistory.New(filepath.Join(t.TempDir(), "history.json"))
+	h := &Handler{
+		Store:       claudeHistoryConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4.1-flash"}},
+		Auth:        claudeCurrentInputAuth{},
+		DS:          &claudeCurrentInputDS{},
+		ChatHistory: historyStore,
+	}
+	reqBody := `{"model":"claude-sonnet-4-6","system":"SYSTEM-RULE: always answer in haiku.","messages":[{"role":"user","content":"hello from claude"}],"max_tokens":1024}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.Messages(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	snapshot, err := historyStore.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot history: %v", err)
+	}
+	if len(snapshot.Items) != 1 {
+		t.Fatalf("expected one history item, got %d", len(snapshot.Items))
+	}
+	item, err := historyStore.Get(snapshot.Items[0].ID)
+	if err != nil {
+		t.Fatalf("get history item: %v", err)
+	}
+	if item.UserInput != "hello from claude" {
+		t.Fatalf("unexpected user input: %q", item.UserInput)
+	}
+	found := false
+	for _, msg := range item.Messages {
+		if msg.Role == "system" && strings.Contains(msg.Content, "SYSTEM-RULE") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected the system turn in the archived messages, got %#v", item.Messages)
+	}
+}
+
+// Messages 现在带着由顶层 `system` 翻译出的 system 轮，current input file 的
+// 「拆分末尾 user turn → 上传前面历史 → 替换 Messages 为续写轮」必须照常工作，
+// 且上传的 HISTORY.txt 里要带上调用方的 system prompt（此前 Claude 的转录把它丢掉）。
+// 末尾 user turn 留在 live prompt 里，因此两条信息各出现在它该在的位置，没有丢内容。
+func TestClaudeCurrentInputFileKeepsSystemPromptInUploadedHistory(t *testing.T) {
+	ds := &claudeCurrentInputDS{}
+	h := &Handler{
+		Store: mockClaudeConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4.1-flash"}},
+		Auth:  claudeCurrentInputAuth{},
+		DS:    ds,
+	}
+	reqBody := `{"model":"claude-sonnet-4-6","system":"SYSTEM-RULE: always answer in haiku.","messages":[{"role":"user","content":"hello from claude"}],"max_tokens":1024}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.Messages(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(ds.uploads) != 1 {
+		t.Fatalf("expected one current input upload, got %d", len(ds.uploads))
+	}
+	historyText := string(ds.uploads[0].Data)
+	if !strings.Contains(historyText, "SYSTEM-RULE: always answer in haiku.") {
+		t.Fatalf("expected the system prompt in the uploaded history, got %q", historyText)
+	}
+	prompt, _ := ds.payload["prompt"].(string)
+	if !strings.Contains(prompt, "继续会话") {
+		t.Fatalf("expected the continuation prompt, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "hello from claude") {
+		t.Fatalf("expected the trailing user turn to stay inline in the live prompt, got %q", prompt)
+	}
+}
+
+func TestClaudeDirectUploadsNativePhotoBeforeCompletion(t *testing.T) {
+	ds := &claudeCurrentInputDS{}
+	h := &Handler{Store: claudeHistoryConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4.1-flash"}}, Auth: claudeCurrentInputAuth{}, DS: ds}
+	body := `{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":[{"type":"text","text":"describe this"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJDRA=="}}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Messages(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if len(ds.uploads) != 1 || !ds.uploads[0].ThinkingEnabled || ds.uploads[0].ContentType != "image/png" {
+		t.Fatalf("upload mismatch: %#v", ds.uploads)
+	}
+	ids, _ := ds.payload["ref_file_ids"].([]any)
+	if len(ids) != 1 || ids[0] != "file-claude-history" {
+		t.Fatalf("photo ID missing from completion: %#v", ids)
+	}
+	if prompt, _ := ds.payload["prompt"].(string); strings.Contains(prompt, "QUJDRA==") {
+		t.Fatal("base64 leaked into prompt")
 	}
 }

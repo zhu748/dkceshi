@@ -2,8 +2,33 @@ import { X } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { maskSecret } from '../../utils/maskSecret'
+import { credentialFlagSpecs } from './credentialFlags'
 
-export default function AddKeyModal({ show, t, editingKey, newKey, setNewKey, loading, onClose, onAdd }) {
+// 一个按 Key 的开关控件。开关本身由服务端注册表声明，这里只负责画出来。
+function CredentialFlagToggle({ t, spec, checked, onToggle }) {
+    const helpKey = String(spec?.help_key || '')
+    return (
+        <div>
+            <label className="flex items-center gap-3 cursor-pointer">
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={checked}
+                    onClick={onToggle}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card ${checked ? 'border-amber-500 bg-amber-500' : 'border-border bg-muted'}`}
+                >
+                    <span className={`inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform ${checked ? 'translate-x-6 bg-white' : 'translate-x-1 bg-muted-foreground'}`} />
+                </button>
+                <span className="text-sm font-medium">{t(String(spec?.label_key || ''))}</span>
+            </label>
+            {helpKey ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">{t(helpKey)}</p>
+            ) : null}
+        </div>
+    )
+}
+
+export default function AddKeyModal({ show, t, config, editingKey, newKey, setNewKey, loading, onClose, onAdd }) {
     if (!show) {
         return null
     }
@@ -26,7 +51,7 @@ export default function AddKeyModal({ show, t, editingKey, newKey, setNewKey, lo
                         <div className="flex gap-2">
                             <input
                                 type="text"
-                                className={isEditing ? "input-field bg-muted/30 flex-1 cursor-not-allowed" : "input-field bg-[#09090b] flex-1"}
+                                className={isEditing ? "input-field bg-muted/30 flex-1 cursor-not-allowed" : "input-field bg-background flex-1"}
                                 placeholder={isEditing ? t('accountManager.keyReadonlyPlaceholder') : t('accountManager.newKeyPlaceholder')}
                                 value={displayKey}
                                 onChange={e => setNewKey({ ...newKey, key: e.target.value })}
@@ -67,6 +92,20 @@ export default function AddKeyModal({ show, t, editingKey, newKey, setNewKey, lo
                             value={newKey.remark}
                             onChange={e => setNewKey({ ...newKey, remark: e.target.value })}
                         />
+                    </div>
+                    <div className="pt-1 space-y-4">
+                        {credentialFlagSpecs(config).map((spec) => (
+                            <CredentialFlagToggle
+                                key={spec.name}
+                                t={t}
+                                spec={spec}
+                                checked={Boolean(newKey.flags?.[spec.name])}
+                                onToggle={() => setNewKey({
+                                    ...newKey,
+                                    flags: { ...newKey.flags, [spec.name]: !newKey.flags?.[spec.name] },
+                                })}
+                            />
+                        ))}
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
                         <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border hover:bg-secondary transition-colors text-sm font-medium">{t('actions.cancel')}</button>

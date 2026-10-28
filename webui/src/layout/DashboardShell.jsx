@@ -11,29 +11,55 @@ import {
     Server,
     Users,
     Globe,
+    Network,
     History,
-    Loader2
+    Loader2,
+    ChevronRight,
+    ChartNoAxesCombined,
+    Volume2,
 } from 'lucide-react'
 import clsx from 'clsx'
 
 import LanguageToggle from '../components/LanguageToggle'
+import ThemeToggle from '../components/ThemeToggle'
 import { useI18n } from '../i18n'
 
 const AccountManagerContainer = lazy(() => import('../features/account/AccountManagerContainer'))
 const ApiTesterContainer = lazy(() => import('../features/apiTester/ApiTesterContainer'))
+const TtsTesterContainer = lazy(() => import('../features/tts/TtsTesterContainer'))
 const ChatHistoryContainer = lazy(() => import('../features/chatHistory/ChatHistoryContainer'))
 const BatchImport = lazy(() => import('../components/BatchImport'))
 const VercelSyncContainer = lazy(() => import('../features/vercel/VercelSyncContainer'))
 const SettingsContainer = lazy(() => import('../features/settings/SettingsContainer'))
 const ProxyManagerContainer = lazy(() => import('../features/proxy/ProxyManagerContainer'))
+const MihomoBridgeContainer = lazy(() => import('../features/mihomo/MihomoBridgeContainer'))
+const TokenUsageContainer = lazy(() => import('../features/usage/TokenUsageContainer'))
 
 function TabLoadingFallback({ label }) {
     return (
-        <div className="min-h-[320px] rounded-lg border border-border bg-card flex items-center justify-center">
+        <div className="min-h-[320px] rounded-xl border border-border bg-card/60 flex items-center justify-center">
             <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 <span>{label}</span>
             </div>
+        </div>
+    )
+}
+
+function BrandMark({ compact = false }) {
+    return (
+        <div className="flex items-center gap-2.5">
+            <div className={clsx(
+                "rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/25",
+                compact ? "w-7 h-7" : "w-9 h-9"
+            )}>
+                <LayoutDashboard className={compact ? "w-4 h-4" : "w-5 h-5"} />
+            </div>
+            {!compact && (
+                <div className="leading-tight">
+                    <div className="font-bold text-lg tracking-tight text-foreground">DS2API</div>
+                </div>
+            )}
         </div>
     )
 }
@@ -47,8 +73,11 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
     const navItems = [
         { id: 'accounts', label: t('nav.accounts.label'), icon: Users, description: t('nav.accounts.desc') },
         { id: 'proxies', label: t('nav.proxies.label'), icon: Globe, description: t('nav.proxies.desc') },
+        { id: 'mihomo', label: t('nav.mihomo.label'), icon: Network, description: t('nav.mihomo.desc') },
         { id: 'test', label: t('nav.test.label'), icon: Server, description: t('nav.test.desc') },
+        { id: 'tts', label: t('nav.tts.label'), icon: Volume2, description: t('nav.tts.desc') },
         { id: 'history', label: t('nav.history.label'), icon: History, description: t('nav.history.desc') },
+        { id: 'usage', label: t('nav.usage.label'), icon: ChartNoAxesCombined, description: t('nav.usage.desc') },
         { id: 'import', label: t('nav.import.label'), icon: Upload, description: t('nav.import.desc') },
         { id: 'vercel', label: t('nav.vercel.label'), icon: Cloud, description: t('nav.vercel.desc') },
         { id: 'settings', label: t('nav.settings.label'), icon: SettingsIcon, description: t('nav.settings.desc') },
@@ -107,16 +136,23 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
             disposed = true
         }
     }, [authFetch])
+
     const renderTab = () => {
         switch (activeTab) {
             case 'accounts':
                 return <AccountManagerContainer config={config} onRefresh={fetchConfig} onMessage={showMessage} authFetch={authFetch} />
             case 'proxies':
                 return <ProxyManagerContainer config={config} onRefresh={fetchConfig} onMessage={showMessage} authFetch={authFetch} />
+            case 'mihomo':
+                return <MihomoBridgeContainer config={config} onRefresh={fetchConfig} onMessage={showMessage} authFetch={authFetch} />
             case 'test':
                 return <ApiTesterContainer config={config} onMessage={showMessage} authFetch={authFetch} />
+            case 'tts':
+                return <TtsTesterContainer config={config} onMessage={showMessage} authFetch={authFetch} />
             case 'history':
                 return <ChatHistoryContainer onMessage={showMessage} authFetch={authFetch} />
+            case 'usage':
+                return <TokenUsageContainer onMessage={showMessage} authFetch={authFetch} />
             case 'import':
                 return <BatchImport onRefresh={fetchConfig} onMessage={showMessage} authFetch={authFetch} />
             case 'vercel':
@@ -129,142 +165,165 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
     }
 
     return (
-        <div className="flex h-screen bg-background overflow-hidden text-foreground">
+        <div className="flex h-screen bg-background overflow-hidden text-foreground app-backdrop">
             {sidebarOpen && (
                 <div
-                    className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 lg:hidden"
+                    className="fixed inset-0 bg-background/70 backdrop-blur-sm z-40 lg:hidden"
                     onClick={() => setSidebarOpen(false)}
                 />
             )}
 
+            {/* Sidebar */}
             <aside className={clsx(
-                "fixed lg:static inset-y-0 left-0 z-50 w-64 bg-card border-r border-border transition-transform duration-300 ease-in-out lg:transform-none flex flex-col shadow-2xl lg:shadow-none",
-                sidebarOpen ? "translate-x-0" : "-translate-x-full"
+                "fixed lg:static inset-y-0 left-0 z-50 w-64 border-r border-border bg-card/70 backdrop-blur-xl transition-transform duration-300 ease-in-out lg:transform-none flex flex-col",
+                sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
             )}>
-                <div className="p-6">
-                    <div className="flex items-center gap-2.5 font-bold text-xl text-foreground tracking-tight">
-                        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
-                            <LayoutDashboard className="w-5 h-5" />
-                        </div>
-                        <span>DS2API</span>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                        <p className="text-[10px] text-muted-foreground font-semibold tracking-[0.1em] uppercase opacity-60 px-1">{t('sidebar.onlineAdminConsole')}</p>
-                        <LanguageToggle />
-                    </div>
+                <div className="px-5 pt-6 pb-5 border-b border-border/60">
+                    <BrandMark />
+                    <p className="mt-3 text-[10px] font-semibold tracking-[0.14em] uppercase text-muted-foreground">
+                        {t('sidebar.onlineAdminConsole')}
+                    </p>
                 </div>
 
-                <nav className="flex-1 px-3 space-y-1 overflow-y-auto pt-2">
+                <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
                     {navItems.map((item) => {
                         const Icon = item.icon
                         const isActive = activeTab === item.id
                         return (
                             <button
                                 key={item.id}
-                                onClick={() => {
-                                    navigateToTab(item.id)
-                                }}
+                                onClick={() => navigateToTab(item.id)}
                                 className={clsx(
-                                    "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group border",
+                                    "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 group relative",
                                     isActive
-                                        ? "bg-secondary text-primary border-border shadow-sm"
-                                        : "text-muted-foreground border-transparent hover:bg-secondary/80 hover:text-foreground"
+                                        ? "bg-primary/10 text-foreground"
+                                        : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
                                 )}
                             >
-                                <Icon className={clsx("w-4 h-4 transition-colors", isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground")} />
+                                {isActive && (
+                                    <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-full bg-primary" />
+                                )}
+                                <Icon className={clsx(
+                                    "w-4 h-4 shrink-0 transition-colors",
+                                    isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                                )} />
                                 <span className="flex-1 text-left">{item.label}</span>
-                                {isActive && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                                {isActive && <ChevronRight className="w-3.5 h-3.5 text-primary" />}
                             </button>
                         )
                     })}
                 </nav>
 
-                <div className="p-4 border-t border-border bg-card">
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between text-sm px-1">
-                            <span className="text-muted-foreground font-semibold text-[10px] uppercase tracking-wider">{t('sidebar.systemStatus')}</span>
-                            <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                {t('sidebar.statusOnline')}
-                            </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            <div className="bg-background rounded-lg p-3 border border-border shadow-sm">
-                                <div className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider mb-0.5 opacity-70">{t('sidebar.accounts')}</div>
-                                <div className="text-lg font-bold text-foreground leading-tight">{config.accounts?.length || 0}</div>
-                            </div>
-                            <div className="bg-background rounded-lg p-3 border border-border shadow-sm">
-                                <div className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider mb-0.5 opacity-70">{t('sidebar.keys')}</div>
-                                <div className="text-lg font-bold text-foreground">{config.keys?.length || 0}</div>
-                            </div>
-                        </div>
-                        <div className="bg-background rounded-lg p-3 border border-border shadow-sm">
-                            <div className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider mb-1 opacity-70">{t('sidebar.version')}</div>
-                            <div className="text-xs font-semibold text-foreground">{versionInfo?.current_tag || '-'}</div>
-                            {versionInfo?.has_update && (
-                                <a
-                                    className="inline-flex mt-1 text-[10px] text-amber-500 hover:text-amber-400"
-                                    href={versionInfo?.release_url || 'https://github.com/CJackHwang/ds2api/releases/latest'}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                >
-                                    {t('sidebar.updateAvailable', { latest: versionInfo.latest_tag || '' })}
-                                </a>
-                            )}
-                        </div>
-                        <button
-                            onClick={onLogout}
-                            className="w-full h-10 flex items-center justify-center gap-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/20 transition-all"
-                        >
-                            <LogOut className="w-3.5 h-3.5" />
-                            {t('sidebar.signOut')}
-                        </button>
+                <div className="p-4 border-t border-border/60 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            {t('sidebar.systemStatus')}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            {t('sidebar.statusOnline')}
+                        </span>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2.5">
+                            <div className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                                {t('sidebar.accounts')}
+                            </div>
+                            <div className="text-lg font-bold text-foreground leading-tight">
+                                {config.accounts?.length || 0}
+                            </div>
+                        </div>
+                        <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2.5">
+                            <div className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                                {t('sidebar.keys')}
+                            </div>
+                            <div className="text-lg font-bold text-foreground leading-tight">
+                                {config.keys?.length || 0}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2.5">
+                        <div className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                            {t('sidebar.version')}
+                        </div>
+                        <div className="text-xs font-semibold text-foreground">
+                            {versionInfo?.current_tag || '-'}
+                        </div>
+                        {versionInfo?.has_update && (
+                            <a
+                                className="inline-flex mt-1 text-[10px] font-medium text-primary hover:underline"
+                                href={versionInfo?.release_url || 'https://github.com/CJackHwang/ds2api/releases/latest'}
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                {t('sidebar.updateAvailable', { latest: versionInfo.latest_tag || '' })}
+                            </a>
+                        )}
+                    </div>
+
+                    <button
+                        onClick={onLogout}
+                        className="w-full h-9 flex items-center justify-center gap-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-all"
+                    >
+                        <LogOut className="w-3.5 h-3.5" />
+                        {t('sidebar.signOut')}
+                    </button>
                 </div>
             </aside>
 
+            {/* Main column */}
             <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-                <header className="lg:hidden h-14 flex items-center justify-between px-4 border-b border-border bg-card">
+                {/* Mobile top bar */}
+                <header className="lg:hidden h-14 flex items-center justify-between px-4 border-b border-border bg-card/70 backdrop-blur-xl">
+                    <BrandMark compact />
                     <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-primary flex items-center justify-center text-primary-foreground text-[10px]">
-                            <LayoutDashboard className="w-3.5 h-3.5" />
-                        </div>
-                        <span className="font-semibold text-sm">DS2API</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <LanguageToggle />
+                        <ThemeToggle compact />
+                        <LanguageToggle compact />
                         <button
                             onClick={() => setSidebarOpen(true)}
-                            className="p-2 -mr-2 text-muted-foreground hover:text-foreground"
+                            className="p-2 -mr-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/70"
+                            aria-label="Open navigation"
                         >
                             <Menu className="w-5 h-5" />
                         </button>
                     </div>
                 </header>
 
-                <div className="flex-1 overflow-auto bg-background p-4 lg:p-10">
-                    <div className="max-w-6xl mx-auto space-y-4 lg:space-y-6">
-                        <div className="hidden lg:block mb-8">
-                            <h1 className="text-3xl font-bold tracking-tight mb-2">
-                                {activeNavItem?.label}
-                            </h1>
-                            <p className="text-muted-foreground">
-                                {activeNavItem?.description}
-                            </p>
+                <div className="flex-1 overflow-auto">
+                    <div className="max-w-6xl mx-auto px-4 py-6 lg:px-10 lg:py-10 space-y-5 lg:space-y-7">
+                        {/* Page header with controls pinned to the top-right */}
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                                <h1 className="text-2xl lg:text-[1.75rem] font-bold tracking-tight">
+                                    {activeNavItem?.label}
+                                </h1>
+                                <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
+                                    {activeNavItem?.description}
+                                </p>
+                            </div>
+                            <div className="hidden lg:flex items-center gap-2 shrink-0">
+                                <ThemeToggle />
+                                <LanguageToggle />
+                            </div>
                         </div>
 
                         {message && (
                             <div className={clsx(
-                                "p-4 rounded-lg border flex items-center gap-3 animate-in fade-in slide-in-from-top-2",
-                                message.type === 'error' ? "bg-destructive/10 border-destructive/20 text-destructive" :
-                                    "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
+                                "px-4 py-3 rounded-lg border flex items-center gap-3 text-sm animate-in fade-in slide-in-from-top-2",
+                                message.type === 'error'
+                                    ? "bg-destructive/10 border-destructive/25 text-destructive"
+                                    : "bg-emerald-500/10 border-emerald-500/25 text-emerald-500"
                             )}>
-                                {message.type === 'error' ? <X className="w-5 h-5" /> : <div className="w-5 h-5 rounded-full border-2 border-emerald-500 flex items-center justify-center text-[10px]">✓</div>}
-                                {message.text}
+                                {message.type === 'error'
+                                    ? <X className="w-4 h-4 shrink-0" />
+                                    : <div className="w-4 h-4 rounded-full border-2 border-emerald-500 flex items-center justify-center text-[9px] shrink-0">✓</div>}
+                                <span>{message.text}</span>
                             </div>
                         )}
 
-                        <div className="animate-in fade-in duration-500">
+                        <div className="animate-in fade-in duration-300">
                             <Suspense fallback={<TabLoadingFallback label={activeNavItem?.label || 'DS2API'} />}>
                                 {renderTab()}
                             </Suspense>

@@ -1,11 +1,31 @@
 package config
 
+import "strings"
+
 // rebuildIndexes must be called with the lock already held (or during init).
 func (s *Store) rebuildIndexes() {
 	prevStatus := s.accTest
 	s.keyMap = make(map[string]struct{}, len(s.cfg.Keys))
 	for _, k := range s.cfg.Keys {
 		s.keyMap[k] = struct{}{}
+	}
+	s.keyFlags = make(map[string]map[string]bool, len(s.cfg.APIKeys))
+	for _, item := range s.cfg.APIKeys {
+		key := strings.TrimSpace(item.Key)
+		if key == "" {
+			continue
+		}
+		// Only non-default values are indexed, so a missing entry means "reads
+		// as the declared default" for every registered flag.
+		flags := make(map[string]bool, len(item.flags))
+		for _, spec := range CredentialFlagSpecs() {
+			if value, ok := item.flags[spec.Name]; ok && value != spec.Default {
+				flags[spec.Name] = value
+			}
+		}
+		if len(flags) > 0 {
+			s.keyFlags[key] = flags
+		}
 	}
 	s.accMap = make(map[string]int, len(s.cfg.Accounts))
 	s.accTest = make(map[string]string, len(s.cfg.Accounts))

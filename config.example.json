@@ -23,7 +23,13 @@
       "name": "主账号",
       "remark": "优先用于生产流量",
       "email": "example1@example.com",
-      "password": "your-password-1"
+      "password": "your-password-1",
+      "device_model": "V2507A",
+      "device_id": "",
+      "rangers_id": "",
+      "android_api_level": "36",
+      "pool_type": "default",
+      "priority": 0
     },
     {
       "_comment": "邮箱登录方式 - 账号2",
@@ -38,18 +44,13 @@
     }
   ],
   "model_aliases": {
-    "gpt-4o": "deepseek-v4-flash",
-    "gpt-5.5": "deepseek-v4-flash",
-    "gpt-5.3-codex": "deepseek-v4-pro",
-    "o3": "deepseek-v4-pro",
-    "_comment_model_aliases": "alias 目标可以是任意合法模型 ID（含后缀变体，如 deepseek-v4-flash-forcehistory-autodelete）。请求名也可追加任意合法后缀组合（如 gpt-4o-thinkinginject），会与 alias 目标的后缀做 OR 后用规范顺序重新拼接。合法后缀：-nothinking / -forcehistory / -autodelete / -thinkinginject（规范顺序 base[-nothinking][-forcehistory][-autodelete][-thinkinginject]，其中 -nothinking 与 -thinkinginject 互斥）"
+    "gpt-4o": "deepseek-v4.1-flash",
+    "gpt-5.5": "deepseek-v4.1-flash",
+    "gpt-5.3-codex": "deepseek-v4.1-flash",
+    "o3": "deepseek-v4.1-flash"
   },
   "responses": {
     "store_ttl_seconds": 900
-  },
-  "current_input_file": {
-    "enabled": true,
-    "min_chars": 0
   },
   "thinking_injection": {
     "enabled": false,
@@ -65,9 +66,39 @@
     "account_max_inflight": 2,
     "account_max_queue": 0,
     "global_max_inflight": 0,
-    "token_refresh_interval_hours": 6
+    "token_refresh_interval_hours": 6,
+    "account_daily_limit": {
+      "enabled": false,
+      "max_per_day": 0
+    }
   },
   "auto_delete": {
     "mode": "none"
+  },
+  "input_file": {
+    "enabled": false,
+    "min_chars": 0
+  },
+  "bottom_format_injection": {
+    "enabled": true,
+    "prompt": ""
+  },
+  "elastic_pool": {
+    "enabled": false,
+    "global_count": 3
+  },
+  "keep_alive": {
+    "enabled": false,
+    "interval": "2-4",
+    "record_history": false
+  },
+  "tts": {
+    "enabled": true,
+    "segment_chars": 160,
+    "multi_account": true,
+    "account_concurrency": true
+  },
+  "mihomo": {
+    "enabled": false
   }
 }

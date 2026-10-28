@@ -9,11 +9,11 @@ export default function CurrentInputFileSection({ t, form, setForm }) {
                 <label className="flex items-start gap-3 rounded-lg border border-border bg-background/60 p-4">
                     <input
                         type="checkbox"
-                        checked={Boolean(form.current_input_file?.enabled)}
+                        checked={Boolean(form.input_file?.enabled)}
                         onChange={(e) => setForm((prev) => ({
                             ...prev,
-                            current_input_file: {
-                                ...prev.current_input_file,
+                            input_file: {
+                                ...prev.input_file,
                                 enabled: e.target.checked,
                             },
                         }))}
@@ -30,11 +30,11 @@ export default function CurrentInputFileSection({ t, form, setForm }) {
                         type="number"
                         min={0}
                         max={100000000}
-                        value={form.current_input_file?.min_chars ?? 0}
+                        value={form.input_file?.min_chars ?? 0}
                         onChange={(e) => setForm((prev) => ({
                             ...prev,
-                            current_input_file: {
-                                ...prev.current_input_file,
+                            input_file: {
+                                ...prev.input_file,
                                 min_chars: Number(e.target.value || 0),
                             },
                         }))}

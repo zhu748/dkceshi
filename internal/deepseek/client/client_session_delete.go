@@ -41,7 +41,8 @@ func (c *Client) DeleteSession(ctx context.Context, a *auth.RequestAuth, session
 		headers := c.authHeadersForAuth(a)
 
 		payload := map[string]any{
-			"chat_session_id": sessionID,
+			"chat_session_id":  sessionID,
+			"chat_session_ids": nil,
 		}
 
 		resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekDeleteSessionURL, headers, payload)
@@ -93,9 +94,10 @@ func (c *Client) DeleteSessionForToken(ctx context.Context, token string, sessio
 		return result, errors.New(result.ErrorMessage)
 	}
 
-	headers := c.authHeaders(token)
+	headers := c.authHeadersFromContext(ctx, token)
 	payload := map[string]any{
-		"chat_session_id": sessionID,
+		"chat_session_id":  sessionID,
+		"chat_session_ids": nil,
 	}
 
 	resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekDeleteSessionURL, headers, payload)
@@ -140,7 +142,7 @@ func (c *Client) DeleteAllSessions(ctx context.Context, a *auth.RequestAuth) err
 // DeleteAllSessionsForToken 直接使用 token 删除所有会话（直通模式）
 func (c *Client) DeleteAllSessionsForToken(ctx context.Context, token string) error {
 	clients := c.requestClientsFromContext(ctx)
-	headers := c.authHeaders(token)
+	headers := c.authHeadersFromContext(ctx, token)
 	payload := map[string]any{}
 
 	resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekDeleteAllSessionsURL, headers, payload)

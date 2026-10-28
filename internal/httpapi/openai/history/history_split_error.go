@@ -8,6 +8,8 @@ import (
 
 func MapError(err error) (int, string) {
 	switch {
+	case dsclient.IsMutedError(err):
+		return http.StatusForbidden, "Account is muted by upstream."
 	case dsclient.IsManagedUnauthorizedError(err):
 		return http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin."
 	case dsclient.IsDirectUnauthorizedError(err):

@@ -15,15 +15,17 @@ import (
 	"ds2api/internal/config"
 	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/httpapi/openai/shared"
+	"ds2api/internal/util"
 )
 
 const openAIUploadMaxMemory = 32 << 20
 
 type Handler struct {
-	Store       shared.ConfigReader
-	Auth        shared.AuthResolver
-	DS          shared.DeepSeekCaller
-	ChatHistory *chathistory.Store
+	Store        shared.ConfigReader
+	Auth         shared.AuthResolver
+	DS           shared.DeepSeekCaller
+	ChatHistory  *chathistory.Store
+	ContentStore ContentStore
 }
 
 type fileFetcher interface {
@@ -35,7 +37,7 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status := http.StatusUnauthorized
 		detail := err.Error()
-		if err == auth.ErrNoAccount {
+		if auth.IsNoIdleAccountError(err) {
 			status = http.StatusTooManyRequests
 		}
 		shared.WriteOpenAIError(w, status, detail)
@@ -57,7 +59,11 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.MultipartForm != nil {
-		defer func() { _ = r.MultipartForm.RemoveAll() }()
+		defer func() {
+			if err := r.MultipartForm.RemoveAll(); err != nil {
+				config.Logger.Warn("[files] remove multipart temporary files", "error", err)
+			}
+		}()
 	}
 	r = r.WithContext(auth.WithAuth(r.Context(), a))
 	file, header, err := r.FormFile("file")
@@ -65,7 +71,11 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		shared.WriteOpenAIError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	defer func() { _ = file.Close() }()
+	defer func() {
+		if err := file.Close(); err != nil {
+			config.Logger.Warn("[files] close uploaded file", "error", err)
+		}
+	}()
 	data, err := io.ReadAll(file)
 	if err != nil {
 		shared.WriteOpenAIError(w, http.StatusBadRequest, "failed to read uploaded file")
@@ -76,12 +86,15 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		contentType = http.DetectContentType(data)
 	}
 	modelType := resolveUploadModelType(h.Store, r)
+	pinFileAccount(a)
 	result, err := h.DS.UploadFile(r.Context(), a, dsclient.UploadFileRequest{
-		Filename:    header.Filename,
-		ContentType: contentType,
-		Purpose:     strings.TrimSpace(r.FormValue("purpose")),
-		ModelType:   modelType,
-		Data:        data,
+		Filename:        header.Filename,
+		ContentType:     contentType,
+		Purpose:         strings.TrimSpace(r.FormValue("purpose")),
+		ModelType:       modelType,
+		ThinkingEnabled: resolveUploadThinking(h.Store, r),
+		PreserveImage:   r.FormValue("preserve_image") == "true",
+		Data:            data,
 	}, 3)
 	if err != nil {
 		shared.WriteOpenAIError(w, http.StatusInternalServerError, "Failed to upload file.")
@@ -89,6 +102,12 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if result != nil && result.AccountID == "" {
 		result.AccountID = a.AccountID
+	}
+	if h.ContentStore != nil && result != nil {
+		if err := h.ContentStore.Store(result.ID, header.Filename, contentType, data); err != nil {
+			// Upload succeeded upstream; losing the local cache is non-fatal.
+			config.Logger.Warn("[files] failed to cache uploaded file content", "file_id", result.ID, "error", err)
+		}
 	}
 	shared.WriteJSON(w, http.StatusOK, buildOpenAIFileObject(result))
 }
@@ -98,7 +117,7 @@ func (h *Handler) RetrieveFile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status := http.StatusUnauthorized
 		detail := err.Error()
-		if err == auth.ErrNoAccount {
+		if auth.IsNoIdleAccountError(err) {
 			status = http.StatusTooManyRequests
 		}
 		shared.WriteOpenAIError(w, status, detail)
@@ -150,8 +169,12 @@ func resolveUploadModelType(store shared.ConfigReader, r *http.Request) string {
 
 func normalizeUploadModelType(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "default", "expert", "vision":
-		return strings.ToLower(strings.TrimSpace(raw))
+	case "default":
+		return "default"
+	case "expert", "vision":
+		// The 2.4.0 web client merged expert/vision into the single upstream
+		// "default" model_type; upload_file now always expects default.
+		return "default"
 	default:
 		return ""
 	}
@@ -185,4 +208,29 @@ func buildOpenAIFileObject(result *dsclient.UploadFileResult) map[string]any {
 		obj["account_id"] = result.AccountID
 	}
 	return obj
+}
+
+func resolveUploadThinking(store shared.ConfigReader, r *http.Request) bool {
+	model := strings.TrimSpace(r.FormValue("model"))
+	if model == "" {
+		model = "deepseek-v4.1-flash"
+	}
+	resolved, ok := config.ResolveModel(store, model)
+	if !ok {
+		return false
+	}
+	defaultThinking, _, _ := config.GetModelConfig(resolved)
+	request := map[string]any{}
+	for _, value := range []string{r.FormValue("thinking_enabled"), r.Header.Get("X-Thinking-Enabled")} {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "1", "true":
+			request["thinking"] = true
+		case "0", "false":
+			request["thinking"] = false
+		default:
+			continue
+		}
+		break
+	}
+	return util.ResolveThinkingEnabled(request, defaultThinking) && !config.IsNoThinkingModel(resolved)
 }

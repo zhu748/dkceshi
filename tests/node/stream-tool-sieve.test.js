@@ -49,16 +49,16 @@ test('parseToolCalls parses XML markup tool call', () => {
   assert.deepEqual(calls[0].input, { path: 'README.MD' });
 });
 
-test('parseToolCalls parses DSML shell as XML-compatible tool call', () => {
-  const payload = '<|DSML|tool_calls><|DSML|invoke name="read_file"><|DSML|parameter name="path">README.MD</|DSML|parameter></|DSML|invoke></|DSML|tool_calls>';
+test('parseToolCalls parses EPSE shell as XML-compatible tool call', () => {
+  const payload = '<|EPSE|tool_calls><|EPSE|invoke name="read_file"><|EPSE|parameter name="path">README.MD</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>';
   const calls = parseToolCalls(payload, ['read_file']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'read_file');
   assert.deepEqual(calls[0].input, { path: 'README.MD' });
 });
 
-test('parseToolCalls tolerates fullwidth closing slash in DSML wrapper', () => {
-  const payload = '<|DSML|tool_calls><|DSML|invoke name="execute_code"><|DSML|parameter name="code"><![CDATA[print("hi")]]></|DSML|parameter></|DSML|invoke><／DSML|tool_calls>';
+test('parseToolCalls tolerates fullwidth closing slash in EPSE wrapper', () => {
+  const payload = '<|EPSE|tool_calls><|EPSE|invoke name="execute_code"><|EPSE|parameter name="code"><![CDATA[print("hi")]]></|EPSE|parameter></|EPSE|invoke><／EPSE|tool_calls>';
   const calls = parseToolCalls(payload, ['execute_code']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'execute_code');
@@ -66,7 +66,7 @@ test('parseToolCalls tolerates fullwidth closing slash in DSML wrapper', () => {
 });
 
 test('parseToolCalls tolerates sentencepiece separator and fullwidth terminator', () => {
-  const payload = '<|DSML▁tool_calls|><|DSML▁invoke▁name="execute_code"><|DSML▁parameter▁name="code"><![CDATA[print("hi")]]></|DSML▁parameter></|DSML▁invoke></|DSML▁tool_calls＞';
+  const payload = '<|EPSE▁tool_calls|><|EPSE▁invoke▁name="execute_code"><|EPSE▁parameter▁name="code"><![CDATA[print("hi")]]></|EPSE▁parameter></|EPSE▁invoke></|EPSE▁tool_calls＞';
   const calls = parseToolCalls(payload, ['execute_code']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'execute_code');
@@ -74,7 +74,7 @@ test('parseToolCalls tolerates sentencepiece separator and fullwidth terminator'
 });
 
 test('parseToolCalls tolerates fullwidth opening delimiter and Unicode attribute confusables', () => {
-  const payload = '＜|DSML　tool_calls＞＜|DSML　invoke　name＝“execute_code”＞＜|DSML　parameter　name＝“code”＞<![CDATA[print("hi")]]>＜／DSML|parameter＞＜／DSML|invoke＞＜／DSML|tool_calls＞';
+  const payload = '＜|EPSE　tool_calls＞＜|EPSE　invoke　name＝“execute_code”＞＜|EPSE　parameter　name＝“code”＞<![CDATA[print("hi")]]>＜／EPSE|parameter＞＜／EPSE|invoke＞＜／EPSE|tool_calls＞';
   const calls = parseToolCalls(payload, ['execute_code']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'execute_code');
@@ -82,17 +82,17 @@ test('parseToolCalls tolerates fullwidth opening delimiter and Unicode attribute
 });
 
 test('parseToolCalls canonicalizes confusable candidate shell only', () => {
-  const payload = '<|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls><|\ufeffDSML|inv\u03bfk\u0435 n\u0430me\uff1d\u201cexecute_code\u201d><|\u200bDSML|par\u0430meter n\u0430me\uff1d\u201ccode\u201d><![\ufeff\u0421D\u0410T\u0410[print("hi")]]></|\u200bDSML|par\u0430meter></|\u200bDSML|inv\u03bfk\u0435></|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls>';
+  const payload = '<|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls><|\ufeffEPSE|inv\u03bfk\u0435 n\u0430me\uff1d\u201cexecute_code\u201d><|\u200bEPSE|par\u0430meter n\u0430me\uff1d\u201ccode\u201d><![\ufeff\u0421D\u0410T\u0410[print("hi")]]></|\u200bEPSE|par\u0430meter></|\u200bEPSE|inv\u03bfk\u0435></|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls>';
   const calls = parseToolCalls(payload, ['execute_code']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'execute_code');
   assert.deepEqual(calls[0].input, { code: 'print("hi")' });
 });
 
-test('parseToolCalls parses hyphenated DSML shell with here-doc CDATA', () => {
-  const payload = `<dsml-tool-calls>
-<dsml-invoke name="Bash">
-<dsml-parameter name="command"><![CDATA[git commit -m "$(cat <<'EOF'
+test('parseToolCalls parses hyphenated EPSE shell with here-doc CDATA', () => {
+  const payload = `<epse-tool-calls>
+<epse-invoke name="Bash">
+<epse-parameter name="command"><![CDATA[git commit -m "$(cat <<'EOF'
 docs: add missing directory entries and package descriptions to architecture docs
 Fill gaps identified in architecture audit: add artifacts/ and static/ to
 directory tree, and document 7 auxiliary internal/ packages (textclean,
@@ -100,10 +100,10 @@ claudeconv, compat, rawsample, devcapture, util, version) in Section 3.
 
 Co-Authored-By: Claude Opus 4.7 noreply@anthropic.com
 EOF
-)"]]></dsml-parameter>
-<dsml-parameter name="description"><![CDATA[Create commit with architecture doc updates]]></dsml-parameter>
-</dsml-invoke>
-</dsml-tool-calls>`;
+)"]]></epse-parameter>
+<epse-parameter name="description"><![CDATA[Create commit with architecture doc updates]]></epse-parameter>
+</epse-invoke>
+</epse-tool-calls>`;
   const calls = parseToolCalls(payload, ['Bash']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'Bash');
@@ -112,16 +112,16 @@ EOF
   assert.equal(calls[0].input.command.includes('Co-Authored-By: Claude Opus 4.7'), true);
 });
 
-test('parseToolCalls parses underscored DSML shell (Vercel parity)', () => {
-  const payload = `<dsml_tool_calls>
-<dsml_invoke name="search_web">
-<dsml_parameter name="query"><![CDATA[2026年5月 热点事件]]></dsml_parameter>
-<dsml_parameter name="topic"><![CDATA[news]]></dsml_parameter>
-</dsml_invoke>
-<dsml_invoke name="eval_javascript">
-<dsml_parameter name="code"><![CDATA[1 + 1]]></dsml_parameter>
-</dsml_invoke>
-</dsml_tool_calls>`;
+test('parseToolCalls parses underscored EPSE shell (Vercel parity)', () => {
+  const payload = `<epse_tool_calls>
+<epse_invoke name="search_web">
+<epse_parameter name="query"><![CDATA[2026年5月 热点事件]]></epse_parameter>
+<epse_parameter name="topic"><![CDATA[news]]></epse_parameter>
+</epse_invoke>
+<epse_invoke name="eval_javascript">
+<epse_parameter name="code"><![CDATA[1 + 1]]></epse_parameter>
+</epse_invoke>
+</epse_tool_calls>`;
   const calls = parseToolCalls(payload, ['search_web', 'eval_javascript']);
   assert.equal(calls.length, 2);
   assert.equal(calls[0].name, 'search_web');
@@ -161,15 +161,15 @@ test('parseToolCalls ignores camel-prefixed tool markup lookalike', () => {
   assert.equal(calls.length, 0);
 });
 
-test('parseToolCalls parses fullwidth DSML shell drift', () => {
-  const payload = `<ｄＳＭＬ|tool_calls>
-  <ｄＳＭＬ|invoke name="Read">
-    <ｄＳＭＬ|parameter name="file_path"＞<![CDATA[/Users/aq/Desktop/myproject/Personal_Blog/README.md]]＞</ｄＳＭＬ|parameter>
-  </ｄＳＭＬ|invoke>
-  <ｄＳＭＬ|invoke name="Read">
-    <ｄＳＭＬ|parameter name="file_path"＞<![CDATA[/Users/aq/Desktop/myproject/Personal_Blog/index.html]]＞</ｄＳＭＬ|parameter>
-  </ｄＳＭＬ|invoke>
-</ｄＳＭＬ|tool_calls>`;
+test('parseToolCalls parses fullwidth EPSE shell drift', () => {
+  const payload = `<ｅｐＳＥ|tool_calls>
+  <ｅｐＳＥ|invoke name="Read">
+    <ｅｐＳＥ|parameter name="file_path"＞<![CDATA[/Users/aq/Desktop/myproject/Personal_Blog/README.md]]＞</ｅｐＳＥ|parameter>
+  </ｅｐＳＥ|invoke>
+  <ｅｐＳＥ|invoke name="Read">
+    <ｅｐＳＥ|parameter name="file_path"＞<![CDATA[/Users/aq/Desktop/myproject/Personal_Blog/index.html]]＞</ｅｐＳＥ|parameter>
+  </ｅｐＳＥ|invoke>
+</ｅｐＳＥ|tool_calls>`;
   const calls = parseToolCalls(payload, ['Read']);
   assert.equal(calls.length, 2);
   assert.equal(calls[0].name, 'Read');
@@ -178,21 +178,21 @@ test('parseToolCalls parses fullwidth DSML shell drift', () => {
   assert.deepEqual(calls[1].input, { file_path: '/Users/aq/Desktop/myproject/Personal_Blog/index.html' });
 });
 
-test('parseToolCalls parses CJK-angle DSM drift', () => {
-  const payload = `<DSM|tool_calls>
-<DSM|invoke name="Bash">
-<DSM|parameter name="description"|>〈![CDATA[Show commits on local dev not on origin/dev]]〉〈/DSM|parameter〉
-<DSM|parameter name="command"|>〈![CDATA[git log --oneline origin/dev..dev]]〉〈/DSM|parameter〉
-〈/DSM|invoke〉
-<DSM|invoke name="Bash">
-<DSM|parameter name="description"|>〈![CDATA[Show commits on origin/dev not on local dev]]〉〈/DSM|parameter〉
-<DSM|parameter name="command"|>〈![CDATA[git log --oneline dev..origin/dev]]〉〈/DSM|parameter〉
-〈/DSM|invoke〉
-<DSM|invoke name="Bash">
-<DSM|parameter name="description"|>〈![CDATA[Check tracking branch status]]〉〈/DSM|parameter〉
-<DSM|parameter name="command"|>〈![CDATA[git status -b --short]]〉〈/DSM|parameter〉
-〈/DSM|invoke〉
-〈/DSM|tool_calls〉`;
+test('parseToolCalls parses CJK-angle EPS drift', () => {
+  const payload = `<EPS|tool_calls>
+<EPS|invoke name="Bash">
+<EPS|parameter name="description"|>〈![CDATA[Show commits on local dev not on origin/dev]]〉〈/EPS|parameter〉
+<EPS|parameter name="command"|>〈![CDATA[git log --oneline origin/dev..dev]]〉〈/EPS|parameter〉
+〈/EPS|invoke〉
+<EPS|invoke name="Bash">
+<EPS|parameter name="description"|>〈![CDATA[Show commits on origin/dev not on local dev]]〉〈/EPS|parameter〉
+<EPS|parameter name="command"|>〈![CDATA[git log --oneline dev..origin/dev]]〉〈/EPS|parameter〉
+〈/EPS|invoke〉
+<EPS|invoke name="Bash">
+<EPS|parameter name="description"|>〈![CDATA[Check tracking branch status]]〉〈/EPS|parameter〉
+<EPS|parameter name="command"|>〈![CDATA[git status -b --short]]〉〈/EPS|parameter〉
+〈/EPS|invoke〉
+〈/EPS|tool_calls〉`;
   const calls = parseToolCalls(payload, ['Bash']);
   assert.equal(calls.length, 3);
   assert.equal(calls[0].name, 'Bash');
@@ -201,13 +201,13 @@ test('parseToolCalls parses CJK-angle DSM drift', () => {
   assert.equal(calls[2].input.command, 'git status -b --short');
 });
 
-test('parseToolCalls parses fullwidth-bang DSML drift', () => {
-  const payload = `<！DSML！tool_calls>
-  <！DSML！invoke name=“Bash”>
-  <！DSML！parameter name=“command”><！[CDATA[lsof -i :4321 -t]]><！/DSML！parameter>
-  <！DSML！parameter name=“description”><！[CDATA[Verify port 4321 is free]]><！/DSML！parameter>
-  <！/DSML！invoke>
-  <！/DSML！tool_calls>`;
+test('parseToolCalls parses fullwidth-bang EPSE drift', () => {
+  const payload = `<！EPSE！tool_calls>
+  <！EPSE！invoke name=“Bash”>
+  <！EPSE！parameter name=“command”><！[CDATA[lsof -i :4321 -t]]><！/EPSE！parameter>
+  <！EPSE！parameter name=“description”><！[CDATA[Verify port 4321 is free]]><！/EPSE！parameter>
+  <！/EPSE！invoke>
+  <！/EPSE！tool_calls>`;
   const calls = parseToolCalls(payload, ['Bash']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'Bash');
@@ -215,18 +215,18 @@ test('parseToolCalls parses fullwidth-bang DSML drift', () => {
   assert.equal(calls[0].input.description, 'Verify port 4321 is free');
 });
 
-test('parseToolCalls parses ideographic-comma DSML drift', () => {
-  const payload = `<、DSML、tool_calls>
-  <、DSML、invoke name="Bash">
-    <、DSML、parameter name="command"><、[CDATA[git commit -m "$(cat <<'EOF'
-feat: expand fullwidth bang separator and curly quote tolerance in DSML tool parsing
+test('parseToolCalls parses ideographic-comma EPSE drift', () => {
+  const payload = `<、EPSE、tool_calls>
+  <、EPSE、invoke name="Bash">
+    <、EPSE、parameter name="command"><、[CDATA[git commit -m "$(cat <<'EOF'
+feat: expand fullwidth bang separator and curly quote tolerance in EPSE tool parsing
 
 Co-Authored-By: Claude Opus 4.6 noreply@anthropic.com
 EOF
-)"]]><、/DSML、parameter>
-    <、DSML、parameter name="description"><、[CDATA[Create commit with staged changes]]><、/DSML、parameter>
-  <、/DSML、invoke>
-<、/DSML、tool_calls>`;
+)"]]><、/EPSE、parameter>
+    <、EPSE、parameter name="description"><、[CDATA[Create commit with staged changes]]><、/EPSE、parameter>
+  <、/EPSE、invoke>
+<、/EPSE、tool_calls>`;
   const calls = parseToolCalls(payload, ['Bash']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'Bash');
@@ -235,13 +235,13 @@ EOF
   assert.equal(calls[0].input.description, 'Create commit with staged changes');
 });
 
-test('parseToolCalls parses DSML control separator drift', () => {
+test('parseToolCalls parses EPSE control separator drift', () => {
   for (const sep of ['␂', '\x02']) {
-    const payload = `<DSML${sep}tool_calls>
-  <DSML${sep}invoke name="Read">
-    <DSML${sep}parameter name="file_path"><![CDATA[/tmp/input.txt]]></DSML${sep}parameter>
-  </DSML${sep}invoke>
-</DSML${sep}tool_calls>`;
+    const payload = `<EPSE${sep}tool_calls>
+  <EPSE${sep}invoke name="Read">
+    <EPSE${sep}parameter name="file_path"><![CDATA[/tmp/input.txt]]></EPSE${sep}parameter>
+  </EPSE${sep}invoke>
+</EPSE${sep}tool_calls>`;
     const calls = parseToolCalls(payload, ['Read']);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].name, 'Read');
@@ -262,13 +262,13 @@ test('parseToolCalls parses arbitrary-prefixed tool tags', () => {
 });
 
 test('parseToolCalls allows all-empty parameter payloads', () => {
-  const payload = `<T|DSML|tool_calls>
-  <T|DSML|invoke name="TaskOutput">
-    <T|DSML|parameter name="task_id"></T|DSML|parameter>
-    <T|DSML|parameter name="block"></T|DSML|parameter>
-    <T|DSML|parameter name="timeout"></T|DSML|parameter>
-  </T|DSML|invoke>
-</T|DSML|tool_calls>`;
+  const payload = `<T|EPSE|tool_calls>
+  <T|EPSE|invoke name="TaskOutput">
+    <T|EPSE|parameter name="task_id"></T|EPSE|parameter>
+    <T|EPSE|parameter name="block"></T|EPSE|parameter>
+    <T|EPSE|parameter name="timeout"></T|EPSE|parameter>
+  </T|EPSE|invoke>
+</T|EPSE|tool_calls>`;
   const calls = parseToolCalls(payload, ['TaskOutput']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'TaskOutput');
@@ -281,14 +281,14 @@ test('parseToolCalls ignores bare hyphenated tool_calls lookalike', () => {
   assert.equal(calls.length, 0);
 });
 
-test('parseToolCalls tolerates DSML trailing pipe tag terminator', () => {
+test('parseToolCalls tolerates EPSE trailing pipe tag terminator', () => {
   const payload = [
-    '<|DSML|tool_calls| ',
-    '  <|DSML|invoke name="terminal">',
-    '    <|DSML|parameter name="command"><![CDATA[find "/home" -type d]]></|DSML|parameter>',
-    '    <|DSML|parameter name="timeout"><![CDATA[10]]></|DSML|parameter>',
-    '  </|DSML|invoke>',
-    '</|DSML|tool_calls>',
+    '<|EPSE|tool_calls| ',
+    '  <|EPSE|invoke name="terminal">',
+    '    <|EPSE|parameter name="command"><![CDATA[find "/home" -type d]]></|EPSE|parameter>',
+    '    <|EPSE|parameter name="timeout"><![CDATA[10]]></|EPSE|parameter>',
+    '  </|EPSE|invoke>',
+    '</|EPSE|tool_calls>',
   ].join('\n');
   const calls = parseToolCalls(payload, ['terminal']);
   assert.equal(calls.length, 1);
@@ -296,13 +296,13 @@ test('parseToolCalls tolerates DSML trailing pipe tag terminator', () => {
   assert.deepEqual(calls[0].input, { command: 'find "/home" -type d', timeout: 10 });
 });
 
-test('parseToolCalls tolerates DSML trailing novel separator tag terminator', () => {
+test('parseToolCalls tolerates EPSE trailing novel separator tag terminator', () => {
   const payload = [
-    '<DSMLtool_calls※>',
-    '  <DSMLinvoke name="Bash"※>',
-    '    <DSMLparameter name="command"※><![CDATA[pwd]]></DSMLparameter※>',
-    '  </DSMLinvoke※>',
-    '</DSMLtool_calls※>',
+    '<EPSEtool_calls※>',
+    '  <EPSEinvoke name="Bash"※>',
+    '    <EPSEparameter name="command"※><![CDATA[pwd]]></EPSEparameter※>',
+    '  </EPSEinvoke※>',
+    '</EPSEtool_calls※>',
   ].join('\n');
   const calls = parseToolCalls(payload, ['Bash']);
   assert.equal(calls.length, 1);
@@ -310,13 +310,13 @@ test('parseToolCalls tolerates DSML trailing novel separator tag terminator', ()
   assert.deepEqual(calls[0].input, { command: 'pwd' });
 });
 
-test('parseToolCalls tolerates extra leading less-than before DSML tags', () => {
+test('parseToolCalls tolerates extra leading less-than before EPSE tags', () => {
   const payload = [
-    '<<|DSML|tool_calls>',
-    '  <<|DSML|invoke name="Bash">',
-    '    <<|DSML|parameter name="command"><![CDATA[pwd]]></|DSML|parameter>',
-    '  </|DSML|invoke>',
-    '</|DSML|tool_calls>',
+    '<<|EPSE|tool_calls>',
+    '  <<|EPSE|invoke name="Bash">',
+    '    <<|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter>',
+    '  </|EPSE|invoke>',
+    '</|EPSE|tool_calls>',
   ].join('\n');
   const calls = parseToolCalls(payload, ['Bash']);
   assert.equal(calls.length, 1);
@@ -324,13 +324,13 @@ test('parseToolCalls tolerates extra leading less-than before DSML tags', () => 
   assert.deepEqual(calls[0].input, { command: 'pwd' });
 });
 
-test('parseToolCalls tolerates repeated DSML prefix noise', () => {
+test('parseToolCalls tolerates repeated EPSE prefix noise', () => {
   const payload = [
-    '<<DSML|DSML|tool_calls>',
-    '  <<DSML|DSML|invoke name="Bash">',
-    '    <<DSML|DSML|parameter name="command"><![CDATA[git status]]></DSML|DSML|parameter>',
-    '  </DSML|DSML|invoke>',
-    '</DSML|DSML|tool_calls>',
+    '<<EPSE|EPSE|tool_calls>',
+    '  <<EPSE|EPSE|invoke name="Bash">',
+    '    <<EPSE|EPSE|parameter name="command"><![CDATA[git status]]></EPSE|EPSE|parameter>',
+    '  </EPSE|EPSE|invoke>',
+    '</EPSE|EPSE|tool_calls>',
   ].join('\n');
   const calls = parseToolCalls(payload, ['Bash']);
   assert.equal(calls.length, 1);
@@ -338,40 +338,70 @@ test('parseToolCalls tolerates repeated DSML prefix noise', () => {
   assert.deepEqual(calls[0].input, { command: 'git status' });
 });
 
-test('parseToolCalls tolerates DSML space-separator typo', () => {
-  const payload = '<|DSML tool_calls><|DSML invoke name="Read"><|DSML parameter name="file_path"><![CDATA[/tmp/input.txt]]></|DSML parameter></|DSML invoke></|DSML tool_calls>';
+test('parseToolCalls tolerates EPSE space-separator typo', () => {
+  const payload = '<|EPSE tool_calls><|EPSE invoke name="Read"><|EPSE parameter name="file_path"><![CDATA[/tmp/input.txt]]></|EPSE parameter></|EPSE invoke></|EPSE tool_calls>';
   const calls = parseToolCalls(payload, ['Read']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'Read');
   assert.deepEqual(calls[0].input, { file_path: '/tmp/input.txt' });
 });
 
-test('parseToolCalls ignores DSML space lookalike tag names', () => {
-  const payload = '<|DSML tool_calls_extra><|DSML invoke name="Read"><|DSML parameter name="file_path">/tmp/input.txt</|DSML parameter></|DSML invoke></|DSML tool_calls_extra>';
+test('parseToolCalls supports EPSE shorthand parameter tag', () => {
+  const payload = [
+    '<|EPSE|tool_calls>',
+    '  <|EPSE|invoke name="terminal">',
+    '    <|EPSE|parameter name="command"><![CDATA[cd D:/ds2api && ls scripts/ && echo \'=== workflows ===\' && ls -R .github/workflows/ 2>/dev/null && echo \'=== version 相关 ===\' && ls -la VERSION 2>/dev/null; cat VERSION 2>/dev/null; echo \'---\'; grep -rn "VERSION\\|version" scripts/*.sh scripts/*.go 2>/dev/null | head -40]]></|EPSE>',
+    '    <|EPSE parameter name="workdir"><![CDATA[D:/ds2api]]></|EPSE>',
+    '  </|EPSE|invoke>',
+    '</|EPSE|tool_calls>',
+  ].join('\n');
+  const calls = parseToolCalls(payload, ['terminal']);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'terminal');
+  assert.equal(calls[0].input.workdir, 'D:/ds2api');
+  assert.ok(calls[0].input.command.includes('cd D:/ds2api'));
+});
+
+test('parseToolCalls supports EPSE shorthand parameter without local name', () => {
+  const payload = '<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE name="command"><![CDATA[pwd]]></|EPSE></|EPSE|invoke></|EPSE|tool_calls>';
+  const calls = parseToolCalls(payload, ['Bash']);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'Bash');
+  assert.deepEqual(calls[0].input, { command: 'pwd' });
+});
+
+test('parseToolCalls rejects EPSE shorthand parameter without name attribute', () => {
+  const payload = '<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE foo="bar">pwd</|EPSE></|EPSE|invoke></|EPSE|tool_calls>';
+  const calls = parseToolCalls(payload, ['Bash']);
+  assert.equal(calls.length, 0);
+});
+
+test('parseToolCalls ignores EPSE space lookalike tag names', () => {
+  const payload = '<|EPSE tool_calls_extra><|EPSE invoke name="Read"><|EPSE parameter name="file_path">/tmp/input.txt</|EPSE parameter></|EPSE invoke></|EPSE tool_calls_extra>';
   const calls = parseToolCalls(payload, ['Read']);
   assert.equal(calls.length, 0);
 });
 
-test('parseToolCalls tolerates collapsed DSML tag names', () => {
+test('parseToolCalls tolerates collapsed EPSE tag names', () => {
   const todos = [
     '[x] 检查 toolcalls_format.go 格式化逻辑',
     '[x] 检查 toolcalls_parse.go 解析逻辑',
-    '[x] 检查 toolcalls_xml.go 和 toolcalls_dsml.go',
+    '[x] 检查 toolcalls_xml.go 和 toolcalls_epse.go',
     '[x] 检查 toolcalls_markup.go 和 toolcalls_json_repair.go',
     '[x] 检查 prompt/tool_calls.go 注入逻辑',
     '[x] 检查 toolstream 流式解析',
     '[x] 查看测试文件确认预期行为',
     '[x] 给出调查结论',
   ].join('\n');
-  const payload = `<DSMLtool_calls><DSMLinvoke name="update_todo_list"><DSMLparameter name="todos"><![CDATA[${todos}]]></DSMLparameter></DSMLinvoke></DSMLtool_calls>`;
+  const payload = `<EPSEtool_calls><EPSEinvoke name="update_todo_list"><EPSEparameter name="todos"><![CDATA[${todos}]]></EPSEparameter></EPSEinvoke></EPSEtool_calls>`;
   const calls = parseToolCalls(payload, ['update_todo_list']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'update_todo_list');
   assert.equal(calls[0].input.todos, todos);
 });
 
-test('parseToolCalls ignores collapsed DSML lookalike tag names', () => {
-  const payload = '<DSMLtool_calls_extra><DSMLinvoke name="update_todo_list"><DSMLparameter name="todos">x</DSMLparameter></DSMLinvoke></DSMLtool_calls_extra>';
+test('parseToolCalls ignores collapsed EPSE lookalike tag names', () => {
+  const payload = '<EPSEtool_calls_extra><EPSEinvoke name="update_todo_list"><EPSEparameter name="todos">x</EPSEparameter></EPSEinvoke></EPSEtool_calls_extra>';
   const calls = parseToolCalls(payload, ['update_todo_list']);
   assert.equal(calls.length, 0);
 });
@@ -382,9 +412,9 @@ test('parseToolCalls rejects confusable near-miss tag names', () => {
   assert.equal(calls.length, 0);
 });
 
-test('parseToolCalls keeps canonical XML examples inside DSML CDATA', () => {
+test('parseToolCalls keeps canonical XML examples inside EPSE CDATA', () => {
   const content = '<tool_calls><invoke name="demo"><parameter name="value">x</parameter></invoke></tool_calls>';
-  const payload = `<|DSML|tool_calls><|DSML|invoke name="write_file"><|DSML|parameter name="path">notes.md</|DSML|parameter><|DSML|parameter name="content"><![CDATA[${content}]]></|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`;
+  const payload = `<|EPSE|tool_calls><|EPSE|invoke name="write_file"><|EPSE|parameter name="path">notes.md</|EPSE|parameter><|EPSE|parameter name="content"><![CDATA[${content}]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`;
   const calls = parseToolCalls(payload, ['write_file']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'write_file');
@@ -414,6 +444,85 @@ test('parseToolCalls recovers when CDATA never closes inside a valid wrapper', (
   assert.equal(calls[0].input.content, 'hello world');
 });
 
+// A parameter whose CDATA has no `]]>` of its own must not absorb the following
+// parameter: the unbounded CDATA-end search would otherwise terminate on the
+// NEXT parameter's `]]>`, dropping that parameter and leaking
+// `</|EPSE|parameter><|EPSE|parameter name="...">` into the first value.
+test('parseToolCalls bounds an unclosed CDATA to its own parameter element', () => {
+  const command = '$files = Get-ChildItem -Recurse -Filter *.go -File\nWrite-Host "TOTAL: $($all.Count)"';
+  const payload = [
+    '<|EPSE|tool_calls>',
+    '  <|EPSE|invoke name="pwsh">',
+    `    <|EPSE|parameter name="command"><![CDATA[${command}</|EPSE|parameter>`,
+    '    <|EPSE|parameter name="description"><![CDATA[Count duplicate error strings]]></|EPSE|parameter>',
+    '  </|EPSE|invoke>',
+    '</|EPSE|tool_calls>',
+  ].join('\n');
+
+  const calls = parseToolCalls(payload, ['pwsh']);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'pwsh');
+  assert.deepEqual(Object.keys(calls[0].input).sort(), ['command', 'description']);
+  assert.equal(calls[0].input.command, command);
+  assert.equal(calls[0].input.description, 'Count duplicate error strings');
+});
+
+test('parseToolCalls bounds consecutive unclosed CDATA parameters', () => {
+  const payload = '<|EPSE|tool_calls><|EPSE|invoke name="Bash">'
+    + '<|EPSE|parameter name="command"><![CDATA[echo one</|EPSE|parameter>'
+    + '<|EPSE|parameter name="description"><![CDATA[two</|EPSE|parameter>'
+    + '<|EPSE|parameter name="workdir"><![CDATA[/tmp]]></|EPSE|parameter>'
+    + '</|EPSE|invoke></|EPSE|tool_calls>';
+  const calls = parseToolCalls(payload, ['Bash']);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].input, { command: 'echo one', description: 'two', workdir: '/tmp' });
+});
+
+// The negative that bounds the repair: a value quoting a complete tool-call
+// example also carries `<|EPSE|parameter ...><![CDATA[` inside its CDATA body,
+// but it never escaped its own element, so it must come back byte-exact.
+test('parseToolCalls keeps a quoted tool-call example intact', () => {
+  const content = [
+    '# How to call a tool',
+    '',
+    '```xml',
+    '<|EPSE|tool_calls>',
+    '  <|EPSE|invoke name="Bash">',
+    '    <|EPSE|parameter name="command"><![CDATA[echo hi]]></|EPSE|parameter>',
+    '  </|EPSE|invoke>',
+    '</|EPSE|tool_calls>',
+    '```',
+  ].join('\n');
+  const payload = '<|EPSE|tool_calls><|EPSE|invoke name="Write">'
+    + `<|EPSE|parameter name="content"><![CDATA[${content}]]></|EPSE|parameter>`
+    + '<|EPSE|parameter name="file_path"><![CDATA[docs/tools.md]]></|EPSE|parameter>'
+    + '</|EPSE|invoke></|EPSE|tool_calls>';
+  const calls = parseToolCalls(payload, ['Write']);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].input.content, content);
+  assert.equal(calls[0].input.file_path, 'docs/tools.md');
+});
+
+test('sieve bounds an unclosed CDATA to its own parameter element', () => {
+  const command = '$files = Get-ChildItem -Recurse\nWrite-Host "TOTAL"';
+  const events = runSieve([
+    '<|EPSE|tool_calls>\n',
+    '  <|EPSE|invoke name="pwsh">\n',
+    `    <|EPSE|parameter name="command"><![CDATA[${command}`,
+    '</|EPSE|parameter>\n',
+    '    <|EPSE|parameter name="description"><![CDATA[Count duplicate error strings]]></|EPSE|parameter>\n',
+    '  </|EPSE|invoke>\n',
+    '</|EPSE|tool_calls>',
+  ], ['pwsh']);
+
+  const calls = events.flatMap((evt) => (Array.isArray(evt.calls) ? evt.calls : []));
+  assert.equal(calls.length, 1);
+  assert.equal(collectText(events), '');
+  assert.deepEqual(Object.keys(calls[0].input).sort(), ['command', 'description']);
+  assert.equal(calls[0].input.command, command);
+  assert.equal(calls[0].input.description, 'Count duplicate error strings');
+});
+
 test('parseToolCalls supports JSON scalar parameters', () => {
   const payload = '<tool_calls><invoke name="configure"><parameter name="count">123</parameter><parameter name="max_tokens"><![CDATA[256]]></parameter><parameter name="enabled">true</parameter></invoke></tool_calls>';
   const calls = parseToolCalls(payload, ['configure']);
@@ -426,9 +535,9 @@ test('parseToolCalls supports JSON scalar parameters', () => {
 
 test('parseToolCalls treats item-only parameter body as array', () => {
   const payload = [
-    '<|DSML|tool_calls>',
-    '<|DSML|invoke name="AskUserQuestion">',
-    '<|DSML|parameter name="questions">',
+    '<|EPSE|tool_calls>',
+    '<|EPSE|invoke name="AskUserQuestion">',
+    '<|EPSE|parameter name="questions">',
     '<item>',
     '<question><![CDATA[What would you like to do next?]]></question>',
     '<header><![CDATA[Next step]]></header>',
@@ -438,9 +547,9 @@ test('parseToolCalls treats item-only parameter body as array', () => {
     '</options>',
     '<multiSelect>false</multiSelect>',
     '</item>',
-    '</|DSML|parameter>',
-    '</|DSML|invoke>',
-    '</|DSML|tool_calls>',
+    '</|EPSE|parameter>',
+    '</|EPSE|invoke>',
+    '</|EPSE|tool_calls>',
   ].join('\n');
   const calls = parseToolCalls(payload, ['AskUserQuestion']);
   assert.equal(calls.length, 1);
@@ -459,7 +568,7 @@ test('parseToolCalls treats item-only parameter body as array', () => {
 
 test('parseToolCalls treats CDATA item-only body as array', () => {
   const todos = '<br>  <item><br>    <activeForm>Testing EnterWorktree tool</activeForm><br>    <content>Test EnterWorktree tool</content><br>    <status>in_progress</status><br>  </item><br>  <item><br>    <activeForm>Testing TodoWrite tool</activeForm><br>    <content>Test TodoWrite tool</content><br>    <status>completed</status><br>  </item><br>';
-  const payload = `<|DSML|tool_calls><|DSML|invoke name="TodoWrite"><|DSML|parameter name="todos"><![CDATA[${todos}]]></|DSML|parameter></|DSML|invoke></|DSML|tool_calls>`;
+  const payload = `<|EPSE|tool_calls><|EPSE|invoke name="TodoWrite"><|EPSE|parameter name="todos"><![CDATA[${todos}]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`;
   const calls = parseToolCalls(payload, ['TodoWrite']);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].input.todos, [
@@ -543,9 +652,9 @@ test('parseToolCalls treats CDATA object fragment as object', () => {
   });
 });
 
-test('parseToolCalls normalizes mixed DSML and XML tool tags', () => {
-  // Models commonly mix DSML wrapper tags with canonical inner tags.
-  const payload = '<|DSML|tool_calls><invoke name="read_file"><|DSML|parameter name="path">README.MD</|DSML|parameter></invoke></|DSML|tool_calls>';
+test('parseToolCalls normalizes mixed EPSE and XML tool tags', () => {
+  // Models commonly mix EPSE wrapper tags with canonical inner tags.
+  const payload = '<|EPSE|tool_calls><invoke name="read_file"><|EPSE|parameter name="path">README.MD</|EPSE|parameter></invoke></|EPSE|tool_calls>';
   const calls = parseToolCalls(payload, ['read_file']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'read_file');
@@ -554,13 +663,13 @@ test('parseToolCalls normalizes mixed DSML and XML tool tags', () => {
 
 test('parseToolCalls skips prose mention of same wrapper variant', () => {
   const payload = [
-    'Summary: support canonical <tool_calls> and DSML <|DSML|tool_calls> wrappers.',
+    'Summary: support canonical <tool_calls> and EPSE <|EPSE|tool_calls> wrappers.',
     '',
-    '<|DSML|tool_calls>',
-    '<|DSML|invoke name="Bash">',
-    '<|DSML|parameter name="command"><![CDATA[git status]]></|DSML|parameter>',
-    '</|DSML|invoke>',
-    '</|DSML|tool_calls>',
+    '<|EPSE|tool_calls>',
+    '<|EPSE|invoke name="Bash">',
+    '<|EPSE|parameter name="command"><![CDATA[git status]]></|EPSE|parameter>',
+    '</|EPSE|invoke>',
+    '</|EPSE|tool_calls>',
   ].join('\n');
   const calls = parseToolCalls(payload, ['Bash']);
   assert.equal(calls.length, 1);
@@ -583,12 +692,12 @@ test('parseToolCalls preserves backticks inside tool parameters', () => {
 
 test('sieve emits tool_calls after prose mentions same wrapper variant', () => {
   const events = runSieve([
-    'Summary: support canonical <tool_calls> and DSML <|DSML|tool_calls> wrappers.\n\n',
-    '<|DSML|tool_calls>\n',
-    '<|DSML|invoke name="Bash">\n',
-    '<|DSML|parameter name="command"><![CDATA[git status]]></|DSML|parameter>\n',
-    '</|DSML|invoke>\n',
-    '</|DSML|tool_calls>',
+    'Summary: support canonical <tool_calls> and EPSE <|EPSE|tool_calls> wrappers.\n\n',
+    '<|EPSE|tool_calls>\n',
+    '<|EPSE|invoke name="Bash">\n',
+    '<|EPSE|parameter name="command"><![CDATA[git status]]></|EPSE|parameter>\n',
+    '</|EPSE|invoke>\n',
+    '</|EPSE|tool_calls>',
   ], ['Bash']);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
   assert.equal(finalCalls.length, 1);
@@ -610,13 +719,13 @@ test('sieve ignores markdown documentation examples', () => {
     '  </invoke>\n',
     '</tool_calls>\n',
     '```\n\n',
-    'DSML 风格形如 `<invoke name="tool">...</invoke>`，也可能提到 `<tool_calls>` 包裹。\n',
+    'EPSE 风格形如 `<invoke name="tool">...</invoke>`，也可能提到 `<tool_calls>` 包裹。\n',
   ], ['read_file']);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
   const text = collectText(events);
   assert.equal(finalCalls.length, 0);
   assert.equal(text.includes('标准 XML 结构'), true);
-  assert.equal(text.includes('DSML 风格'), true);
+  assert.equal(text.includes('EPSE 风格'), true);
 });
 
 test('sieve ignores inline markdown tool example split across chunks', () => {
@@ -665,14 +774,14 @@ test('sieve emits real tool after split inline markdown tool example closes', ()
   assert.equal(finalCalls[0].input.path, 'real.md');
 });
 
-test('sieve emits tool_calls for DSML space-separator typo', () => {
+test('sieve emits tool_calls for EPSE space-separator typo', () => {
   const events = runSieve([
     '准备读取文件。\n',
-    '<|DSML tool_calls>\n',
-    '<|DSML invoke name="Read">\n',
-    '<|DSML parameter name="file_path"><![CDATA[/tmp/input.txt]]></|DSML parameter>\n',
-    '</|DSML invoke>\n',
-    '</|DSML tool_calls>',
+    '<|EPSE tool_calls>\n',
+    '<|EPSE invoke name="Read">\n',
+    '<|EPSE parameter name="file_path"><![CDATA[/tmp/input.txt]]></|EPSE parameter>\n',
+    '</|EPSE invoke>\n',
+    '</|EPSE tool_calls>',
   ], ['Read']);
   const text = collectText(events);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
@@ -680,11 +789,11 @@ test('sieve emits tool_calls for DSML space-separator typo', () => {
   assert.equal(finalCalls[0].name, 'Read');
   assert.equal(finalCalls[0].input.file_path, '/tmp/input.txt');
   assert.equal(text.includes('准备读取文件'), true);
-  assert.equal(text.includes('<|DSML invoke'), false);
+  assert.equal(text.includes('<|EPSE invoke'), false);
 });
 
 test('sieve emits tool_calls for fullwidth closing slash and preserves suffix text', () => {
-  const input = '<|DSML|tool_calls><|DSML|invoke name="execute_code"><|DSML|parameter name="code"><![CDATA[print("hi")]]></|DSML|parameter></|DSML|invoke><／DSML|tool_calls> sao cụm này lại đc trả là 1 message';
+  const input = '<|EPSE|tool_calls><|EPSE|invoke name="execute_code"><|EPSE|parameter name="code"><![CDATA[print("hi")]]></|EPSE|parameter></|EPSE|invoke><／EPSE|tool_calls> sao cụm này lại đc trả là 1 message';
   const events = runSieve([input], ['execute_code']);
   const text = collectText(events);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
@@ -695,7 +804,7 @@ test('sieve emits tool_calls for fullwidth closing slash and preserves suffix te
 });
 
 test('sieve emits tool_calls for sentencepiece separator and fullwidth terminator', () => {
-  const input = '<|DSML▁tool_calls|><|DSML▁invoke▁name="execute_code"><|DSML▁parameter▁name="code"><![CDATA[print("hi")]]></|DSML▁parameter></|DSML▁invoke></|DSML▁tool_calls＞ suffix';
+  const input = '<|EPSE▁tool_calls|><|EPSE▁invoke▁name="execute_code"><|EPSE▁parameter▁name="code"><![CDATA[print("hi")]]></|EPSE▁parameter></|EPSE▁invoke></|EPSE▁tool_calls＞ suffix';
   const events = runSieve([input], ['execute_code']);
   const text = collectText(events);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
@@ -706,7 +815,7 @@ test('sieve emits tool_calls for sentencepiece separator and fullwidth terminato
 });
 
 test('sieve emits tool_calls for fullwidth opening delimiter and Unicode attribute confusables', () => {
-  const input = '＜|DSML　tool_calls＞＜|DSML　invoke　name＝“execute_code”＞＜|DSML　parameter　name＝“code”＞<![CDATA[print("hi")]]>＜／DSML|parameter＞＜／DSML|invoke＞＜／DSML|tool_calls＞ suffix';
+  const input = '＜|EPSE　tool_calls＞＜|EPSE　invoke　name＝“execute_code”＞＜|EPSE　parameter　name＝“code”＞<![CDATA[print("hi")]]>＜／EPSE|parameter＞＜／EPSE|invoke＞＜／EPSE|tool_calls＞ suffix';
   const events = runSieve([input], ['execute_code']);
   const text = collectText(events);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
@@ -717,7 +826,7 @@ test('sieve emits tool_calls for fullwidth opening delimiter and Unicode attribu
 });
 
 test('sieve emits tool_calls for confusable candidate shell and preserves suffix text', () => {
-  const input = '<|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls><|\ufeffDSML|inv\u03bfk\u0435 n\u0430me\uff1d\u201cexecute_code\u201d><|\u200bDSML|par\u0430meter n\u0430me\uff1d\u201ccode\u201d><![\ufeff\u0421D\u0410T\u0410[print("hi")]]></|\u200bDSML|par\u0430meter></|\u200bDSML|inv\u03bfk\u0435></|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls> suffix';
+  const input = '<|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls><|\ufeffEPSE|inv\u03bfk\u0435 n\u0430me\uff1d\u201cexecute_code\u201d><|\u200bEPSE|par\u0430meter n\u0430me\uff1d\u201ccode\u201d><![\ufeff\u0421D\u0410T\u0410[print("hi")]]></|\u200bEPSE|par\u0430meter></|\u200bEPSE|inv\u03bfk\u0435></|\u200b\uff24\u0405\u039cL|to\u03bfl\uff3fcalls> suffix';
   const events = runSieve([input], ['execute_code']);
   const text = collectText(events);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
@@ -742,39 +851,39 @@ test('sieve repairs confusable missing opening wrapper and preserves suffix text
   assert.equal(text, ' trailing prose');
 });
 
-test('sieve emits tool_calls for DSML trailing pipe tag terminator', () => {
+test('sieve emits tool_calls for EPSE trailing pipe tag terminator', () => {
   const events = runSieve([
-    '<|DSML|tool_calls| \n',
-    '<|DSML|invoke name="terminal">\n',
-    '<|DSML|parameter name="command"><![CDATA[find "/home" -type d]]></|DSML|parameter>\n',
-    '<|DSML|parameter name="timeout"><![CDATA[10]]></|DSML|parameter>\n',
-    '</|DSML|invoke>\n',
-    '</|DSML|tool_calls>',
+    '<|EPSE|tool_calls| \n',
+    '<|EPSE|invoke name="terminal">\n',
+    '<|EPSE|parameter name="command"><![CDATA[find "/home" -type d]]></|EPSE|parameter>\n',
+    '<|EPSE|parameter name="timeout"><![CDATA[10]]></|EPSE|parameter>\n',
+    '</|EPSE|invoke>\n',
+    '</|EPSE|tool_calls>',
   ], ['terminal']);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
   const text = collectText(events);
   assert.equal(finalCalls.length, 1);
   assert.equal(finalCalls[0].name, 'terminal');
   assert.deepEqual(finalCalls[0].input, { command: 'find "/home" -type d', timeout: 10 });
-  assert.equal(text.toLowerCase().includes('dsml'), false);
+  assert.equal(text.toLowerCase().includes('epse'), false);
 });
 
-test('sieve emits tool_calls for DSML control separator drift', () => {
+test('sieve emits tool_calls for EPSE control separator drift', () => {
   for (const sep of ['␂', '\x02']) {
     const events = runSieve([
-      `<DSML${sep}tool`,
+      `<EPSE${sep}tool`,
       '_calls>\n',
-      `<DSML${sep}invoke name="Read">\n`,
-      `<DSML${sep}parameter name="file_path"><![CDATA[/tmp/input.txt]]></DSML${sep}parameter>\n`,
-      `</DSML${sep}invoke>\n`,
-      `</DSML${sep}tool_calls>`,
+      `<EPSE${sep}invoke name="Read">\n`,
+      `<EPSE${sep}parameter name="file_path"><![CDATA[/tmp/input.txt]]></EPSE${sep}parameter>\n`,
+      `</EPSE${sep}invoke>\n`,
+      `</EPSE${sep}tool_calls>`,
     ], ['Read']);
     const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
     assert.equal(finalCalls.length, 1);
     assert.equal(finalCalls[0].name, 'Read');
     assert.equal(finalCalls[0].input.file_path, '/tmp/input.txt');
     const text = collectText(events);
-    assert.equal(text.toLowerCase().includes('dsml'), false);
+    assert.equal(text.toLowerCase().includes('epse'), false);
     assert.equal(text.includes(sep), false);
   }
 });
@@ -797,14 +906,14 @@ test('sieve emits tool_calls for arbitrary-prefixed tool tags', () => {
   assert.equal(text.includes('💥'), false);
 });
 
-test('sieve emits tool_calls for CJK-angle DSM drift', () => {
+test('sieve emits tool_calls for CJK-angle EPS drift', () => {
   const events = runSieve([
-    '<DSM|tool_calls>\n',
-    '<DSM|invoke name="Bash">\n',
-    '<DSM|parameter name="description"|>〈![CDATA[Check tracking branch status]]〉〈/DSM|parameter〉\n',
-    '<DSM|parameter name="command"|>〈![CDATA[git status -b --short]]〉〈/DSM|parameter〉\n',
-    '〈/DSM|invoke〉\n',
-    '〈/DSM|tool_calls〉',
+    '<EPS|tool_calls>\n',
+    '<EPS|invoke name="Bash">\n',
+    '<EPS|parameter name="description"|>〈![CDATA[Check tracking branch status]]〉〈/EPS|parameter〉\n',
+    '<EPS|parameter name="command"|>〈![CDATA[git status -b --short]]〉〈/EPS|parameter〉\n',
+    '〈/EPS|invoke〉\n',
+    '〈/EPS|tool_calls〉',
   ], ['Bash']);
   const finalCalls = events.flatMap((evt) => (evt.type === 'tool_calls' ? evt.calls : []));
   assert.equal(finalCalls.length, 1);
@@ -813,14 +922,14 @@ test('sieve emits tool_calls for CJK-angle DSM drift', () => {
   assert.equal(collectText(events), '');
 });
 
-test('sieve emits tool_calls for fullwidth-bang DSML drift', () => {
+test('sieve emits tool_calls for fullwidth-bang EPSE drift', () => {
   const events = runSieve([
-    '<！DSML！tool_calls>\n',
-    '  <！DSML！invoke name=“Bash”>\n',
-    '  <！DSML！parameter name=“command”><！[CDATA[lsof -i :4321 -t]]><！/DSML！parameter>\n',
-    '  <！DSML！parameter name=“description”><！[CDATA[Verify port 4321 is free]]><！/DSML！parameter>\n',
-    '  <！/DSML！invoke>\n',
-    '  <！/DSML！tool_calls>',
+    '<！EPSE！tool_calls>\n',
+    '  <！EPSE！invoke name=“Bash”>\n',
+    '  <！EPSE！parameter name=“command”><！[CDATA[lsof -i :4321 -t]]><！/EPSE！parameter>\n',
+    '  <！EPSE！parameter name=“description”><！[CDATA[Verify port 4321 is free]]><！/EPSE！parameter>\n',
+    '  <！/EPSE！invoke>\n',
+    '  <！/EPSE！tool_calls>',
   ], ['Bash']);
   const finalCalls = events.flatMap((evt) => (evt.type === 'tool_calls' ? evt.calls : []));
   assert.equal(finalCalls.length, 1);
@@ -829,18 +938,18 @@ test('sieve emits tool_calls for fullwidth-bang DSML drift', () => {
   assert.equal(collectText(events), '');
 });
 
-test('sieve emits tool_calls for ideographic-comma DSML drift', () => {
+test('sieve emits tool_calls for ideographic-comma EPSE drift', () => {
   const events = runSieve([
-    '<、DSML、tool_calls>\n',
-    '  <、DSML、invoke name="Bash">\n',
-    "    <、DSML、parameter name=\"command\"><、[CDATA[git commit -m \"$(cat <<'EOF'\n",
-    'feat: expand fullwidth bang separator and curly quote tolerance in DSML tool parsing\n\n',
+    '<、EPSE、tool_calls>\n',
+    '  <、EPSE、invoke name="Bash">\n',
+    "    <、EPSE、parameter name=\"command\"><、[CDATA[git commit -m \"$(cat <<'EOF'\n",
+    'feat: expand fullwidth bang separator and curly quote tolerance in EPSE tool parsing\n\n',
     'Co-Authored-By: Claude Opus 4.6 noreply@anthropic.com\n',
     'EOF\n',
-    ')"]]><、/DSML、parameter>\n',
-    '    <、DSML、parameter name="description"><、[CDATA[Create commit with staged changes]]><、/DSML、parameter>\n',
-    '  <、/DSML、invoke>\n',
-    '<、/DSML、tool_calls>',
+    ')"]]><、/EPSE、parameter>\n',
+    '    <、EPSE、parameter name="description"><、[CDATA[Create commit with staged changes]]><、/EPSE、parameter>\n',
+    '  <、/EPSE、invoke>\n',
+    '<、/EPSE、tool_calls>',
   ], ['Bash']);
   const finalCalls = events.flatMap((evt) => (evt.type === 'tool_calls' ? evt.calls : []));
   assert.equal(finalCalls.length, 1);
@@ -851,13 +960,13 @@ test('sieve emits tool_calls for ideographic-comma DSML drift', () => {
 
 test('sieve emits all-empty arbitrary-prefixed tool tags without leaking text', () => {
   const payload = [
-    '<T|DSML|tool_calls>\n',
-    '  <T|DSML|invoke name="TaskOutput">\n',
-    '    <T|DSML|parameter name="task_id"></T|DSML|parameter>\n',
-    '    <T|DSML|parameter name="block"></T|DSML|parameter>\n',
-    '    <T|DSML|parameter name="timeout"></T|DSML|parameter>\n',
-    '  </T|DSML|invoke>\n',
-    '</T|DSML|tool_calls>',
+    '<T|EPSE|tool_calls>\n',
+    '  <T|EPSE|invoke name="TaskOutput">\n',
+    '    <T|EPSE|parameter name="task_id"></T|EPSE|parameter>\n',
+    '    <T|EPSE|parameter name="block"></T|EPSE|parameter>\n',
+    '    <T|EPSE|parameter name="timeout"></T|EPSE|parameter>\n',
+    '  </T|EPSE|invoke>\n',
+    '</T|EPSE|tool_calls>',
   ].join('');
   for (const chunks of [[payload], payload.match(/.{1,8}/gs)]) {
     const events = runSieve(chunks, ['TaskOutput']);
@@ -869,13 +978,13 @@ test('sieve emits all-empty arbitrary-prefixed tool tags without leaking text', 
   }
 });
 
-test('sieve emits tool_calls for extra leading less-than DSML tags without leaking prefix', () => {
+test('sieve emits tool_calls for extra leading less-than EPSE tags without leaking prefix', () => {
   const events = runSieve([
-    '<<|DSML|tool_calls>\n',
-    '<<|DSML|invoke name="Bash">\n',
-    '<<|DSML|parameter name="command"><![CDATA[pwd]]></|DSML|parameter>\n',
-    '</|DSML|invoke>\n',
-    '</|DSML|tool_calls>',
+    '<<|EPSE|tool_calls>\n',
+    '<<|EPSE|invoke name="Bash">\n',
+    '<<|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter>\n',
+    '</|EPSE|invoke>\n',
+    '</|EPSE|tool_calls>',
   ], ['Bash']);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
   const text = collectText(events);
@@ -885,19 +994,19 @@ test('sieve emits tool_calls for extra leading less-than DSML tags without leaki
   assert.equal(text.includes('<'), false);
 });
 
-test('sieve keeps DSML space lookalike tag names as text', () => {
-  const input = '<|DSML tool_calls_extra><|DSML invoke name="Read"><|DSML parameter name="file_path">/tmp/input.txt</|DSML parameter></|DSML invoke></|DSML tool_calls_extra>';
+test('sieve keeps EPSE space lookalike tag names as text', () => {
+  const input = '<|EPSE tool_calls_extra><|EPSE invoke name="Read"><|EPSE parameter name="file_path">/tmp/input.txt</|EPSE parameter></|EPSE invoke></|EPSE tool_calls_extra>';
   const events = runSieve([input], ['Read']);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
   assert.equal(finalCalls.length, 0);
   assert.equal(collectText(events), input);
 });
 
-test('sieve emits tool_calls for collapsed DSML tag names and preserves prefix text', () => {
+test('sieve emits tool_calls for collapsed EPSE tag names and preserves prefix text', () => {
   const todos = [
     '[x] 检查 toolcalls_format.go 格式化逻辑',
     '[x] 检查 toolcalls_parse.go 解析逻辑',
-    '[x] 检查 toolcalls_xml.go 和 toolcalls_dsml.go',
+    '[x] 检查 toolcalls_xml.go 和 toolcalls_epse.go',
     '[x] 检查 toolcalls_markup.go 和 toolcalls_json_repair.go',
     '[x] 检查 prompt/tool_calls.go 注入逻辑',
     '[x] 检查 toolstream 流式解析',
@@ -906,11 +1015,11 @@ test('sieve emits tool_calls for collapsed DSML tag names and preserves prefix t
   ].join('\n');
   const events = runSieve([
     '[]\n',
-    '<DSMLtool_calls>\n',
-    '<DSMLinvoke name="update_todo_list">\n',
-    `<DSMLparameter name="todos"><![CDATA[${todos}]]></DSMLparameter>\n`,
-    '</DSMLinvoke>\n',
-    '</DSMLtool_calls>',
+    '<EPSEtool_calls>\n',
+    '<EPSEinvoke name="update_todo_list">\n',
+    `<EPSEparameter name="todos"><![CDATA[${todos}]]></EPSEparameter>\n`,
+    '</EPSEinvoke>\n',
+    '</EPSEtool_calls>',
   ], ['update_todo_list']);
   const text = collectText(events);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
@@ -920,8 +1029,8 @@ test('sieve emits tool_calls for collapsed DSML tag names and preserves prefix t
   assert.equal(text, '[]\n');
 });
 
-test('sieve keeps collapsed DSML lookalike tag names as text', () => {
-  const input = '<DSMLtool_calls_extra><DSMLinvoke name="update_todo_list"><DSMLparameter name="todos">x</DSMLparameter></DSMLinvoke></DSMLtool_calls_extra>';
+test('sieve keeps collapsed EPSE lookalike tag names as text', () => {
+  const input = '<EPSEtool_calls_extra><EPSEinvoke name="update_todo_list"><EPSEparameter name="todos">x</EPSEparameter></EPSEinvoke></EPSEtool_calls_extra>';
   const events = runSieve([input], ['update_todo_list']);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
   assert.equal(finalCalls.length, 0);
@@ -936,73 +1045,73 @@ test('sieve keeps confusable near-miss wrappers as text', () => {
   assert.equal(collectText(events), input);
 });
 
-test('sieve preserves review body with alias mentions before real DSML tool calls', () => {
+test('sieve preserves review body with alias mentions before real EPSE tool calls', () => {
   const events = runSieve([
     "Done reviewing the diff. Here's my analysis before we commit:\n\n",
     'Summary of Changes\n',
-    'DSML wrapper variant support — recognize aliases (<dsml|tool_calls>, <|tool_calls>) alongside canonical <tool_calls> and <|DSML|tool_calls> wrappers.\n\n',
-    '<|DSML|tool_calls>\n',
-    '<|DSML|invoke name="Bash">\n',
-    '<|DSML|parameter name="command"><![CDATA[git add docs/toolcall-semantics.md internal/toolstream/tool_sieve_xml.go]]></|DSML|parameter>\n',
-    '<|DSML|parameter name="description"><![CDATA[Stage all relevant changed files]]></|DSML|parameter>\n',
-    '</|DSML|invoke>\n',
-    '<|DSML|invoke name="Bash">\n',
-    '<|DSML|parameter name="command"><![CDATA[git commit -m "$(cat <<\'EOF\'\nfeat(toolstream): expand DSML wrapper detection\n\nSupport DSML wrapper aliases: <dsml|tool_calls> and <|tool_calls> alongside existing canonical wrappers.\nEOF\n)"]]></|DSML|parameter>\n',
-    '<|DSML|parameter name="description"><![CDATA[Create commit with all staged changes]]></|DSML|parameter>\n',
-    '</|DSML|invoke>\n',
-    '</|DSML|tool_calls>',
+    'EPSE wrapper variant support — recognize aliases (<epse|tool_calls>, <|tool_calls>) alongside canonical <tool_calls> and <|EPSE|tool_calls> wrappers.\n\n',
+    '<|EPSE|tool_calls>\n',
+    '<|EPSE|invoke name="Bash">\n',
+    '<|EPSE|parameter name="command"><![CDATA[git add docs/toolcall-semantics.md internal/toolstream/tool_sieve_xml.go]]></|EPSE|parameter>\n',
+    '<|EPSE|parameter name="description"><![CDATA[Stage all relevant changed files]]></|EPSE|parameter>\n',
+    '</|EPSE|invoke>\n',
+    '<|EPSE|invoke name="Bash">\n',
+    '<|EPSE|parameter name="command"><![CDATA[git commit -m "$(cat <<\'EOF\'\nfeat(toolstream): expand EPSE wrapper detection\n\nSupport EPSE wrapper aliases: <epse|tool_calls> and <|tool_calls> alongside existing canonical wrappers.\nEOF\n)"]]></|EPSE|parameter>\n',
+    '<|EPSE|parameter name="description"><![CDATA[Create commit with all staged changes]]></|EPSE|parameter>\n',
+    '</|EPSE|invoke>\n',
+    '</|EPSE|tool_calls>',
   ], ['Bash']);
   const text = collectText(events);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
   assert.equal(finalCalls.length, 2);
-  assert.equal(text.includes('<|DSML|tool_calls> wrappers'), true);
+  assert.equal(text.includes('<|EPSE|tool_calls> wrappers'), true);
   assert.equal(text.includes('Summary of Changes'), true);
   assert.equal(text.includes('git add docs/toolcall-semantics.md'), false);
 });
 
-test('sieve preserves Chinese review body with inline DSML mention before real tool call', () => {
+test('sieve preserves Chinese review body with inline EPSE mention before real tool call', () => {
   const events = runSieve([
     '# Context from my IDE setup:\n\n## My request for Codex:\n',
-    '基于我的审查，这是工作区更改的总结和提交。\n\n## 审查报告\n\n### 文档\n\nAPI.md 中的工具调用部分缺少针对新 DSML 别名的更新——它只提到了 `',
-    '<|DSML|tool_calls>` 和 canonical `<tool_calls>`。由于这涉及 API 兼容性和文档准确性，需要在下游进行记录。\n\n',
-    '### 代码\n\n所有更改现在一致地处理四个 DSML wrapper 变体。\n\n现在提交已暂存的更改。\n\n',
-    '<|DSML|tool_calls>\n',
-    '  <|DSML|invoke name="Bash">\n',
-    '    <|DSML|parameter name="command"><![CDATA[git commit -m "$(cat <<\'EOF\'\nfeat: expand DSML tool-call alias and fence handling\nEOF\n)"]]></|DSML|parameter>\n',
-    '    <|DSML|parameter name="description"><![CDATA[Commit staged changes]]></|DSML|parameter>\n',
-    '  </|DSML|invoke>\n',
-    '</|DSML|tool_calls>\n\n补充',
+    '基于我的审查，这是工作区更改的总结和提交。\n\n## 审查报告\n\n### 文档\n\nAPI.md 中的工具调用部分缺少针对新 EPSE 别名的更新——它只提到了 `',
+    '<|EPSE|tool_calls>` 和 canonical `<tool_calls>`。由于这涉及 API 兼容性和文档准确性，需要在下游进行记录。\n\n',
+    '### 代码\n\n所有更改现在一致地处理四个 EPSE wrapper 变体。\n\n现在提交已暂存的更改。\n\n',
+    '<|EPSE|tool_calls>\n',
+    '  <|EPSE|invoke name="Bash">\n',
+    '    <|EPSE|parameter name="command"><![CDATA[git commit -m "$(cat <<\'EOF\'\nfeat: expand EPSE tool-call alias and fence handling\nEOF\n)"]]></|EPSE|parameter>\n',
+    '    <|EPSE|parameter name="description"><![CDATA[Commit staged changes]]></|EPSE|parameter>\n',
+    '  </|EPSE|invoke>\n',
+    '</|EPSE|tool_calls>\n\n补充',
   ], ['Bash']);
   const text = collectText(events);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
   assert.equal(finalCalls.length, 1);
-  assert.equal(text.includes('它只提到了 `<|DSML|tool_calls>` 和 canonical `<tool_calls>`。由于这涉及 API 兼容性'), true);
+  assert.equal(text.includes('它只提到了 `<|EPSE|tool_calls>` 和 canonical `<tool_calls>`。由于这涉及 API 兼容性'), true);
   assert.equal(text.includes('补充'), true);
-  assert.equal(text.includes('<|DSML|invoke'), false);
+  assert.equal(text.includes('<|EPSE|invoke'), false);
 });
 
-test('sieve captures hyphenated DSML shell with here-doc CDATA', () => {
+test('sieve captures hyphenated EPSE shell with here-doc CDATA', () => {
   const events = runSieve([
-    '<dsml-tool-calls>\n',
-    '<dsml-invoke name="Bash">\n',
-    '<dsml-parameter name="command"><![CDATA[git commit -m "$(cat <<\'EOF\'\n',
+    '<epse-tool-calls>\n',
+    '<epse-invoke name="Bash">\n',
+    '<epse-parameter name="command"><![CDATA[git commit -m "$(cat <<\'EOF\'\n',
     'docs: add missing directory entries and package descriptions to architecture docs\n',
     'Fill gaps identified in architecture audit: add artifacts/ and static/ to\n',
     'directory tree, and document 7 auxiliary internal/ packages (textclean,\n',
     'claudeconv, compat, rawsample, devcapture, util, version) in Section 3.\n\n',
     'Co-Authored-By: Claude Opus 4.7 noreply@anthropic.com\n',
     'EOF\n',
-    ')"]]></dsml-parameter>\n',
-    '<dsml-parameter name="description"><![CDATA[Create commit with architecture doc updates]]></dsml-parameter>\n',
-    '</dsml-invoke>\n',
-    '</dsml-tool-calls>',
+    ')"]]></epse-parameter>\n',
+    '<epse-parameter name="description"><![CDATA[Create commit with architecture doc updates]]></epse-parameter>\n',
+    '</epse-invoke>\n',
+    '</epse-tool-calls>',
   ], ['Bash']);
   const text = collectText(events);
   const finalCalls = events.filter((evt) => evt.type === 'tool_calls').flatMap((evt) => evt.calls || []);
   assert.equal(finalCalls.length, 1);
   assert.equal(finalCalls[0].input.command.includes('git commit -m "$(cat <<\'EOF\''), true);
   assert.equal(finalCalls[0].input.command.includes('Co-Authored-By: Claude Opus 4.7'), true);
-  assert.equal(text.includes('dsml-tool-calls'), false);
+  assert.equal(text.includes('epse-tool-calls'), false);
   assert.equal(text.includes('git commit -m'), false);
 });
 
@@ -1055,12 +1164,12 @@ test('sieve emits tool_calls when XML tag spans multiple chunks', () => {
   assert.equal(finalCalls[0].name, 'read_file');
 });
 
-test('sieve emits tool_calls when DSML tag spans multiple chunks', () => {
+test('sieve emits tool_calls when EPSE tag spans multiple chunks', () => {
   const events = runSieve(
     [
-      '<|DSML|tool',
-      '_calls><|DSML|invoke name="read_file">',
-      '<|DSML|parameter name="path">README.MD</|DSML|parameter></|DSML|invoke></|DSML|tool_calls>',
+      '<|EPSE|tool',
+      '_calls><|EPSE|invoke name="read_file">',
+      '<|EPSE|parameter name="path">README.MD</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>',
     ],
     ['read_file'],
   );
@@ -1071,20 +1180,20 @@ test('sieve emits tool_calls when DSML tag spans multiple chunks', () => {
   assert.equal(finalCalls[0].name, 'read_file');
 });
 
-test('sieve emits tool_calls when fullwidth DSML prefix variant spans multiple chunks', () => {
+test('sieve emits tool_calls when fullwidth EPSE prefix variant spans multiple chunks', () => {
   const events = runSieve(
     [
-      '<|DSML|tool',
+      '<|EPSE|tool',
       '_calls>\n',
-      '<|DSML|invoke name="Bash">\n',
-      '<|DSML|parameter name="command"><![CDATA[ls -la /Users/aq/Desktop/myproject/ds2api/]]></|DSML|parameter>\n',
-      '<|DSML|parameter name="description"><![CDATA[List project root contents]]></|DSML|parameter>\n',
-      '</|DSML|invoke>\n',
-      '<|DSML|invoke name="Bash">\n',
-      '<|DSML|parameter name="command"><![CDATA[cat /Users/aq/Desktop/myproject/ds2api/package.json 2>/dev/null || echo "No package.json found"]]></|DSML|parameter>\n',
-      '<|DSML|parameter name="description"><![CDATA[Check for existing package.json]]></|DSML|parameter>\n',
-      '</|DSML|invoke>\n',
-      '</|DSML|tool_calls>',
+      '<|EPSE|invoke name="Bash">\n',
+      '<|EPSE|parameter name="command"><![CDATA[ls -la /Users/aq/Desktop/myproject/ds2api/]]></|EPSE|parameter>\n',
+      '<|EPSE|parameter name="description"><![CDATA[List project root contents]]></|EPSE|parameter>\n',
+      '</|EPSE|invoke>\n',
+      '<|EPSE|invoke name="Bash">\n',
+      '<|EPSE|parameter name="command"><![CDATA[cat /Users/aq/Desktop/myproject/ds2api/package.json 2>/dev/null || echo "No package.json found"]]></|EPSE|parameter>\n',
+      '<|EPSE|parameter name="description"><![CDATA[Check for existing package.json]]></|EPSE|parameter>\n',
+      '</|EPSE|invoke>\n',
+      '</|EPSE|tool_calls>',
     ],
     ['Bash'],
   );
@@ -1350,4 +1459,81 @@ test('parseToolCalls rejects mismatched markup tags', () => {
   const payload = '<tool_calls><invoke name="read_file"><parameter name="path">README.md</function></invoke></tool_calls>';
   const calls = parseToolCalls(payload, ['read_file']);
   assert.equal(calls.length, 0);
+});
+
+test('sieve hides DSML wrapper from visible text', () => {
+  const input = 'before <DSML calls><DSML invoke name="read"><DSML parameter name="path">/tmp/a.txt</DSML parameter></DSML invoke></DSML calls> after';
+  const chunks = [
+    'before <DSML calls><DSML invoke name="read">',
+    '<DSML parameter name="path">',
+    '/tmp/a.txt',
+    '</DSML parameter>',
+    '</DSML invoke>',
+    '</DSML calls> after',
+  ];
+  const state = createToolSieveState();
+  const events = [];
+  chunks.forEach((chunk) => {
+    const next = processToolSieveChunk(state, chunk, ['read']);
+    assert.equal(
+      next.some((evt) => evt.type === 'text' && evt.text.includes('<DSML')),
+      false,
+    );
+    events.push(...next);
+  });
+  events.push(...flushToolSieve(state, ['read']));
+
+  const hasToolCall = events.some((evt) => evt.type === 'tool_calls' && evt.calls?.length > 0);
+  assert.equal(hasToolCall, false);
+  const text = collectText(events);
+  assert.equal(text.includes('<DSML'), false);
+  assert.equal(text.includes('before'), true);
+  assert.equal(text.includes('after'), true);
+});
+
+test('sieve hides unclosed DSML wrapper at flush', () => {
+  const state = createToolSieveState();
+  const events = [];
+  for (const chunk of ['before <DSML calls><DSML invoke name="read">']) {
+    const next = processToolSieveChunk(state, chunk, ['read']);
+    assert.equal(
+      next.some((evt) => evt.type === 'text' && evt.text.includes('<DSML')),
+      false,
+    );
+    events.push(...next);
+  }
+  events.push(...flushToolSieve(state, ['read']));
+
+  const hasToolCall = events.some((evt) => evt.type === 'tool_calls' && evt.calls?.length > 0);
+  assert.equal(hasToolCall, false);
+  assert.equal(collectText(events), 'before ');
+});
+
+test('sieve flush strips DSML tag leaked via incomplete XML capture release', () => {
+  const text = collectText(runSieve([
+    '好的，先查一下文件。\n',
+    '<tool_calls>\n',
+    '<invoke name="read_file">\n',
+    '<parameter name="path">README</parameter>\n',
+    '<｜｜DSML｜｜ calls>',
+  ], ['read_file']));
+  assert.equal(text.includes('DSML'), false);
+});
+
+test('sieve flush strips trailing partial DSML tag from pending release', () => {
+  const text = collectText(runSieve([
+    '任务完成。<｜｜DSML｜｜ calls',
+  ], null));
+  assert.equal(text.includes('DSML'), false);
+});
+
+test('sieve hides lone complete fullwidth DSML tag in prose', () => {
+  for (const chunks of [
+    ['好的，任务完成。<｜｜DSML｜｜ calls>以上是结果。'],
+    ['好的，任务完成。<｜｜DSML｜｜ calls>'],
+    ['好的，任务完成。<｜｜DS', 'ML｜｜ calls>'],
+  ]) {
+    const text = collectText(runSieve(chunks, null));
+    assert.equal(text.includes('DSML'), false);
+  }
 });

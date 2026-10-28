@@ -1,42 +1,55 @@
 import { CheckCircle2, Server, ShieldCheck } from 'lucide-react'
 
+function StatCard({ icon: Icon, label, value, unit, tone }) {
+    return (
+        <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-5 transition-all duration-200 hover:border-primary/30 hover:shadow-md">
+            <div className="pointer-events-none absolute -right-3 -top-3 opacity-[0.06] transition-opacity group-hover:opacity-[0.12]">
+                <Icon className="h-20 w-20" />
+            </div>
+            <div className="flex items-center gap-2">
+                <span className={`inline-flex h-1.5 w-1.5 rounded-full ${tone}`} />
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {label}
+                </p>
+            </div>
+            <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">
+                    {value}
+                </span>
+                <span className="text-xs text-muted-foreground">{unit}</span>
+            </div>
+        </div>
+    )
+}
+
 export default function QueueCards({ queueStatus, t }) {
     if (!queueStatus) {
         return null
     }
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm relative overflow-hidden group">
-                <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <CheckCircle2 className="w-16 h-16" />
-                </div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">{t('accountManager.available')}</p>
-                <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-3xl font-bold text-foreground">{queueStatus.available}</span>
-                    <span className="text-xs text-muted-foreground">{t('accountManager.accountsUnit')}</span>
-                </div>
-            </div>
-            <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm relative overflow-hidden group">
-                <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <Server className="w-16 h-16" />
-                </div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">{t('accountManager.inUse')}</p>
-                <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-3xl font-bold text-foreground">{queueStatus.in_use}</span>
-                    <span className="text-xs text-muted-foreground">{t('accountManager.threadsUnit')}</span>
-                </div>
-            </div>
-            <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-sm relative overflow-hidden group">
-                <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <ShieldCheck className="w-16 h-16" />
-                </div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">{t('accountManager.totalPool')}</p>
-                <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-3xl font-bold text-foreground">{queueStatus.total}</span>
-                    <span className="text-xs text-muted-foreground">{t('accountManager.accountsUnit')}</span>
-                </div>
-            </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <StatCard
+                icon={CheckCircle2}
+                label={t('accountManager.available')}
+                value={queueStatus.available}
+                unit={t('accountManager.accountsUnit')}
+                tone="bg-emerald-500"
+            />
+            <StatCard
+                icon={Server}
+                label={t('accountManager.inUse')}
+                value={queueStatus.in_use}
+                unit={t('accountManager.threadsUnit')}
+                tone="bg-primary"
+            />
+            <StatCard
+                icon={ShieldCheck}
+                label={t('accountManager.totalPool')}
+                value={queueStatus.total}
+                unit={t('accountManager.accountsUnit')}
+                tone="bg-sky-500"
+            />
         </div>
     )
 }
