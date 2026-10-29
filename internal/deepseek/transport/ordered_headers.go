@@ -13,6 +13,7 @@ var appHeaderOrder = []string{
 	"x-ds-pow-response", "x-thinking-enabled", "x-file-size", "x-model-type",
 	"x-client-platform", "x-client-version", "x-client-locale", "x-client-bundle-id",
 	"x-client-timezone-offset", "x-device-model", "x-rangers-id", "x-device-id",
+	"x-hif-dliq", "x-hif-leim",
 	"x-settings-token", "user-agent", "authorization", "accept", "accept-charset",
 	"content-type", "content-length", "accept-encoding",
 }

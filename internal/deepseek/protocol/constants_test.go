@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"os"
 	"testing"
 )
 
@@ -41,8 +40,8 @@ func TestSharedConstantsLoaded(t *testing.T) {
 	if BaseHeaders["x-client-timezone-offset"] != "28800" {
 		t.Fatalf("unexpected base header x-client-timezone-offset=%q", BaseHeaders["x-client-timezone-offset"])
 	}
-	if BaseHeaders["x-rangers-id"] == "" {
-		t.Fatalf("expected x-rangers-id to be derived from seed")
+	if BaseHeaders["x-rangers-id"] != "" {
+		t.Fatalf("unregistered telemetry ID must not be fabricated")
 	}
 	if len(SkipContainsPatterns) == 0 {
 		t.Fatal("expected skip contains patterns to be loaded")
@@ -72,15 +71,15 @@ func TestClientHeadersDerivedFromSharedVersion(t *testing.T) {
 	}
 }
 
-func TestBaseHeadersForRangersSeedUsesAccountSeed(t *testing.T) {
+func TestBaseHeadersDoNotInventTelemetryRegistration(t *testing.T) {
 	prev := explicitRangersID
 	explicitRangersID = ""
 	defer func() { explicitRangersID = prev }()
 
 	base := BaseHeadersForRangersSeed("account-a")
 	seeded := BaseHeadersForRangersSeed("account-b")
-	if base["x-rangers-id"] == seeded["x-rangers-id"] {
-		t.Fatalf("expected per-seed rangers id to differ, got %q for both", base["x-rangers-id"])
+	if base["x-rangers-id"] != "" || seeded["x-rangers-id"] != "" {
+		t.Fatal("account seed must not be used as a telemetry DID")
 	}
 }
 
@@ -96,46 +95,16 @@ func TestExplicitRangersEnvOverrides(t *testing.T) {
 	}
 }
 
-func TestDeriveRangersIDStablePerSeed(t *testing.T) {
-	a := deriveRangersIDFromSeed("seed-x")
-	b := deriveRangersIDFromSeed("seed-x")
-	if a != b {
-		t.Fatalf("expected deterministic seed-derived id, got %q vs %q", a, b)
+func TestSharedConstantsHaveNoFixedDeviceModel(t *testing.T) {
+	var shared sharedConstants
+	if err := json.Unmarshal(sharedConstantsJSON, &shared); err != nil {
+		t.Fatal(err)
 	}
-	if a == "" {
-		t.Fatal("expected non-empty derived id")
+	if shared.Client.DeviceModel != "" {
+		t.Fatalf("unexpected fixed device default: %s", shared.Client.DeviceModel)
 	}
-}
-
-func TestDeriveRangersIDDiffersAcrossSeeds(t *testing.T) {
-	a := deriveRangersIDFromSeed("alpha")
-	b := deriveRangersIDFromSeed("beta")
-	if a == b {
-		t.Fatalf("expected different ids across seeds, got %q for both", a)
-	}
-}
-
-func TestDeriveRangersIDHonorsHostEnv(t *testing.T) {
-	prev, hadPrev := os.LookupEnv("DS2API_DEEPSEEK_RANGERS_SEED")
-	defer func() {
-		if hadPrev {
-			_ = os.Setenv("DS2API_DEEPSEEK_RANGERS_SEED", prev)
-		} else {
-			_ = os.Unsetenv("DS2API_DEEPSEEK_RANGERS_SEED")
-		}
-	}()
-	_ = os.Unsetenv("DS2API_DEEPSEEK_RANGERS_SEED")
-	base := deriveDefaultRangersID()
-
-	_ = os.Setenv("DS2API_DEEPSEEK_RANGERS_SEED", "stable-seed")
-	withSeed := deriveDefaultRangersID()
-	if base == withSeed {
-		t.Fatalf("expected default rangers id to vary with DS2API_DEEPSEEK_RANGERS_SEED, got %q for both", base)
-	}
-	if _, err := os.Stat("/dev/null"); err == nil {
-		// Sanity: derivation function on the seed alone is deterministic.
-		if a := deriveRangersIDFromSeed("stable-seed"); a != deriveRangersIDFromSeed("stable-seed") {
-			t.Fatalf("deriveRangersIDFromSeed not deterministic: %q vs %q", a, deriveRangersIDFromSeed("stable-seed"))
-		}
+	headers := buildBaseHeaders(normalizeClientConstants(shared.Client), shared.BaseHeaders)
+	if headers["x-device-model"] != "" {
+		t.Fatal("missing device profile must not silently become a captured model")
 	}
 }

@@ -10,6 +10,7 @@ import (
 )
 
 func TestPostJSONWithStatusUsesProvidedFallbackClient(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path（否则会绕过 mock 走真实网络）
 	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 

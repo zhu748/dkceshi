@@ -321,7 +321,14 @@
     "androidDeviceFields": {
       "device_model": "Device model",
       "android_api_level": "Android API level (e.g. 35, 36)",
-      "device_id": "Device ID",
+      "device_id": "Login device ID (generated in auto mode)",
+      "installation_id": "Installation ID (request header and device check)",
+      "android_id": "Android ID",
+      "device_brand": "Device brand",
+      "locale": "Locale (e.g. zh_CN)",
+      "timezone": "Time zone (e.g. Asia/Shanghai)",
+      "photo_compress_ratio": "Photo quality (0–1; blank preserves original)",
+      "picture_compress_format": "Compression format (webp or jpg; default webp)",
       "rangers_id": "Rangers ID (optional)"
     }
   },

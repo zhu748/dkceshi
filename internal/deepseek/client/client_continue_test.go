@@ -29,6 +29,7 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestCallContinuePropagatesPowHeaderToFallbackRequest(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
 	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	var seenPow string

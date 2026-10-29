@@ -140,6 +140,9 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 			"device_id_type": config.NormalizeDeviceIDType(acc.DeviceIDType),
 			"device_model":   acc.DeviceModel, "android_api_level": acc.AndroidAPILevel,
 			"rangers_id": acc.RangersID, "device_id": acc.DeviceID,
+			"installation_id": acc.InstallationID, "android_id": acc.AndroidID,
+			"device_brand": acc.DeviceBrand, "timezone": acc.Timezone,
+			"photo_compress_ratio": acc.PhotoCompressRatio, "picture_compress_format": acc.PictureCompressFormat,
 			"cooldown_until": acc.CooldownUntil, "manual_disabled": acc.ManualDisabled,
 			"enabled":         acc.IsEnabled(),
 			"disabled_reason": acc.DisabledReason,
@@ -163,6 +166,10 @@ func (h *Handler) addAccount(w http.ResponseWriter, r *http.Request) {
 	var req map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	acc := toAccount(req)
+	if err := config.ValidateAccountDeviceProfile(acc); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
 	if acc.Identifier() == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "需要 email 或 mobile"})
 		return
@@ -257,15 +264,38 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 			if poolTypeOK {
 				c.Accounts[i].PoolType = config.NormalizePoolType(poolType)
 			}
+			beforeProfile := c.Accounts[i]
 			for key, dest := range map[string]*string{
-				"device_id":         &c.Accounts[i].DeviceID,
-				"device_model":      &c.Accounts[i].DeviceModel,
-				"android_api_level": &c.Accounts[i].AndroidAPILevel,
-				"rangers_id":        &c.Accounts[i].RangersID,
-				"locale":            &c.Accounts[i].Locale,
+				"installation_id":         &c.Accounts[i].InstallationID,
+				"android_id":              &c.Accounts[i].AndroidID,
+				"device_brand":            &c.Accounts[i].DeviceBrand,
+				"timezone":                &c.Accounts[i].Timezone,
+				"picture_compress_format": &c.Accounts[i].PictureCompressFormat,
+				"device_id":               &c.Accounts[i].DeviceID,
+				"device_model":            &c.Accounts[i].DeviceModel,
+				"android_api_level":       &c.Accounts[i].AndroidAPILevel,
+				"rangers_id":              &c.Accounts[i].RangersID,
+				"locale":                  &c.Accounts[i].Locale,
 			} {
 				if v, ok := fieldStringOptional(req, key); ok {
 					*dest = strings.TrimSpace(v)
+				}
+			}
+			if value, ok := req["photo_compress_ratio"]; ok {
+				if value == nil {
+					c.Accounts[i].PhotoCompressRatio = nil
+				} else if ratio, ok := value.(float64); ok {
+					c.Accounts[i].PhotoCompressRatio = &ratio
+				} else {
+					return fmt.Errorf("photo_compress_ratio must be a number or null")
+				}
+			}
+			updated := &c.Accounts[i]
+			if updated.InstallationID == beforeProfile.InstallationID && (updated.AndroidID != beforeProfile.AndroidID || updated.DeviceBrand != beforeProfile.DeviceBrand) {
+				originalID := beforeProfile.InstallationID
+				beforeProfile.InstallationID = ""
+				if originalID == config.AndroidInstallationID(beforeProfile) {
+					updated.InstallationID = ""
 				}
 			}
 			if err := config.ValidateAccountDeviceProfile(c.Accounts[i]); err != nil {

@@ -1,403 +1,402 @@
 package client
 
 import (
-        "context"
-        "crypto/sha256"
-        dsprotocol "ds2api/internal/deepseek/protocol"
-        "encoding/base64"
-        "errors"
-        "net/http"
-        "strings"
-        "unicode"
+	"context"
+	dsprotocol "ds2api/internal/deepseek/protocol"
+	"errors"
+	"net/http"
+	"strings"
+	"unicode"
 
-        "ds2api/internal/auth"
-        "ds2api/internal/banreport"
-        "ds2api/internal/config"
+	"ds2api/internal/auth"
+	"ds2api/internal/banreport"
+	"ds2api/internal/config"
 )
 
 func (c *Client) Login(ctx context.Context, acc config.Account) (string, error) {
-        if c.Store != nil {
-                if profile, ok := c.Store.EnsureAccountDeviceProfile(acc.Identifier()); ok {
-                        acc.DeviceID = profile.DeviceID
-                        acc.DeviceModel = profile.DeviceModel
-                        acc.AndroidAPILevel = profile.AndroidAPILevel
-                        if acc.RangersID == "" {
-                                acc.RangersID = profile.RangersID
-                        }
-                        if acc.Locale == "" {
-                                acc.Locale = profile.Locale
-                        }
-                }
-        }
-        clients := c.requestClientsForAccount(acc)
-        payload := map[string]any{
-                "password":  strings.TrimSpace(acc.Password),
-                "device_id": loginDeviceID(acc),
-                "os":        "android",
-        }
-        if email := strings.TrimSpace(acc.Email); email != "" {
-                payload["email"] = email
-        } else if mobile := strings.TrimSpace(acc.Mobile); mobile != "" {
-                loginMobile, areaCode := normalizeMobileForLogin(mobile)
-                payload["mobile"] = loginMobile
-                payload["area_code"] = areaCode
-        } else {
-                return "", errors.New("missing email/mobile")
-        }
-        resp, err := c.postJSON(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekLoginURL, accountBaseHeaders(acc), payload)
-        if err != nil {
-                return "", err
-        }
-        code := intFrom(resp["code"])
-        if code != 0 {
-                return "", loginRejectedError("login failed: %v", resp["msg"])
-        }
-        data, _ := resp["data"].(map[string]any)
-        if bizCode := intFrom(data["biz_code"]); bizCode != 0 {
-                bizMsg, _ := data["biz_msg"].(string)
-                if isUserBannedResponse(bizCode, bizMsg) {
-                        c.persistBannedAccount(acc.Identifier(), "账户已被停用", banreport.SourceLogin)
-                }
-                return "", loginRejectedError("login failed: %v", data["biz_msg"])
-        }
-        bizData, _ := data["biz_data"].(map[string]any)
-        user, _ := bizData["user"].(map[string]any)
-        token, _ := user["token"].(string)
-        if strings.TrimSpace(token) == "" {
-                return "", loginRejectedError("missing login token")
-        }
-        if chat, _ := user["chat"].(map[string]any); chat != nil && intFrom(chat["is_muted"]) == 1 {
-                until, _ := chat["mute_until"].(float64)
-                c.persistMutedUntil(acc.Identifier(), until, banreport.SourceLogin)
-        }
-        if acc.Banned {
-                c.clearBannedAccount(acc.Identifier())
-        }
-        c.noteLoginSuccess(acc.Identifier())
-        // 对齐真实 App：登录后立即上报 check_device（App 启动流程 check_update 亦会
-        // 重复调用）。上游可能借此轮换 token，返回值优先于登录响应里的原 token。
-        if rotated, _ := c.CheckDevice(ctx, acc, token); rotated != "" {
-                token = rotated
-        }
-        return token, nil
+	if c.Store != nil {
+		if profile, ok := c.Store.EnsureAccountDeviceProfile(acc.Identifier()); ok {
+			acc.DeviceID = profile.DeviceID
+			acc.DeviceIDType = profile.DeviceIDType
+			acc.InstallationID = profile.InstallationID
+			acc.AndroidID = profile.AndroidID
+			acc.DeviceBrand = profile.DeviceBrand
+			acc.Timezone = profile.Timezone
+			acc.HIFDliq, acc.HIFDliqExpiresAt = profile.HIFDliq, profile.HIFDliqExpiresAt
+			acc.HIFLeim, acc.HIFLeimExpiresAt = profile.HIFLeim, profile.HIFLeimExpiresAt
+			acc.DeviceModel = profile.DeviceModel
+			acc.AndroidAPILevel = profile.AndroidAPILevel
+			if acc.RangersID == "" {
+				acc.RangersID = profile.RangersID
+			}
+			if acc.Locale == "" {
+				acc.Locale = profile.Locale
+			}
+		}
+	}
+	var err error
+	acc, err = c.ensureRiskDeviceID(ctx, acc)
+	if err != nil {
+		return "", err
+	}
+	clients := c.requestClientsForAccount(acc)
+	payload := map[string]any{
+		"password":  strings.TrimSpace(acc.Password),
+		"device_id": loginDeviceID(acc),
+		"os":        "android",
+	}
+	if email := strings.TrimSpace(acc.Email); email != "" {
+		payload["email"] = email
+	} else if mobile := strings.TrimSpace(acc.Mobile); mobile != "" {
+		loginMobile, areaCode := normalizeMobileForLogin(mobile)
+		payload["mobile"] = loginMobile
+		payload["area_code"] = areaCode
+	} else {
+		return "", errors.New("missing email/mobile")
+	}
+	resp, err := c.postJSON(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekLoginURL, accountBaseHeaders(acc), payload)
+	if err != nil {
+		return "", err
+	}
+	code := intFrom(resp["code"])
+	if code != 0 {
+		return "", loginRejectedError("login failed: %v", resp["msg"])
+	}
+	data, _ := resp["data"].(map[string]any)
+	if bizCode := intFrom(data["biz_code"]); bizCode != 0 {
+		bizMsg, _ := data["biz_msg"].(string)
+		if isUserBannedResponse(bizCode, bizMsg) {
+			c.persistBannedAccount(acc.Identifier(), "账户已被停用", banreport.SourceLogin)
+		}
+		return "", loginRejectedError("login failed: %v", data["biz_msg"])
+	}
+	bizData, _ := data["biz_data"].(map[string]any)
+	user, _ := bizData["user"].(map[string]any)
+	token, _ := user["token"].(string)
+	if strings.TrimSpace(token) == "" {
+		return "", loginRejectedError("missing login token")
+	}
+	if chat, _ := user["chat"].(map[string]any); chat != nil && intFrom(chat["is_muted"]) == 1 {
+		until, _ := chat["mute_until"].(float64)
+		c.persistMutedUntil(acc.Identifier(), until, banreport.SourceLogin)
+	}
+	if acc.Banned {
+		c.clearBannedAccount(acc.Identifier())
+	}
+	c.noteLoginSuccess(acc.Identifier())
+	// 对齐真实 App：登录后立即上报 check_device（App 启动流程 check_update 亦会
+	// 重复调用）。上游可能借此轮换 token，返回值优先于登录响应里的原 token。
+	if rotated, _ := c.CheckDevice(ctx, acc, token); rotated != "" {
+		token = rotated
+	}
+	return token, nil
 }
 
 func (c *Client) CreateSession(ctx context.Context, a *auth.RequestAuth, maxAttempts int) (string, error) {
-        if maxAttempts <= 0 {
-                maxAttempts = c.maxRetries
-        }
-        attempts := 0
-        for attempts < maxAttempts {
-                clients := c.requestClientsForAuth(ctx, a)
-                headers := c.authHeadersForAuth(a)
-                // 真实 Android App 发送空 body（content-length: 0），项目对齐
-                resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekCreateSessionURL, headers, nil)
-                if err != nil {
-                        config.Logger.Warn("[create_session] request error", "error", err, "account", a.AccountID)
-                        attempts++
-                        continue
-                }
-                code, bizCode, msg, bizMsg := extractResponseStatus(resp)
-                if status == http.StatusOK && code == 0 && bizCode == 0 {
-                        sessionID := extractCreateSessionID(resp)
-                        if sessionID != "" {
-                                return sessionID, nil
-                        }
-                }
-                config.Logger.Warn("[create_session] failed", "status", status, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "use_config_token", a.UseConfigToken, "account", a.AccountID)
-                if kind := c.observeAccountFailure(a, resp, "request"); kind != FailureUnknown {
-                        if a.UseConfigToken && c.Auth != nil && c.Auth.SwitchAccount(ctx, a) {
-                                attempts++
-                                continue
-                        }
-                        return "", &RequestFailure{Op: "request", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
-                }
-                if c.recoverManagedAuth(ctx, a, &attempts, status, code, bizCode, msg, bizMsg) {
-                        continue
-                }
-                attempts++
-        }
-        return "", errors.New("create session failed")
+	if maxAttempts <= 0 {
+		maxAttempts = c.maxRetries
+	}
+	attempts := 0
+	for attempts < maxAttempts {
+		clients := c.requestClientsForAuth(ctx, a)
+		headers := c.authHeadersForAuth(a)
+		// 真实 Android App 发送空 body（content-length: 0），项目对齐
+		resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekCreateSessionURL, headers, nil)
+		if err != nil {
+			config.Logger.Warn("[create_session] request error", "error", err, "account", a.AccountID)
+			attempts++
+			continue
+		}
+		code, bizCode, msg, bizMsg := extractResponseStatus(resp)
+		if status == http.StatusOK && code == 0 && bizCode == 0 {
+			sessionID := extractCreateSessionID(resp)
+			if sessionID != "" {
+				return sessionID, nil
+			}
+		}
+		config.Logger.Warn("[create_session] failed", "status", status, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "use_config_token", a.UseConfigToken, "account", a.AccountID)
+		if kind := c.observeAccountFailure(a, resp, "request"); kind != FailureUnknown {
+			if a.UseConfigToken && c.Auth != nil && c.Auth.SwitchAccount(ctx, a) {
+				attempts++
+				continue
+			}
+			return "", &RequestFailure{Op: "request", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
+		}
+		if c.recoverManagedAuth(ctx, a, &attempts, status, code, bizCode, msg, bizMsg) {
+			continue
+		}
+		attempts++
+	}
+	return "", errors.New("create session failed")
 }
 
 func (c *Client) GetPow(ctx context.Context, a *auth.RequestAuth, maxAttempts int) (string, error) {
-        return c.GetPowForTarget(ctx, a, dsprotocol.DeepSeekCompletionTargetPath, maxAttempts)
+	return c.GetPowForTarget(ctx, a, dsprotocol.DeepSeekCompletionTargetPath, maxAttempts)
 }
 
 func (c *Client) GetPowForTarget(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
-        if maxAttempts <= 0 {
-                maxAttempts = c.maxRetries
-        }
-        targetPath = strings.TrimSpace(targetPath)
-        if targetPath == "" {
-                targetPath = dsprotocol.DeepSeekCompletionTargetPath
-        }
-        // 1. 先查 PoW 预取缓存（复刻 App 行为：completion 后异步预取的 PoW）
-        if a != nil {
-                if pow, ok := c.powCache.Get(a.AccountID, targetPath); ok {
-                        config.Logger.Debug("[get_pow] cache hit", "account", a.AccountID, "target_path", targetPath)
-                        // 命中后异步触发下一次预取，复刻 App「取走即预取」行为
-                        c.powCache.SchedulePrefetch(ctx, a, targetPath, maxAttempts)
-                        return pow, nil
-                }
-        }
-        // 2. 缓存 miss：同步获取
-        pow, err := c.fetchPowSync(ctx, a, targetPath, maxAttempts)
-        if err != nil {
-                return "", err
-        }
-        // 3. 同步获取成功后也异步触发下一次预取（与 App 行为一致）
-        if a != nil {
-                c.powCache.SchedulePrefetch(ctx, a, targetPath, maxAttempts)
-        }
-        return pow, nil
+	if maxAttempts <= 0 {
+		maxAttempts = c.maxRetries
+	}
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" {
+		targetPath = dsprotocol.DeepSeekCompletionTargetPath
+	}
+	// 1. 先查 PoW 预取缓存（复刻 App 行为：completion 后异步预取的 PoW）
+	if a != nil {
+		if pow, ok := c.powCache.Get(a.AccountID, targetPath); ok {
+			config.Logger.Debug("[get_pow] cache hit", "account", a.AccountID, "target_path", targetPath)
+			// 命中后异步触发下一次预取，复刻 App「取走即预取」行为
+			c.powCache.SchedulePrefetch(ctx, a, targetPath, maxAttempts)
+			return pow, nil
+		}
+	}
+	// 2. 缓存 miss：同步获取
+	pow, err := c.fetchPowSync(ctx, a, targetPath, maxAttempts)
+	if err != nil {
+		return "", err
+	}
+	// 3. 同步获取成功后也异步触发下一次预取（与 App 行为一致）
+	if a != nil {
+		c.powCache.SchedulePrefetch(ctx, a, targetPath, maxAttempts)
+	}
+	return pow, nil
 }
 
 // fetchPowSync 是真实的同步 PoW 获取实现（原本就是 GetPowForTarget 的主体逻辑）。
 // 抽出来供 powPrefetchCache.fetcher 调用，避免循环依赖。
 func (c *Client) fetchPowSync(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
-        if maxAttempts <= 0 {
-                maxAttempts = c.maxRetries
-        }
-        targetPath = strings.TrimSpace(targetPath)
-        if targetPath == "" {
-                targetPath = dsprotocol.DeepSeekCompletionTargetPath
-        }
-        attempts := 0
-        lastFailureKind := FailureUnknown
-        lastFailureMessage := ""
-        for attempts < maxAttempts {
-                clients := c.requestClientsForAuth(ctx, a)
-                headers := c.authHeadersForAuth(a)
-                resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekCreatePowURL, headers, map[string]any{"target_path": targetPath})
-                if err != nil {
-                        config.Logger.Warn("[get_pow] request error", "error", err, "account", a.AccountID, "target_path", targetPath)
-                        lastFailureKind = FailureUnknown
-                        lastFailureMessage = err.Error()
-                        attempts++
-                        continue
-                }
-                code, bizCode, msg, bizMsg := extractResponseStatus(resp)
-                if status == http.StatusOK && code == 0 && bizCode == 0 {
-                        data, _ := resp["data"].(map[string]any)
-                        bizData, _ := data["biz_data"].(map[string]any)
-                        challenge, _ := bizData["challenge"].(map[string]any)
-                        answer, err := ComputePow(ctx, challenge)
-                        if err != nil {
-                                attempts++
-                                continue
-                        }
-                        return BuildPowHeader(challenge, answer)
-                }
-                config.Logger.Warn("[get_pow] failed", "status", status, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "use_config_token", a.UseConfigToken, "account", a.AccountID, "target_path", targetPath)
-                lastFailureMessage = failureMessage(msg, bizMsg, "get pow failed")
-                if isTokenInvalid(status, code, bizCode, msg, bizMsg) || isAuthIndicativeBizFailure(msg, bizMsg) {
-                        lastFailureKind = authFailureKind(a.UseConfigToken)
-                } else {
-                        lastFailureKind = FailureUnknown
-                }
-                if kind := c.observeAccountFailure(a, resp, "request"); kind != FailureUnknown {
-                        if a.UseConfigToken && c.Auth != nil && c.Auth.SwitchAccount(ctx, a) {
-                                attempts++
-                                continue
-                        }
-                        return "", &RequestFailure{Op: "request", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
-                }
-                if c.recoverManagedAuth(ctx, a, &attempts, status, code, bizCode, msg, bizMsg) {
-                        continue
-                }
-                attempts++
-        }
-        if lastFailureKind != FailureUnknown {
-                return "", &RequestFailure{Op: "get pow", Kind: lastFailureKind, Message: lastFailureMessage}
-        }
-        return "", errors.New("get pow failed")
+	if maxAttempts <= 0 {
+		maxAttempts = c.maxRetries
+	}
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" {
+		targetPath = dsprotocol.DeepSeekCompletionTargetPath
+	}
+	attempts := 0
+	lastFailureKind := FailureUnknown
+	lastFailureMessage := ""
+	for attempts < maxAttempts {
+		clients := c.requestClientsForAuth(ctx, a)
+		headers := c.authHeadersForAuth(a)
+		resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekCreatePowURL, headers, map[string]any{"target_path": targetPath})
+		if err != nil {
+			config.Logger.Warn("[get_pow] request error", "error", err, "account", a.AccountID, "target_path", targetPath)
+			lastFailureKind = FailureUnknown
+			lastFailureMessage = err.Error()
+			attempts++
+			continue
+		}
+		code, bizCode, msg, bizMsg := extractResponseStatus(resp)
+		if status == http.StatusOK && code == 0 && bizCode == 0 {
+			data, _ := resp["data"].(map[string]any)
+			bizData, _ := data["biz_data"].(map[string]any)
+			challenge, _ := bizData["challenge"].(map[string]any)
+			answer, err := ComputePow(ctx, challenge)
+			if err != nil {
+				attempts++
+				continue
+			}
+			return BuildPowHeader(challenge, answer)
+		}
+		config.Logger.Warn("[get_pow] failed", "status", status, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "use_config_token", a.UseConfigToken, "account", a.AccountID, "target_path", targetPath)
+		lastFailureMessage = failureMessage(msg, bizMsg, "get pow failed")
+		if isTokenInvalid(status, code, bizCode, msg, bizMsg) || isAuthIndicativeBizFailure(msg, bizMsg) {
+			lastFailureKind = authFailureKind(a.UseConfigToken)
+		} else {
+			lastFailureKind = FailureUnknown
+		}
+		if kind := c.observeAccountFailure(a, resp, "request"); kind != FailureUnknown {
+			if a.UseConfigToken && c.Auth != nil && c.Auth.SwitchAccount(ctx, a) {
+				attempts++
+				continue
+			}
+			return "", &RequestFailure{Op: "request", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
+		}
+		if c.recoverManagedAuth(ctx, a, &attempts, status, code, bizCode, msg, bizMsg) {
+			continue
+		}
+		attempts++
+	}
+	if lastFailureKind != FailureUnknown {
+		return "", &RequestFailure{Op: "get pow", Kind: lastFailureKind, Message: lastFailureMessage}
+	}
+	return "", errors.New("get pow failed")
 }
 
 func (c *Client) authHeaders(token string) map[string]string {
-        return c.authHeadersForAuth(&auth.RequestAuth{DeepSeekToken: token})
+	return c.authHeadersForAuth(&auth.RequestAuth{DeepSeekToken: token})
 }
 
 func (c *Client) authHeadersForAuth(a *auth.RequestAuth) map[string]string {
-        if a == nil {
-                return c.authHeaders("")
-        }
-        headers := BaseHeadersForAuth(a)
-        headers["authorization"] = "Bearer " + a.DeepSeekToken
-        return headers
+	if a == nil {
+		return c.authHeaders("")
+	}
+	headers := BaseHeadersForAuth(a)
+	headers["authorization"] = "Bearer " + a.DeepSeekToken
+	return headers
 }
 
 func accountBaseHeaders(acc config.Account) map[string]string {
-        return BaseHeadersForAuth(&auth.RequestAuth{Account: acc, AccountID: acc.Identifier()})
+	return BaseHeadersForAuth(&auth.RequestAuth{Account: acc, AccountID: acc.Identifier()})
 }
 
 func accountHeaderSeed(a *auth.RequestAuth) string {
-        if a == nil {
-                return ""
-        }
-        if seed := accountIdentifierSeed(a.Account); seed != "" {
-                return seed
-        }
-        return strings.TrimSpace(a.AccountID)
+	if a == nil {
+		return ""
+	}
+	if seed := accountIdentifierSeed(a.Account); seed != "" {
+		return seed
+	}
+	return strings.TrimSpace(a.AccountID)
 }
 
 func accountIdentifierSeed(acc config.Account) string {
-        if id := strings.TrimSpace(acc.Identifier()); id != "" {
-                return strings.ToLower(id)
-        }
-        if email := strings.TrimSpace(acc.Email); email != "" {
-                return strings.ToLower(email)
-        }
-        if mobile := strings.TrimSpace(acc.Mobile); mobile != "" {
-                return strings.ToLower(mobile)
-        }
-        return ""
+	if id := strings.TrimSpace(acc.Identifier()); id != "" {
+		return strings.ToLower(id)
+	}
+	if email := strings.TrimSpace(acc.Email); email != "" {
+		return strings.ToLower(email)
+	}
+	if mobile := strings.TrimSpace(acc.Mobile); mobile != "" {
+		return strings.ToLower(mobile)
+	}
+	return ""
 }
 
 func loginDeviceID(acc config.Account) string {
-        if v := strings.TrimSpace(acc.DeviceID); v != "" {
-                return v
-        }
-        if v := strings.TrimSpace(dsprotocol.BaseHeaders["x-device-id"]); v != "" {
-                return v
-        }
-        identifier := strings.ToLower(strings.TrimSpace(acc.Identifier()))
-        if identifier == "" {
-                identifier = strings.ToLower(strings.TrimSpace(acc.Email))
-        }
-        if identifier == "" {
-                identifier = strings.ToLower(strings.TrimSpace(acc.Mobile))
-        }
-        if identifier == "" {
-                return "deepseek_to_api"
-        }
-        sum := sha256.Sum256([]byte("ds2api:deepseek:android:" + identifier))
-        return base64.StdEncoding.EncodeToString(sum[:])
+	if v := strings.TrimSpace(acc.DeviceID); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(dsprotocol.DefaultRiskDeviceID); v != "" {
+		return v
+	}
+	return ""
 }
 
 func isTokenInvalid(status int, code int, bizCode int, msg string, bizMsg string) bool {
-        msg = strings.ToLower(strings.TrimSpace(msg) + " " + strings.TrimSpace(bizMsg))
-        if status == http.StatusUnauthorized || status == http.StatusForbidden {
-                return true
-        }
-        if code == 40001 || code == 40002 || code == 40003 || bizCode == 40001 || bizCode == 40002 || bizCode == 40003 {
-                return true
-        }
-        return strings.Contains(msg, "token") ||
-                strings.Contains(msg, "unauthorized") ||
-                strings.Contains(msg, "expired") ||
-                strings.Contains(msg, "not login") ||
-                strings.Contains(msg, "login required") ||
-                strings.Contains(msg, "invalid jwt")
+	msg = strings.ToLower(strings.TrimSpace(msg) + " " + strings.TrimSpace(bizMsg))
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return true
+	}
+	if code == 40001 || code == 40002 || code == 40003 || bizCode == 40001 || bizCode == 40002 || bizCode == 40003 {
+		return true
+	}
+	return strings.Contains(msg, "token") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "expired") ||
+		strings.Contains(msg, "not login") ||
+		strings.Contains(msg, "login required") ||
+		strings.Contains(msg, "invalid jwt")
 }
 
 func shouldAttemptRefresh(status int, code int, bizCode int, msg string, bizMsg string) bool {
-        if isTokenInvalid(status, code, bizCode, msg, bizMsg) {
-                return true
-        }
-        // Some DeepSeek failures come back as HTTP 200/code=0 but with non-zero biz_code.
-        // Only attempt refresh when these biz failures still look auth-related.
-        return status == http.StatusOK &&
-                code == 0 &&
-                bizCode != 0 &&
-                isAuthIndicativeBizFailure(msg, bizMsg)
+	if isTokenInvalid(status, code, bizCode, msg, bizMsg) {
+		return true
+	}
+	// Some DeepSeek failures come back as HTTP 200/code=0 but with non-zero biz_code.
+	// Only attempt refresh when these biz failures still look auth-related.
+	return status == http.StatusOK &&
+		code == 0 &&
+		bizCode != 0 &&
+		isAuthIndicativeBizFailure(msg, bizMsg)
 }
 
 func isAuthIndicativeBizFailure(msg string, bizMsg string) bool {
-        combined := strings.ToLower(strings.TrimSpace(msg) + " " + strings.TrimSpace(bizMsg))
-        authKeywords := []string{
-                "auth",
-                "authorization",
-                "credential",
-                "expired",
-                "invalid jwt",
-                "jwt",
-                "login",
-                "not login",
-                "session expired",
-                "token",
-                "unauthorized",
-                "登录",
-                "未登录",
-                "认证",
-                "凭证",
-                "会话过期",
-                "令牌",
-        }
-        for _, keyword := range authKeywords {
-                if strings.Contains(combined, keyword) {
-                        return true
-                }
-        }
-        return false
+	combined := strings.ToLower(strings.TrimSpace(msg) + " " + strings.TrimSpace(bizMsg))
+	authKeywords := []string{
+		"auth",
+		"authorization",
+		"credential",
+		"expired",
+		"invalid jwt",
+		"jwt",
+		"login",
+		"not login",
+		"session expired",
+		"token",
+		"unauthorized",
+		"登录",
+		"未登录",
+		"认证",
+		"凭证",
+		"会话过期",
+		"令牌",
+	}
+	for _, keyword := range authKeywords {
+		if strings.Contains(combined, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func authFailureKind(useConfigToken bool) FailureKind {
-        if useConfigToken {
-                return FailureManagedUnauthorized
-        }
-        return FailureDirectUnauthorized
+	if useConfigToken {
+		return FailureManagedUnauthorized
+	}
+	return FailureDirectUnauthorized
 }
 
 func failureMessage(msg string, bizMsg string, fallback string) string {
-        if trimmed := strings.TrimSpace(bizMsg); trimmed != "" {
-                return trimmed
-        }
-        if trimmed := strings.TrimSpace(msg); trimmed != "" {
-                return trimmed
-        }
-        return strings.TrimSpace(fallback)
+	if trimmed := strings.TrimSpace(bizMsg); trimmed != "" {
+		return trimmed
+	}
+	if trimmed := strings.TrimSpace(msg); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(fallback)
 }
 
 // DeepSeek has returned create-session ids in both biz_data.id and
 // biz_data.chat_session.id across observed response variants; accept either.
 func extractCreateSessionID(resp map[string]any) string {
-        data, _ := resp["data"].(map[string]any)
-        bizData, _ := data["biz_data"].(map[string]any)
-        if sessionID, _ := bizData["id"].(string); strings.TrimSpace(sessionID) != "" {
-                return strings.TrimSpace(sessionID)
-        }
-        if chatSession, ok := bizData["chat_session"].(map[string]any); ok {
-                if sessionID, _ := chatSession["id"].(string); strings.TrimSpace(sessionID) != "" {
-                        return strings.TrimSpace(sessionID)
-                }
-        }
-        return ""
+	data, _ := resp["data"].(map[string]any)
+	bizData, _ := data["biz_data"].(map[string]any)
+	if sessionID, _ := bizData["id"].(string); strings.TrimSpace(sessionID) != "" {
+		return strings.TrimSpace(sessionID)
+	}
+	if chatSession, ok := bizData["chat_session"].(map[string]any); ok {
+		if sessionID, _ := chatSession["id"].(string); strings.TrimSpace(sessionID) != "" {
+			return strings.TrimSpace(sessionID)
+		}
+	}
+	return ""
 }
 
 func extractResponseStatus(resp map[string]any) (code int, bizCode int, msg string, bizMsg string) {
-        code = intFrom(resp["code"])
-        msg, _ = resp["msg"].(string)
-        data, _ := resp["data"].(map[string]any)
-        bizCode = intFrom(data["biz_code"])
-        bizMsg, _ = data["biz_msg"].(string)
-        if strings.TrimSpace(bizMsg) == "" {
-                if bizData, ok := data["biz_data"].(map[string]any); ok {
-                        bizMsg, _ = bizData["msg"].(string)
-                }
-        }
-        return code, bizCode, msg, bizMsg
+	code = intFrom(resp["code"])
+	msg, _ = resp["msg"].(string)
+	data, _ := resp["data"].(map[string]any)
+	bizCode = intFrom(data["biz_code"])
+	bizMsg, _ = data["biz_msg"].(string)
+	if strings.TrimSpace(bizMsg) == "" {
+		if bizData, ok := data["biz_data"].(map[string]any); ok {
+			bizMsg, _ = bizData["msg"].(string)
+		}
+	}
+	return code, bizCode, msg, bizMsg
 }
 
 func normalizeMobileForLogin(raw string) (mobile string, areaCode any) {
-        s := strings.TrimSpace(raw)
-        if s == "" {
-                return "", nil
-        }
-        hasPlus := strings.HasPrefix(s, "+")
-        var b strings.Builder
-        b.Grow(len(s))
-        for _, r := range s {
-                if unicode.IsDigit(r) {
-                        b.WriteRune(r)
-                }
-        }
-        digits := b.String()
-        if digits == "" {
-                return "", nil
-        }
-        if (hasPlus || strings.HasPrefix(digits, "86")) && strings.HasPrefix(digits, "86") && len(digits) == 13 {
-                return digits[2:], nil
-        }
-        return digits, nil
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", nil
+	}
+	hasPlus := strings.HasPrefix(s, "+")
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	digits := b.String()
+	if digits == "" {
+		return "", nil
+	}
+	if (hasPlus || strings.HasPrefix(digits, "86")) && strings.HasPrefix(digits, "86") && len(digits) == 13 {
+		return digits[2:], nil
+	}
+	return digits, nil
 }

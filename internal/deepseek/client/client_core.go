@@ -10,6 +10,7 @@ import (
 	"ds2api/internal/config"
 	trans "ds2api/internal/deepseek/transport"
 	"ds2api/internal/devcapture"
+	"ds2api/internal/devid"
 	"ds2api/internal/util"
 )
 
@@ -17,21 +18,22 @@ import (
 var intFrom = util.IntFrom
 
 type Client struct {
-	ttsVoiceLocksMu sync.Mutex
-	ttsVoiceLocks   map[string]*sync.Mutex
-	ttsVoiceKnown   map[string]string
-	poolChangedMu   sync.RWMutex
-	poolChanged     func()
-	nodeReporterMu  sync.RWMutex
-	nodeReporter    func(string, bool)
-	Store           *config.Store
-	Auth            *auth.Resolver
-	capture         *devcapture.Store
-	regular         trans.Doer
-	stream          trans.Doer
-	fallback        *http.Client
-	fallbackS       *http.Client
-	maxRetries      int
+	deviceIDGenerator func(context.Context, devid.Options) (string, error)
+	ttsVoiceLocksMu   sync.Mutex
+	ttsVoiceLocks     map[string]*sync.Mutex
+	ttsVoiceKnown     map[string]string
+	poolChangedMu     sync.RWMutex
+	poolChanged       func()
+	nodeReporterMu    sync.RWMutex
+	nodeReporter      func(string, bool)
+	Store             *config.Store
+	Auth              *auth.Resolver
+	capture           *devcapture.Store
+	regular           trans.Doer
+	stream            trans.Doer
+	fallback          *http.Client
+	fallbackS         *http.Client
+	maxRetries        int
 
 	proxyClientsMu sync.RWMutex
 	proxyClients   map[string]requestClients

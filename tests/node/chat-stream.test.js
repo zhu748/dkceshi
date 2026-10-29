@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 
 const handler = require('../../api/chat-stream.js');
-const { handleVercelStream } = require('../../internal/js/chat-stream/vercel_stream.js');
+const { handleVercelStream: handleVercelStreamImpl } = require('../../internal/js/chat-stream/vercel_stream.js');
+const handleVercelStream = (...args) => handleVercelStreamImpl(...args, global.fetch);
 const {
   createToolSieveState,
   processToolSieveChunk,

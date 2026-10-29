@@ -321,7 +321,14 @@
     "androidDeviceFields": {
       "device_model": "设备型号",
       "android_api_level": "Android API 等级（如 35、36）",
-      "device_id": "设备 ID",
+      "device_id": "登录设备 ID（auto 生成）",
+      "installation_id": "安装标识（请求头与设备检查）",
+      "android_id": "Android ID",
+      "device_brand": "设备品牌",
+      "locale": "语言（如 zh_CN）",
+      "timezone": "时区（如 Asia/Shanghai）",
+      "photo_compress_ratio": "相册压缩质量（0–1，留空保留原图）",
+      "picture_compress_format": "压缩格式（webp 或 jpg，默认 webp）",
       "rangers_id": "Rangers ID（可选）"
     }
   },

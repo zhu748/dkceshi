@@ -250,7 +250,7 @@ func (s *Store) Keys() []string {
 func (s *Store) Accounts() []Account {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return slices.Clone(s.cfg.Accounts)
+	return cloneAccounts(s.cfg.Accounts)
 }
 
 func (s *Store) FindAccount(identifier string) (Account, bool) {
@@ -258,7 +258,7 @@ func (s *Store) FindAccount(identifier string) (Account, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if idx, ok := s.findAccountIndexLocked(identifier); ok {
-		return s.cfg.Accounts[idx], true
+		return s.cfg.Accounts[idx].clone(), true
 	}
 	return Account{}, false
 }

@@ -124,11 +124,12 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		// The Node stream mirror performs the tool sieve itself, so it needs the
 		// caller-specific marker to normalize the model's output back to EPSE
 		// before parsing (the Go path does the same inside toolstream.State).
-		"tool_marker":    stdReq.ToolMarker,
-		"deepseek_token": a.DeepSeekToken,
-		"pow_header":     powHeader,
-		"payload":        payload,
-		"base_headers":   dsclient.BaseHeadersForAuth(a),
+		"tool_marker":             stdReq.ToolMarker,
+		"deepseek_token":          a.DeepSeekToken,
+		"pow_header":              powHeader,
+		"payload":                 payload,
+		"base_headers":            dsclient.BaseHeadersForAuth(a),
+		"base_header_expirations": map[string]int64{"x-hif-dliq": a.Account.HIFDliqExpiresAt, "x-hif-leim": a.Account.HIFLeimExpiresAt},
 	})
 }
 
@@ -356,18 +357,19 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 	}
 	h.updateStreamLeaseState(leaseID, stdReq, sessionID)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id":       sessionID,
-		"lease_id":         leaseID,
-		"model":            stdReq.ResponseModel,
-		"final_prompt":     stdReq.FinalPrompt,
-		"thinking_enabled": stdReq.Thinking,
-		"search_enabled":   stdReq.Search,
-		"tool_names":       stdReq.ToolNames,
-		"tool_marker":      stdReq.ToolMarker,
-		"deepseek_token":   a.DeepSeekToken,
-		"pow_header":       powHeader,
-		"payload":          payload,
-		"base_headers":     dsclient.BaseHeadersForAuth(a),
+		"session_id":              sessionID,
+		"lease_id":                leaseID,
+		"model":                   stdReq.ResponseModel,
+		"final_prompt":            stdReq.FinalPrompt,
+		"thinking_enabled":        stdReq.Thinking,
+		"search_enabled":          stdReq.Search,
+		"tool_names":              stdReq.ToolNames,
+		"tool_marker":             stdReq.ToolMarker,
+		"deepseek_token":          a.DeepSeekToken,
+		"pow_header":              powHeader,
+		"payload":                 payload,
+		"base_headers":            dsclient.BaseHeadersForAuth(a),
+		"base_header_expirations": map[string]int64{"x-hif-dliq": a.Account.HIFDliqExpiresAt, "x-hif-leim": a.Account.HIFLeimExpiresAt},
 	})
 }
 

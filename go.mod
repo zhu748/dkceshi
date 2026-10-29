@@ -3,9 +3,9 @@ module ds2api
 go 1.26.0
 
 require (
-	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/andybalholm/brotli v1.2.1
 	github.com/bogdanfinn/fhttp v0.6.8
+	github.com/gen2brain/webp v0.6.4
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/uuid v1.6.0
 	github.com/hupe1980/go-tiktoken v0.0.10
@@ -17,6 +17,7 @@ require (
 require (
 	github.com/bogdanfinn/utls v1.7.7-barnius // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
+	github.com/ebitengine/purego v0.10.1 // indirect
 	golang.org/x/text v0.35.0 // indirect
 )
 

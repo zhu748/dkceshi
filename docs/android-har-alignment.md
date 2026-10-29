@@ -19,17 +19,16 @@
 | x-client-locale | `zh_CN` |
 | x-client-bundle-id | `com.deepseek.chat` |
 | x-client-timezone-offset | `28800`，秒 |
-| x-device-model | `V2507A`；账号 `device_model` 可覆盖 |
-| x-device-id | 账号 `device_id`，其次全局环境变量，最后本地稳定派生值 |
-| x-rangers-id | 账号 `rangers_id`，其次全局环境变量，最后原有的稳定派生值 |
+| x-device-model | 历史样本为 `V2507A`；当前按账号选择型号，无固定默认值 |
+| x-device-id | 账号 `installation_id`，与登录 SDK `device_id` 分离 |
+| x-rangers-id | 账号 `rangers_id` 或显式全局值，未注册时不生成伪值 |
 | Accept / accept-charset / Accept-Encoding | `application/json` / `UTF-8` / `gzip` |
 | authorization | 当前账号 token，刷新后使用新 token |
 | x-ds-pow-response | 按当前账号、接口路径计算的一次性 PoW |
 
-登录的 `device_id` 与该账号后续调用的 `x-device-id` 使用同一来源。
-本地兜底 device ID 为 SHA-256 的标准 Base64 编码（44 字符），只提供稳定的兼容标识；
-它不是服务端签发或设备认证的结果。`x-rangers-id` 的本地兜底值也不是遥测注册结果。
-需要真实安装信息时，应为每个账号配置其自己的真实值，不能在多个账号间复用抓包中的标识。
+登录的数美 `device_id` 与请求头安装标识 `x-device-id` 已分开；后者与 check_device 使用同一来源。
+安装标识使用 APK 的 Android ID / 品牌 AES-CBC 派生算法；数美 SDK ID 独立生成并保存。
+需要真实安装信息时，为每个账号配置自己的真实值，不复用其他设备的认证材料。
 账号的设备配置支持配置导入、导出、创建和 `PUT /admin/accounts/{identifier}` 更新。
 
 ```json
@@ -37,7 +36,7 @@
   "accounts": [{
     "email": "example@example.com",
     "password": "your-password",
-    "device_model": "V2507A",
+    "device_model": "",
     "device_id": "",
     "rangers_id": ""
   }]
@@ -68,7 +67,7 @@ Go 默认启用有序 HTTP/2，普通字段小写，伪头顺序为
 | users/auth_token/check_device | authorization 在身份字段之前 |
 | client/settings/report | x-settings-token 在 device ID 后、User-Agent 前 |
 
-后两项为头部构造器支持的已观察顺序；本次没有增加启动时自动绑定设备或上报设置的请求。
+后两项为头部构造器支持的已观察顺序；未增加客户端设置上报；设备检查已在登录后执行。
 额外头部采用稳定排序，去重并过滤 HTTP/2 禁止的连接头，不注入浏览器 Origin/Referer 等字段。
 
 ## 2.7.1 APK 静态对齐补充（逆向核实）
@@ -81,13 +80,13 @@ Go 默认启用有序 HTTP/2，普通字段小写，伪头顺序为
 | check_device 请求体 | `device_model`（Build.MODEL）、`device_id`，登录成功与启动 check_update 流程均调用；响应 `biz_data.rotate.token` 非空时轮换本地 token | 登录成功后调用，轮换 token 优先于登录响应返回并持久化；失败仅告警不阻断登录 |
 | x-device-model | `Build.MODEL`（真实机型） | 账号 device_model（同语义） |
 | x-hif-dliq / x-hif-leim | 从 `hif-dliq.deepseek.com/query`、`hif-leim.deepseek.com/query` 拉取的设备认证材料，缓存受响应头 `x-hif-ttl` 与远程设置 hif_max_retry_interval_secs 控制；可缺失 | 不发送。两个端点仅 IPv6可达，IPv4 网络下的真实 App 同样无法携带，属正常客户端形态 |
-| 数美组织 | `P9usCUBauxft8eAmUXaZ` / appId `default`（fengkongcloud.com 双区域端点） | 网页端 SDK 同组织同 appId（fp-it-acc.portal101.cn 签发），云签 device_id 同源互认 |
+| 数美组织 | `P9usCUBauxft8eAmUXaZ` / appId `default`（fengkongcloud.com 双区域端点） | 网页端 SDK 同组织同 appId（fp-it-acc.portal101.cn 签发），相同组织配置不证明网页与原生 SDK 等价 |
 | 兜底 device_id | AES-CBC(MD5(packageName) 为 key、全零 IV, android_id + "_" + Build.BRAND) | SHA-256 派生；仅在无真实 device_id 时使用，正常路径不生效 |
 
 有序发送使用 fhttp 的 HTTP/2 实现处理 DATA 流控、分片和取消，替代原有手写帧循环。
 JSON、SSE、GET 和上传都经过所选账号的客户端，不再绕过账号 SOCKS 代理。
 无账号代理时遵循系统代理配置。`DS2API_DEEPSEEK_USE_FRAMED_H2=0` 可回退旧路径；
-该回退路径及网络失败后的标准库 fallback 不保证头部顺序一致。
+该回退路径及仅旧路径允许标准库 fallback；该路径不保证头部顺序一致。
 
 ## 照片和文件
 
@@ -99,13 +98,13 @@ JSON、SSE、GET 和上传都经过所选账号的客户端，不再绕过账号
 | x-thinking-enabled | 随本次模型/请求的最终思考开关发送 `1` 或 `0`，不再固定 0 |
 | x-model-type | `default` |
 | x-file-size | 实际文件字节数，图片转码后重新计算；不含 multipart 包装 |
-| PNG / JPEG 照片 | 实际编码成 WebP，后缀和 MIME 同步更新；JPEG 应用 EXIF 方向 |
+| PNG / JPEG 照片 | 相册压缩比例缺省时保留；显式设置比例后使用有损 WebP/JPEG，应用 JPEG EXIF 方向 |
 | 已有 WebP、GIF、APNG、其他格式 | 保留原始字节，不丢弃动画帧 |
 | PDF、TXT、HISTORY.txt、TOOLS.txt | 保留文件正文；走相同的 multipart 格式和思考开关 |
 | 异步处理 | PENDING 后轮询 fetch_files，成功才用于聊天；失败状态直接报错，取消中断等待 |
 | 聊天引用 | 文件 ID 传入 ref_file_ids，支持一次引用多张照片 |
 
-转码采用无损 WebP，保留解码后的像素和透明度，不主动缩小尺寸；应用方向后不保留原始 EXIF 等元数据。
+转码策略已按 APK 静态代码修正：启用压缩时使用有损编码，并按 30 MiB 解码预算采样；见下方补充。
 超过 2000 万像素或 WebP 尺寸上限的图片保留原始格式，以限制解码开销。
 HAR 无法推断 App 的压缩质量、缩图阈值和具体编码器，因此不宣称转码结果与 App 文件字节相同。
 `/v1/files` 可传 `preserve_image=true` 保留原图，内联文件请求也支持此布尔字段。
@@ -152,6 +151,11 @@ Claude/Gemini 原生上传、多个文件引用及 Go/Node JSON 一致性。
 
 ## 账号设备档案补充
 
-托管账号现在首次使用时自动分配并保存型号、Android API 等级和设备 ID；账号字段覆盖环境默认。管理界面可查看、修改当前页档案。休眠和配置更新保留这些 Android 字段。只读部署使用按账号稳定派生的后备值。详见 [功能对齐说明](function-alignment.md)。
+托管账号首次使用时自动保存型号、品牌、Android API 等级及安装标识；登录 SDK ID 按 auto/manual 模式获取；账号字段覆盖环境默认。管理界面可查看、修改当前页档案。休眠和配置更新保留这些 Android 字段。只读部署使用按账号稳定派生的后备值。详见 [功能对齐说明](function-alignment.md)。
 
 旧 OkHttp 预设没有 ALPN 扩展时会补入并重新构建 ClientHello；有序 H2 路径协商 h2，标准库旧路径和 TTS WebSocket 只协商 HTTP/1.1。这是协议兼容修正，未用 HAR 推断实测 TLS 字节。
+
+## 本次 APK 复核修正
+
+登录 SDK ID、安装标识、auto 生成路径、遥测头、时区、上传参数转义、图片压缩和 Node HTTP/2
+已进一步核对；上文保留的是历史 HAR 背景。当前实现及明确边界以 [APK 请求对齐核对](apk-request-alignment.md) 为准。

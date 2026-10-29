@@ -3,22 +3,39 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"image"
-	_ "image/jpeg"
+	"image/jpeg"
 	_ "image/png"
+	"math"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
-	"github.com/HugoSmits86/nativewebp"
+	webpencoder "github.com/gen2brain/webp"
+	"golang.org/x/image/draw"
 )
 
-// The captures contain WebP photos, but do not reveal the App's resize/quality
-// settings. Encode decoded pixels losslessly; preserve unsupported/animated
-// formats and large images instead of silently discarding frames or allocating
-// unbounded decoded buffers. Documents are never transcoded.
+// APK F72.q: photo-picker compression is opt-in via a [0,1] remote ratio;
+// an absent ratio preserves ordinary photos. Enabled compression defaults to
+// WEBP_LOSSY and samples by powers of two against a 30 MiB RGBA budget.
 func prepareUploadImage(ctx context.Context, req UploadFileRequest) (UploadFileRequest, error) {
+	if err := ctx.Err(); err != nil {
+		return req, err
+	}
 	if req.PreserveImage {
+		return req, nil
+	}
+	ratio := req.PhotoCompressRatio
+	if ratio == nil {
+		if r, err := strconv.ParseFloat(os.Getenv("DS2API_DEEPSEEK_PHOTO_COMPRESS_RATIO"), 64); err == nil {
+			ratio = &r
+		}
+	}
+	if ratio == nil || math.IsNaN(*ratio) || math.IsInf(*ratio, 0) || *ratio < 0 || *ratio > 1 {
 		return req, nil
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(req.Data))
@@ -43,8 +60,29 @@ func prepareUploadImage(ctx context.Context, req UploadFileRequest) (UploadFileR
 	if format == "jpeg" {
 		img = orientUploadImage(img, jpegOrientation(req.Data))
 	}
+	sample := appImageSampleSize(cfg.Width, cfg.Height)
+	if sample > 1 {
+		bounds := img.Bounds()
+		dst := image.NewNRGBA(image.Rect(0, 0, (bounds.Dx()+sample-1)/sample, (bounds.Dy()+sample-1)/sample))
+		draw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, bounds, draw.Src, nil)
+		img = dst
+	}
 	var output bytes.Buffer
-	if err := nativewebp.Encode(&output, img, &nativewebp.Options{CompressionLevel: nativewebp.BestSpeed}); err != nil {
+	format = req.PictureCompressFormat
+	if format == "" {
+		format = strings.TrimSpace(os.Getenv("DS2API_DEEPSEEK_PICTURE_COMPRESS_FORMAT"))
+	}
+	quality := int(math.Floor(float64(float32(*ratio)*100) + 0.5))
+	// The encoder reserves zero for its own default; use its lowest quality
+	// instead of accidentally turning an explicit zero into quality 75.
+	quality = max(1, quality)
+	if format == "jpg" {
+		err = jpeg.Encode(&output, img, &jpeg.Options{Quality: quality})
+	} else {
+		format = "webp"
+		err = webpencoder.Encode(&output, img, webpencoder.Options{Quality: quality, Method: 4})
+	}
+	if err != nil {
 		return req, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -54,10 +92,29 @@ func prepareUploadImage(ctx context.Context, req UploadFileRequest) (UploadFileR
 	if filename == "" {
 		filename = "image"
 	}
-	req.Filename = strings.TrimSuffix(filename, filepath.Ext(filename)) + ".webp"
+	base := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	if len(base) < 3 {
+		base = "deepseek"
+	}
+	var entropy [8]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return req, err
+	}
+	req.Filename = fmt.Sprintf("%s_%d.%s", base, binary.BigEndian.Uint64(entropy[:])&math.MaxInt64, format)
 	req.ContentType = "image/webp"
+	if format == "jpg" {
+		req.ContentType = "image/jpeg"
+	}
 	req.Data = output.Bytes()
 	return req, nil
+}
+
+func appImageSampleSize(width, height int) int {
+	sample := 1
+	for size := int64(width) * int64(height) * 4; size > 30*1024*1024; size /= 4 {
+		sample *= 2
+	}
+	return sample
 }
 
 // jpegOrientation reads only the bounded EXIF IFD0 orientation field.

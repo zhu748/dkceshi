@@ -5,9 +5,15 @@ const fixture = require('../fixtures/android_app_2_7_1.json');
 const { BASE_HEADERS } = require('../../internal/js/shared/deepseek-constants');
 const { serializeAppPayload } = require('../../internal/js/shared/deepseek-wire');
 
-test('Node static client profile matches the Android HAR profile', () => {
+test('Node static headers and an explicitly configured device match the HAR', () => {
   const headers = Object.fromEntries(Object.entries(BASE_HEADERS).map(([key, value]) => [key.toLowerCase(), value]));
-  for (const [key, value] of Object.entries(fixture.client)) assert.equal(headers[key], value, key);
+  for (const [key, value] of Object.entries(fixture.client)) {
+    if (key !== 'x-device-model') assert.equal(headers[key], value, key);
+  }
+  assert.equal(headers['x-device-model'], undefined);
+  const api = require('../../internal/js/shared/deepseek-constants').__test;
+  const client = api.normalizeClient({ device_model: fixture.client['x-device-model'] });
+  assert.equal(api.buildBaseHeaders({}, client)['x-device-model'], fixture.client['x-device-model']);
 });
 
 test('Node completion payload follows HAR ordering and continuation values', () => {
@@ -20,4 +26,12 @@ test('Node completion payload follows HAR ordering and continuation values', () 
     assert.equal(actual.ref_file_ids.length, 4);
     assert.equal(payload.model_type, 'default');
   }
+});
+
+test('Node constants keep login SDK ID out of the installation header', () => {
+ const api=require('../../internal/js/shared/deepseek-constants').__test;
+ const client=api.normalizeClient({name:'DeepSeek',version:'2.7.1',device_id:'B-risk-sdk',installation_id:'android-installation'});
+ assert.equal(api.buildBaseHeaders({},client)['x-device-id'],'android-installation');
+ const onlyRisk=api.normalizeClient({device_id:'B-risk-sdk'});
+ assert.equal(api.buildBaseHeaders({},onlyRisk)['x-device-id'],undefined);
 });

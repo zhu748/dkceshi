@@ -28,7 +28,10 @@ func TestAppDefaultsAndCompletionJSONMatchCapture(t *testing.T) {
 	if err := json.Unmarshal(sharedConstantsJSON, &shared); err != nil {
 		t.Fatal(err)
 	}
-	headers := buildBaseHeaders(normalizeClientConstants(shared.Client), shared.BaseHeaders)
+	client := normalizeClientConstants(shared.Client)
+	// The HAR describes a specific device; it must not become the global default.
+	client.DeviceModel = fixture.Client["x-device-model"]
+	headers := buildBaseHeaders(client, shared.BaseHeaders)
 	for key, want := range fixture.Client {
 		found := ""
 		for name, value := range headers {

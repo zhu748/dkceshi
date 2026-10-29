@@ -370,6 +370,10 @@ func (r *Resolver) loginAndPersist(ctx context.Context, a *RequestAuth) error {
 		return err
 	}
 	a.Account.Token = token
+	if stored, ok := r.Store.FindAccount(a.AccountID); ok {
+		a.Account.DeviceID = stored.DeviceID
+		a.Account.DeviceIDType = stored.DeviceIDType
+	}
 	a.DeepSeekToken = token
 	r.markTokenRefreshedNow(a.AccountID)
 	if err := r.Store.UpdateAccountToken(a.AccountID, token); err != nil {
@@ -649,7 +653,9 @@ func (r *Resolver) ensureManagedToken(ctx context.Context, a *RequestAuth) error
 	}
 	if r != nil && r.Store != nil {
 		if acc, ok := r.Store.EnsureAccountDeviceProfile(a.AccountID); ok {
-			a.Account.DeviceID = acc.DeviceID
+			a.Account.InstallationID = acc.InstallationID
+			a.Account.AndroidID = acc.AndroidID
+			a.Account.DeviceBrand = acc.DeviceBrand
 			a.Account.DeviceModel = acc.DeviceModel
 			a.Account.AndroidAPILevel = acc.AndroidAPILevel
 		}

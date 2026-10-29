@@ -17,7 +17,7 @@ func TestEnsureTokenAddsProfileWithoutReplacingCredentials(t *testing.T) {
 	if a.DeepSeekToken != "already-held-token" || a.Account.Password != "request-password" {
 		t.Fatal("profile hydration replaced request credentials")
 	}
-	if a.Account.DeviceModel == "" || a.Account.DeviceID == "" {
+	if a.Account.DeviceModel == "" || a.Account.InstallationID == "" {
 		t.Fatal("profile hydration missing")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"strings"
 	"testing"
 
 	"golang.org/x/image/webp"
@@ -24,6 +25,7 @@ func uploadTestImage() *image.NRGBA {
 }
 
 func TestUploadConvertsPNGToRealWebP(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_PHOTO_COMPRESS_RATIO", "0.8")
 	img := uploadTestImage()
 	var original bytes.Buffer
 	if err := png.Encode(&original, img); err != nil {
@@ -34,7 +36,7 @@ func TestUploadConvertsPNGToRealWebP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Filename != "photo.webp" || got.ContentType != "image/webp" {
+	if !strings.HasPrefix(got.Filename, "photo_") || !strings.HasSuffix(got.Filename, ".webp") || got.ContentType != "image/webp" {
 		t.Fatalf("incorrect metadata: %s %s", got.Filename, got.ContentType)
 	}
 	decoded, err := webp.Decode(bytes.NewReader(got.Data))
@@ -44,12 +46,11 @@ func TestUploadConvertsPNGToRealWebP(t *testing.T) {
 	if decoded.Bounds() != img.Bounds() {
 		t.Fatalf("dimensions changed: %v", decoded.Bounds())
 	}
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 3; x++ {
-			if a, b := color.NRGBAModel.Convert(img.At(x, y)), color.NRGBAModel.Convert(decoded.At(x, y)); a != b {
-				t.Fatalf("pixel changed at %d,%d: %v != %v", x, y, a, b)
-			}
-		}
+	if !bytes.Contains(got.Data, []byte("VP8 ")) || bytes.Contains(got.Data, []byte("VP8L")) {
+		t.Fatal("App requests use lossy WebP, not VP8L")
+	}
+	if got := color.NRGBAModel.Convert(decoded.At(1, 1)).(color.NRGBA).A; got != 200 {
+		t.Fatalf("alpha changed: %d", got)
 	}
 	if !bytes.Equal(req.Data, original.Bytes()) || req.Filename != "photo.png" {
 		t.Fatal("input was mutated")
@@ -57,6 +58,7 @@ func TestUploadConvertsPNGToRealWebP(t *testing.T) {
 }
 
 func TestUploadJPEGOrientationAndPreservation(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_PHOTO_COMPRESS_RATIO", "0.8")
 	var encoded bytes.Buffer
 	if err := jpeg.Encode(&encoded, uploadTestImage(), nil); err != nil {
 		t.Fatal(err)
@@ -112,5 +114,38 @@ func TestUploadImageHonorsCancellation(t *testing.T) {
 	cancel()
 	if _, err := prepareUploadImage(ctx, UploadFileRequest{Data: imageData.Bytes()}); err == nil {
 		t.Fatal("expected cancellation")
+	}
+}
+
+func TestPhotoPickerDefaultAndExplicitJPEGFollowAPK(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_PHOTO_COMPRESS_RATIO", "")
+	var source bytes.Buffer
+	if err := png.Encode(&source, uploadTestImage()); err != nil {
+		t.Fatal(err)
+	}
+	req := UploadFileRequest{Filename: "photo.png", ContentType: "image/png", Data: source.Bytes()}
+	original, err := prepareUploadImage(context.Background(), req)
+	if err != nil || !bytes.Equal(original.Data, req.Data) || original.Filename != req.Filename {
+		t.Fatal("unset photo-picker ratio must preserve original")
+	}
+	ratio := 0.8
+	req.PhotoCompressRatio = &ratio
+	req.PictureCompressFormat = "jpg"
+	converted, err := prepareUploadImage(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jpeg.Decode(bytes.NewReader(converted.Data)); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(converted.Filename, ".jpg") || converted.ContentType != "image/jpeg" {
+		t.Fatal("compression format mismatch")
+	}
+}
+func TestImageSamplingUsesAPKMemoryBudget(t *testing.T) {
+	for _, tc := range []struct{ w, h, sample int }{{1000, 1000, 1}, {3000, 3000, 2}, {6000, 6000, 4}, {12000, 12000, 8}} {
+		if got := appImageSampleSize(tc.w, tc.h); got != tc.sample {
+			t.Fatalf("%dx%d sample=%d", tc.w, tc.h, got)
+		}
 	}
 }

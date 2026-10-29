@@ -1,9 +1,7 @@
 package protocol
 
 import (
-	"crypto/sha256"
 	_ "embed"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -53,6 +51,7 @@ var defaultSkipExactPaths = []string{
 }
 
 var ClientVersion string
+var DefaultRiskDeviceID string
 var BaseHeaders = map[string]string{}
 var SkipContainsPatterns = cloneStringSlice(defaultSkipContainsPatterns)
 var SkipExactPathSet = toStringSet(defaultSkipExactPaths)
@@ -68,6 +67,7 @@ type clientConstants struct {
 	RangersID       string `json:"rangers_id"`
 	DeviceModel     string `json:"device_model"`
 	DeviceID        string `json:"device_id"`
+	InstallationID  string `json:"installation_id"`
 }
 
 type sharedConstants struct {
@@ -92,6 +92,7 @@ func applySharedConstants(cfg sharedConstants) {
 	client := normalizeClientConstants(cfg.Client)
 	client = applyEnvClientOverrides(client)
 	ClientVersion = client.Version
+	DefaultRiskDeviceID = client.DeviceID
 	BaseHeaders = buildBaseHeaders(client, cfg.BaseHeaders)
 	SkipContainsPatterns = cloneStringSlice(defaultSkipContainsPatterns)
 	if len(cfg.SkipContainsPattern) > 0 {
@@ -113,22 +114,19 @@ func normalizeClientConstants(in clientConstants) clientConstants {
 	if in.AndroidAPILevel == "" {
 		in.AndroidAPILevel = "36"
 	}
-	if in.DeviceModel == "" {
-		in.DeviceModel = "V2507A"
-	}
 	if in.Locale == "" {
 		in.Locale = "zh_CN"
 	}
 	if in.TimezoneOffset == "" {
 		in.TimezoneOffset = "28800"
 	}
-	if in.RangersID == "" {
-		in.RangersID = deriveDefaultRangersID()
-	}
 	return in
 }
 
 func applyEnvClientOverrides(in clientConstants) clientConstants {
+	if v := strings.TrimSpace(os.Getenv("DS2API_DEEPSEEK_INSTALLATION_ID")); v != "" {
+		in.InstallationID = v
+	}
 	if v := strings.TrimSpace(os.Getenv("DS2API_DEEPSEEK_DEVICE_MODEL")); v != "" {
 		in.DeviceModel = v
 	}
@@ -160,46 +158,14 @@ func applyEnvClientOverrides(in clientConstants) clientConstants {
 	return in
 }
 
-func deriveDefaultRangersID() string {
-	seedParts := []string{
-		os.Getenv("DS2API_DEEPSEEK_RANGERS_SEED"),
-		os.Getenv("VERCEL_PROJECT_ID"),
-		os.Getenv("RENDER_SERVICE_ID"),
-		os.Getenv("RENDER_EXTERNAL_HOSTNAME"),
-		os.Getenv("DS2API_CONFIG_PATH"),
-	}
-	if hostname, err := os.Hostname(); err == nil {
-		seedParts = append(seedParts, hostname)
-	}
-	if userConfigDir, err := os.UserConfigDir(); err == nil {
-		seedParts = append(seedParts, userConfigDir)
-	}
-	seed := strings.Join(seedParts, "|")
-	if strings.Trim(seed, "| ") == "" {
-		seed = "ds2api:deepseek:android"
-	}
-	return deriveRangersIDFromSeed(seed)
-}
-
-func deriveRangersIDFromSeed(seed string) string {
-	seed = strings.TrimSpace(seed)
-	if seed == "" {
-		seed = "ds2api:deepseek:android"
-	}
-	sum := sha256.Sum256([]byte(seed))
-	n := binary.BigEndian.Uint64(sum[:8])%1_000_000_000_000_000_000 + 7_000_000_000_000_000_000
-	return fmt.Sprintf("%d", n)
-}
-
 func BaseHeadersForRangersSeed(seed string) map[string]string {
 	out := cloneStringMap(BaseHeaders)
 	if explicitRangersID != "" {
 		out["x-rangers-id"] = explicitRangersID
 		return out
 	}
-	if strings.TrimSpace(seed) != "" {
-		out["x-rangers-id"] = deriveRangersIDFromSeed("account:" + seed)
-	}
+	// A locally hashed number is not a telemetry registration ID. Preserve a
+	// configured DID, otherwise leave this optional field absent.
 	return out
 }
 
@@ -234,8 +200,8 @@ func buildBaseHeaders(client clientConstants, overrides map[string]string) map[s
 	if client.DeviceModel != "" {
 		out["x-device-model"] = client.DeviceModel
 	}
-	if client.DeviceID != "" {
-		out["x-device-id"] = client.DeviceID
+	if client.InstallationID != "" {
+		out["x-device-id"] = client.InstallationID
 	}
 	if client.RangersID != "" {
 		out["x-rangers-id"] = client.RangersID

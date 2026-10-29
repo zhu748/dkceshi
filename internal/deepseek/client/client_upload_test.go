@@ -35,7 +35,7 @@ func TestBuildUploadMultipartBodyOmitsPurposeAndIncludesFilePart(t *testing.T) {
 	if strings.Contains(payload, `name="purpose"`) || strings.Contains(payload, "assistants") {
 		t.Fatalf("expected purpose to be omitted from payload: %q", payload)
 	}
-	if !strings.Contains(payload, `name="file"; filename="demo.txt"`) {
+	if !strings.Contains(payload, `name=file; filename=demo.txt`) {
 		t.Fatalf("expected sanitized filename in payload: %q", payload)
 	}
 	if !strings.Contains(payload, "Content-Type: application/octet-stream") {
@@ -47,6 +47,7 @@ func TestBuildUploadMultipartBodyOmitsPurposeAndIncludesFilePart(t *testing.T) {
 }
 
 func TestDoUploadFallsBackWhenPrimaryTransportFails(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	var fallbackCalled bool
 	client := &Client{}
 	_, err := client.doUpload(
@@ -184,7 +185,7 @@ func TestUploadFileUsesUploadTargetPowAndMultipartHeaders(t *testing.T) {
 	if !strings.HasPrefix(seenContentType, "multipart/form-data; boundary=") {
 		t.Fatalf("expected multipart content type, got %q", seenContentType)
 	}
-	if !strings.Contains(seenBody, `name="file"; filename="demo.txt"`) {
+	if !strings.Contains(seenBody, `name=file; filename=demo.txt`) {
 		t.Fatalf("expected file part in upload body: %q", seenBody)
 	}
 }
@@ -261,6 +262,7 @@ func TestUploadFileWaitsForProcessedFetchFiles(t *testing.T) {
 }
 
 func TestPhotoUploadHeadersDescribeTranscodedBytes(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_PHOTO_COMPRESS_RATIO", "0.8")
 	var input bytes.Buffer
 	if err := png.Encode(&input, uploadTestImage()); err != nil {
 		t.Fatal(err)
@@ -286,7 +288,7 @@ func TestPhotoUploadHeadersDescribeTranscodedBytes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if part.FormName() != "file" || part.FileName() != "photo.webp" || part.Header.Get("Content-Type") != "application/octet-stream" {
+		if part.FormName() != "file" || !strings.HasPrefix(part.FileName(), "photo_") || !strings.HasSuffix(part.FileName(), ".webp") || part.Header.Get("Content-Type") != "application/octet-stream" {
 			t.Fatalf("part headers mismatch: %v", part.Header)
 		}
 		data, err := io.ReadAll(part)
@@ -327,5 +329,18 @@ func TestUploadFailedProcessingDoesNotPoll(t *testing.T) {
 	cancel()
 	if err := fileReadySleep(ctx, time.Hour); !errors.Is(err, context.Canceled) {
 		t.Fatalf("polling did not honor cancellation: %v", err)
+	}
+}
+
+func TestMultipartMatchesAPKParameterQuoting(t *testing.T) {
+	body, _, err := buildUploadMultipartBody("report.pdf", "application/pdf", []byte("%PDF-test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("Content-Disposition: form-data; name=file; filename=report.pdf\r\nContent-Type: application/octet-stream\r\n\r\n%PDF-test\r\n")) {
+		t.Fatalf("unexpected App part: %s", body)
+	}
+	if got := appMultipartParameter("report final.pdf"); got != `"report final.pdf"` {
+		t.Fatalf("quoted parameter: %q", got)
 	}
 }

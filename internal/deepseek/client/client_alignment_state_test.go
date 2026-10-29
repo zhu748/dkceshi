@@ -29,7 +29,7 @@ type alignmentBody struct {
 func (b *alignmentBody) Close() error { b.closed = true; return nil }
 
 func TestLoginReusesStoredAndroidIdentityAndClassifiesRejectedCredentials(t *testing.T) {
-	t.Setenv("DS2API_CONFIG_JSON", `{"accounts":[{"email":"login@example.com","password":"p","device_model":"Pixel 9a","android_api_level":"36","device_id":"fixed-android-id"}]}`)
+	t.Setenv("DS2API_CONFIG_JSON", `{"accounts":[{"email":"login@example.com","password":"p","device_model":"Pixel 9a","android_api_level":"36","device_id":"sdk-risk-id","installation_id":"fixed-android-id"}]}`)
 	store := config.LoadStore()
 	c := NewClient(store, nil)
 	defer c.Close()
@@ -39,7 +39,11 @@ func TestLoginReusesStoredAndroidIdentityAndClassifiesRejectedCredentials(t *tes
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body["device_id"] != "fixed-android-id" || r.Header.Get("x-device-id") != "fixed-android-id" || r.Header.Get("x-device-model") != "Pixel 9a" || !strings.Contains(r.Header.Get("User-Agent"), "Android/36") {
+		wantBodyID := "fixed-android-id"
+		if r.URL.Path == "/api/v0/users/login" {
+			wantBodyID = "sdk-risk-id"
+		}
+		if body["device_id"] != wantBodyID || r.Header.Get("x-device-id") != "fixed-android-id" || r.Header.Get("x-device-model") != "Pixel 9a" || !strings.Contains(r.Header.Get("User-Agent"), "Android/36") {
 			t.Fatal("login body and request identity disagree")
 		}
 		raw := `{"code":0,"data":{"biz_code":0,"biz_data":{"user":{"token":"new-token"}}}}`

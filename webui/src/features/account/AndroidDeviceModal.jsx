@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 
-const fields = ['device_model', 'android_api_level', 'device_id', 'rangers_id']
+const fields = ['device_model', 'device_brand', 'android_api_level', 'device_id', 'installation_id', 'android_id', 'rangers_id', 'locale', 'timezone', 'photo_compress_ratio', 'picture_compress_format']
 
 export default function AndroidDeviceModal({ accounts, apiFetch, t, onClose, onSaved, onMessage }) {
     const [selected, setSelected] = useState(null)
@@ -9,14 +9,14 @@ export default function AndroidDeviceModal({ accounts, apiFetch, t, onClose, onS
     const [saving, setSaving] = useState(false)
     const edit = (account) => {
         setSelected(account.identifier)
-        setDraft(Object.fromEntries(fields.map(key => [key, account[key] || ''])))
+        setDraft(Object.fromEntries(fields.map(key => [key, account[key] ?? ''])))
     }
     const save = async (event) => {
         event.preventDefault()
         setSaving(true)
         try {
             const response = await apiFetch(`/admin/accounts/${encodeURIComponent(selected)}`, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft),
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...draft, photo_compress_ratio: draft.photo_compress_ratio === '' ? null : Number(draft.photo_compress_ratio) }),
             })
             const data = await response.json()
             if (!response.ok) throw new Error(data.detail || t('messages.requestFailed'))
@@ -51,7 +51,7 @@ export default function AndroidDeviceModal({ accounts, apiFetch, t, onClose, onS
                         {fields.map(key => (
                             <label key={key} className="block text-sm space-y-1">
                                 <span>{t(`accountManager.androidDeviceFields.${key}`)}</span>
-                                <input value={draft[key] || ''} onChange={e => setDraft(previous => ({ ...previous, [key]: e.target.value }))} disabled={saving} className="w-full bg-background border border-border rounded-lg px-3 py-2" />
+                                <input type={key === 'photo_compress_ratio' ? 'number' : 'text'} min={key === 'photo_compress_ratio' ? 0 : undefined} max={key === 'photo_compress_ratio' ? 1 : undefined} step={key === 'photo_compress_ratio' ? 0.01 : undefined} value={draft[key] ?? ''} onChange={e => setDraft(previous => ({ ...previous, [key]: e.target.value }))} disabled={saving} className="w-full bg-background border border-border rounded-lg px-3 py-2" />
                             </label>
                         ))}
                         <button type="submit" disabled={saving} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-50">{saving ? '…' : t('accountManager.androidDeviceSave')}</button>

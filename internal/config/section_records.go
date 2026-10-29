@@ -55,7 +55,7 @@ func init() {
 			return c.Accounts, true
 		},
 		Clone: func(dst, src *Config) {
-			dst.Accounts = slices.Clone(src.Accounts)
+			dst.Accounts = cloneAccounts(src.Accounts)
 		},
 	})
 	RegisterSection(SectionSpec{

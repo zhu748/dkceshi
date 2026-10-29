@@ -14,7 +14,7 @@ func loginDeviceModel(acc config.Account) string {
 	if v := strings.TrimSpace(acc.DeviceModel); v != "" {
 		return v
 	}
-	if v := strings.TrimSpace(dsprotocol.BaseHeaders["x-device-model"]); v != "" {
+	if v := strings.TrimSpace(accountBaseHeaders(acc)["x-device-model"]); v != "" {
 		return v
 	}
 	return ""
@@ -34,7 +34,7 @@ func (c *Client) CheckDevice(ctx context.Context, acc config.Account, token stri
 	if token == "" {
 		return "", nil
 	}
-	deviceID := loginDeviceID(acc)
+	deviceID := accountBaseHeaders(acc)["x-device-id"]
 	if deviceID == "" {
 		return "", nil
 	}

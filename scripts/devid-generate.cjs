@@ -294,9 +294,23 @@ function makeHostPrims() {
 /* ============================================================
  * 主流程
  * ============================================================ */
-const opts = parseArgs(process.argv.slice(2));
-if (opts.browser) { runViaBrowser(opts).catch((e) => finish(false, e.message || String(e))); }
-else { mainVm(opts).catch((e) => finish(false, e.message || String(e))); }
+if (require.main === module) {
+    const opts = parseArgs(process.argv.slice(2));
+    if (opts.browser) { runViaBrowser(opts).catch((e) => finish(false, e.message || String(e))); }
+    else { mainVm(opts).catch((e) => finish(false, e.message || String(e))); }
+}
+
+function selectAnchoredArchive(arch, anchor, profilesSpec, gpuPool, seed) {
+    if (!anchor) return { profile: arch.profile || buildProfile(profilesSpec, seed), smidV2: arch.smidV2 };
+    const old = arch.profile;
+    const sameDevice = old && old.osFamily === 'android' && old.deviceModel === anchor.device_model && old.androidVersion === Number(anchor.android_version);
+    if (sameDevice) {
+        return { profile: { ...old, locale: String(anchor.locale || old.locale), tzName: anchor.tz || old.tzName, tzOffset: Number(anchor.tz_offset ?? old.tzOffset) }, smidV2: arch.smidV2 };
+    }
+    return { profile: buildAnchoredProfile(anchor, profilesSpec, gpuPool, seed), smidV2: '' };
+}
+
+module.exports = { selectAnchoredArchive };
 
 function readData(name) { return fs.readFileSync(path.join(DEVID_DIR, name), 'utf8'); }
 
@@ -312,11 +326,9 @@ async function mainVm(o) {
         try { anchor = JSON.parse(fs.readFileSync(o.anchor, 'utf8')); }
         catch (e) { log('anchor 文件解析失败，忽略:', e.message); }
     }
-    let profile;
-    if (arch.profile) profile = arch.profile;
-    else if (anchor) profile = buildAnchoredProfile(anchor, profilesSpec, gpuPool, crypto.randomBytes(4).readUInt32BE(0));
-    else profile = buildProfile(profilesSpec, crypto.randomBytes(4).readUInt32BE(0));
-    if (arch.smidV2) profile.smidV2 = arch.smidV2;
+    const selected = selectAnchoredArchive(arch, anchor, profilesSpec, gpuPool, crypto.randomBytes(4).readUInt32BE(0));
+    const profile = selected.profile;
+    if (selected.smidV2) profile.smidV2 = selected.smidV2;
     log('画像:', profile.osFamily, profile.deviceModel || '', profile.screenW + 'x' + profile.screenH, 'dpr=' + profile.dpr,
         'cores=' + profile.cores, profile.locale, profile.smidV2 ? '(复用 smid)' : '(新设备)',
         profile.gpu ? 'gpu=' + String(profile.gpu.renderer).slice(6, 40) : '');

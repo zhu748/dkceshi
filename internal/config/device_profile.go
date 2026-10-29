@@ -4,17 +4,43 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"math"
 	"math/big"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type androidProfile struct{ model, api string }
 
 func androidProfiles() []androidProfile {
 	out := []androidProfile{{"V2507A", "36"}, {"Pixel 6a", "36"}, {"Pixel 9a", "36"}}
+	// Manufacturer model codes, with conservative Android API presets. See
+	// docs/android-device-models.md for the corresponding vivo product pages.
+	out = append(out,
+		androidProfile{"V2241A", "33"},  // X90
+		androidProfile{"V2242A", "33"},  // X90 Pro
+		androidProfile{"V2227A", "33"},  // X90 Pro+
+		androidProfile{"V2309A", "34"},  // X100
+		androidProfile{"V2324A", "34"},  // X100 Pro
+		androidProfile{"V2359A", "34"},  // X100s
+		androidProfile{"V2324HA", "34"}, // X100s Pro
+		androidProfile{"V2366GA", "34"}, // X100 Ultra
+		androidProfile{"V2366HA", "34"}, // X100 Ultra
+		androidProfile{"V2415A", "35"},  // X200
+		androidProfile{"V2405A", "35"},  // X200 Pro
+		androidProfile{"V2405DA", "35"}, // X200 Pro variant
+		androidProfile{"V2419A", "35"},  // X200 Pro mini
+		androidProfile{"V2454A", "35"},  // X200 Ultra
+		androidProfile{"V2454DA", "35"}, // X200 Ultra variant
+		androidProfile{"V2364A", "34"},  // S19
+		androidProfile{"V2362A", "34"},  // S19 Pro
+		androidProfile{"V2429A", "35"},  // S20
+		androidProfile{"V2430A", "35"},  // S20 Pro
+	)
 	models := []string{"Pixel 6", "Pixel 6 Pro", "Pixel 7", "Pixel 7 Pro", "Pixel 7a", "Pixel Fold", "Pixel 8", "Pixel 8 Pro", "Pixel 8a", "Pixel 9", "Pixel 9 Pro", "Pixel 9 Pro XL", "Pixel 9 Pro Fold", "SM-S911B", "SM-S916B", "SM-S918B", "SM-S921B", "SM-S926B", "SM-S928B", "SM-S931B", "SM-S936B", "SM-S938B"}
 	for _, model := range models {
 		for _, api := range []string{"35", "36"} {
@@ -43,12 +69,16 @@ func fillAndroidProfile(acc Account, stable bool) Account {
 	}
 	if len(candidates) == 0 {
 		if model == "" {
-			model = "V2507A"
+			// An explicit API outside the preset list must not force one model.
+			for _, p := range profiles {
+				candidates = append(candidates, androidProfile{p.model, api})
+			}
+		} else {
+			if api == "" {
+				api = "36"
+			}
+			candidates = []androidProfile{{model, api}}
 		}
-		if api == "" {
-			api = "36"
-		}
-		candidates = []androidProfile{{model, api}}
 	}
 	idx := int(seed[0]) % len(candidates)
 	if !stable {
@@ -63,10 +93,11 @@ func fillAndroidProfile(acc Account, stable bool) Account {
 	if acc.AndroidAPILevel == "" {
 		acc.AndroidAPILevel = chosen.api
 	}
-	if acc.DeviceID == "" {
-		acc.DeviceID = strings.TrimSpace(os.Getenv("DS2API_DEEPSEEK_DEVICE_ID"))
+	legacyProfile := acc.AndroidID == "" && acc.DeviceBrand == ""
+	if acc.DeviceBrand == "" {
+		acc.DeviceBrand = AndroidBrandForModel(acc.DeviceModel)
 	}
-	if acc.DeviceID == "" {
+	if acc.AndroidID == "" {
 		data := seed[:]
 		if !stable {
 			random := make([]byte, 32)
@@ -74,9 +105,25 @@ func fillAndroidProfile(acc Account, stable bool) Account {
 				data = random
 			}
 		}
-		acc.DeviceID = base64.StdEncoding.EncodeToString(data)
+		acc.AndroidID = hex.EncodeToString(data[:8])
+	}
+	if acc.InstallationID == "" {
+		acc.InstallationID = strings.TrimSpace(os.Getenv("DS2API_DEEPSEEK_INSTALLATION_ID"))
+		// Preserve the old local 44-character installation identity on upgrade.
+		if raw, err := base64.StdEncoding.DecodeString(acc.DeviceID); legacyProfile && err == nil && len(raw) == 32 && acc.DeviceIDType == "" {
+			acc.InstallationID = acc.DeviceID
+		}
+		if acc.InstallationID == "" {
+			acc.InstallationID = AndroidInstallationID(acc)
+		}
 	}
 	return acc
+}
+
+// StableAndroidProfile also supplies a repeatable device for token-only calls,
+// which do not have a managed account profile to persist.
+func StableAndroidProfile(acc Account) Account {
+	return fillAndroidProfile(acc, true)
 }
 
 func (s *Store) EnsureAccountDeviceProfile(identifier string) (Account, bool) {
@@ -87,8 +134,8 @@ func (s *Store) EnsureAccountDeviceProfile(identifier string) (Account, bool) {
 		return Account{}, false
 	}
 	before := s.cfg.Accounts[idx]
-	if before.DeviceModel != "" && before.AndroidAPILevel != "" && before.DeviceID != "" {
-		return before, true
+	if before.DeviceModel != "" && before.AndroidAPILevel != "" && before.InstallationID != "" && before.AndroidID != "" && before.DeviceBrand != "" {
+		return before.clone(), true
 	}
 	stable := IsVercel() || (s.fromEnv && !envWritebackEnabled())
 	acc := fillAndroidProfile(before, stable)
@@ -101,10 +148,21 @@ func (s *Store) EnsureAccountDeviceProfile(identifier string) (Account, bool) {
 			s.cfg.Accounts[idx] = acc
 		}
 	}
-	return acc, true
+	return acc.clone(), true
 }
 
 func ValidateAccountDeviceProfile(acc Account) error {
+	if acc.Timezone != "" {
+		if _, err := time.LoadLocation(acc.Timezone); err != nil {
+			return errors.New("timezone must be an IANA time zone")
+		}
+	}
+	if r := acc.PhotoCompressRatio; r != nil && (math.IsNaN(*r) || math.IsInf(*r, 0) || *r < 0 || *r > 1) {
+		return errors.New("photo_compress_ratio must be between 0 and 1")
+	}
+	if f := acc.PictureCompressFormat; f != "" && f != "webp" && f != "jpg" {
+		return errors.New("picture_compress_format must be webp or jpg")
+	}
 	if acc.AndroidAPILevel == "" {
 		return nil
 	}

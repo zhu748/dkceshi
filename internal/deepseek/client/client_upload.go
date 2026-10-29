@@ -23,13 +23,15 @@ import (
 )
 
 type UploadFileRequest struct {
-	ThinkingEnabled bool
-	PreserveImage   bool
-	Filename        string
-	ContentType     string
-	Purpose         string
-	ModelType       string
-	Data            []byte
+	PhotoCompressRatio    *float64
+	PictureCompressFormat string
+	ThinkingEnabled       bool
+	PreserveImage         bool
+	Filename              string
+	ContentType           string
+	Purpose               string
+	ModelType             string
+	Data                  []byte
 }
 
 type UploadFileResult struct {
@@ -52,6 +54,14 @@ func (c *Client) UploadFile(ctx context.Context, a *auth.RequestAuth, req Upload
 		return nil, errors.New("file is required")
 	}
 	var err error
+	if a != nil {
+		if req.PhotoCompressRatio == nil {
+			req.PhotoCompressRatio = a.Account.PhotoCompressRatio
+		}
+		if req.PictureCompressFormat == "" {
+			req.PictureCompressFormat = a.Account.PictureCompressFormat
+		}
+	}
 	req, err = prepareUploadImage(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("prepare upload image: %w", err)
@@ -208,7 +218,7 @@ func buildUploadMultipartBodyFactory(filename, contentType string, data []byte) 
 		return nil, err
 	}
 	partHeader := textproto.MIMEHeader{}
-	partHeader.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, escapeMultipartFilename(filename)))
+	partHeader.Set("Content-Disposition", "form-data; name=file; filename="+appMultipartParameter(escapeMultipartFilename(filename)))
 	partHeader.Set("Content-Type", "application/octet-stream")
 	if _, err := writer.CreatePart(partHeader); err != nil {
 		return nil, err
@@ -258,6 +268,14 @@ func escapeMultipartFilename(filename string) string {
 	return filename
 }
 
+// Ktor quote policy (APK a85.a/b), rather than Go's always-quoted %q.
+func appMultipartParameter(value string) string {
+	if value != "" && !strings.ContainsAny(value, "()<>@,;:\\\"/[]?={} \t\r\n") {
+		return value
+	}
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\t", `\t`, "\r", `\r`, "\n", `\n`).Replace(value) + `"`
+}
+
 func (c *Client) doUpload(ctx context.Context, doer trans.Doer, fallback trans.Doer, url string, headers map[string]string, bodyFactory func() io.Reader) (*http.Response, error) {
 	newReq := func() (*http.Request, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bodyFactory())
@@ -276,6 +294,9 @@ func (c *Client) doUpload(ctx context.Context, doer trans.Doer, fallback trans.D
 	resp, err := doer.Do(req)
 	if err == nil {
 		return resp, nil
+	}
+	if trans.UseFramedH2() {
+		return nil, err
 	}
 	config.Logger.Warn("[deepseek] fingerprint upload request failed, fallback to std transport", "url", url, "error", err)
 	req2, reqErr := newReq()

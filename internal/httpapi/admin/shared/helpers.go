@@ -167,19 +167,26 @@ func toStringSlice(v any) ([]string, bool) {
 func toAccount(m map[string]any) config.Account {
 	email := fieldString(m, "email")
 	mobile := config.NormalizeMobileForStorage(fieldString(m, "mobile"))
-	return config.Account{
+	acc := config.Account{
 		Name:        fieldString(m, "name"),
 		Remark:      fieldString(m, "remark"),
 		Email:       email,
 		Mobile:      mobile,
 		Password:    fieldString(m, "password"),
 		DeviceModel: fieldString(m, "device_model"), AndroidAPILevel: fieldString(m, "android_api_level"), RangersID: fieldString(m, "rangers_id"),
-		DeviceID: fieldString(m, "device_id"),
-		ProxyID:  fieldString(m, "proxy_id"),
-		PoolType: config.NormalizePoolType(fieldString(m, "pool_type")),
-		Priority: fieldInt(m, "priority"),
-		Locale:   fieldString(m, "locale"),
+		DeviceID:       fieldString(m, "device_id"),
+		InstallationID: fieldString(m, "installation_id"), AndroidID: fieldString(m, "android_id"),
+		DeviceBrand: fieldString(m, "device_brand"), Timezone: fieldString(m, "timezone"),
+		PictureCompressFormat: fieldString(m, "picture_compress_format"),
+		ProxyID:               fieldString(m, "proxy_id"),
+		PoolType:              config.NormalizePoolType(fieldString(m, "pool_type")),
+		Priority:              fieldInt(m, "priority"),
+		Locale:                fieldString(m, "locale"),
 	}
+	if ratio, ok := m["photo_compress_ratio"].(float64); ok {
+		acc.PhotoCompressRatio = &ratio
+	}
+	return acc
 }
 
 func toAPIKeys(v any) ([]config.APIKey, bool) {

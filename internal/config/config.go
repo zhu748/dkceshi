@@ -38,19 +38,31 @@ type Config struct {
 }
 
 type Account struct {
-	DeviceModel     string `json:"device_model,omitempty"`
-	AndroidAPILevel string `json:"android_api_level,omitempty"`
-	RangersID       string `json:"rangers_id,omitempty"`
-	Name            string `json:"name,omitempty"`
-	Remark          string `json:"remark,omitempty"`
-	Email           string `json:"email,omitempty"`
-	Mobile          string `json:"mobile,omitempty"`
-	Password        string `json:"password,omitempty"`
-	Token           string `json:"token,omitempty"`
-	DeviceID        string `json:"device_id,omitempty"`
-	DeviceIDType    string `json:"device_id_type,omitempty"`
-	ProxyID         string `json:"proxy_id,omitempty"`
-	PoolType        string `json:"pool_type,omitempty"`
+	// DeviceID is the generated/manual risk SDK ID used for login. InstallationID
+	// is the independent Android ID sent in x-device-id and check_device.
+	InstallationID        string   `json:"installation_id,omitempty"`
+	HIFDliq               string   `json:"hif_dliq,omitempty"`
+	HIFLeim               string   `json:"hif_leim,omitempty"`
+	HIFDliqExpiresAt      int64    `json:"hif_dliq_expires_at,omitempty"`
+	HIFLeimExpiresAt      int64    `json:"hif_leim_expires_at,omitempty"`
+	AndroidID             string   `json:"android_id,omitempty"`
+	DeviceBrand           string   `json:"device_brand,omitempty"`
+	Timezone              string   `json:"timezone,omitempty"`
+	PhotoCompressRatio    *float64 `json:"photo_compress_ratio,omitempty"`
+	PictureCompressFormat string   `json:"picture_compress_format,omitempty"`
+	DeviceModel           string   `json:"device_model,omitempty"`
+	AndroidAPILevel       string   `json:"android_api_level,omitempty"`
+	RangersID             string   `json:"rangers_id,omitempty"`
+	Name                  string   `json:"name,omitempty"`
+	Remark                string   `json:"remark,omitempty"`
+	Email                 string   `json:"email,omitempty"`
+	Mobile                string   `json:"mobile,omitempty"`
+	Password              string   `json:"password,omitempty"`
+	Token                 string   `json:"token,omitempty"`
+	DeviceID              string   `json:"device_id,omitempty"`
+	DeviceIDType          string   `json:"device_id_type,omitempty"`
+	ProxyID               string   `json:"proxy_id,omitempty"`
+	PoolType              string   `json:"pool_type,omitempty"`
 	// Priority 是账号在弹性号池选取时的优先级，数值越大越优先被启用。
 	// 0 为默认优先级；负数表示低于默认，仅在更高优先级账号不足时才会被启用。
 	// 同优先级的账号按配置中的原始顺序选取。

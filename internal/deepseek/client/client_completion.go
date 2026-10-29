@@ -77,7 +77,7 @@ func (c *Client) streamPostWithFallback(ctx context.Context, doer trans.Doer, ur
 	}
 	resp, err := doer.Do(req)
 	if err != nil {
-		if allowFallback {
+		if allowFallback && !trans.UseFramedH2() {
 			config.Logger.Warn("[deepseek] fingerprint stream request failed, fallback to std transport", "url", url, "error", err)
 			req2, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
 			if reqErr != nil {

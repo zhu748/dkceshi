@@ -11,6 +11,7 @@ const {
 } = require('../helpers/stream-tool-sieve');
 const { BASE_HEADERS } = require('../shared/deepseek-constants');
 const { serializeAppPayload } = require('../shared/deepseek-wire');
+const { fetchAppStream } = require('../shared/app-transport');
 const { writeOpenAIError, writeOpenAIErrorWithCode, openAIErrorType } = require('./error_shape');
 const { parseChunkForContent, isCitation, shouldSkipPath } = require('./sse_parse');
 const { buildUsage } = require('./token_usage');
@@ -79,7 +80,7 @@ function switchOptionsForStatus(status) {
   return isAccountAuthFailureStatus(status) ? { disable: true, auth_failed: true } : { disable: true };
 }
 
-async function handleVercelStream(req, res, rawBody, payload) {
+async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAppStream) {
   const prep = await fetchStreamPrepare(req, rawBody);
   if (!prep.ok) {
     relayPreparedFailure(res, prep);
@@ -108,9 +109,11 @@ async function handleVercelStream(req, res, rawBody, payload) {
   let baseHeaders = prep.body.base_headers && typeof prep.body.base_headers === 'object'
     ? { ...BASE_HEADERS, ...prep.body.base_headers }
     : { ...BASE_HEADERS };
+  let headerExpirations = prep.body.base_header_expirations || {};
   const updateBaseHeaders = (switchedBody) => {
     if (switchedBody && switchedBody.base_headers && typeof switchedBody.base_headers === 'object') {
       baseHeaders = { ...BASE_HEADERS, ...switchedBody.base_headers };
+      headerExpirations = switchedBody.base_header_expirations || {};
     }
   };
 
@@ -168,8 +171,9 @@ async function handleVercelStream(req, res, rawBody, payload) {
 
     const fetchDeepSeekStream = async (url, bodyPayload, powHeader) => {
       try {
-        return await fetch(url, {
+        return await appFetch(url, {
           method: 'POST',
+          headerExpirations,
           headers: {
             ...baseHeaders,
             authorization: `Bearer ${deepseekToken}`,

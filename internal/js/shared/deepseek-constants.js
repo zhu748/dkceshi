@@ -45,8 +45,9 @@ function normalizeClient(raw) {
     version: asNonEmptyString(client.version),
     androidApiLevel: asNonEmptyString(client.android_api_level) || DEFAULT_CLIENT.androidApiLevel,
     locale: asNonEmptyString(client.locale) || DEFAULT_CLIENT.locale,
-    deviceModel: asNonEmptyString(client.device_model) || 'V2507A',
+    deviceModel: asNonEmptyString(client.device_model),
     deviceID: asNonEmptyString(client.device_id),
+    installationID: asNonEmptyString(client.installation_id),
     timezoneOffset: asNonEmptyString(client.timezone_offset) || '28800',
   };
 }
@@ -71,9 +72,9 @@ function buildBaseHeaders(parsed, client) {
   if (client.locale) {
     baseHeaders['x-client-locale'] = client.locale;
   }
-  baseHeaders['x-device-model'] = client.deviceModel;
+  if (client.deviceModel) baseHeaders['x-device-model'] = client.deviceModel;
   baseHeaders['x-client-timezone-offset'] = client.timezoneOffset;
-  if (client.deviceID) baseHeaders['x-device-id'] = client.deviceID;
+  if (client.installationID) baseHeaders['x-device-id'] = client.installationID;
   return baseHeaders;
 }
 
