@@ -33,6 +33,7 @@ const path = require('path');
 const vm = require('node:vm');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
+const { checkRuntime } = require('./devid-runtime-check.cjs');
 
 const DEVID_DIR = path.join(__dirname, '..', 'data', 'devid');
 const FINISH_T0 = Date.now();
@@ -324,7 +325,8 @@ async function mainVm(o) {
     let anchor = null;
     if (o.anchor) {
         try { anchor = JSON.parse(fs.readFileSync(o.anchor, 'utf8')); }
-        catch (e) { log('anchor 文件解析失败，忽略:', e.message); }
+        catch (e) { throw new Error('anchor 文件解析失败: ' + e.message); }
+        if (!anchor || typeof anchor !== 'object' || Array.isArray(anchor)) throw new Error('anchor 必须是设备配置对象');
     }
     const selected = selectAnchoredArchive(arch, anchor, profilesSpec, gpuPool, crypto.randomBytes(4).readUInt32BE(0));
     const profile = selected.profile;
@@ -395,10 +397,12 @@ async function mainVm(o) {
 
     log('装载环境模拟…');
     vm.runInContext(readData('browser_env.js'), ctx, { filename: 'browser_env.js' });
+    const runtimeChecks = await checkRuntime(ctx, profile, SM_CONF.siteOverride);
 
     /* --- selftest：以检测方视角体检环境，然后退出 --- */
     if (o.selftest) {
         const results = vm.runInContext('JSON.parse(JSON.stringify(__probeResults))', ctx);
+        results.push(...runtimeChecks.map((r) => ({ ...r, expr: 'runtime identity', expect: true, actual: r.ok })));
         let bad = 0;
         for (const r of results) {
             log((r.ok ? '✓ ' : '✗ ') + r.name + '  [' + r.expr + '] expect=' + r.expect + ' actual=' + String(r.actual).slice(0, 60));
@@ -407,6 +411,10 @@ async function mainVm(o) {
         log('selftest: ' + (results.length - bad) + '/' + results.length + ' 通过');
         process.stdout.write(JSON.stringify({ ok: bad === 0, selftest: true, pass: results.length - bad, total: results.length }) + '\n');
         process.exit(bad === 0 ? 0 : 1);
+    }
+    const incompatible = runtimeChecks.filter((r) => !r.ok);
+    if (incompatible.length) {
+        throw new Error('SDK 扩展包与设备/站点配置不兼容: ' + incompatible.map((r) => r.name).join('、') + '；请提供支持 Android 锚定和 __siteOverride 的扩展包');
     }
 
     /* --- verify.js（debug 体检用，非 debug 也装载：不影响 SDK） --- */

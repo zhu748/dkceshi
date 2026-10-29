@@ -26,6 +26,25 @@ APK SHA-256：`cd461f3d7c78f0c4ab6b8c4ff7270e16a766042170dfebead540b7f174948c5c`
 网页 SDK 与 APK 原生 SDK 使用相同组织配置，并不证明二者的云端可信度或结果完全等价。
 本改动没有替换既有数美生成器，也没有声称其已等价于原生 SDK。
 
+### 扩展包兼容性验证
+
+扩展包中的 `browser_env.js` 必须实际支持 Android 锚定和 `__siteOverride`，不能仅在
+`profiles.json` 或注入变量中写入 Android。仓库内置生成器在运行 SDK、发送上报前检查实际可见的
+UA、平台、Client Hints/mobile、高熵型号/版本、GPU、语言、时区，以及页面和上报站点；
+不匹配时返回明确错误。`--selftest --anchor <设备配置.json>` 同样包括这些检查。
+锚定文件读取或解析失败会报错，不会退回无锚定的桌面画像。
+
+本次补充的 `devid (1).zip` 提供了缺失的 8 个运行文件。其独立桌面路径已成功上报：
+HTTP 200、`code=1100`、`detail.c=0`，返回带 `B` 前缀的 ID。但该包的环境仅实现
+Windows/macOS/Linux，忽略 Android 和站点覆盖，仍报告 Windows、桌面 Client Hints、
+Direct3D GPU 与 `platform.deepseek.com`。原有 62 项自检通过不能证明 Android 锚定生效。
+当前检查会阻止这个包用于 Android auto；需替换为支持上述配置的扩展包，或使用已有真实
+设备的 manual ID。独立桌面上报成功不代表 APK 登录接受该 ID，也未验证账号登录/聊天/上传。
+SDK 资源仍由部署方提供，未加入公开仓库；Go 编译本身不会打包 Node 或这些文件。
+部署内置生成器时需同时保留 `scripts/devid-generate.cjs` 和同目录的
+`devid-runtime-check.cjs`。显式配置的外部脚本或扩展包自带的 `generate.cjs` 优先于内置脚本，
+需单独核对是否包含这些检查。
+
 ## 头部与时区
 
 型号不再设置固定默认值；新账号自动分配后保存。vivo 已扩充为 20 种型号代码，
