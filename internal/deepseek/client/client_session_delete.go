@@ -23,8 +23,6 @@ func (c *Client) DeleteSession(ctx context.Context, a *auth.RequestAuth, session
 	if maxAttempts <= 0 {
 		maxAttempts = c.maxRetries
 	}
-	clients := c.requestClientsForAuth(ctx, a)
-
 	result := &DeleteSessionResult{
 		SessionID: sessionID,
 	}
@@ -38,6 +36,7 @@ func (c *Client) DeleteSession(ctx context.Context, a *auth.RequestAuth, session
 	refreshed := false
 
 	for attempts < maxAttempts {
+		clients := c.requestClientsForAuth(ctx, a)
 		headers := c.authHeadersForAuth(a)
 
 		payload := map[string]any{
@@ -53,7 +52,7 @@ func (c *Client) DeleteSession(ctx context.Context, a *auth.RequestAuth, session
 		}
 
 		code, bizCode, msg, bizMsg := extractResponseStatus(resp)
-		if status == http.StatusOK && code == 0 && bizCode == 0 {
+		if deleteResponseError(resp, status) == nil {
 			result.Success = true
 			return result, nil
 		}
@@ -61,18 +60,15 @@ func (c *Client) DeleteSession(ctx context.Context, a *auth.RequestAuth, session
 		result.ErrorMessage = fmt.Sprintf("status=%d, code=%d, msg=%s", status, code, msg)
 		config.Logger.Warn("[delete_session] failed", "status", status, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "session_id", sessionID)
 
-		if a.UseConfigToken {
+		if a.UseConfigToken && c.Auth != nil {
 			if isTokenInvalid(status, code, bizCode, msg, bizMsg) && !refreshed {
 				if c.Auth.RefreshToken(ctx, a) {
 					refreshed = true
 					continue
 				}
 			}
-			if c.Auth.SwitchAccount(ctx, a) {
-				refreshed = false
-				attempts++
-				continue
-			}
+			// Session IDs belong to this account. Refreshing its token is safe;
+			// retrying the same ID under a different account is not.
 		}
 		attempts++
 	}
@@ -106,11 +102,9 @@ func (c *Client) DeleteSessionForToken(ctx context.Context, token string, sessio
 		return result, err
 	}
 
-	code := intFrom(resp["code"])
-	if status != http.StatusOK || code != 0 {
-		msg, _ := resp["msg"].(string)
-		result.ErrorMessage = fmt.Sprintf("request failed: status=%d, code=%d, msg=%s", status, code, msg)
-		return result, errors.New(result.ErrorMessage)
+	if err := deleteResponseError(resp, status); err != nil {
+		result.ErrorMessage = err.Error()
+		return result, err
 	}
 
 	result.Success = true
@@ -121,42 +115,38 @@ func (c *Client) DeleteSessionForToken(ctx context.Context, token string, sessio
 func (c *Client) DeleteAllSessions(ctx context.Context, a *auth.RequestAuth) error {
 	clients := c.requestClientsForAuth(ctx, a)
 	headers := c.authHeadersForAuth(a)
-	payload := map[string]any{}
-
-	resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekDeleteAllSessionsURL, headers, payload)
+	resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekDeleteAllSessionsURL, headers, nil)
 	if err != nil {
 		config.Logger.Warn("[delete_all_sessions] request error", "error", err)
 		return err
 	}
 
-	code := intFrom(resp["code"])
-	if status != http.StatusOK || code != 0 {
-		msg, _ := resp["msg"].(string)
-		config.Logger.Warn("[delete_all_sessions] failed", "status", status, "code", code, "msg", msg)
-		return fmt.Errorf("request failed: status=%d, code=%d, msg=%s", status, code, msg)
-	}
-
-	return nil
+	return deleteResponseError(resp, status)
 }
 
 // DeleteAllSessionsForToken 直接使用 token 删除所有会话（直通模式）
 func (c *Client) DeleteAllSessionsForToken(ctx context.Context, token string) error {
 	clients := c.requestClientsFromContext(ctx)
 	headers := c.authHeadersFromContext(ctx, token)
-	payload := map[string]any{}
-
-	resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekDeleteAllSessionsURL, headers, payload)
+	resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekDeleteAllSessionsURL, headers, nil)
 	if err != nil {
 		config.Logger.Warn("[delete_all_sessions_for_token] request error", "error", err)
 		return err
 	}
 
-	code := intFrom(resp["code"])
-	if status != http.StatusOK || code != 0 {
-		msg, _ := resp["msg"].(string)
-		config.Logger.Warn("[delete_all_sessions_for_token] failed", "status", status, "code", code, "msg", msg)
-		return fmt.Errorf("request failed: status=%d, code=%d, msg=%s", status, code, msg)
-	}
+	return deleteResponseError(resp, status)
+}
 
+func deleteResponseError(resp map[string]any, status int) error {
+	data, hasData := resp["data"].(map[string]any)
+	_, hasCode := resp["code"]
+	_, hasBizCode := data["biz_code"]
+	if !hasCode || !hasData || !hasBizCode {
+		return errors.New("invalid deletion response: missing result codes")
+	}
+	code, bizCode, msg, bizMsg := extractResponseStatus(resp)
+	if status != http.StatusOK || code != 0 || bizCode != 0 {
+		return fmt.Errorf("deletion failed: status=%d, code=%d, biz_code=%d, msg=%s", status, code, bizCode, failureMessage(msg, bizMsg, "deletion failed"))
+	}
 	return nil
 }

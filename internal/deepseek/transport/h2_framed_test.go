@@ -10,7 +10,14 @@ import (
 )
 
 func TestHeaderOrderMatchesAllHARRequestShapes(t *testing.T) {
-	raw, err := os.ReadFile("../../../tests/fixtures/android_app_2_7_1.json")
+	for _, name := range []string{"android_app_2_7_1.json", "android_app_2_7_1_reference.json"} {
+		t.Run(name, func(t *testing.T) { testHARHeaders(t, name) })
+	}
+}
+
+func testHARHeaders(t *testing.T, filename string) {
+	t.Helper()
+	raw, err := os.ReadFile("../../../tests/fixtures/" + filename)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,6 +34,9 @@ func TestHeaderOrderMatchesAllHARRequestShapes(t *testing.T) {
 	for _, sample := range fixture.Requests {
 		t.Run(sample.Method+sample.Path, func(t *testing.T) {
 			headers := sample.StaticHeaders
+			if headers == nil {
+				headers = map[string]string{}
+			}
 			for _, name := range sample.HeaderNames {
 				if !strings.HasPrefix(name, ":") && headers[name] == "" {
 					headers[name] = "test-value"

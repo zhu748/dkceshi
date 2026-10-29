@@ -37,6 +37,10 @@ func MarshalAppJSON(endpoint string, payload any) ([]byte, error) {
 		values = copyValues
 	case "/api/v0/chat_session/delete":
 		order = []string{"chat_session_id", "chat_session_ids"}
+	case "/api/v0/chat/continue":
+		order = []string{"chat_session_id", "message_id", "fallback_to_resume"}
+	case "/api/v0/chat/stop_stream":
+		order = []string{"chat_session_id", "message_id"}
 	case "/api/v0/users/login":
 		// App 2.7.1（UsersLoginWithEmailAndPwdRequest / UsersLoginWithPhoneAndPwdRequest）
 		// kotlinx.serialization 字段序：email → password → device_id → os；
@@ -90,5 +94,28 @@ func marshalAppValue(value any) ([]byte, error) {
 	if err := encoder.Encode(value); err != nil {
 		return nil, err
 	}
-	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+	return appJSONSeparators(bytes.TrimSuffix(buf.Bytes(), []byte("\n"))), nil
+}
+
+// kotlinx.serialization and JSON.stringify emit U+2028/U+2029 literally.
+// Walk JSON escapes so a caller's literal "\\u2028" stays a literal escape.
+func appJSONSeparators(data []byte) []byte {
+	if !bytes.Contains(data, []byte(`\u202`)) {
+		return data
+	}
+	out := make([]byte, 0, len(data))
+	for i := 0; i < len(data); i++ {
+		if data[i] == '\\' && i+1 < len(data) {
+			if i+6 <= len(data) && (string(data[i:i+6]) == `\u2028` || string(data[i:i+6]) == `\u2029`) {
+				out = append(out, 0xe2, 0x80, 0xa8+data[i+5]-'8')
+				i += 5
+				continue
+			}
+			out = append(out, data[i], data[i+1])
+			i++
+			continue
+		}
+		out = append(out, data[i])
+	}
+	return out
 }

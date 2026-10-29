@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 	"unicode"
 
 	"ds2api/internal/auth"
@@ -166,6 +167,11 @@ func (c *Client) GetPowForTarget(ctx context.Context, a *auth.RequestAuth, targe
 // fetchPowSync 是真实的同步 PoW 获取实现（原本就是 GetPowForTarget 的主体逻辑）。
 // 抽出来供 powPrefetchCache.fetcher 调用，避免循环依赖。
 func (c *Client) fetchPowSync(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
+	solution, err := c.fetchPowSolution(ctx, a, targetPath, maxAttempts)
+	return solution.header, err
+}
+
+func (c *Client) fetchPowSolution(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
 	if maxAttempts <= 0 {
 		maxAttempts = c.maxRetries
 	}
@@ -192,12 +198,21 @@ func (c *Client) fetchPowSync(ctx context.Context, a *auth.RequestAuth, targetPa
 			data, _ := resp["data"].(map[string]any)
 			bizData, _ := data["biz_data"].(map[string]any)
 			challenge, _ := bizData["challenge"].(map[string]any)
+			receivedAt := time.Now()
+			if challenge == nil {
+				attempts++
+				continue
+			}
+			// The response field is optional in APK ServerChatChallenge. The
+			// solution always belongs to the path that requested the challenge.
+			challenge["target_path"] = targetPath
 			answer, err := ComputePow(ctx, challenge)
 			if err != nil {
 				attempts++
 				continue
 			}
-			return BuildPowHeader(challenge, answer)
+			header, err := BuildPowHeader(challenge, answer)
+			return powSolution{header: header, expiresAt: powChallengeExpiry(challenge, receivedAt)}, err
 		}
 		config.Logger.Warn("[get_pow] failed", "status", status, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "use_config_token", a.UseConfigToken, "account", a.AccountID, "target_path", targetPath)
 		lastFailureMessage = failureMessage(msg, bizMsg, "get pow failed")
@@ -211,7 +226,7 @@ func (c *Client) fetchPowSync(ctx context.Context, a *auth.RequestAuth, targetPa
 				attempts++
 				continue
 			}
-			return "", &RequestFailure{Op: "request", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
+			return powSolution{}, &RequestFailure{Op: "request", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
 		}
 		if c.recoverManagedAuth(ctx, a, &attempts, status, code, bizCode, msg, bizMsg) {
 			continue
@@ -219,9 +234,9 @@ func (c *Client) fetchPowSync(ctx context.Context, a *auth.RequestAuth, targetPa
 		attempts++
 	}
 	if lastFailureKind != FailureUnknown {
-		return "", &RequestFailure{Op: "get pow", Kind: lastFailureKind, Message: lastFailureMessage}
+		return powSolution{}, &RequestFailure{Op: "get pow", Kind: lastFailureKind, Message: lastFailureMessage}
 	}
-	return "", errors.New("get pow failed")
+	return powSolution{}, errors.New("get pow failed")
 }
 
 func (c *Client) authHeaders(token string) map[string]string {

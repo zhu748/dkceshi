@@ -40,7 +40,8 @@ type Client struct {
 
 	// powCache 是 PoW 预取缓存，复刻真实 Android App 在每次 completion 后异步
 	// 预取下一个 PoW 的行为，让下一次 completion 几乎零延迟拿到 PoW。
-	powCache *powPrefetchCache
+	powCache     *powPrefetchCache
+	mainSettings *mainSettingsCache
 }
 
 func NewClient(store *config.Store, resolver *auth.Resolver) *Client {
@@ -54,12 +55,10 @@ func NewClient(store *config.Store, resolver *auth.Resolver) *Client {
 		fallbackS:    &http.Client{Timeout: 0},
 		maxRetries:   3,
 		proxyClients: map[string]requestClients{},
+		mainSettings: &mainSettingsCache{entries: make(map[string]*mainSettingsEntry)},
 	}
-	// powCache.fetcher 指向同步获取 PoW 的真实函数（即 GetPowForTarget 的同步实现）。
-	// 用 closure 形式注入，避免循环依赖。
-	c.powCache = newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
-		return c.fetchPowSync(ctx, a, targetPath, maxAttempts)
-	})
+	// Keep the challenge's lifetime with the prefetched proof.
+	c.powCache = newPowPrefetchCache(c.fetchPowSolution)
 	return c
 }
 

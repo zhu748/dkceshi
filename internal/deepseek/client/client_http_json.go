@@ -34,7 +34,16 @@ func (c *Client) postJSONWithStatus(ctx context.Context, doer trans.Doer, fallba
 			return nil, 0, err
 		}
 	}
-	headers = c.jsonHeaders(headers)
+	if payload == nil && url == dsprotocol.DeepSeekDeleteAllSessionsURL {
+		headers = cloneStringMap(headers)
+		for key := range headers {
+			if strings.EqualFold(key, "Content-Type") {
+				delete(headers, key)
+			}
+		}
+	} else {
+		headers = c.jsonHeaders(headers)
+	}
 
 	// 原有 utls + net/http2 路径
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))

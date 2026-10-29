@@ -47,6 +47,19 @@ type UploadFileResult struct {
 }
 
 func (c *Client) UploadFile(ctx context.Context, a *auth.RequestAuth, req UploadFileRequest, maxAttempts int) (*UploadFileResult, error) {
+	result, err := c.UploadFilePending(ctx, a, req, maxAttempts)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.waitForUploadedFile(ctx, a, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// UploadFilePending lets shared inline preprocessing upload all files before
+// waiting for them with a single repeated-file_ids request, as in the APK.
+func (c *Client) UploadFilePending(ctx context.Context, a *auth.RequestAuth, req UploadFileRequest, maxAttempts int) (*UploadFileResult, error) {
 	if maxAttempts <= 0 {
 		maxAttempts = c.maxRetries
 	}
@@ -54,20 +67,13 @@ func (c *Client) UploadFile(ctx context.Context, a *auth.RequestAuth, req Upload
 		return nil, errors.New("file is required")
 	}
 	var err error
-	if a != nil {
-		if req.PhotoCompressRatio == nil {
-			req.PhotoCompressRatio = a.Account.PhotoCompressRatio
-		}
-		if req.PictureCompressFormat == "" {
-			req.PictureCompressFormat = a.Account.PictureCompressFormat
-		}
-	}
+	req = applyUploadSettings(req, a, c.uploadSettings(ctx, a))
 	req, err = prepareUploadImage(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("prepare upload image: %w", err)
 	}
-	filename := strings.TrimSpace(req.Filename)
-	if filename == "" {
+	filename := req.Filename
+	if strings.TrimSpace(filename) == "" {
 		filename = "upload.bin"
 	}
 	contentType := strings.TrimSpace(req.ContentType)
@@ -164,9 +170,6 @@ func (c *Client) UploadFile(ctx context.Context, a *auth.RequestAuth, req Upload
 			if result.ID == "" {
 				return nil, errors.New("upload file succeeded without file id")
 			}
-			if err := c.waitForUploadedFile(ctx, a, result); err != nil {
-				return nil, err
-			}
 			return result, nil
 		}
 		config.Logger.Warn("[upload_file] failed", "status", resp.StatusCode, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "account", a.AccountID, "filename", filename)
@@ -258,10 +261,7 @@ func buildUploadMultipartBody(filename, contentType string, data []byte) ([]byte
 }
 
 func escapeMultipartFilename(filename string) string {
-	filename = filepath.Base(strings.TrimSpace(filename))
-	filename = strings.ReplaceAll(filename, `\`, "_")
-	filename = strings.ReplaceAll(filename, `"`, "_")
-	filename = strings.NewReplacer("\r", "_", "\n", "_").Replace(filename)
+	filename = filepath.Base(filename)
 	if filename == "." || filename == "" {
 		return "upload.bin"
 	}
@@ -270,6 +270,23 @@ func escapeMultipartFilename(filename string) string {
 
 // Ktor quote policy (APK a85.a/b), rather than Go's always-quoted %q.
 func appMultipartParameter(value string) string {
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' && !strings.ContainsAny(value, "\r\n\t") {
+		escaped, quoted := false, true
+		for i := 1; i < len(value)-1; i++ {
+			if value[i] == '"' && !escaped {
+				quoted = false
+				break
+			}
+			if value[i] == '\\' {
+				escaped = !escaped
+			} else {
+				escaped = false
+			}
+		}
+		if quoted {
+			return value
+		}
+	}
 	if value != "" && !strings.ContainsAny(value, "()<>@,;:\\\"/[]?={} \t\r\n") {
 		return value
 	}

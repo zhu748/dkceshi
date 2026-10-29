@@ -3,11 +3,31 @@ package client
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
+	"time"
 
+	dsprotocol "ds2api/internal/deepseek/protocol"
 	"ds2api/pow"
 )
+
+type powSolution struct {
+	header    string
+	expiresAt time.Time
+}
+
+func powChallengeExpiry(challenge map[string]any, receivedAt time.Time) time.Time {
+	// APK expire_after is a millisecond duration, independent of wall-clock skew.
+	if millis := toInt64(challenge["expire_after"], 0); millis > 0 && millis <= 24*60*60*1000 {
+		return receivedAt.Add(time.Duration(millis) * time.Millisecond)
+	}
+	if epoch := toInt64(challenge["expire_at"], 0); epoch > 0 {
+		if epoch >= 1_000_000_000_000 {
+			return time.UnixMilli(epoch)
+		}
+		return time.Unix(epoch, 0)
+	}
+	return time.Time{}
+}
 
 // ComputePow 使用纯 Go 实现求解 PoW challenge (DeepSeekHashV1)。
 func ComputePow(ctx context.Context, challenge map[string]any) (int64, error) {
@@ -23,17 +43,21 @@ func ComputePow(ctx context.Context, challenge map[string]any) (int64, error) {
 	return pow.SolvePow(ctx, challengeStr, salt, expireAt, difficulty)
 }
 
-// BuildPowHeader 序列化 {algorithm,challenge,salt,answer,signature,target_path} 为 base64(JSON)。
+// BuildPowHeader preserves APK AuthedPowSolution field order before Base64.
 func BuildPowHeader(challenge map[string]any, answer int64) (string, error) {
-	payload := map[string]any{
-		"algorithm":   challenge["algorithm"],
-		"challenge":   challenge["challenge"],
-		"salt":        challenge["salt"],
-		"answer":      answer,
-		"signature":   challenge["signature"],
-		"target_path": challenge["target_path"],
+	payload := struct {
+		Algorithm  any   `json:"algorithm"`
+		Challenge  any   `json:"challenge"`
+		Salt       any   `json:"salt"`
+		Signature  any   `json:"signature"`
+		Answer     int64 `json:"answer"`
+		TargetPath any   `json:"target_path"`
+	}{
+		Algorithm: challenge["algorithm"], Challenge: challenge["challenge"],
+		Salt: challenge["salt"], Signature: challenge["signature"],
+		Answer: answer, TargetPath: challenge["target_path"],
 	}
-	b, err := json.Marshal(payload)
+	b, err := dsprotocol.MarshalAppJSON("", payload)
 	if err != nil {
 		return "", err
 	}

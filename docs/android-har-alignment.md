@@ -8,6 +8,8 @@
 
 仓库只保留脱敏后的协议特征 `tests/fixtures/android_app_2_7_1.json`，用于自动化回归；
 没有复制 HAR 中的认证 token、密码、验证码、设备标识和文件正文。
+新增的原始 HAR 复核覆盖另一组 262 条记录，见
+[2026-10-29 补充](android-har-reference-2026-10-29.md)。
 
 ## 请求头与设备配置
 
@@ -79,9 +81,9 @@ Go 默认启用有序 HTTP/2，普通字段小写，伪头顺序为
 | 登录 JSON 字段序 | `email, password, device_id, os`（UsersLoginWithEmailAndPwdRequest）；手机号为 `mobile, area_code, password, device_id, os` | MarshalAppJSON 按 `/api/v0/users/login` 定序输出同序 |
 | check_device 请求体 | `device_model`（Build.MODEL）、`device_id`，登录成功与启动 check_update 流程均调用；响应 `biz_data.rotate.token` 非空时轮换本地 token | 登录成功后调用，轮换 token 优先于登录响应返回并持久化；失败仅告警不阻断登录 |
 | x-device-model | `Build.MODEL`（真实机型） | 账号 device_model（同语义） |
-| x-hif-dliq / x-hif-leim | 从 `hif-dliq.deepseek.com/query`、`hif-leim.deepseek.com/query` 拉取的设备认证材料，缓存受响应头 `x-hif-ttl` 与远程设置 hif_max_retry_interval_secs 控制；可缺失 | 不发送。两个端点仅 IPv6可达，IPv4 网络下的真实 App 同样无法携带，属正常客户端形态 |
+| x-hif-dliq / x-hif-leim | 从两个 HIF query 端点拉取认证材料，缓存受 x-hif-ttl 与远程设置控制；可缺失 | 仅发送配置中真实、未过期的材料；没有自动获取流程 |
 | 数美组织 | `P9usCUBauxft8eAmUXaZ` / appId `default`（fengkongcloud.com 双区域端点） | 网页端 SDK 同组织同 appId（fp-it-acc.portal101.cn 签发），相同组织配置不证明网页与原生 SDK 等价 |
-| 兜底 device_id | AES-CBC(MD5(packageName) 为 key、全零 IV, android_id + "_" + Build.BRAND) | SHA-256 派生；仅在无真实 device_id 时使用，正常路径不生效 |
+| 安装标识 | AES-CBC(MD5(packageName) 为 key、全零 IV, android_id + "_" + Build.BRAND) | 相同 AES 派生算法；缺少真实 Android ID 时使用按账号派生的输入，不能视为真机身份 |
 
 有序发送使用 fhttp 的 HTTP/2 实现处理 DATA 流控、分片和取消，替代原有手写帧循环。
 JSON、SSE、GET 和上传都经过所选账号的客户端，不再绕过账号 SOCKS 代理。

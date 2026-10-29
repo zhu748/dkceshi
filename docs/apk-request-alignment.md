@@ -3,6 +3,8 @@
 核对对象：`com.deepseek.chat` 2.7.1，versionCode 287，minSdk 24，targetSdk 36。
 APK SHA-256：`cd461f3d7c78f0c4ab6b8c4ff7270e16a766042170dfebead540b7f174948c5c`。
 依据是该 APK 的 DEX 调用链和仓库已有脱敏 HAR 夹具；未进行真实账号登录、遥测注册或现场 TLS 抓包。
+本轮直接核对三份原始 HAR（262 条）的修正、测试及剩余边界见
+[原始抓包补充](android-har-reference-2026-10-29.md)。
 
 ## 设备身份与 auto 模式
 
@@ -117,7 +119,7 @@ APK 的相册比例缺省是 NaN（不启用普通照片压缩）；相机压缩
 }
 ```
 
-- `photo_compress_ratio` 未设置或为 null：JPEG/PNG 保留原图，匹配 APK 相册缺省。
+- `photo_compress_ratio` 未设置或为 null：由远程相册比例补足；远程同样缺省时 JPEG/PNG 保留原图。
 - 配置 0–1：取 `round(float32(ratio) * 100)` 为质量，编码有损 WebP 或 JPEG。
 - 全局替代：`DS2API_DEEPSEEK_PHOTO_COMPRESS_RATIO` / `DS2API_DEEPSEEK_PICTURE_COMPRESS_FORMAT`；账号优先。
 - 按 APK 的 `width * height * 4 > 30 MiB` 判定，采样倍率取 2 的幂。
@@ -132,7 +134,8 @@ APK 的相册比例缺省是 NaN（不启用普通照片压缩）；相机压缩
 超过 2000 万像素保留原格式以限制 Go 全图解码内存。当前解码器先完整解码再缩放，
 不同于 Android 原生采样解码；采样滤镜和编码器版本也不同，因此不保证同图字节一致。
 编码器质量 0 保留作默认值，显式比例 0 使用最低可用质量 1，避免错误使用质量 75。
-未自动拉取 App 远程压缩设置，需根据实际设置提供对应配置；不能仅由一份 APK 推定当前远程值。
+上传前读取并按账号隔离缓存 main scope 的相册比例、格式与轮询间隔；显式配置优先。
+不能仅由一份 APK 推定当前远程值，也不把单份抓包的 0.8 设成全局默认。
 
 ## 验证与剩余工作
 
@@ -141,5 +144,5 @@ APK 的相册比例缺省是 NaN（不启用普通照片压缩）；相机压缩
 转换后的文件大小、HTTP/2 实际头部顺序、gzip SSE 和取消。
 
 仍需真实设备网络样本核对：TLS ClientHello、HTTP/2 SETTINGS/窗口/HPACK、连接复用策略、
-远程 client/settings、HIF 自动获取、遥测注册、HEIF/动画转换及 Android 编码器结果。
+完整 client/settings/report 生命周期、HIF 自动获取、遥测注册、HEIF/动画转换及 Android 编码器结果。
 现有 HAR 只验证 HTTP 层样本，不能替代这些证据。

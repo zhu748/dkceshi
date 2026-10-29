@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,7 +24,7 @@ type powPrefetchCache struct {
 	entries map[string]*powCacheEntry
 	// fetcher 是同步获取 PoW 的真实函数（由 Client 注入），返回的 PoW 字符串
 	// 即可直接作为 x-ds-pow-response header 值。
-	fetcher func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error)
+	fetcher func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error)
 	// now 用于注入测试用时钟；生产环境返回 time.Now()。
 	now func() time.Time
 }
@@ -40,13 +41,13 @@ type powCacheEntry struct {
 }
 
 // powSafetyMargin 是 PoW 使用前的预留安全时间。
-// 真实 App 在过期前 ~10s 就会刷新；这里保守取 30s，避免 completion 慢请求时 PoW 已过期。
-const powSafetyMargin = 30 * time.Second
+// APK AuthedPowSolution reserves 20000ms before challenge expiration.
+const powSafetyMargin = 20 * time.Second
 
 // powPrefetchTimeout 是异步预取请求的最大耗时，超时则放弃，下次 GetPow 会触发同步获取。
 const powPrefetchTimeout = 10 * time.Second
 
-func newPowPrefetchCache(fetcher func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error)) *powPrefetchCache {
+func newPowPrefetchCache(fetcher func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error)) *powPrefetchCache {
 	return &powPrefetchCache{
 		entries: make(map[string]*powCacheEntry),
 		fetcher: fetcher,
@@ -74,7 +75,7 @@ func (c *powPrefetchCache) Get(accountID, targetPath string) (string, bool) {
 		return "", false
 	}
 	// 检查是否过期（含安全余量）
-	if c.now().After(entry.expireAt.Add(-powSafetyMargin)) {
+	if !c.now().Before(entry.expireAt.Add(-powSafetyMargin)) {
 		delete(c.entries, key)
 		c.mu.Unlock()
 		return "", false
@@ -87,15 +88,12 @@ func (c *powPrefetchCache) Get(accountID, targetPath string) (string, bool) {
 }
 
 // Put 把同步获取到的 PoW 写入缓存，便于下次 GetPow 命中。
-// expireAt 应来自 challenge.expire_at；为 0 时按 5 分钟默认 TTL 处理。
+// expireAt must come from the challenge; unknown lifetimes are never cached.
 func (c *powPrefetchCache) Put(accountID, targetPath, pow string, expireAt time.Time) {
-	if c == nil || pow == "" {
+	if c == nil || pow == "" || expireAt.IsZero() {
 		return
 	}
 	key := powCacheKey(accountID, targetPath)
-	if expireAt.IsZero() {
-		expireAt = c.now().Add(5 * time.Minute)
-	}
 	c.mu.Lock()
 	c.entries[key] = &powCacheEntry{
 		pow:       pow,
@@ -115,7 +113,7 @@ func (c *powPrefetchCache) SchedulePrefetch(ctx context.Context, a *auth.Request
 	key := powCacheKey(a.AccountID, targetPath)
 	c.mu.Lock()
 	// 已有缓存或正在预取，跳过
-	if existing, ok := c.entries[key]; ok && existing.pow != "" {
+	if existing, ok := c.entries[key]; ok && existing.pow != "" && c.now().Before(existing.expireAt.Add(-powSafetyMargin)) {
 		c.mu.Unlock()
 		return
 	}
@@ -124,29 +122,38 @@ func (c *powPrefetchCache) SchedulePrefetch(ctx context.Context, a *auth.Request
 		return
 	}
 	// 标记正在预取
-	c.entries[key] = &powCacheEntry{fetching: true}
+	entry := &powCacheEntry{fetching: true}
+	c.entries[key] = entry
 	c.mu.Unlock()
+	// The foreground auth may refresh or switch while the task is running.
+	account := auth.RequestAuth{
+		UseConfigToken: a.UseConfigToken, DeepSeekToken: a.DeepSeekToken,
+		CallerID: a.CallerID, UserAgent: a.UserAgent, AccountID: a.AccountID,
+		TargetAccount: a.AccountID, Account: a.Account, ToolsPresent: a.ToolsPresent,
+		ToolMarker: a.ToolMarker,
+	}
 
 	go func() {
 		prefetchCtx, cancel := context.WithTimeout(context.Background(), powPrefetchTimeout)
 		defer cancel()
 		// 复用原始 ctx 的认证信息（auth.FromContext），但用独立 timeout context 避免被父 ctx 取消
-		prefetchCtx = auth.WithAuth(prefetchCtx, a)
-		pow, err := c.fetcher(prefetchCtx, a, targetPath, maxAttempts)
+		prefetchCtx = auth.WithAuth(prefetchCtx, &account)
+		pow, err := c.fetcher(prefetchCtx, &account, targetPath, maxAttempts)
 		c.mu.Lock()
-		if err != nil || pow == "" {
+		defer c.mu.Unlock()
+		if c.entries[key] != entry {
+			return // Cleared or replaced while this request was in flight.
+		}
+		if err != nil || pow.header == "" || pow.expiresAt.IsZero() || !c.now().Before(pow.expiresAt.Add(-powSafetyMargin)) {
 			// 预取失败：删除"正在预取"标记，下次 GetPow 会走同步获取
 			delete(c.entries, key)
-			c.mu.Unlock()
 			return
 		}
-		// 写入预取结果（按 5 分钟默认 TTL；fetcher 内部如有 expire_at 可后续扩展覆盖）
 		c.entries[key] = &powCacheEntry{
-			pow:       pow,
+			pow:       pow.header,
 			fetchedAt: c.now(),
-			expireAt:  c.now().Add(5 * time.Minute),
+			expireAt:  pow.expiresAt,
 		}
-		c.mu.Unlock()
 	}()
 }
 
@@ -167,7 +174,7 @@ func (c *powPrefetchCache) ClearForAccount(accountID string) {
 	}
 	c.mu.Lock()
 	for k := range c.entries {
-		if len(k) > len(accountID)+1 && k[:len(accountID)] == accountID {
+		if strings.HasPrefix(k, accountID+"|") {
 			delete(c.entries, k)
 		}
 	}

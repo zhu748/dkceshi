@@ -28,7 +28,7 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-func TestCallContinuePropagatesPowHeaderToFallbackRequest(t *testing.T) {
+func TestCallContinueOmitsPowHeaderFromFallbackRequest(t *testing.T) {
 	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
 	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
@@ -60,15 +60,15 @@ func TestCallContinuePropagatesPowHeaderToFallbackRequest(t *testing.T) {
 		t.Fatalf("callContinue returned error: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if seenPow != "pow-response-abc" {
-		t.Fatalf("continue request pow header=%q want=%q", seenPow, "pow-response-abc")
+	if seenPow != "" {
+		t.Fatalf("APK continue request must omit PoW, got %q", seenPow)
 	}
 	if seenURL != dsprotocol.DeepSeekContinueURL {
 		t.Fatalf("continue request url=%q want=%q", seenURL, dsprotocol.DeepSeekContinueURL)
 	}
 }
 
-func TestCallCompletionAutoContinueThreadsPowHeader(t *testing.T) {
+func TestCallCompletionAutoContinueOmitsPowHeader(t *testing.T) {
 	// 该测试通过 mock doer 模拟上游响应，必须关闭 framed H2 path
 	t.Setenv("DS2API_DEEPSEEK_USE_FRAMED_H2", "0")
 	var seenPow string
@@ -116,8 +116,8 @@ func TestCallCompletionAutoContinueThreadsPowHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read auto-continued body failed: %v", err)
 	}
-	if seenPow != "pow-response-xyz" {
-		t.Fatalf("threaded continue pow header=%q want=%q", seenPow, "pow-response-xyz")
+	if seenPow != "" {
+		t.Fatalf("APK auto-continue must omit PoW, got %q", seenPow)
 	}
 	if seenContinueURL != dsprotocol.DeepSeekContinueURL {
 		t.Fatalf("continue url=%q want=%q", seenContinueURL, dsprotocol.DeepSeekContinueURL)

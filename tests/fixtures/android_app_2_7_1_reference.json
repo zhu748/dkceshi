@@ -1,0 +1,284 @@
+{
+  "description": "Sanitized protocol facts from the three attached HARs; no captured credentials, IDs, prompts or file bytes.",
+  "source_entry_counts": {
+    "gator.volces.com_2026_10_28_12_33_05.har": 73,
+    "gator.volces.com_2026_10_28_16_50_45.har": 119,
+    "发送文件删除对话.har": 70
+  },
+  "requests": [
+    {
+      "path": "/api/v0/chat/completion",
+      "method": "POST",
+      "count": 12,
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-ds-pow-response",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "x-device-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "body_keys": [
+        "chat_session_id",
+        "parent_message_id",
+        "prompt",
+        "ref_file_ids",
+        "thinking_enabled",
+        "search_enabled",
+        "audio_id",
+        "preempt",
+        "model_type",
+        "action"
+      ],
+      "pow_keys": [
+        "algorithm",
+        "challenge",
+        "salt",
+        "signature",
+        "answer",
+        "target_path"
+      ]
+    },
+    {
+      "path": "/api/v0/chat/continue",
+      "method": "POST",
+      "count": 1,
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "x-device-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "body_keys": [
+        "chat_session_id",
+        "message_id",
+        "fallback_to_resume"
+      ]
+    },
+    {
+      "path": "/api/v0/chat/stop_stream",
+      "method": "POST",
+      "count": 1,
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "x-device-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "body_keys": [
+        "chat_session_id",
+        "message_id"
+      ]
+    },
+    {
+      "path": "/api/v0/chat_session/create",
+      "method": "POST",
+      "count": 9,
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "x-device-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ]
+    },
+    {
+      "path": "/api/v0/chat_session/delete",
+      "method": "POST",
+      "count": 4,
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "x-device-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "body_keys": [
+        "chat_session_id",
+        "chat_session_ids"
+      ]
+    },
+    {
+      "path": "/api/v0/file/upload_file",
+      "method": "POST",
+      "count": 9,
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-ds-pow-response",
+        "x-thinking-enabled",
+        "x-file-size",
+        "x-model-type",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "x-device-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "accept-encoding"
+      ],
+      "pow_keys": [
+        "algorithm",
+        "challenge",
+        "salt",
+        "signature",
+        "answer",
+        "target_path"
+      ]
+    },
+    {
+      "path": "/api/v0/file/fetch_files",
+      "method": "GET",
+      "count": 8,
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "x-device-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ]
+    }
+  ],
+  "pow_keys": [
+    "algorithm",
+    "challenge",
+    "salt",
+    "signature",
+    "answer",
+    "target_path"
+  ],
+  "challenge_expire_after_ms": 300000,
+  "settings": {
+    "photo_picker_compress_ratio": {
+      "value": 0.8
+    },
+    "picture_compress_format": {
+      "value": "webp"
+    },
+    "query_files_time_interval": {
+      "value": 1000
+    }
+  },
+  "enabled_model_types": [
+    "default"
+  ],
+  "disabled_model_types": [
+    "expert",
+    "vision"
+  ],
+  "upload_extensions": {
+    "webp": 6,
+    "pdf": 1,
+    "txt": 2
+  },
+  "multipart": {
+    "boundary_length": 70,
+    "part_names": [
+      "file"
+    ],
+    "part_mime": "application/octet-stream",
+    "trailing_crlf": true,
+    "has_content_length": false
+  },
+  "batch_query_keys": [
+    "file_ids",
+    "file_ids",
+    "file_ids",
+    "file_ids"
+  ],
+  "continue_pow": false,
+  "delete_all_evidence": "APK vy0 POST call has no body; no delete_all request in these HARs."
+}

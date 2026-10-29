@@ -50,6 +50,7 @@ type inlineUploadState struct {
 	uploadedByID    map[string]string
 	uploadCount     int
 	inlineFileBytes int
+	pendingFiles    []*dsclient.UploadFileResult
 }
 
 type inlineDecodedFile struct {
@@ -81,6 +82,11 @@ type FileUploader interface {
 	UploadFile(context.Context, *auth.RequestAuth, dsclient.UploadFileRequest, int) (*dsclient.UploadFileResult, error)
 }
 
+type pendingFileUploader interface {
+	UploadFilePending(context.Context, *auth.RequestAuth, dsclient.UploadFileRequest, int) (*dsclient.UploadFileResult, error)
+	WaitForUploadedFiles(context.Context, *auth.RequestAuth, []*dsclient.UploadFileResult) error
+}
+
 func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[string]any, uploader FileUploader, resolvedModel string, thinkingEnabled bool) error {
 	if uploader == nil || len(req) == 0 {
 		return nil
@@ -108,6 +114,11 @@ func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[str
 				return err
 			}
 			req[key] = updated
+		}
+	}
+	if batch, ok := uploader.(pendingFileUploader); ok && len(state.pendingFiles) > 0 {
+		if err := batch.WaitForUploadedFiles(ctx, a, state.pendingFiles); err != nil {
+			return &inlineFileUploadError{status: http.StatusInternalServerError, message: "Failed to process inline files.", err: err}
 		}
 	}
 	if refIDs := promptcompat.CollectOpenAIRefFileIDs(req); len(refIDs) > 0 {
@@ -209,14 +220,19 @@ func (s *inlineUploadState) uploadInlineFile(file inlineDecodedFile) (string, er
 		contentType = http.DetectContentType(file.Data)
 	}
 	pinFileAccount(s.auth)
-	result, err := s.uploader.UploadFile(s.ctx, s.auth, dsclient.UploadFileRequest{
+	request := dsclient.UploadFileRequest{
 		Filename:        file.Filename,
 		ContentType:     contentType,
 		ModelType:       s.modelType,
 		ThinkingEnabled: s.thinkingEnabled,
 		PreserveImage:   s.preserveImage,
 		Data:            file.Data,
-	}, 3)
+	}
+	upload := s.uploader.UploadFile
+	if batch, ok := s.uploader.(pendingFileUploader); ok {
+		upload = batch.UploadFilePending
+	}
+	result, err := upload(s.ctx, s.auth, request, 3)
 	if err != nil {
 		return "", err
 	}
@@ -228,6 +244,7 @@ func (s *inlineUploadState) uploadInlineFile(file inlineDecodedFile) (string, er
 		return "", fmt.Errorf("upload succeeded without file id")
 	}
 	s.uploadedByID[cacheKey] = fileID
+	s.pendingFiles = append(s.pendingFiles, result)
 	return fileID, nil
 }
 

@@ -36,65 +36,110 @@ var ErrUploadFileNotFound = errors.New("uploaded file not found")
 var ErrUploadFileRejected = errors.New("uploaded file processing failed")
 
 func (c *Client) waitForUploadedFile(ctx context.Context, a *auth.RequestAuth, result *UploadFileResult) error {
-	if result == nil || strings.TrimSpace(result.ID) == "" {
-		return nil
-	}
-	if isFailedUploadFileStatus(result.Status) {
-		return fmt.Errorf("%w: status=%s", ErrUploadFileRejected, result.Status)
-	}
-	if isReadyUploadFileStatus(result.Status) {
-		return nil
-	}
+	return c.WaitForUploadedFiles(ctx, a, []*UploadFileResult{result})
+}
 
+// WaitForUploadedFiles polls pending files together with repeated file_ids
+// parameters. Ready files leave the next poll, preserving caller order.
+func (c *Client) WaitForUploadedFiles(ctx context.Context, a *auth.RequestAuth, results []*UploadFileResult) error {
+	pending := make([]*UploadFileResult, 0, len(results))
+	for _, result := range results {
+		if result == nil || strings.TrimSpace(result.ID) == "" {
+			continue
+		}
+		if a != nil && result.AccountID != "" && result.AccountID != a.AccountID {
+			return errors.New("uploaded files belong to a different account")
+		}
+		if isFailedUploadFileStatus(result.Status) {
+			return fmt.Errorf("%w: status=%s", ErrUploadFileRejected, result.Status)
+		}
+		if !isReadyUploadFileStatus(result.Status) {
+			pending = append(pending, result)
+		}
+	}
+	if len(pending) == 0 {
+		return nil
+	}
 	pollCtx, cancel := context.WithTimeout(ctx, fileReadyPollTimeout)
 	defer cancel()
+	interval := c.uploadSettings(pollCtx, a).filePollInterval
+	if interval <= 0 {
+		interval = fileReadyPollInterval
+	}
 
 	var lastErr error
 	for attempt := 0; attempt < fileReadyPollAttempts; attempt++ {
 		if err := pollCtx.Err(); err != nil {
-			if lastErr != nil {
-				return fmt.Errorf("waiting for file %s to become ready: %w", result.ID, lastErr)
-			}
-			return fmt.Errorf("waiting for file %s to become ready: %w", result.ID, err)
+			return fmt.Errorf("waiting for file readiness: %w", err)
 		}
-
-		fetched, err := c.FetchUploadedFile(pollCtx, a, result.ID)
-		if err == nil && fetched != nil {
-			mergeUploadFileResults(result, fetched)
-			if isFailedUploadFileStatus(result.Status) {
-				return fmt.Errorf("%w: status=%s", ErrUploadFileRejected, result.Status)
+		ids := make([]string, 0, len(pending))
+		for _, result := range pending {
+			ids = append(ids, result.ID)
+		}
+		fetched, err := c.FetchUploadedFiles(pollCtx, a, ids)
+		if err == nil {
+			remaining := pending[:0]
+			for _, result := range pending {
+				for _, file := range fetched {
+					if file.ID == result.ID {
+						mergeUploadFileResults(result, file)
+						break
+					}
+				}
+				if isFailedUploadFileStatus(result.Status) {
+					return fmt.Errorf("%w: status=%s", ErrUploadFileRejected, result.Status)
+				}
+				if !isReadyUploadFileStatus(result.Status) {
+					remaining = append(remaining, result)
+				}
 			}
-			if isReadyUploadFileStatus(result.Status) {
+			pending = remaining
+			if len(pending) == 0 {
 				return nil
 			}
-			lastErr = fmt.Errorf("status=%s", strings.TrimSpace(result.Status))
-		} else if err != nil {
+			lastErr = fmt.Errorf("%d files are still processing", len(pending))
+		} else {
 			lastErr = err
-			config.Logger.Debug("[upload_file] waiting for file readiness", "file_id", result.ID, "attempt", attempt+1, "error", err)
+			config.Logger.Debug("[upload_file] waiting for file readiness", "count", len(pending), "attempt", attempt+1, "error", err)
 		}
 
 		if attempt < fileReadyPollAttempts-1 {
-			if err := fileReadySleep(pollCtx, fileReadyPollInterval); err != nil {
+			if err := fileReadySleep(pollCtx, interval); err != nil {
 				return fmt.Errorf("waiting for file readiness: %w", err)
 			}
 		}
 	}
 
-	if lastErr == nil {
-		lastErr = fmt.Errorf("status=%s", strings.TrimSpace(result.Status))
-	}
-	return fmt.Errorf("file %s did not become ready: %w", result.ID, lastErr)
+	return fmt.Errorf("files did not become ready: %w", lastErr)
 }
 
 // FetchUploadedFile returns metadata for an uploaded DeepSeek file by ID.
 func (c *Client) FetchUploadedFile(ctx context.Context, a *auth.RequestAuth, fileID string) (*UploadFileResult, error) {
-	fileID = strings.TrimSpace(fileID)
-	if fileID == "" {
+	files, err := c.FetchUploadedFiles(ctx, a, []string{fileID})
+	if err != nil {
+		return nil, err
+	}
+	return files[0], nil
+}
+
+func (c *Client) FetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fileIDs []string) ([]*UploadFileResult, error) {
+	params := url.Values{}
+	ids := make([]string, 0, len(fileIDs))
+	seen := make(map[string]bool, len(fileIDs))
+	for _, id := range fileIDs {
+		id = strings.TrimSpace(id)
+		if id != "" && !seen[id] {
+			params.Add("file_ids", id)
+			ids = append(ids, id)
+			seen[id] = true
+		}
+	}
+	if len(ids) == 0 {
 		return nil, errors.New("file id is required")
 	}
 	ctx = auth.WithAuth(ctx, a)
 	clients := c.requestClientsForAuth(ctx, a)
-	reqURL := dsprotocol.DeepSeekFetchFilesURL + "?file_ids=" + url.QueryEscape(fileID)
+	reqURL := dsprotocol.DeepSeekFetchFilesURL + "?" + params.Encode()
 	headers := c.authHeadersForAuth(a)
 
 	resp, status, err := c.getJSONWithStatus(ctx, clients.regular, reqURL, headers)
@@ -113,12 +158,19 @@ func (c *Client) FetchUploadedFile(ctx context.Context, a *auth.RequestAuth, fil
 		return nil, fmt.Errorf("request failed: status=%d, code=%d, msg=%s", status, code, msg)
 	}
 
-	result := extractFetchedUploadFileResult(resp, fileID)
-	if result == nil || strings.TrimSpace(result.ID) == "" {
+	files := make([]*UploadFileResult, 0, len(ids))
+	for _, id := range ids {
+		result := extractFetchedUploadFileResult(resp, id)
+		if result == nil || strings.TrimSpace(result.ID) == "" {
+			continue
+		}
+		result.Raw = resp
+		files = append(files, result)
+	}
+	if len(files) == 0 {
 		return nil, ErrUploadFileNotFound
 	}
-	result.Raw = resp
-	return result, nil
+	return files, nil
 }
 
 func extractFetchedUploadFileResult(resp map[string]any, targetID string) *UploadFileResult {

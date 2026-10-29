@@ -12,9 +12,9 @@ import (
 
 func TestPowPrefetchCache_GetMiss(t *testing.T) {
 	var calls int32
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
 		atomic.AddInt32(&calls, 1)
-		return "pow-fresh", nil
+		return powSolution{header: "pow-fresh", expiresAt: time.Now().Add(5 * time.Minute)}, nil
 	})
 	// 未 Put 过，应当 miss
 	if pow, ok := cache.Get("acc1", "/api/v0/chat/completion"); ok {
@@ -26,9 +26,9 @@ func TestPowPrefetchCache_GetMiss(t *testing.T) {
 }
 
 func TestPowPrefetchCache_PutGetHit(t *testing.T) {
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
 		t.Fatal("fetcher should not be called on cache hit")
-		return "", nil
+		return powSolution{header: "", expiresAt: time.Now().Add(5 * time.Minute)}, nil
 	})
 	cache.Put("acc1", "/api/v0/chat/completion", "pow-cached", time.Now().Add(5*time.Minute))
 	pow, ok := cache.Get("acc1", "/api/v0/chat/completion")
@@ -45,10 +45,10 @@ func TestPowPrefetchCache_PutGetHit(t *testing.T) {
 }
 
 func TestPowPrefetchCache_Expiry(t *testing.T) {
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
-		return "pow-fresh", nil
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
+		return powSolution{header: "pow-fresh", expiresAt: time.Now().Add(5 * time.Minute)}, nil
 	})
-	// 已经过期（含 30s 安全余量）
+	// 已经过期（含 20s 安全余量）
 	cache.Put("acc1", "/api/v0/chat/completion", "pow-old", time.Now().Add(-1*time.Second))
 	if _, ok := cache.Get("acc1", "/api/v0/chat/completion"); ok {
 		t.Fatal("expected cache miss for expired entry")
@@ -56,8 +56,8 @@ func TestPowPrefetchCache_Expiry(t *testing.T) {
 }
 
 func TestPowPrefetchCache_DifferentAccounts(t *testing.T) {
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
-		return "pow-fresh", nil
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
+		return powSolution{header: "pow-fresh", expiresAt: time.Now().Add(5 * time.Minute)}, nil
 	})
 	cache.Put("acc1", "/api/v0/chat/completion", "pow-acc1", time.Now().Add(5*time.Minute))
 	cache.Put("acc2", "/api/v0/chat/completion", "pow-acc2", time.Now().Add(5*time.Minute))
@@ -72,8 +72,8 @@ func TestPowPrefetchCache_DifferentAccounts(t *testing.T) {
 }
 
 func TestPowPrefetchCache_DifferentTargetPaths(t *testing.T) {
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
-		return "pow-fresh", nil
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
+		return powSolution{header: "pow-fresh", expiresAt: time.Now().Add(5 * time.Minute)}, nil
 	})
 	cache.Put("acc1", "/api/v0/chat/completion", "pow-completion", time.Now().Add(5*time.Minute))
 	cache.Put("acc1", "/api/v0/file/upload_file", "pow-upload", time.Now().Add(5*time.Minute))
@@ -89,9 +89,9 @@ func TestPowPrefetchCache_DifferentTargetPaths(t *testing.T) {
 
 func TestPowPrefetchCache_SchedulePrefetchWritesCache(t *testing.T) {
 	var calls int32
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
 		atomic.AddInt32(&calls, 1)
-		return "pow-prefetched", nil
+		return powSolution{header: "pow-prefetched", expiresAt: time.Now().Add(5 * time.Minute)}, nil
 	})
 	a := &auth.RequestAuth{AccountID: "acc1"}
 	cache.SchedulePrefetch(context.Background(), a, "/api/v0/chat/completion", 3)
@@ -109,10 +109,10 @@ func TestPowPrefetchCache_SchedulePrefetchWritesCache(t *testing.T) {
 
 func TestPowPrefetchCache_SchedulePrefetchDeduplicates(t *testing.T) {
 	var calls int32
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
 		atomic.AddInt32(&calls, 1)
 		time.Sleep(50 * time.Millisecond) // 模拟慢 PoW
-		return "pow-prefetched", nil
+		return powSolution{header: "pow-prefetched", expiresAt: time.Now().Add(5 * time.Minute)}, nil
 	})
 	a := &auth.RequestAuth{AccountID: "acc1"}
 	// 连续调度 5 次预取，应只触发 1 次 fetcher（首次）
@@ -127,9 +127,9 @@ func TestPowPrefetchCache_SchedulePrefetchDeduplicates(t *testing.T) {
 
 func TestPowPrefetchCache_SchedulePrefetchOnError(t *testing.T) {
 	var calls int32
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
 		atomic.AddInt32(&calls, 1)
-		return "", errors.New("network error")
+		return powSolution{}, errors.New("network error")
 	})
 	a := &auth.RequestAuth{AccountID: "acc1"}
 	cache.SchedulePrefetch(context.Background(), a, "/api/v0/chat/completion", 3)
@@ -147,8 +147,8 @@ func TestPowPrefetchCache_SchedulePrefetchOnError(t *testing.T) {
 }
 
 func TestPowPrefetchCache_Clear(t *testing.T) {
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
-		return "pow-fresh", nil
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
+		return powSolution{header: "pow-fresh", expiresAt: time.Now().Add(5 * time.Minute)}, nil
 	})
 	cache.Put("acc1", "/api/v0/chat/completion", "pow-1", time.Now().Add(5*time.Minute))
 	cache.Put("acc2", "/api/v0/chat/completion", "pow-2", time.Now().Add(5*time.Minute))
@@ -162,8 +162,8 @@ func TestPowPrefetchCache_Clear(t *testing.T) {
 }
 
 func TestPowPrefetchCache_ClearForAccount(t *testing.T) {
-	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (string, error) {
-		return "pow-fresh", nil
+	cache := newPowPrefetchCache(func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error) {
+		return powSolution{header: "pow-fresh", expiresAt: time.Now().Add(5 * time.Minute)}, nil
 	})
 	cache.Put("acc1", "/api/v0/chat/completion", "pow-1", time.Now().Add(5*time.Minute))
 	cache.Put("acc1", "/api/v0/file/upload_file", "pow-1u", time.Now().Add(5*time.Minute))

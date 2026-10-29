@@ -177,7 +177,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           headers: {
             ...baseHeaders,
             authorization: `Bearer ${deepseekToken}`,
-            'x-ds-pow-response': powHeader,
+            ...(powHeader ? { 'x-ds-pow-response': powHeader } : {}),
           },
           body: serializeAppPayload(url, bodyPayload),
           signal: upstreamController.signal,
@@ -192,15 +192,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const fetchCompletion = (bodyPayload) => fetchDeepSeekStream(DEEPSEEK_COMPLETION_URL, bodyPayload, currentPowHeader);
     let activeDeepSeekSessionID = responseID;
     const fetchContinue = async (messageID) => {
-      const powHeader = await refreshPowHeader('continue');
-      if (!powHeader) {
-        return null;
-      }
       return fetchDeepSeekStream(DEEPSEEK_CONTINUE_URL, {
         chat_session_id: activeDeepSeekSessionID,
         message_id: messageID,
         fallback_to_resume: true,
-      }, powHeader);
+      }, '');
     };
     // applySwitchedPayload 把 __stream_switch 返回的新账号 payload / token / PoW
     // / session 应用到当前流式请求，供首包与重试阶段的临时上游故障切号复用。

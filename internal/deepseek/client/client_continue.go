@@ -64,7 +64,8 @@ func (c *Client) callContinue(ctx context.Context, a *auth.RequestAuth, sessionI
 	ctx = auth.WithAuth(ctx, a)
 	clients := c.requestClientsForAuth(ctx, a)
 	headers := c.authHeadersForAuth(a)
-	headers["x-ds-pow-response"] = powResp
+	// APK 2.7.1 and the captured continue request send no PoW header.
+	_ = powResp
 	// 与 chat/completion 对齐：使用 OrderedJSONMap 保留字段顺序，
 	// 避免 json.Marshal 对 map[string]any 按 key 字典序输出导致字段顺序与 App 不一致。
 	payload := promptcompat.NewOrderedJSONMap()

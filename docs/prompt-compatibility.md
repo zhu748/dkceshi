@@ -119,7 +119,9 @@ OpenAI Chat/Responses、Claude base64 image/document 与 Gemini inlineData 共�
 文件 ID 进入标准请求的 RefFileIDs；base64 不进入纯文本 prompt。
 内联文件及显式文件引用的请求固定当前账号，防止重试中混用跨账号文件 ID。
 通过 `/v1/files` 单独上传后，多账号环境需用返回的 account_id 固定后续请求的目标账号。
-PNG/JPEG 默认转为真实 WebP，文档内容保持原样；HISTORY/TOOLS 与其他上传均使用
+PNG/JPEG 按显式或远程压缩配置处理；没有有效比例时保留原文件，文档内容保持原样。
+同一请求的内联文件先上传，再合并轮询，所有文件成功后才注入标准文件引用。
+HISTORY/TOOLS 与其他上传均使用
 本次标准请求的最终思考开关。生成的 HISTORY/TOOLS 保留原有的按账号重建路径。
 聊天 JSON 的字段顺序、缺省 audio_id 和续聊 model_type 的 null 处理仅在发送边界完成，
 共享提示词组装、模型别名与工具调用规则继续按基准项目执行。
@@ -154,7 +156,9 @@ API 测试页面的默认模型和说明同步更新。
 ## Android APK 上传规则补充
 
 共享上传层保留数美 auto 登录 ID，并使用独立安装标识构造上传/轮询/聊天请求头。
-相册 JPEG/PNG 在未配置 photo_compress_ratio 时保留原图；启用时按 APK 的有损 WebP/JPEG、
+相册 JPEG/PNG 优先使用请求/账号/环境显式配置，再由账号远程 settings 补足；
+没有有效 photo_compress_ratio 或远程比例时保留原图；启用时按 APK 的有损 WebP/JPEG、
 30 MiB 采样预算、EXIF 和随机文件名规则处理，随后以实际字节计算 x-file-size。
 preserve_image=true 保留原图；文档、文件引用、账号绑定及纯文本提示词组装语义不变。
 详见 [APK 请求对齐核对](apk-request-alignment.md)，包括尚未覆盖的格式和远程设置边界。
+本轮原始抓包证据及批量轮询规则见 [三份 HAR 补充](android-har-reference-2026-10-29.md)。
