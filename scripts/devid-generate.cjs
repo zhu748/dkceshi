@@ -14,8 +14,10 @@
  *
  * 用法：
  *   node devid-generate.cjs [--reset] [--profile <file>] [--timeout <秒>]
- *                           [--debug] [--selftest] [--browser]
+ *                           [--debug] [--selftest] [--browser] [--anchor <file>]
  *   --browser    旧 Playwright 路径（应急兜底；生成慢但环境 100% 真实）
+ *   --anchor     安卓锚定文件（JSON）：device_model/android_version/locale/tz/tz_offset；
+ *                画像与账号声称的设备（x-device-model 等 HTTP 头）保持同一台"手机"
  *
  * 档案文件（--profile）JSON：
  *   { "version": 3, "profile": {<browser_env 画像>}, "smid_v2": "..." }
@@ -56,10 +58,11 @@ function log(...args) { process.stderr.write('[devid] ' + args.join(' ') + '\n')
 
 /* ---------------- 参数 ---------------- */
 function parseArgs(argv) {
-    const opts = { reset: false, profile: '', timeout: 120, debug: false, selftest: false, browser: false };
+    const opts = { reset: false, profile: '', timeout: 120, debug: false, selftest: false, browser: false, anchor: '' };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--reset') opts.reset = true;
+        else if (a === '--anchor') opts.anchor = String(argv[++i] || '');
         else if (a === '--profile') opts.profile = String(argv[++i] || '');
         else if (a === '--timeout') opts.timeout = Number(argv[++i]) || 120;
         else if (a === '--debug') opts.debug = true;
@@ -134,9 +137,18 @@ function buildProfile(profilesSpec, seed) {
     const fam = pickWeighted(rand, profilesSpec.osFamilies, 'weight');
     const loc = pickWeighted(rand, profilesSpec.locales, 'weight');
     const screen = pickFrom(rand, fam.screens);
-    const dpr = pickFrom(rand, fam.dprs);
+    let dpr = pickFrom(rand, fam.dprs);
     const cores = pickFrom(rand, fam.cores);
     const taskbar = pickFrom(rand, fam.taskbar);
+    /* 安卓随机池：型号优先取 modelScreens 里的真机型号（SM-S921B 为主） */
+    let deviceModel = '', androidVersion = 0, modelScreen = null;
+    if (fam.key === 'android') {
+        const models = Object.keys(profilesSpec.modelScreens || {});
+        deviceModel = models.length ? models[Math.floor(rand() * models.length * 0.6) % models.length] : 'SM-S921B';
+        androidVersion = 16;
+        modelScreen = (profilesSpec.modelScreens || {})[deviceModel] || null;
+    }
+    if (modelScreen) { screen = [modelScreen[0], modelScreen[1]]; dpr = modelScreen[2]; }
     const rtt = pickFrom(rand, profilesSpec.network.rtt);
     const downlink = pickFrom(rand, profilesSpec.network.downlink);
     const charging = rand() < profilesSpec.battery.chargingProbability;
@@ -146,11 +158,13 @@ function buildProfile(profilesSpec, seed) {
     const availW = screenW, availH = screenH - taskbar;
     const outerW = availW, outerH = availH;
     /* 最大化窗口：screen.width/innerWidth 同为 CSS 像素且页面无滚动条时相等；
-     * 高度方向 innerH = outerH - 浏览器 chrome(标签栏+地址栏) */
+     * 高度方向 innerH = outerH - 浏览器 chrome(桌面标签栏+地址栏 约 80~90px；
+     * 安卓 Chrome 的顶部地址栏约 60~100px) */
     const innerW = outerW;
-    const innerH = outerH - (80 + Math.floor(rand() * 10));
+    const innerH = outerH - (fam.key === 'android' ? 60 + Math.floor(rand() * 40) : 80 + Math.floor(rand() * 10));
     return {
         osFamily: fam.key,
+        deviceModel, androidVersion,
         locale: loc.code,
         lang: { code: loc.code, list: loc.langs },
         acceptLanguage: loc.acceptLanguage,
@@ -159,6 +173,55 @@ function buildProfile(profilesSpec, seed) {
         outerW, outerH, innerW, innerH,
         dpr, colorDepth: profilesSpec.defaults.colorDepth,
         cores, deviceMemory: cores <= 4 ? 4 : 8,
+        canvasSeed: Math.floor(rand() * 0xffffffff),
+        seed: Math.floor(rand() * 0xffffffff),
+        battery: { charging, level },
+        rtt, downlink, effType: profilesSpec.network.effectiveType,
+    };
+}
+
+/* ---------------- 安卓锚定画像（与账号声称的设备同一台“手机”） ----------------
+ * anchor JSON：{ device_model, android_version, locale, tz, tz_offset, gpu?, seed? }
+ * 型号→屏幕/GPU 从 profiles.json.modelScreens / gpus.json.modelGpus 查表，
+ * 噪波（canvasSeed/字体探测序列等）保持全新随机：换档案 = 换一台同型号新手机。 */
+function buildAnchoredProfile(anchor, profilesSpec, gpuPool, seed) {
+    const rand = mulberry32(seed);
+    const model = String(anchor.device_model || 'SM-S921B').trim() || 'SM-S921B';
+    const ms = ((profilesSpec.modelScreens || {})[model]) || [360, 780, 3];
+    const locCode = String(anchor.locale || 'zh-CN');
+    const loc = profilesSpec.locales.find((l) => l.code === locCode) || profilesSpec.locales[0];
+    const tzName = anchor.tz || loc.tz;
+    const tzOffset = (anchor.tz_offset !== undefined) ? Number(anchor.tz_offset) : loc.tzOffset;
+    const rtt = pickFrom(rand, profilesSpec.network.rtt);
+    const downlink = pickFrom(rand, profilesSpec.network.downlink);
+    const charging = rand() < profilesSpec.battery.chargingProbability;
+    const level = pickFrom(rand, profilesSpec.battery.levels);
+
+    const screenW = ms[0], screenH = ms[1], dpr = ms[2];
+    /* 安卓 avail=screen（无桌面任务栏）；innerH = avail - 移动浏览器地址栏 */
+    const innerH = screenH - (60 + Math.floor(rand() * 40));
+
+    /* GPU：anchor.gpu 显式 > modelGpus 型号表 > 移动池随机（browser_env 侧同样有兜底） */
+    let gpu = null;
+    if (anchor.gpu && anchor.gpu.renderer) gpu = anchor.gpu;
+    else if (gpuPool && gpuPool.modelGpus && gpuPool.modelGpus[model] && gpuPool.modelGpus[model].renderer) gpu = gpuPool.modelGpus[model];
+    else if (gpuPool && Array.isArray(gpuPool.entries)) {
+        const mob = gpuPool.entries.filter((e) => (e.families || []).indexOf('android') >= 0);
+        if (mob.length) { const g = mob[Math.floor(rand() * mob.length) % mob.length]; gpu = { vendor: g.vendor, renderer: g.renderer }; }
+    }
+
+    return {
+        osFamily: 'android',
+        deviceModel: model, androidVersion: Number(anchor.android_version) || 16,
+        locale: loc.code,
+        lang: { code: loc.code, list: loc.langs },
+        acceptLanguage: loc.acceptLanguage,
+        tzName, tzOffset,
+        screenW, screenH, availW: screenW, availH: screenH,
+        outerW: screenW, outerH: screenH, innerW: screenW, innerH,
+        dpr, colorDepth: profilesSpec.defaults.colorDepth,
+        cores: 8, deviceMemory: 8,
+        gpu,
         canvasSeed: Math.floor(rand() * 0xffffffff),
         seed: Math.floor(rand() * 0xffffffff),
         battery: { charging, level },
@@ -243,10 +306,20 @@ async function mainVm(o) {
     /* --- 档案与画像 --- */
     const arch = loadArchive(o);
     const profilesSpec = JSON.parse(readData('profiles.json'));
-    let profile = arch.profile || buildProfile(profilesSpec, crypto.randomBytes(4).readUInt32BE(0));
+    const gpuPool = JSON.parse(readData('gpus.json'));
+    let anchor = null;
+    if (o.anchor) {
+        try { anchor = JSON.parse(fs.readFileSync(o.anchor, 'utf8')); }
+        catch (e) { log('anchor 文件解析失败，忽略:', e.message); }
+    }
+    let profile;
+    if (arch.profile) profile = arch.profile;
+    else if (anchor) profile = buildAnchoredProfile(anchor, profilesSpec, gpuPool, crypto.randomBytes(4).readUInt32BE(0));
+    else profile = buildProfile(profilesSpec, crypto.randomBytes(4).readUInt32BE(0));
     if (arch.smidV2) profile.smidV2 = arch.smidV2;
-    log('画像:', profile.osFamily, profile.screenW + 'x' + profile.screenH, 'dpr=' + profile.dpr,
-        'cores=' + profile.cores, profile.locale, profile.smidV2 ? '(复用 smid)' : '(新设备)');
+    log('画像:', profile.osFamily, profile.deviceModel || '', profile.screenW + 'x' + profile.screenH, 'dpr=' + profile.dpr,
+        'cores=' + profile.cores, profile.locale, profile.smidV2 ? '(复用 smid)' : '(新设备)',
+        profile.gpu ? 'gpu=' + String(profile.gpu.renderer).slice(6, 40) : '');
     /* Intl 用宿主 ICU：运行时 TZ 决定 resolvedOptions().timeZone，与画像时区保持同源。
      * （Node 13.2+ 支持运行时改 env.TZ，V8/ICU 随之跟随） */
     if (profile.tzName) process.env.TZ = profile.tzName;
