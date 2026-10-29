@@ -54,6 +54,7 @@ func (c *Client) DeleteSession(ctx context.Context, a *auth.RequestAuth, session
 		code, bizCode, msg, bizMsg := extractResponseStatus(resp)
 		if deleteResponseError(resp, status) == nil {
 			result.Success = true
+			c.uploadCache.invalidateOwner(uploadReuseOwner(a.DeepSeekToken))
 			return result, nil
 		}
 
@@ -108,6 +109,7 @@ func (c *Client) DeleteSessionForToken(ctx context.Context, token string, sessio
 	}
 
 	result.Success = true
+	c.uploadCache.invalidateOwner(uploadReuseOwner(token))
 	return result, nil
 }
 
@@ -121,7 +123,11 @@ func (c *Client) DeleteAllSessions(ctx context.Context, a *auth.RequestAuth) err
 		return err
 	}
 
-	return deleteResponseError(resp, status)
+	if err := deleteResponseError(resp, status); err != nil {
+		return err
+	}
+	c.uploadCache.invalidateOwner(uploadReuseOwner(a.DeepSeekToken))
+	return nil
 }
 
 // DeleteAllSessionsForToken 直接使用 token 删除所有会话（直通模式）
@@ -134,7 +140,11 @@ func (c *Client) DeleteAllSessionsForToken(ctx context.Context, token string) er
 		return err
 	}
 
-	return deleteResponseError(resp, status)
+	if err := deleteResponseError(resp, status); err != nil {
+		return err
+	}
+	c.uploadCache.invalidateOwner(uploadReuseOwner(token))
+	return nil
 }
 
 func deleteResponseError(resp map[string]any, status int) error {

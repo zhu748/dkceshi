@@ -10,6 +10,8 @@
 没有复制 HAR 中的认证 token、密码、验证码、设备标识和文件正文。
 新增的原始 HAR 复核覆盖另一组 262 条记录，见
 [2026-10-29 补充](android-har-reference-2026-10-29.md)。
+新增图片/GIF 重复上传、删除会话及 11 类请求指纹验证见
+[图片复用与 GIF 核对](upload-reuse-gif-alignment.md)。
 
 ## 请求头与设备配置
 

@@ -110,19 +110,25 @@ func StripImageBlocksFromRequest(req map[string]any) {
 	if len(req) == 0 {
 		return
 	}
+	// Keep IDs independently of prompt-only block removal, including callers
+	// supplying input_image/file_id directly rather than inline bytes.
+	if refs := CollectOpenAIRefFileIDs(req); len(refs) > 0 {
+		req["ref_file_ids"] = refs
+	}
 	for _, key := range []string{"messages", "input", "attachments"} {
 		switch x := req[key].(type) {
 		case []any:
 			req[key] = StripImageBlocksFromMessages(x)
+		case map[string]any:
+			req[key] = StripImageBlocksFromMessages([]any{x})
 		}
 	}
 }
 
 // StripImageBlocksFromMessages removes image content blocks from an OpenAI-style
-// message array. Elements that look like bare content parts (have a "type" but no
-// "role"/"content") are filtered directly; elements that look like messages have
-// their content array filtered. Document-style file references such as input_file
-// are preserved.
+// message array. Uploaded image-only inputs keep an empty user turn; raw image
+// bytes are removed. Elements that look like messages have their content array
+// filtered. Document-style file references such as input_file are preserved.
 func StripImageBlocksFromMessages(messages []any) []any {
 	out := make([]any, 0, len(messages))
 	for _, raw := range messages {
@@ -133,6 +139,9 @@ func StripImageBlocksFromMessages(messages []any) []any {
 		}
 		if isBareContentPart(msg) {
 			if isImageContentBlock(msg) {
+				if hasImageFileReference(msg) {
+					out = append(out, map[string]any{"role": "user", "content": ""})
+				}
 				continue
 			}
 			out = append(out, shallowCopyMap(msg))
@@ -140,10 +149,13 @@ func StripImageBlocksFromMessages(messages []any) []any {
 		}
 		content := msg["content"]
 		stripped := stripImageContent(content)
-		if stripped == nil {
+		keepImageTurn := hasImageFileReference(content)
+		if stripped == nil && keepImageTurn {
+			stripped = ""
+		} else if stripped == nil {
 			continue
 		}
-		if text, ok := stripped.(string); ok && strings.TrimSpace(text) == "" {
+		if text, ok := stripped.(string); ok && strings.TrimSpace(text) == "" && !keepImageTurn {
 			continue
 		}
 		copied := shallowCopyMap(msg)

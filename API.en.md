@@ -445,6 +445,10 @@ Constraints and behavior:
 - `Content-Type` must be `multipart/form-data` (otherwise `400`).
 - Total request size limit is **100 MiB** (over-limit returns `413`).
 - Success returns an OpenAI `file` object (`id/object/bytes/filename/purpose/status`, etc.) and includes `account_id` for source-account tracing.
+- Repeated uploads with the same caller, upstream account/credential, file bytes and processing parameters can reuse an upstream ID. The process-local cache defaults to 900 seconds and 256 entries; each hit checks upstream metadata before skipping upload PoW and multipart transfer. See [reuse behavior and configuration](docs/upload-reuse-gif-alignment.md).
+- Inline Base64 images/documents use the same cache. GIF/APNG/WebP animation bytes are preserved; `preserve_image=true` skips JPEG/PNG compression.
+- To reference an uploaded file directly, pass `file_ids: ["returned id"]` and, in a managed account pool, `X-Ds2-Target-Account: returned account_id`. An expired explicit ID needs a new upload because it contains no original bytes.
+- OpenAI Chat/Responses accept image-only user messages without requiring additional text.
 
 ### `GET /v1/files/{file_id}`
 

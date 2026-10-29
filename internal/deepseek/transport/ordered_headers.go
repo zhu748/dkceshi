@@ -2,6 +2,7 @@ package transport
 
 import (
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,12 +37,18 @@ func BuildOrderedRequestHeaders(method, path string, headers map[string]string, 
 			continue
 		}
 		switch name {
-		case "", "host", "connection", "proxy-connection", "transfer-encoding", "upgrade", "keep-alive":
+		case "", "host", "connection", "proxy-connection", "transfer-encoding", "upgrade", "keep-alive", "accept-language", "sec-fetch-mode":
 			continue
 		}
 		if value := strings.TrimSpace(headers[key]); value != "" {
 			normalized[name] = value
 		}
+	}
+	// Some real App sessions omit this optional header. This switch only
+	// changes the wire header, never the stored installation/check_device ID.
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER"))) {
+	case "0", "false", "no", "off":
+		delete(normalized, "x-device-id")
 	}
 	isMultipart := strings.HasPrefix(strings.ToLower(normalized["content-type"]), "multipart/")
 	if method == http.MethodGet || method == http.MethodHead {

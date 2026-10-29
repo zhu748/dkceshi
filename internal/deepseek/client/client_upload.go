@@ -60,14 +60,21 @@ func (c *Client) UploadFile(ctx context.Context, a *auth.RequestAuth, req Upload
 // UploadFilePending lets shared inline preprocessing upload all files before
 // waiting for them with a single repeated-file_ids request, as in the APK.
 func (c *Client) UploadFilePending(ctx context.Context, a *auth.RequestAuth, req UploadFileRequest, maxAttempts int) (*UploadFileResult, error) {
-	if maxAttempts <= 0 {
-		maxAttempts = c.maxRetries
-	}
 	if len(req.Data) == 0 {
 		return nil, errors.New("file is required")
 	}
-	var err error
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	req = applyUploadSettings(req, a, c.uploadSettings(ctx, a))
+	return c.reuseUploadedFile(ctx, a, req, maxAttempts)
+}
+
+func (c *Client) uploadFilePendingUncached(ctx context.Context, a *auth.RequestAuth, req UploadFileRequest, maxAttempts int) (*UploadFileResult, error) {
+	if maxAttempts <= 0 {
+		maxAttempts = c.maxRetries
+	}
+	var err error
 	req, err = prepareUploadImage(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("prepare upload image: %w", err)

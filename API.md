@@ -447,6 +447,10 @@ data: [DONE]
 - 请求必须为 `multipart/form-data`，否则返回 `400`。
 - 请求体总大小上限 **100 MiB**（超限返回 `413`）。
 - 成功返回 OpenAI `file` 对象（`id/object/bytes/filename/purpose/status` 等字段），并附带 `account_id` 便于定位来源账号。
+- 同调用者、上游账号/凭证、文件内容与处理参数的重复上传可复用上游 ID；默认进程内缓存 900 秒、最多 256 项。命中先查询上游状态，不再重复上传或计算上传 PoW。配置及失效规则见 [图片与文件复用](docs/upload-reuse-gif-alignment.md)。
+- 图片和文档的内联 Base64 上传共用此缓存。GIF/APNG/WebP 保留原始动画；`preserve_image=true` 可跳过 JPEG/PNG 压缩。
+- 后续直接引用 `file_ids: ["上传返回的 id"]` 时，多账号环境需携带 `X-Ds2-Target-Account: 上传返回的 account_id`。显式 ID 不包含原文件，失效后需重新上传。
+- OpenAI Chat/Responses 支持只包含图片的消息；不要求额外附加文字。
 
 ### `GET /v1/files/{file_id}`
 

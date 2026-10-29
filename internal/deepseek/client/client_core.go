@@ -42,6 +42,7 @@ type Client struct {
 	// 预取下一个 PoW 的行为，让下一次 completion 几乎零延迟拿到 PoW。
 	powCache     *powPrefetchCache
 	mainSettings *mainSettingsCache
+	uploadCache  *uploadReuseCache
 }
 
 func NewClient(store *config.Store, resolver *auth.Resolver) *Client {
@@ -56,6 +57,7 @@ func NewClient(store *config.Store, resolver *auth.Resolver) *Client {
 		maxRetries:   3,
 		proxyClients: map[string]requestClients{},
 		mainSettings: &mainSettingsCache{entries: make(map[string]*mainSettingsEntry)},
+		uploadCache:  newUploadReuseCacheFromEnv(),
 	}
 	// Keep the challenge's lifetime with the prefetched proof.
 	c.powCache = newPowPrefetchCache(c.fetchPowSolution)

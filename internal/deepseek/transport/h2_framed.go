@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
@@ -119,6 +120,11 @@ func (c *H2FramedClient) Do(req *http.Request) (*http.Response, error) {
 	for _, h := range headers {
 		forkReq.Header[h.Name] = []string{h.Value}
 		order = append(order, h.Name)
+		if strings.EqualFold(h.Name, "content-type") && strings.HasPrefix(strings.ToLower(h.Value), "multipart/") {
+			// The HTTP/2 library can synthesize Content-Length from this field
+			// even after the header was removed. Keep App uploads stream-sized.
+			forkReq.ContentLength = -1
+		}
 	}
 	forkReq.Header[fhttp.HeaderOrderKey] = order
 	forkReq.Header[fhttp.PHeaderOrderKey] = []string{":method", ":authority", ":path", ":scheme"}

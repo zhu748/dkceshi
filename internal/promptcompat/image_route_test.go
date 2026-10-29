@@ -157,16 +157,20 @@ func TestStripImageBlocksFromMessagesBareContentParts(t *testing.T) {
 		map[string]any{"type": "input_file", "file_id": "file-456"},
 	}
 	stripped := StripImageBlocksFromMessages(messages)
-	if len(stripped) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(stripped))
+	if len(stripped) != 3 {
+		t.Fatalf("expected 3 items including the image user turn, got %d", len(stripped))
 	}
 	first, _ := stripped[0].(map[string]any)
 	if asString(first["type"]) != "input_text" {
 		t.Fatalf("expected input_text to be preserved, got %v", first)
 	}
 	second, _ := stripped[1].(map[string]any)
-	if asString(second["type"]) != "input_file" {
-		t.Fatalf("expected input_file to be preserved, got %v", second)
+	if second["role"] != "user" || second["content"] != "" {
+		t.Fatalf("expected empty image user turn, got %v", second)
+	}
+	third, _ := stripped[2].(map[string]any)
+	if asString(third["type"]) != "input_file" {
+		t.Fatalf("expected input_file to be preserved, got %v", third)
 	}
 }
 

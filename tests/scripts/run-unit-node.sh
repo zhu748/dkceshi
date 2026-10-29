@@ -8,7 +8,7 @@ cd "$ROOT_DIR"
 
 # Keep Node's file-level test scheduling serial to avoid intermittent cross-file
 # interference when multiple suites import mutable module singletons.
-node --test tests/node/app-transport.test.js tests/node/devid-runtime-check.test.cjs tests/node/devid-android.test.cjs
+node --test tests/node/app-transport.test.js tests/node/gif-har-headers.test.js tests/node/devid-runtime-check.test.cjs tests/node/devid-android.test.cjs
 NODE_TEST_LOG="$(mktemp)"
 cleanup() {
   rm -f "$NODE_TEST_LOG"

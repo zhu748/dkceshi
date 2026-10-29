@@ -146,9 +146,15 @@ func (c *Client) FetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fi
 	if err != nil {
 		return nil, err
 	}
+	if status == http.StatusNotFound || status == http.StatusGone {
+		return nil, ErrUploadFileNotFound
+	}
 
 	code, bizCode, msg, bizMsg := extractResponseStatus(resp)
 	if status != http.StatusOK || code != 0 || bizCode != 0 {
+		if isTokenInvalid(status, code, bizCode, msg, bizMsg) || isAuthIndicativeBizFailure(msg, bizMsg) {
+			return nil, &RequestFailure{Op: "fetch files", Kind: authFailureKind(a != nil && a.UseConfigToken), Message: failureMessage(msg, bizMsg, "file authentication failed")}
+		}
 		if strings.TrimSpace(bizMsg) != "" {
 			msg = bizMsg
 		}

@@ -14,15 +14,26 @@ const headerOrder = [
 
 function buildAppHeaders(url, init) {
   const parsed = new URL(url);
-  const normalized = new Map(Object.entries(init.headers || {}).map(([k, v]) => [k.toLowerCase(), String(v)]));
+  const method = (init.method || 'POST').toUpperCase();
+  const normalized = new Map(Object.entries(init.headers || {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+    .map(([k, v]) => [k.trim().toLowerCase(), String(v).trim()]));
   for (const [name, expires] of Object.entries(init.headerExpirations || {})) {
     if (Number(expires) <= Date.now() / 1000) normalized.delete(name.toLowerCase());
   }
-  for (const key of ['host', 'connection', 'transfer-encoding', 'keep-alive', 'upgrade', 'accept-language', 'sec-fetch-mode']) normalized.delete(key);
-  normalized.set('content-length', String(Buffer.byteLength(init.body || '')));
-  if (!normalized.has('accept-encoding')) normalized.set('accept-encoding', 'gzip');
-  const headers = { ':method': init.method || 'POST', ':authority': parsed.host, ':path': parsed.pathname + parsed.search, ':scheme': parsed.protocol.slice(0, -1) };
-  for (const name of [...headerOrder, ...[...normalized.keys()].sort()]) {
+  for (const key of ['', 'host', 'connection', 'proxy-connection', 'transfer-encoding', 'keep-alive', 'upgrade', 'accept-language', 'sec-fetch-mode']) normalized.delete(key);
+  if (['0', 'false', 'no', 'off'].includes(String(process.env.DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER || '').trim().toLowerCase())) normalized.delete('x-device-id');
+  if (method === 'GET' || method === 'HEAD') {
+    normalized.delete('content-type');
+    normalized.delete('content-length');
+  } else if ((normalized.get('content-type') || '').toLowerCase().startsWith('multipart/')) {
+    normalized.delete('content-length');
+  } else {
+    normalized.set('content-length', String(Buffer.byteLength(init.body || '')));
+  }
+  if (!normalized.get('accept-encoding')) normalized.set('accept-encoding', 'gzip');
+  const headers = { ':method': method, ':authority': parsed.host, ':path': parsed.pathname + parsed.search, ':scheme': parsed.protocol.slice(0, -1) };
+  const order = parsed.pathname === '/api/v0/users/auth_token/check_device' ? ['authorization', ...headerOrder] : headerOrder;
+  for (const name of [...order, ...[...normalized.keys()].sort()]) {
     if (!normalized.has(name) || name.startsWith(':')) continue;
     const value = normalized.get(name);
     if (value !== '') headers[name] = value;

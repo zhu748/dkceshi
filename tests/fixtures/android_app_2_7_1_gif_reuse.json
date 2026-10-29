@@ -1,0 +1,483 @@
+{
+  "description": "Sanitized protocol facts from the supplied repeat-upload/GIF/deletion HAR; no credentials, IDs, filenames, prompts or file bytes.",
+  "entry_count": 59,
+  "request_shapes": [
+    {
+      "method": "POST",
+      "path": "/api/v0/chat/create_pow_challenge",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "json"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/ip_to_country_code",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/chat/tts/voices",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/chat_session/create",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/users/current",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/chat_session/fetch_page",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/file/upload_file",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-ds-pow-response",
+        "x-thinking-enabled",
+        "x-file-size",
+        "x-model-type",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-thinking-enabled": "1",
+        "x-model-type": "default",
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "multipart"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/file/fetch_files",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/chat/completion",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-ds-pow-response",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "json"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/chat/history_messages",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/chat_session/delete",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "json"
+    }
+  ],
+  "uploads": [
+    {
+      "content_group": 1,
+      "format": "WEBP",
+      "bytes": 71738,
+      "width": 1080,
+      "height": 1920,
+      "frames": 1,
+      "boundary_length": 70,
+      "part_header_names": [
+        "Content-Disposition",
+        "Content-Type"
+      ],
+      "part_mime": "application/octet-stream"
+    },
+    {
+      "content_group": 1,
+      "format": "WEBP",
+      "bytes": 71738,
+      "width": 1080,
+      "height": 1920,
+      "frames": 1,
+      "boundary_length": 70,
+      "part_header_names": [
+        "Content-Disposition",
+        "Content-Type"
+      ],
+      "part_mime": "application/octet-stream"
+    },
+    {
+      "content_group": 1,
+      "format": "WEBP",
+      "bytes": 71738,
+      "width": 1080,
+      "height": 1920,
+      "frames": 1,
+      "boundary_length": 70,
+      "part_header_names": [
+        "Content-Disposition",
+        "Content-Type"
+      ],
+      "part_mime": "application/octet-stream"
+    },
+    {
+      "content_group": 2,
+      "format": "GIF",
+      "bytes": 743502,
+      "width": 300,
+      "height": 310,
+      "frames": 16,
+      "boundary_length": 70,
+      "part_header_names": [
+        "Content-Disposition",
+        "Content-Type"
+      ],
+      "part_mime": "application/octet-stream"
+    },
+    {
+      "content_group": 2,
+      "format": "GIF",
+      "bytes": 743502,
+      "width": 300,
+      "height": 310,
+      "frames": 16,
+      "boundary_length": 70,
+      "part_header_names": [
+        "Content-Disposition",
+        "Content-Type"
+      ],
+      "part_mime": "application/octet-stream"
+    },
+    {
+      "content_group": 2,
+      "format": "GIF",
+      "bytes": 743502,
+      "width": 300,
+      "height": 310,
+      "frames": 16,
+      "boundary_length": 70,
+      "part_header_names": [
+        "Content-Disposition",
+        "Content-Type"
+      ],
+      "part_mime": "application/octet-stream"
+    }
+  ],
+  "deleted_sessions": 2,
+  "old_file_id_reuse_observed": false
+}
