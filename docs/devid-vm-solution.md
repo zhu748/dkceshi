@@ -3,17 +3,17 @@
 ## 结论
 
 `scripts/devid-generate.cjs` 默认使用 **Node vm 模拟环境**运行数美 fp Web SDK。
-2026-10-29 补充扩展包后的本次实测仅确认独立桌面上报成功（HTTP 200、code=1100、
-detail.c=0，约 5.25 秒），未使用真实账号验证登录、聊天或上传。
-该包忽略 Android 锚定和 chat 站点覆盖，新增运行时身份检查后会明确拒绝，不能用于
-Android auto。检查结果及剩余条件见 [APK 请求对齐核对](apk-request-alignment.md#扩展包兼容性验证)。
+2026-10-29 在用户提供的桌面包上增加 Android 模拟层：vivo X200 Pro / X100 Ultra
+上报成功（HTTP 200、code=1100、detail.c=0，样本约 4.60 / 3.89 秒），
+未使用真实账号验证登录、聊天或上传。原包的 Android 和站点配置曾被忽略，现已通过
+运行时适配与检查修复。安装说明及限制见 [Android Web SDK 适配包](android-devid-package.md)。
 后续排雷内容保留为历史调试记录，不作为当前 Android 全链路验证依据。
 
 | 指标 | Playwright 旧方案 | vm 轻量方案 |
 |------|-----------------|------------|
-| 单次生成耗时 | 历史记录 2.5~30 s | 本次桌面样本约 5.25 s |
+| 单次生成耗时 | 历史记录 2.5~30 s | 本次 Android 模拟样本约 3.89–4.60 s |
 | 资源占用 | Chromium 进程 200~400 MB | Node 单进程 ~60 MB |
-| 稳定性 | 依赖 WAF 挑战通过率 | 基础自检 62/62，Android/站点检查另有 14 项失败 |
+| 自检 | — | Android 模拟运行时自检 88/88 |
 | 兜底 | — | `--browser` 参数回落 Playwright |
 
 ## 运行链

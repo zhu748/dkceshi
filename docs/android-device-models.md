@@ -34,8 +34,10 @@ API 是本地画像预设，可由账号配置覆盖，不代表已实测的固�
 | 原抓包保留项 | V2507A | 36 | 仅作为可选模板，不作默认值 |
 
 原有 Google Pixel 及 Samsung 型号继续保留。账号可手动配置池外型号。
-屏幕、GPU 等完整 SDK 参数仍依赖部署环境的 `profiles.json` / `gpus.json`，
-本机型表不等于已提供这些设备的完整真实硬件画像。
+Android Web SDK 适配器已为上述 19 个新增 vivo 型号代码提供公开分辨率/GPU 芯片名模板。
+DPR、字体度量和完整 WebGL 驱动串仍为模拟值；V2507A、Pixel/Samsung 及其他未建表型号
+使用明确标记的通用移动模板，可通过 `profiles.json.modelScreens` / `gpus.json.modelGpus`
+补充真机参数。本机型表不等于完整真实硬件画像，详见 [适配包精度说明](android-devid-package.md#数据精度)。
 
 ## 配置优先级
 

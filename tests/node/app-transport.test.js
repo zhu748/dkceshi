@@ -22,7 +22,7 @@ test('already aborted stream makes no connection',async()=>{
  const h=buildAppHeaders('https://example.test/a',{headers:{Host:'wrong','Accept-Language':'*','sec-fetch-mode':'cors'},body:'你'});assert.equal(h[':authority'],'example.test');assert.equal(h['content-length'],'3');assert.equal(h['accept-language'],undefined);
 });
 test('saved profile adopts locale and timezone changes',()=>{
- const profile={osFamily:'android',deviceModel:'Pixel 9',androidVersion:16,locale:'zh-CN',tzName:'Asia/Shanghai',tzOffset:-480,screenW:412};
+ const profile={androidAdapterVersion:1,osFamily:'android',deviceModel:'Pixel 9',androidVersion:16,locale:'zh-CN',tzName:'Asia/Shanghai',tzOffset:-480,screenW:412};
  const next=selectAnchoredArchive({profile,smidV2:'same-device'},{device_model:'Pixel 9',android_version:16,locale:'en-US',tz:'America/Los_Angeles',tz_offset:420},{},null,1);
  assert.equal(next.profile.locale,'en-US');assert.equal(next.profile.tzOffset,420);assert.equal(next.profile.screenW,412);assert.equal(next.smidV2,'same-device');assert.equal(profile.locale,'zh-CN');
 });

@@ -34,15 +34,22 @@ UA、平台、Client Hints/mobile、高熵型号/版本、GPU、语言、时区�
 不匹配时返回明确错误。`--selftest --anchor <设备配置.json>` 同样包括这些检查。
 锚定文件读取或解析失败会报错，不会退回无锚定的桌面画像。
 
-本次补充的 `devid (1).zip` 提供了缺失的 8 个运行文件。其独立桌面路径已成功上报：
-HTTP 200、`code=1100`、`detail.c=0`，返回带 `B` 前缀的 ID。但该包的环境仅实现
-Windows/macOS/Linux，忽略 Android 和站点覆盖，仍报告 Windows、桌面 Client Hints、
-Direct3D GPU 与 `platform.deepseek.com`。原有 62 项自检通过不能证明 Android 锚定生效。
-当前检查会阻止这个包用于 Android auto；需替换为支持上述配置的扩展包，或使用已有真实
-设备的 manual ID。独立桌面上报成功不代表 APK 登录接受该 ID，也未验证账号登录/聊天/上传。
+本次补充的 `devid (1).zip` 提供了缺失的 8 个运行文件。原包仅实现桌面环境，曾在
+Android/站点检查中有 14 项失败。现在由 `scripts/devid-android-env.cjs` 按已知原文件
+SHA-256 适配，在运行时加入 Android 平台、移动 Client Hints/高熵型号版本、触屏、
+移动插件/MIME 模板、GPU 和 chat 站点覆盖；不再加载原 Windows 字体度量。
+`scripts/devid-android-profile.cjs` 提供 19 个 vivo 公开硬件规格模板与其他型号的通用移动模板。
+原始 SDK 的字节不变；这仍是 Web SDK 浏览器模拟，不等价于 APK 原生 SDK。
+
+Android vivo X200 Pro 和 X100 Ultra 路径均已真实上报成功：HTTP 200、`code=1100`、
+`detail.c=0`，返回 89 字符的带 `B` 前缀 ID，debug 本地解密检查未报告问题。
+上报明文确认包含 Android Mobile UA 与移动 GPU。自检扩展至 88 项，覆盖运行时实际值，
+仍不能证明 APK 登录接受该 ID；未验证账号登录、聊天或上传。
 SDK 资源仍由部署方提供，未加入公开仓库；Go 编译本身不会打包 Node 或这些文件。
 部署内置生成器时需同时保留 `scripts/devid-generate.cjs` 和同目录的
-`devid-runtime-check.cjs`。显式配置的外部脚本或扩展包自带的 `generate.cjs` 优先于内置脚本，
+`devid-runtime-check.cjs`、`devid-android-env.cjs`、`devid-android-profile.cjs`。
+安装、构建和精度限制见 [Android Web SDK 适配包](android-devid-package.md)。
+显式配置的外部脚本或扩展包自带的 `generate.cjs` 优先于内置脚本，
 需单独核对是否包含这些检查。
 
 ## 头部与时区

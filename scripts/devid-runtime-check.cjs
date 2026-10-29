@@ -7,13 +7,20 @@ async function checkRuntime(ctx, profile, site) {
     const snapshot = await vm.runInContext(`(async function () {
         var hints = navigator.userAgentData;
         var high = hints && hints.getHighEntropyValues
-            ? await hints.getHighEntropyValues(['model', 'platformVersion']) : {};
+            ? await hints.getHighEntropyValues(['model', 'platformVersion', 'architecture', 'bitness', 'formFactors', 'fullVersionList']) : {};
         var gl = document.createElement('canvas').getContext('webgl');
         return JSON.stringify({
             ua: navigator.userAgent, platform: navigator.platform,
             language: navigator.language, offset: new Date().getTimezoneOffset(),
             mobile: hints && hints.mobile, hintPlatform: hints && hints.platform,
             model: high.model, platformVersion: high.platformVersion,
+            architecture: high.architecture, bitness: high.bitness, formFactors: high.formFactors,
+            brands: hints && hints.brands, fullVersionList: high.fullVersionList,
+            touch: navigator.maxTouchPoints, touchEvent: typeof TouchEvent === 'function',
+            plugins: navigator.plugins.length, mimeTypes: navigator.mimeTypes.length,
+            coarse: matchMedia('(pointer: coarse)').matches, hover: matchMedia('(hover: hover)').matches,
+            windowsFont: document.fonts.check('12px "Microsoft YaHei"'),
+            width: screen.width, height: screen.height, dpr: devicePixelRatio,
             origin: location.origin, url: location.href, referrer: document.referrer,
             headers: __requestHeaders(),
             renderer: gl && gl.getParameter(0x9246)
@@ -45,6 +52,16 @@ function checkSnapshot(actual, profile, site) {
         add('Android 高熵版本与档案一致', Number(String(actual.platformVersion).split('.')[0]) === Number(profile.androidVersion));
         add('Android GPU 未退回 Direct3D', typeof actual.renderer === 'string' && !/Direct3D|D3D11|D3D12/i.test(actual.renderer));
         if (profile.gpu && profile.gpu.renderer) add('Android GPU 与档案一致', actual.renderer === profile.gpu.renderer);
+        if (profile.androidAdapterVersion) {
+            add('Android ARM 架构', actual.architecture === 'arm' && actual.bitness === '64');
+            add('Android Mobile form factor', Array.isArray(actual.formFactors) && actual.formFactors.includes('Mobile'));
+            add('Client Hints 完整版本', Array.isArray(actual.fullVersionList) && (actual.brands || []).every((b) => actual.fullVersionList.some((f) => f.brand === b.brand && f.version === b.version + '.0.0.0')));
+            add('Android 触屏能力', actual.touch === profile.maxTouchPoints && actual.touchEvent);
+            add('Android 插件/MIME 模板', actual.plugins === 0 && actual.mimeTypes === 0);
+            add('Android 指针/悬停模板', actual.coarse && !actual.hover);
+            add('Android 未加载 Windows 字体表', actual.windowsFont === false);
+            add('Android 屏幕/DPR 与档案一致', actual.width === profile.screenW && actual.height === profile.screenH && actual.dpr === profile.dpr);
+        }
     }
     return checks;
 }

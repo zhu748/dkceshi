@@ -7,10 +7,10 @@
  *   → XHR 被劫持进 __captured（不发网络）
  *   → 本脚本以真实 HTTPS 把载荷转发到数美云端 fp-it-acc.portal101.cn/deviceprofile/v4
  *   → 响应 code=1100 的 detail.deviceId 即 device_id
- *   → 数美/本地(verify.js) 双重体检通过才算成功
+ *   → 上报前检查运行时身份，--debug 可额外解密体检采集内容
  *
- * 相对 Playwright 方案：无浏览器进程，秒级、~60MB 内存；指纹由高保真模拟
- * 环境生成（fonts/gpus 真机池 + V8 栈伪装 + canvas PNG 抖动 + 站点身份注入）。
+ * 无浏览器进程；运行层为 Android 手机浏览器模拟模板，非 APK 原生 SDK。
+ * 公开硬件规格之外的字体度量、Canvas 和浏览器行为仍需真机样本校准。
  *
  * 用法：
  *   node devid-generate.cjs [--reset] [--profile <file>] [--timeout <秒>]
@@ -34,6 +34,8 @@ const vm = require('node:vm');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { checkRuntime } = require('./devid-runtime-check.cjs');
+const { adaptBrowserEnv, VERSION } = require('./devid-android-env.cjs');
+const { ANDROID_FONTS, VIVO_SPECS, localeSettings, buildAndroidProfile } = require('./devid-android-profile.cjs');
 
 const DEVID_DIR = path.join(__dirname, '..', 'data', 'devid');
 const FINISH_T0 = Date.now();
@@ -72,7 +74,7 @@ function parseArgs(argv) {
         else if (a === '--via-chromium') opts.viaChromium = true;
         else if (a === '--dump-payload') { const f = String(argv[++i] || ''); if (f) { opts.dumpPayload = f; } }
         else if (a === '--help' || a === '-h') {
-            process.stdout.write('usage: node devid-generate.cjs [--reset] [--profile <file>] [--timeout <sec>] [--debug] [--selftest] [--browser]\n');
+            process.stdout.write('usage: node devid-generate.cjs [--anchor <file>] [--reset] [--profile <file>] [--timeout <sec>] [--debug] [--dump-payload <file>] [--selftest] [--browser]\n');
             process.exit(0);
         }
     }
@@ -124,110 +126,8 @@ function mulberry32(seed) {
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
 }
-function pickWeighted(rand, items, weightKey) {
-    let total = 0;
-    for (const it of items) total += Number(it[weightKey] || 1);
-    let r = rand() * total;
-    for (const it of items) { r -= Number(it[weightKey] || 1); if (r <= 0) return it; }
-    return items[items.length - 1];
-}
-function pickFrom(rand, arr) { return arr[Math.floor(rand() * arr.length) % arr.length]; }
-
-function buildProfile(profilesSpec, seed) {
-    const rand = mulberry32(seed);
-    const fam = pickWeighted(rand, profilesSpec.osFamilies, 'weight');
-    const loc = pickWeighted(rand, profilesSpec.locales, 'weight');
-    const screen = pickFrom(rand, fam.screens);
-    let dpr = pickFrom(rand, fam.dprs);
-    const cores = pickFrom(rand, fam.cores);
-    const taskbar = pickFrom(rand, fam.taskbar);
-    /* 安卓随机池：型号优先取 modelScreens 里的真机型号（SM-S921B 为主） */
-    let deviceModel = '', androidVersion = 0, modelScreen = null;
-    if (fam.key === 'android') {
-        const models = Object.keys(profilesSpec.modelScreens || {});
-        deviceModel = models.length ? models[Math.floor(rand() * models.length * 0.6) % models.length] : 'SM-S921B';
-        androidVersion = 16;
-        modelScreen = (profilesSpec.modelScreens || {})[deviceModel] || null;
-    }
-    if (modelScreen) { screen = [modelScreen[0], modelScreen[1]]; dpr = modelScreen[2]; }
-    const rtt = pickFrom(rand, profilesSpec.network.rtt);
-    const downlink = pickFrom(rand, profilesSpec.network.downlink);
-    const charging = rand() < profilesSpec.battery.chargingProbability;
-    const level = pickFrom(rand, profilesSpec.battery.levels);
-
-    const screenW = screen[0], screenH = screen[1];
-    const availW = screenW, availH = screenH - taskbar;
-    const outerW = availW, outerH = availH;
-    /* 最大化窗口：screen.width/innerWidth 同为 CSS 像素且页面无滚动条时相等；
-     * 高度方向 innerH = outerH - 浏览器 chrome(桌面标签栏+地址栏 约 80~90px；
-     * 安卓 Chrome 的顶部地址栏约 60~100px) */
-    const innerW = outerW;
-    const innerH = outerH - (fam.key === 'android' ? 60 + Math.floor(rand() * 40) : 80 + Math.floor(rand() * 10));
-    return {
-        osFamily: fam.key,
-        deviceModel, androidVersion,
-        locale: loc.code,
-        lang: { code: loc.code, list: loc.langs },
-        acceptLanguage: loc.acceptLanguage,
-        tzName: loc.tz, tzOffset: loc.tzOffset,
-        screenW, screenH, availW, availH,
-        outerW, outerH, innerW, innerH,
-        dpr, colorDepth: profilesSpec.defaults.colorDepth,
-        cores, deviceMemory: cores <= 4 ? 4 : 8,
-        canvasSeed: Math.floor(rand() * 0xffffffff),
-        seed: Math.floor(rand() * 0xffffffff),
-        battery: { charging, level },
-        rtt, downlink, effType: profilesSpec.network.effectiveType,
-    };
-}
-
-/* ---------------- 安卓锚定画像（与账号声称的设备同一台“手机”） ----------------
- * anchor JSON：{ device_model, android_version, locale, tz, tz_offset, gpu?, seed? }
- * 型号→屏幕/GPU 从 profiles.json.modelScreens / gpus.json.modelGpus 查表，
- * 噪波（canvasSeed/字体探测序列等）保持全新随机：换档案 = 换一台同型号新手机。 */
 function buildAnchoredProfile(anchor, profilesSpec, gpuPool, seed) {
-    const rand = mulberry32(seed);
-    const model = String(anchor.device_model || 'SM-S921B').trim() || 'SM-S921B';
-    const ms = ((profilesSpec.modelScreens || {})[model]) || [360, 780, 3];
-    const locCode = String(anchor.locale || 'zh-CN');
-    const loc = profilesSpec.locales.find((l) => l.code === locCode) || profilesSpec.locales[0];
-    const tzName = anchor.tz || loc.tz;
-    const tzOffset = (anchor.tz_offset !== undefined) ? Number(anchor.tz_offset) : loc.tzOffset;
-    const rtt = pickFrom(rand, profilesSpec.network.rtt);
-    const downlink = pickFrom(rand, profilesSpec.network.downlink);
-    const charging = rand() < profilesSpec.battery.chargingProbability;
-    const level = pickFrom(rand, profilesSpec.battery.levels);
-
-    const screenW = ms[0], screenH = ms[1], dpr = ms[2];
-    /* 安卓 avail=screen（无桌面任务栏）；innerH = avail - 移动浏览器地址栏 */
-    const innerH = screenH - (60 + Math.floor(rand() * 40));
-
-    /* GPU：anchor.gpu 显式 > modelGpus 型号表 > 移动池随机（browser_env 侧同样有兜底） */
-    let gpu = null;
-    if (anchor.gpu && anchor.gpu.renderer) gpu = anchor.gpu;
-    else if (gpuPool && gpuPool.modelGpus && gpuPool.modelGpus[model] && gpuPool.modelGpus[model].renderer) gpu = gpuPool.modelGpus[model];
-    else if (gpuPool && Array.isArray(gpuPool.entries)) {
-        const mob = gpuPool.entries.filter((e) => (e.families || []).indexOf('android') >= 0);
-        if (mob.length) { const g = mob[Math.floor(rand() * mob.length) % mob.length]; gpu = { vendor: g.vendor, renderer: g.renderer }; }
-    }
-
-    return {
-        osFamily: 'android',
-        deviceModel: model, androidVersion: Number(anchor.android_version) || 16,
-        locale: loc.code,
-        lang: { code: loc.code, list: loc.langs },
-        acceptLanguage: loc.acceptLanguage,
-        tzName, tzOffset,
-        screenW, screenH, availW: screenW, availH: screenH,
-        outerW: screenW, outerH: screenH, innerW: screenW, innerH,
-        dpr, colorDepth: profilesSpec.defaults.colorDepth,
-        cores: 8, deviceMemory: 8,
-        gpu,
-        canvasSeed: Math.floor(rand() * 0xffffffff),
-        seed: Math.floor(rand() * 0xffffffff),
-        battery: { charging, level },
-        rtt, downlink, effType: profilesSpec.network.effectiveType,
-    };
+    return buildAndroidProfile(anchor, profilesSpec, gpuPool, seed, mulberry32(seed));
 }
 
 /* ---------------- 宿主原语 ---------------- */
@@ -302,16 +202,20 @@ if (require.main === module) {
 }
 
 function selectAnchoredArchive(arch, anchor, profilesSpec, gpuPool, seed) {
-    if (!anchor) return { profile: arch.profile || buildProfile(profilesSpec, seed), smidV2: arch.smidV2 };
+    if (!anchor) {
+        if (arch.profile && arch.profile.osFamily === 'android' && arch.profile.androidAdapterVersion === VERSION) return arch;
+        const device = VIVO_SPECS[seed % VIVO_SPECS.length];
+        anchor = { device_model: device[0], android_version: device[1], locale: 'zh-CN', tz: 'Asia/Shanghai', tz_offset: -480 };
+    }
     const old = arch.profile;
-    const sameDevice = old && old.osFamily === 'android' && old.deviceModel === anchor.device_model && old.androidVersion === Number(anchor.android_version);
+    const sameDevice = old && old.androidAdapterVersion === VERSION && old.osFamily === 'android' && old.deviceModel === anchor.device_model && old.androidVersion === Number(anchor.android_version);
     if (sameDevice) {
-        return { profile: { ...old, locale: String(anchor.locale || old.locale), tzName: anchor.tz || old.tzName, tzOffset: Number(anchor.tz_offset ?? old.tzOffset) }, smidV2: arch.smidV2 };
+        return { profile: { ...old, ...localeSettings({ locale: old.locale, tz: old.tzName, tz_offset: old.tzOffset, ...anchor }, profilesSpec) }, smidV2: arch.smidV2 };
     }
     return { profile: buildAnchoredProfile(anchor, profilesSpec, gpuPool, seed), smidV2: '' };
 }
 
-module.exports = { selectAnchoredArchive };
+module.exports = { selectAnchoredArchive, makeHostPrims };
 
 function readData(name) { return fs.readFileSync(path.join(DEVID_DIR, name), 'utf8'); }
 
@@ -334,6 +238,7 @@ async function mainVm(o) {
     log('画像:', profile.osFamily, profile.deviceModel || '', profile.screenW + 'x' + profile.screenH, 'dpr=' + profile.dpr,
         'cores=' + profile.cores, profile.locale, profile.smidV2 ? '(复用 smid)' : '(新设备)',
         profile.gpu ? 'gpu=' + String(profile.gpu.renderer).slice(6, 40) : '');
+    if (profile.hardwareSource === 'generic-mobile-template') log('注意: 此型号无硬件参数表，使用通用移动模拟模板，需真机校准');
     /* Intl 用宿主 ICU：运行时 TZ 决定 resolvedOptions().timeZone，与画像时区保持同源。
      * （Node 13.2+ 支持运行时改 env.TZ，V8/ICU 随之跟随） */
     if (profile.tzName) process.env.TZ = profile.tzName;
@@ -366,7 +271,7 @@ async function mainVm(o) {
         var __smProtocol = ${JSON.stringify(SM_CONF.protocol)};
         var __smApiHost = ${JSON.stringify(SM_CONF.apiHost)};
         var __smApiPath = ${JSON.stringify(SM_CONF.apiPath)};
-        var __fonts = ${JSON.stringify(readData('fonts.json'))};
+        var __fonts = ${JSON.stringify(JSON.stringify(ANDROID_FONTS))};
         var __gpuPool = ${JSON.stringify(readData('gpus.json'))};
         var __leak = {};
     `;
@@ -396,7 +301,7 @@ async function mainVm(o) {
     `, ctx, { filename: 'devid-prelude.js' });
 
     log('装载环境模拟…');
-    vm.runInContext(readData('browser_env.js'), ctx, { filename: 'browser_env.js' });
+    vm.runInContext(adaptBrowserEnv(readData('browser_env.js')), ctx, { filename: 'browser_env.js' });
     const runtimeChecks = await checkRuntime(ctx, profile, SM_CONF.siteOverride);
 
     /* --- selftest：以检测方视角体检环境，然后退出 --- */
@@ -451,6 +356,12 @@ async function mainVm(o) {
         } catch (e) { log('verify 异常（不影响转发）:', e.message); }
     }
 
+    if (o.dumpPayload) {
+        fs.mkdirSync(path.dirname(o.dumpPayload), { recursive: true });
+        fs.writeFileSync(o.dumpPayload, JSON.stringify({ captured, fingerprint: verifyOut && verifyOut.fingerprint,
+            environment: 'android-web-sdk', runtime_checks: runtimeChecks }, null, 2), { mode: 0o600 });
+    }
+
     /* --- 真实转发数美云端：两种通道 ---
      * 默认：Node fetch（快，但 TLS/HTTP2 指纹是 Node 的）
      * --via-chromium：用真 Chromium 页面内的 fetch 发（真浏览器 TLS/H2，慢，实验用） */
@@ -466,6 +377,7 @@ async function mainVm(o) {
             method: 'POST',
             headers: reqHeaders,
             body: captured.body,
+            signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
         });
         respStatus = resp.status; respText = await resp.text();
     }
@@ -502,6 +414,9 @@ async function mainVm(o) {
         verify_problems: verifyOut ? verifyOut.problems || [] : null,
         detail_c: detailCode,
         mode: 'vm',
+        environment: 'android-web-sdk',
+        hardware_source: profile.hardwareSource,
+        hardware_approximate: true,
     });
 }
 

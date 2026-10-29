@@ -1,0 +1,94 @@
+'use strict';
+
+const { VERSION } = require('./devid-android-env.cjs');
+
+// Resolution and GPU chip names: vivo official parameter pages, checked 2026-10-29.
+// DPR, browser renderer spelling and font metrics remain simulation presets.
+const VIVO_SPECS = [
+    ['V2241A', 13, 'x90', 1260, 2800, 'Immortalis-G715'],
+    ['V2242A', 13, 'x90pro', 1260, 2800, 'Immortalis-G715'],
+    ['V2227A', 13, 'x90proplus', 1440, 3200, 'Adreno 740'],
+    ['V2309A', 14, 'x100', 1260, 2800, 'Immortalis-G720'],
+    ['V2324A', 14, 'x100pro', 1260, 2800, 'Immortalis-G720'],
+    ['V2359A', 14, 'x100s', 1260, 2800, 'Immortalis-G720'],
+    ['V2324HA', 14, 'x100spro', 1260, 2800, 'Immortalis-G720'],
+    ['V2366GA', 14, 'x100ultra', 1440, 3200, 'Adreno 750'],
+    ['V2366HA', 14, 'x100ultra', 1440, 3200, 'Adreno 750'],
+    ['V2415A', 15, 'x200', 1260, 2800, 'Immortalis-G925'],
+    ['V2405A', 15, 'x200pro', 1260, 2800, 'Immortalis-G925'],
+    ['V2405DA', 15, 'x200pro', 1260, 2800, 'Immortalis-G925'],
+    ['V2419A', 15, 'x200promini', 1216, 2640, 'Immortalis-G925'],
+    ['V2454A', 15, 'x200ultra', 1440, 3168, 'Adreno 830'],
+    ['V2454DA', 15, 'x200ultra', 1440, 3168, 'Adreno 830'],
+    ['V2364A', 14, 's19', 1260, 2800, 'Adreno 720'],
+    ['V2362A', 14, 's19pro', 1260, 2800, 'Immortalis-G715'],
+    ['V2429A', 15, 's20', 1260, 2800, 'Adreno 720'],
+    ['V2430A', 15, 's20pro', 1260, 2800, 'Immortalis-G720'],
+];
+
+const ANDROID_FONTS = {
+    _comment: 'Android font-name compatibility template; no Windows measured metrics. Widths use the simulator approximation.',
+    baseFonts: ['Roboto', 'Noto Sans', 'Noto Serif', 'Droid Sans Mono', 'Arial', 'Times New Roman', 'Courier New'],
+    eastAsianLocales: ['zh-CN', 'zh-TW', 'ja-JP', 'ko-KR'],
+    eastAsianFonts: ['Noto Sans CJK SC', 'Noto Sans CJK TC', 'Noto Sans CJK JP', 'Noto Sans CJK KR'],
+    genericFamilies: { monospace: [43.2, 84], 'sans-serif': [48, 84], serif: [52, 84] },
+    familyAdvances: { default: 0.52, serif: 0.56, sans: 0.5, mono: 0.6 },
+};
+
+function localeSettings(anchor, spec = {}) {
+    const locale = String(anchor.locale || 'zh-CN');
+    const locales = spec.locales || [];
+    const loc = locales.find((l) => l.code === locale && l.tz === anchor.tz)
+        || locales.find((l) => l.code === locale) || {};
+    const langs = loc.langs || [...new Set([locale, locale.split('-')[0]])];
+    const tzName = String(anchor.tz || loc.tz || 'Asia/Shanghai');
+    const tzOffset = Number(anchor.tz_offset ?? loc.tzOffset ?? -480);
+    new Intl.DateTimeFormat(locale, { timeZone: tzName }); // Fail on invalid locale/zone.
+    if (!Number.isFinite(tzOffset) || Math.abs(tzOffset) > 840) throw new Error('非法 tz_offset');
+    return { locale, lang: { code: locale, list: langs.slice() }, langs: langs.slice(),
+        acceptLanguage: loc.acceptLanguage || langs.map((l, i) => l + (i ? ';q=' + Math.max(0.1, 1 - i / 10).toFixed(1) : '')).join(','), tzName, tzOffset };
+}
+
+function mobileHardware(anchor, spec = {}, gpuPool = {}) {
+    const model = String(anchor.device_model || '').trim();
+    const known = VIVO_SPECS.find((d) => d[0] === model);
+    const screen = anchor.screen || (spec.modelScreens || {})[model]
+        || (known ? [Math.round(known[3] / 3), Math.round(known[4] / 3), 3] : [360, 800, 3]);
+    if (!Array.isArray(screen) || screen.length !== 3 || !screen.every((n) => Number.isFinite(n) && n > 0)
+        || screen[0] > 4000 || screen[1] > 4000 || screen[2] > 8) throw new Error('非法 Android screen [CSS宽,CSS高,DPR]');
+    const chip = known ? known[5] : 'Generic Android OpenGL ES';
+    const gpu = anchor.gpu || (gpuPool.modelGpus || {})[model] || {
+        vendor: chip.startsWith('Adreno') ? 'Qualcomm' : known ? 'ARM' : 'Android',
+        renderer: chip.startsWith('Adreno') ? chip.replace('Adreno ', 'Adreno (TM) ') : chip,
+    };
+    if (!gpu || typeof gpu.vendor !== 'string' || typeof gpu.renderer !== 'string' || !gpu.renderer
+        || /Direct3D|D3D11|D3D12/i.test(gpu.renderer)) throw new Error('非法 Android GPU 模板');
+    return { screen, gpu: { vendor: gpu.vendor, renderer: gpu.renderer }, hardwareSource: known
+        ? 'https://www.vivo.com.cn/vivo/param/' + known[2] : 'generic-mobile-template',
+        hardwareApproximate: true };
+}
+
+function buildAndroidProfile(anchor, spec, gpuPool, seed, rand) {
+    const model = String(anchor.device_model || '').trim();
+    const androidVersion = Number(anchor.android_version);
+    if (!model || !Number.isInteger(androidVersion) || androidVersion < 7 || androidVersion > 100) {
+        throw new Error('Android 锚定必须提供 device_model 和 android_version（Android 主版本，非 API level）');
+    }
+    const hardware = mobileHardware(anchor, spec, gpuPool);
+    const [screenW, screenH, dpr] = hardware.screen;
+    const pick = (a) => a[Math.floor(rand() * a.length)];
+    const innerH = Math.max(1, screenH - 80);
+    return {
+        androidAdapterVersion: VERSION, osFamily: 'android', deviceModel: model, androidVersion,
+        ...localeSettings(anchor, spec), ...hardware,
+        screenW, screenH, dpr, availW: screenW, availH: screenH,
+        outerW: screenW, outerH: screenH, innerW: screenW, innerH,
+        colorDepth: 24, cores: 8, deviceMemory: 8, maxTouchPoints: 5,
+        storageQuotaBytes: 64 * 1024 ** 3, jsHeapSizeLimit: 2 * 1024 ** 3,
+        canvasSeed: Math.floor(rand() * 0xffffffff), seed,
+        gpu: hardware.gpu, battery: { charging: rand() < 0.5, level: pick([0.55, 0.72, 0.87, 1]) },
+        rtt: pick([50, 100, 150]), downlink: pick([4.6, 7.8, 10]), effType: '4g',
+    };
+}
+
+module.exports = { ANDROID_FONTS, VIVO_SPECS, localeSettings, mobileHardware, buildAndroidProfile };
