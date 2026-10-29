@@ -71,6 +71,19 @@ Go 默认启用有序 HTTP/2，普通字段小写，伪头顺序为
 后两项为头部构造器支持的已观察顺序；本次没有增加启动时自动绑定设备或上报设置的请求。
 额外头部采用稳定排序，去重并过滤 HTTP/2 禁止的连接头，不注入浏览器 Origin/Referer 等字段。
 
+## 2.7.1 APK 静态对齐补充（逆向核实）
+
+以下结论来自对 deepseek.apk（versionCode 287）的反编译核对，与 HAR 观察互相印证：
+
+| 项 | App 实现 | 项目实现 |
+| --- | --- | --- |
+| 登录 JSON 字段序 | `email, password, device_id, os`（UsersLoginWithEmailAndPwdRequest）；手机号为 `mobile, area_code, password, device_id, os` | MarshalAppJSON 按 `/api/v0/users/login` 定序输出同序 |
+| check_device 请求体 | `device_model`（Build.MODEL）、`device_id`，登录成功与启动 check_update 流程均调用；响应 `biz_data.rotate.token` 非空时轮换本地 token | 登录成功后调用，轮换 token 优先于登录响应返回并持久化；失败仅告警不阻断登录 |
+| x-device-model | `Build.MODEL`（真实机型） | 账号 device_model（同语义） |
+| x-hif-dliq / x-hif-leim | 从 `hif-dliq.deepseek.com/query`、`hif-leim.deepseek.com/query` 拉取的设备认证材料，缓存受响应头 `x-hif-ttl` 与远程设置 hif_max_retry_interval_secs 控制；可缺失 | 不发送。两个端点仅 IPv6可达，IPv4 网络下的真实 App 同样无法携带，属正常客户端形态 |
+| 数美组织 | `P9usCUBauxft8eAmUXaZ` / appId `default`（fengkongcloud.com 双区域端点） | 网页端 SDK 同组织同 appId（fp-it-acc.portal101.cn 签发），云签 device_id 同源互认 |
+| 兜底 device_id | AES-CBC(MD5(packageName) 为 key、全零 IV, android_id + "_" + Build.BRAND) | SHA-256 派生；仅在无真实 device_id 时使用，正常路径不生效 |
+
 有序发送使用 fhttp 的 HTTP/2 实现处理 DATA 流控、分片和取消，替代原有手写帧循环。
 JSON、SSE、GET 和上传都经过所选账号的客户端，不再绕过账号 SOCKS 代理。
 无账号代理时遵循系统代理配置。`DS2API_DEEPSEEK_USE_FRAMED_H2=0` 可回退旧路径；

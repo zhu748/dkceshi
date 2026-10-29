@@ -11,20 +11,22 @@ import (
 )
 
 const (
-	DeepSeekHost                 = "chat.deepseek.com"
-	DeepSeekLoginURL             = "https://chat.deepseek.com/api/v0/users/login"
-	DeepSeekCreateSessionURL     = "https://chat.deepseek.com/api/v0/chat_session/create"
-	DeepSeekCreatePowURL         = "https://chat.deepseek.com/api/v0/chat/create_pow_challenge"
-	DeepSeekCompletionURL        = "https://chat.deepseek.com/api/v0/chat/completion"
-	DeepSeekContinueURL          = "https://chat.deepseek.com/api/v0/chat/continue"
-	DeepSeekUploadFileURL        = "https://chat.deepseek.com/api/v0/file/upload_file"
-	DeepSeekFetchFilesURL        = "https://chat.deepseek.com/api/v0/file/fetch_files"
-	DeepSeekFetchSessionURL      = "https://chat.deepseek.com/api/v0/chat_session/fetch_page"
-	DeepSeekDeleteSessionURL     = "https://chat.deepseek.com/api/v0/chat_session/delete"
-	DeepSeekDeleteAllSessionsURL = "https://chat.deepseek.com/api/v0/chat_session/delete_all"
-	DeepSeekEditMessageURL       = "https://chat.deepseek.com/api/v0/chat/edit_message"
-	DeepSeekCompletionTargetPath = "/api/v0/chat/completion"
-	DeepSeekUploadTargetPath     = "/api/v0/file/upload_file"
+	DeepSeekHost                  = "chat.deepseek.com"
+	DeepSeekLoginURL              = "https://chat.deepseek.com/api/v0/users/login"
+	DeepSeekCheckDeviceURL        = "https://chat.deepseek.com/api/v0/users/auth_token/check_device"
+	DeepSeekCheckDeviceTargetPath = "/api/v0/users/auth_token/check_device"
+	DeepSeekCreateSessionURL      = "https://chat.deepseek.com/api/v0/chat_session/create"
+	DeepSeekCreatePowURL          = "https://chat.deepseek.com/api/v0/chat/create_pow_challenge"
+	DeepSeekCompletionURL         = "https://chat.deepseek.com/api/v0/chat/completion"
+	DeepSeekContinueURL           = "https://chat.deepseek.com/api/v0/chat/continue"
+	DeepSeekUploadFileURL         = "https://chat.deepseek.com/api/v0/file/upload_file"
+	DeepSeekFetchFilesURL         = "https://chat.deepseek.com/api/v0/file/fetch_files"
+	DeepSeekFetchSessionURL       = "https://chat.deepseek.com/api/v0/chat_session/fetch_page"
+	DeepSeekDeleteSessionURL      = "https://chat.deepseek.com/api/v0/chat_session/delete"
+	DeepSeekDeleteAllSessionsURL  = "https://chat.deepseek.com/api/v0/chat_session/delete_all"
+	DeepSeekEditMessageURL        = "https://chat.deepseek.com/api/v0/chat/edit_message"
+	DeepSeekCompletionTargetPath  = "/api/v0/chat/completion"
+	DeepSeekUploadTargetPath      = "/api/v0/file/upload_file"
 )
 
 // defaultStaticBaseHeaders 仅包含 App 实际发送的静态头。

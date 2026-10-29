@@ -37,6 +37,14 @@ func MarshalAppJSON(endpoint string, payload any) ([]byte, error) {
 		values = copyValues
 	case "/api/v0/chat_session/delete":
 		order = []string{"chat_session_id", "chat_session_ids"}
+	case "/api/v0/users/login":
+		// App 2.7.1（UsersLoginWithEmailAndPwdRequest / UsersLoginWithPhoneAndPwdRequest）
+		// kotlinx.serialization 字段序：email → password → device_id → os；
+		// 手机号为 mobile → area_code → password → device_id → os。credential_id 缺省不发送。
+		order = []string{"email", "mobile", "area_code", "password", "device_id", "os"}
+	case DeepSeekCheckDeviceTargetPath:
+		// App 2.7.1 CheckDeviceRequest 字段序：device_model → device_id。
+		order = []string{"device_model", "device_id"}
 	default:
 		return marshalAppValue(payload)
 	}
