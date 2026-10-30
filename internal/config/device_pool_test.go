@@ -209,7 +209,7 @@ func TestErrDeviceIDPoolEmptyMessage(t *testing.T) {
 	if !errors.Is(ErrDeviceIDPoolEmpty, ErrDeviceIDPoolEmpty) {
 		t.Fatal("sentinel error must be comparable")
 	}
-	if ErrDeviceIDPoolEmpty.Error() != "请先配置device_id" {
+	if !strings.Contains(ErrDeviceIDPoolEmpty.Error(), "manual") || !strings.Contains(ErrDeviceIDPoolEmpty.Error(), "auto") || !strings.Contains(ErrDeviceIDPoolEmpty.Error(), "设置中心") {
 		t.Fatalf("unexpected message: %q", ErrDeviceIDPoolEmpty.Error())
 	}
 }

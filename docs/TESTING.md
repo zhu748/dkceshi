@@ -2,6 +2,9 @@
 
 语言 / Language: 中文 + English（同页）
 
+Node 测试包含实际 React 组件渲染回归，需要先执行 `npm ci --prefix webui` 安装 Vite/React 依赖。
+设备 SDK 子进程集成测试需要 Node.js 22+；未安装兼容版本时该项会跳过，其余 Go 测试正常执行。
+
 文档导航： [总览](../README.MD) / [架构说明](./ARCHITECTURE.md) / [部署指南](./DEPLOY.md) / [接口文档](../API.md)
 
 ## 概述 | Overview

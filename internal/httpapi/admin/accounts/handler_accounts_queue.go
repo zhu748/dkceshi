@@ -8,8 +8,10 @@ import "net/http"
 func (h *Handler) queueStatus(w http.ResponseWriter, _ *http.Request) {
 	status := h.Pool.Status()
 	status["device_profile_kind"] = "android"
-	status["real_device_id_refresh_supported"] = false
-	status["device_id_mode"] = h.Store.RuntimeDeviceIDMode()
+	mode := h.Store.RuntimeDeviceIDMode()
+	_, hasRefresher := h.realDeviceRefresher()
+	status["real_device_id_refresh_supported"] = mode == "auto" && hasRefresher
+	status["device_id_mode"] = mode
 	status["device_id_remaining"] = h.Store.DeviceIDPoolSize()
 	writeJSON(w, http.StatusOK, status)
 }

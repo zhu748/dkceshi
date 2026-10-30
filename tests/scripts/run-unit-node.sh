@@ -8,14 +8,14 @@ cd "$ROOT_DIR"
 
 # Keep Node's file-level test scheduling serial to avoid intermittent cross-file
 # interference when multiple suites import mutable module singletons.
-node --test tests/node/app-transport.test.js tests/node/gif-har-headers.test.js tests/node/devid-runtime-check.test.cjs tests/node/devid-android.test.cjs
+node --test tests/node/app-transport.test.js tests/node/gif-har-headers.test.js tests/node/devid-runtime-check.test.cjs tests/node/devid-android.test.cjs tests/node/devid-cli.test.cjs
 NODE_TEST_LOG="$(mktemp)"
 cleanup() {
   rm -f "$NODE_TEST_LOG"
 }
 trap cleanup EXIT
 
-if ! node --test --test-concurrency=1 tests/node/stream-tool-sieve.test.js tests/node/chat-stream.test.js tests/node/chat-history-utils.test.js tests/node/deepseek-wire.test.js tests/node/js_compat_test.js webui/src/features/account/credentialFlags.test.mjs webui/src/theme.test.mjs webui/src/features/settings/useSettingsForm.test.mjs webui/src/features/settings/settingCards.test.mjs webui/src/features/account/bridgeNodeOptions.test.mjs webui/src/features/account/formatMuteUntil.test.mjs webui/src/features/usage/chartRegistration.test.mjs webui/src/features/usage/usageCsv.test.mjs webui/src/features/mihomo/mihomoBridge.test.mjs "$@" 2>&1 | tee "$NODE_TEST_LOG"; then
+if ! node --test --test-concurrency=1 tests/node/stream-tool-sieve.test.js tests/node/chat-stream.test.js tests/node/chat-history-utils.test.js tests/node/deepseek-wire.test.js tests/node/js_compat_test.js webui/src/features/account/credentialFlags.test.mjs webui/src/theme.test.mjs webui/src/features/settings/useSettingsForm.test.mjs webui/src/features/settings/settingCards.test.mjs webui/src/features/settings/deviceModeRendering.test.mjs webui/src/features/account/bridgeNodeOptions.test.mjs webui/src/features/account/formatMuteUntil.test.mjs webui/src/features/usage/chartRegistration.test.mjs webui/src/features/usage/usageCsv.test.mjs webui/src/features/mihomo/mihomoBridge.test.mjs "$@" 2>&1 | tee "$NODE_TEST_LOG"; then
   echo
   echo "[run-unit-node] Node tests failed. 失败摘要如下："
   if command -v rg >/dev/null 2>&1; then

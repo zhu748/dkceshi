@@ -137,17 +137,17 @@ func init() {
 					func(c *Config, v int) { c.Runtime.TokenRefreshIntervalHours = v }),
 				// 旧名 real 在写入侧一并迁移：仍发旧名的客户端与携带旧配置的
 				// 合并导入都按 auto 生效，而不是被枚举校验拒绝。
-				withRenamedValues(SectionEnum("runtime.device_id_mode", "settings.deviceIdMode",
+				withHelp(withRenamedValues(SectionEnum("runtime.device_id_mode", "settings.deviceIdMode",
 					[]SectionOption{
-						{Value: DeviceIDTypeManual, LabelKey: "settings.deviceIdModeManual"},
-						{Value: DeviceIDTypeAuto, LabelKey: "settings.deviceIdModeAuto"},
+						{Value: DeviceIDTypeManual, LabelKey: "settings.deviceIdModeManual", DescriptionKey: "settings.deviceIdModeManualDesc"},
+						{Value: DeviceIDTypeAuto, LabelKey: "settings.deviceIdModeAuto", DescriptionKey: "settings.deviceIdModeAutoDesc"},
 					},
 					func(s *Store) string { return s.RuntimeDeviceIDMode() },
 					func(c *Config, v string) error {
 						c.Runtime.DeviceIDMode = NormalizeDeviceIDMode(v)
 						return nil
 					}),
-					map[string]string{deviceIDTypeLegacyReal: DeviceIDTypeAuto}),
+					map[string]string{deviceIDTypeLegacyReal: DeviceIDTypeAuto}), "settings.deviceIdModeHelp"),
 				SectionGroup("runtime.mute_report", "",
 					withHelp(SectionBool("runtime.mute_report.enabled", "settings.muteReportEnabled",
 						func(s *Store) bool { return s.RuntimeMuteReportEnabled() },

@@ -109,17 +109,33 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 	}
 
 	cmd := exec.CommandContext(runCtx, node, args...)
-	cmd.Env = append(os.Environ(), opts.ExtraEnv...)
+	cmd.Env = append(os.Environ(), "DS2API_DEVID_DIR="+config.DevidDir())
+	cmd.Env = append(cmd.Env, opts.ExtraEnv...)
 	// stdout 只承载结果 JSON；stderr 的过程日志转发到服务日志。
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
+	var result struct {
+		OK       bool   `json:"ok"`
+		DeviceID string `json:"device_id"`
+		Error    string `json:"error"`
+	}
+	line := strings.TrimSpace(lastJSONLine(stdout.String()))
+	parseErr := json.Unmarshal([]byte(line), &result)
 	if err != nil {
 		detail := strings.TrimSpace(stderr.String())
 		if runCtx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("devid: 指纹生成超时（%s）", timeout)
+			return "", fmt.Errorf("devid: 指纹生成超时（%s）: %w", timeout, runCtx.Err())
+		}
+		if runCtx.Err() != nil {
+			return "", fmt.Errorf("devid: 指纹生成已取消: %w", runCtx.Err())
+		}
+		if parseErr == nil && strings.TrimSpace(result.Error) != "" {
+			// The SDK runner emits failure JSON on stdout before exiting 1.
+			// Prefer its reason over unrelated diagnostic lines on stderr.
+			detail = strings.TrimSpace(result.Error)
 		}
 		if detail != "" {
 			lines := strings.Split(detail, "\n")
@@ -128,20 +144,17 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 			}
 			detail = strings.Join(lines, " | ")
 		}
-		return "", fmt.Errorf("devid: 生成脚本执行失败: %v %s", err, detail)
+		if detail == "" {
+			detail = "脚本未返回错误详情；请在程序目录运行 node scripts/devid-generate.cjs --selftest 检查资源与运行环境"
+		}
+		return "", fmt.Errorf("devid: 生成脚本执行失败: %w；%s", err, detail)
 	}
 
-	var result struct {
-		OK       bool   `json:"ok"`
-		DeviceID string `json:"device_id"`
-		Error    string `json:"error"`
-	}
-	line := strings.TrimSpace(lastJSONLine(stdout.String()))
 	if line == "" {
 		return "", fmt.Errorf("devid: 生成脚本无输出")
 	}
-	if err := json.Unmarshal([]byte(line), &result); err != nil {
-		return "", fmt.Errorf("devid: 生成脚本输出解析失败: %v", err)
+	if parseErr != nil {
+		return "", fmt.Errorf("devid: 生成脚本输出解析失败: %w", parseErr)
 	}
 	if !result.OK || strings.TrimSpace(result.DeviceID) == "" {
 		msg := strings.TrimSpace(result.Error)

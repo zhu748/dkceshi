@@ -116,10 +116,11 @@ export default function AccountsTable({
     deviceIdMode = 'manual',
     deviceIdRemaining,
     onOpenDeviceIds,
+    onOpenAndroidDevices,
 }) {
     const [copiedId, setCopiedId] = useState(null)
     // auto 模式不使用手工号池，剩余计数没有意义（入口按钮保留：内容随模式切换）。
-    const showDeviceIdPoolBadge = deviceIdMode !== 'auto' && deviceIdMode !== 'android'
+    const showDeviceIdPoolBadge = deviceIdMode !== 'auto'
     const deviceIdRemainingKnown = deviceIdRemaining !== undefined && deviceIdRemaining !== null
     const deviceIdRemainingLow = deviceIdRemainingKnown && Number(deviceIdRemaining) < 3
     const hasAnyAccounts = (accountCounts?.total ?? totalAccounts) > 0
@@ -166,6 +167,14 @@ export default function AccountsTable({
                     >
                         {t('accountManager.manageDeviceId')}
                     </button>
+                    {onOpenAndroidDevices && (
+                        <button
+                            onClick={onOpenAndroidDevices}
+                            className="flex items-center px-3 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors text-xs font-medium border border-border"
+                        >
+                            {t('accountManager.manageAndroidProfile')}
+                        </button>
+                    )}
                     <button
                         onClick={onShowAddAccount}
                         className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium text-sm shadow-sm"

@@ -92,7 +92,9 @@ jobs:
           cache-dependency-path: webui/package-lock.json
 
       - name: Unit Gates (Go + Node)
-        run: ./tests/scripts/run-unit-all.sh
+        run: |
+          npm ci --prefix webui --prefer-offline --no-audit
+          ./tests/scripts/run-unit-all.sh
 
   webui-build:
     name: WebUI Build

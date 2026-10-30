@@ -13,7 +13,7 @@ const deviceIDBodyLen = 88
 
 // ErrDeviceIDPoolEmpty 表示 manual 模式下号池中没有任何可用 device_id。
 // 请求与刷新 Token 都会在真正发起上游调用之前以此报错。
-var ErrDeviceIDPoolEmpty = errors.New("请先配置device_id")
+var ErrDeviceIDPoolEmpty = errors.New("当前为 manual（手工录入）模式，device_id 池为空。请在账号管理的「登录设备 ID」中添加有效值；使用本地 SDK 时，请在设置中心 → 运行时设置 → 设备 ID 来源选择 auto（SDK 自动生成）")
 
 // DeviceIDPoolItem 是一条手工录入的 device_id 及其已绑定账号数。
 // 绑定数单独持久化（而不是每次遍历全部账号统计），以降低超多账号场景下的开销。

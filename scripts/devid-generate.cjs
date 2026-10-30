@@ -37,7 +37,7 @@ const { checkRuntime } = require('./devid-runtime-check.cjs');
 const { adaptBrowserEnv, VERSION } = require('./devid-android-env.cjs');
 const { ANDROID_FONTS, VIVO_SPECS, localeSettings, buildAndroidProfile } = require('./devid-android-profile.cjs');
 
-const DEVID_DIR = path.join(__dirname, '..', 'data', 'devid');
+const DEVID_DIR = path.resolve(String(process.env.DS2API_DEVID_DIR || '').trim() || path.join(__dirname, '..', 'data', 'devid'));
 const FINISH_T0 = Date.now();
 
 /* 数美站点配置（2026-10 探针自 chat.deepseek.com 实抓，与扩展包 public_key 一致） */
@@ -219,7 +219,26 @@ module.exports = { selectAnchoredArchive, makeHostPrims };
 
 function readData(name) { return fs.readFileSync(path.join(DEVID_DIR, name), 'utf8'); }
 
+function checkRequiredAssets(options) {
+    if (Number(process.versions.node.split('.')[0]) < 22) {
+        throw new Error(`SDK 生成需要 Node.js 22+，当前版本 ${process.versions.node}`);
+    }
+    const required = ['profiles.json', 'gpus.json', 'fp-1.min.js', 'browser_env.js', 'public_key'];
+    if (options.debug) required.push('verify.js');
+    const missing = required.filter(name => {
+        try {
+            const file = path.join(DEVID_DIR, name);
+            fs.accessSync(file, fs.constants.R_OK);
+            return !fs.statSync(file).isFile();
+        } catch { return true; }
+    });
+    if (missing.length) {
+        throw new Error(`SDK 资源不完整或不可读：${missing.join(', ')}。请将资源直接放入 ${DEVID_DIR}`);
+    }
+}
+
 async function mainVm(o) {
+    checkRequiredAssets(o);
     const deadline = Date.now() + o.timeout * 1000;
 
     /* --- 档案与画像 --- */
@@ -314,8 +333,8 @@ async function mainVm(o) {
             if (!r.ok) bad++;
         }
         log('selftest: ' + (results.length - bad) + '/' + results.length + ' 通过');
-        process.stdout.write(JSON.stringify({ ok: bad === 0, selftest: true, pass: results.length - bad, total: results.length }) + '\n');
-        process.exit(bad === 0 ? 0 : 1);
+        process.stdout.write(JSON.stringify({ ok: bad === 0, selftest: true, pass: results.length - bad, total: results.length }) + '\n', () => process.exit(bad === 0 ? 0 : 1));
+        return;
     }
     const incompatible = runtimeChecks.filter((r) => !r.ok);
     if (incompatible.length) {
@@ -451,8 +470,7 @@ function finish(ok, err, deviceId, extra) {
     const out = ok
         ? { ok: true, device_id: deviceId, elapsed_ms: Date.now() - FINISH_T0, ...(extra || {}) }
         : { ok: false, error: err, elapsed_ms: Date.now() - FINISH_T0 };
-    process.stdout.write(JSON.stringify(out) + '\n');
-    process.exit(ok ? 0 : 1);
+    process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(ok ? 0 : 1));
 }
 
 /* ============================================================

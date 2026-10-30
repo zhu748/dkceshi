@@ -81,6 +81,12 @@ Each archive includes:
 - `config.example.json`, `.env.example`
 - `README.MD`, `README.en.md`, `LICENSE`
 
+Windows packages also include `start.bat`, `check-device-sdk.bat`, Chinese setup instructions, and device ID generator scripts.
+Supply the SDK assets separately under `data/devid/` beside the executable and install Node.js 22+.
+Select auto under Settings → Runtime → Device ID source and save before refreshing tokens to invoke the SDK.
+The default manual mode uses the supplied ID pool; copying SDK assets does not change this setting.
+Preserve `config.json`, `.env`, and the entire `data` directory when upgrading.
+
 ### Usage
 
 ```bash

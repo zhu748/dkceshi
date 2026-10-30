@@ -20,7 +20,7 @@ import ManualTokenModal from './ManualTokenModal'
 export default function AccountManagerContainer({ config, onRefresh, onMessage, authFetch }) {
     const { t } = useI18n()
     const apiFetch = authFetch || fetch
- const [showAndroidDevices,setShowAndroidDevices] = useState(false)
+    const [showAndroidDevices, setShowAndroidDevices] = useState(false)
 
     const {
         queueStatus,
@@ -156,9 +156,9 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
     } = useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccounts })
 
     const nativeAndroid = queueStatus?.device_profile_kind === 'android'
- const deviceIdMode = nativeAndroid ? 'android' : (queueStatus?.device_id_mode || config?.runtime?.device_id_mode || 'manual')
+    const deviceIdMode = queueStatus?.device_id_mode || config?.runtime?.device_id_mode || 'manual'
     // auto 模式不使用手工号池，同一个按钮打开的是真实设备 id 清单（内容由模式决定）。
-    const openDeviceIdManager = nativeAndroid ? () => setShowAndroidDevices(true) : (deviceIdMode === 'auto' ? openRealDeviceIds : openDeviceIds)
+    const openDeviceIdManager = deviceIdMode === 'auto' ? openRealDeviceIds : openDeviceIds
     // 队列状态是轮询获取的，未拿到前传 undefined，避免误报"数量不足"。
     const deviceIdRemaining = queueStatus?.device_id_remaining
 
@@ -246,6 +246,7 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
                 deviceIdMode={deviceIdMode}
                 deviceIdRemaining={deviceIdRemaining}
                 onOpenDeviceIds={openDeviceIdManager}
+                onOpenAndroidDevices={nativeAndroid ? () => setShowAndroidDevices(true) : undefined}
             />
 
             <AddKeyModal

@@ -81,6 +81,12 @@ cp config.example.json config.json
 - `config.example.json`、`.env.example`
 - `README.MD`、`README.en.md`、`LICENSE`
 
+Windows 包另含 `start.bat`、`check-device-sdk.bat`、中文使用说明和设备 ID 生成脚本。
+SDK 原始资源需另放入程序目录的 `data/devid/`，并安装 Node.js 22+。
+在「设置中心 → 运行时设置 → 设备 ID 来源」选择 auto 并保存后，刷新 Token 才会调用 SDK；
+默认 manual 使用手工设备 ID 池，放置资源不会自动改变该设置。
+升级时保留已有 `config.json`、`.env` 和整个 `data` 目录。
+
 ### 使用步骤
 
 ```bash

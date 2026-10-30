@@ -60,8 +60,7 @@ function CardShell({ title, description, children }) {
 
 function SectionCard({ t, spec, form, setForm }) {
     const key = String(spec?.key || '')
-    // Android profiles are automatic; the optional browser SDK mode is unavailable here.
- const fields = (Array.isArray(spec?.fields) ? spec.fields : []).filter(field => !(key === 'runtime' && field.name === 'device_id_mode'))
+    const fields = Array.isArray(spec?.fields) ? spec.fields : []
     const titleKey = String(spec?.title_key || '')
     const descriptionKey = String(spec?.description_key || '')
     const section = form?.[key] || {}

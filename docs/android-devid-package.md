@@ -13,10 +13,19 @@
 - `examples/devid-android-anchor.json`：独立运行示例，不是默认机型设置。
 
 项目 auto 模式会根据账号型号、Android 主版本、语言及时区创建锚定配置并调用生成器。
+默认设备 ID 来源为 manual；仅复制资源不会切换模式。使用本地 SDK 时，请在
+「设置中心 → 运行时设置 → 设备 ID 来源」选择「auto · SDK 自动生成」并保存，再刷新 Token。
+账号管理的「登录设备 ID」入口随 manual/auto 模式打开手工池或 SDK ID 清单；
+「Android 设备资料」用于型号和安装身份，不能替代登录设备 ID 来源设置。
 本包不包含账号、密码、token、已生成的 ID 或设备存档。Go 编译不会打包 Node 和这些文件，
 运行时需要同时提供；当前仓库的 Docker 镜像还需另安装 Node、复制 scripts 和 data/devid。
 如果配置了 `DS2API_DEVID_SCRIPT` 或另有 `data/devid/generate.cjs`，它们会覆盖仓库内置生成器，
 需将覆盖项指向本包的 `scripts/devid-generate.cjs`。
+
+`DS2API_DEVID_DIR` 同时控制 Go 与 Node 查找资源的目录，相对路径按启动工作目录解析。
+正常 VM 生成会先检查 profiles.json、gpus.json、fp-1.min.js、browser_env.js 和 public_key；
+缺失或不可读时列出文件名与实际目录。脚本非零退出时，后台保留 stdout JSON 中的 error，
+不再只显示 exit status 1。Windows 包另附 `check-device-sdk.bat` 进行不联网的本地自检。
 
 在项目根目录执行本地自检（不联网）：
 

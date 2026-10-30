@@ -33,6 +33,15 @@ build_one() {
   cp -R static/admin "${stage}/static/admin"
 
   if [[ "$goos" == "windows" ]]; then
+    mkdir -p "${stage}/scripts"
+    for script in devid-generate.cjs devid-runtime-check.cjs devid-android-env.cjs devid-android-profile.cjs; do
+      cp "scripts/${script}" "${stage}/scripts/"
+    done
+    for script in start.bat check-device-sdk.bat; do
+      awk '{ sub(/\r$/, ""); printf "%s\r\n", $0 }' "scripts/windows/${script}" > "${stage}/${script}"
+    done
+    cp scripts/windows/WINDOWS-README.txt "${stage}/"
+    cp docs/android-devid-package.md "${stage}/ANDROID-DEVID-README.md"
     (cd dist && zip -rq "${pkg}.zip" "${pkg}")
   else
     tar -C dist -czf "dist/${pkg}.tar.gz" "${pkg}"
