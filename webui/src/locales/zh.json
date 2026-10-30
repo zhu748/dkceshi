@@ -545,7 +545,7 @@
     "responsesTTL": "Responses 缓存 TTL（秒）",
     "embeddingsProvider": "Embeddings Provider",
     "thinkingInjectionEnabled": "思考格式注入",
-    "thinkingInjectionDesc": "默认关闭。开启后在组装 prompt 前，将结构化思考检查清单追加到最新用户消息末尾。",
+    "thinkingInjectionDesc": "默认关闭。开启且本轮启用思考时，将思考提示词放在整个对话最开头，紧跟 <｜System｜> 标签，位于其他系统指令和用户消息之前。",
     "thinkingInjectionPrompt": "思考格式提示词",
     "thinkingInjectionPromptHelp": "留空时使用内置默认提示词；默认内容会显示在输入框占位文本中。",
     "currentInputFileTitle": "独立拆分",

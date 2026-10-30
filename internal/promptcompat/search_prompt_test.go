@@ -78,6 +78,9 @@ func TestSearchPromptSurvivesThinkingRebuildAndPreservesClientTools(t *testing.T
 	if strings.Count(out.FinalPrompt, "Built-in web search protocol") != 1 || !strings.Contains(out.FinalPrompt, ThinkingInjectionMarker) {
 		t.Fatal("thinking rebuild lost or duplicated search instructions")
 	}
+	if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+DefaultThinkingInjectionPrompt+"\n\n[System]:Built-in web search protocol") {
+		t.Fatal("search instructions displaced the leading thinking instruction")
+	}
 	if !reflect.DeepEqual(out.ToolNames, []string{"read_file"}) || !strings.Contains(out.FinalPrompt, "<|Q7ZK3M|tool_calls>") || strings.Contains(out.FinalPrompt, "EPSE") {
 		t.Fatal("client tool names or caller-specific marker changed")
 	}

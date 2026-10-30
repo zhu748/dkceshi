@@ -178,6 +178,10 @@ go test -v -run 'TestParseToolCalls|TestProcessToolSieve' ./internal/toolcall ./
 缺少工具名的原始调用也不能由修复模型自行猜一个工具名。最终输出必须解析完所有有名调用，残余坏调用使修复整体失败。
 JSON 兼容参数包只接受对象 input/parameters；空 input 的优先级在 Go 和 Node 中一致，不再被 parameters 替换。
 未闭合或未命名的 parameter 会使所属 invoke 失败，避免 schema 中的可选参数被静默漏掉。
+参数开标签若仅剩 `<|EPSE|description">` / `<|EPSE|old_string">`（带前缀、ASCII 字段名、
+单个尾引号），Go 与 Node 在扫描阶段恢复完整的 `parameter name="..."` 外壳，仍要求匹配
+的 parameter 闭标签。参数原文、类型与字段名大小写不变，缺失值不猜测；正式 schema 校验
+及 LLM 来源一致性校验仍适用。该规则也覆盖自定义标识归一化后的输出。
 孤立的 DSML 结束标签与 EPSE 结束标签均只删除自身，流式处理继续扫描其后的正文和调用。
 
 

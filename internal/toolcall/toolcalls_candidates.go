@@ -74,6 +74,9 @@ func canonicalizeRecognizedToolMarkupTag(raw string, tag ToolMarkupTag) string {
 	}
 
 	attrs := parseCanonicalToolMarkupAttrs(raw, afterName)
+	if tag.ParameterName != "" {
+		attrs = []canonicalToolMarkupAttr{{Key: "name", Value: tag.ParameterName}}
+	}
 
 	var b strings.Builder
 	b.Grow(len(raw) + 8)

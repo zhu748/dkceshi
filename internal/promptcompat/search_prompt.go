@@ -57,13 +57,14 @@ User request: Find Beijing's most popular dish, then research its origin and how
 // ApplySearchPrompt runs after request normalization/thinking injection and
 // before history splitting. Search is the resolved model capability, so aliases
 // and -search-nothinking models follow the same rule on every protocol surface.
-// Inject into rendered text only: adding this catalog to Messages would make
-// the system-text client-tool heuristic mistake upstream tools for client tools.
+// Generated instructions stay outside Messages so they cannot be mistaken for
+// client tools. Reapply the thinking prefix last to keep it ahead of search and
+// file-continuation instructions, including on non-search requests.
 func ApplySearchPrompt(req StandardRequest) StandardRequest {
-	if !req.Search || strings.TrimSpace(req.FinalPrompt) == "" {
+	if !req.Search && req.ThinkingInjectionPrompt == "" || strings.TrimSpace(req.FinalPrompt) == "" {
 		return req
 	}
-	finalPrompt := prependBuiltinSearchPrompt(req.FinalPrompt, req.ToolMarker)
+	finalPrompt := req.withPromptInstructions(req.FinalPrompt)
 	if req.PromptTokenText == "" {
 		req.PromptTokenText = req.FinalPrompt
 	}
@@ -71,7 +72,7 @@ func ApplySearchPrompt(req StandardRequest) StandardRequest {
 	// File continuations already count their live prompt after the uploaded
 	// context. Preserve that layout and avoid counting this instruction twice.
 	if !strings.Contains(req.PromptTokenText, finalPrompt) {
-		req.PromptTokenText = prependBuiltinSearchPrompt(req.PromptTokenText, req.ToolMarker)
+		req.PromptTokenText = req.withPromptInstructions(req.PromptTokenText)
 	}
 	return req
 }

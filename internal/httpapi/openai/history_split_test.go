@@ -183,7 +183,7 @@ func TestApplyCurrentInputFileTriggersOnWholeFinalPromptLength(t *testing.T) {
 	}
 }
 
-func TestApplyThinkingInjectionAppendsLatestUserPrompt(t *testing.T) {
+func TestApplyThinkingInjectionPrependsSystemPrompt(t *testing.T) {
 	ds := &inlineUploadDSStub{}
 	h := &openAITestSurface{
 		Store: mockOpenAIConfig{
@@ -209,8 +209,8 @@ func TestApplyThinkingInjectionAppendsLatestUserPrompt(t *testing.T) {
 	if len(ds.uploadCalls) != 0 {
 		t.Fatalf("expected no upload for first short turn, got %d", len(ds.uploadCalls))
 	}
-	if !strings.Contains(out.FinalPrompt, "hello\n\n"+promptcompat.ThinkingInjectionMarker) {
-		t.Fatalf("expected thinking injection after latest user message, got %s", out.FinalPrompt)
+	if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.ThinkingInjectionMarker) || !strings.Contains(out.FinalPrompt, "[User]:hello\n") {
+		t.Fatalf("expected leading system injection and unchanged user message, got %s", out.FinalPrompt)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestApplyThinkingInjectionUsesCustomPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply thinking injection failed: %v", err)
 	}
-	if !strings.Contains(out.FinalPrompt, "hello\n\ncustom thinking format") {
-		t.Fatalf("expected custom thinking injection after latest user message, got %s", out.FinalPrompt)
+	if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>custom thinking format\n\n") || !strings.Contains(out.FinalPrompt, "[User]:hello\n") {
+		t.Fatalf("expected custom thinking injection at the beginning, got %s", out.FinalPrompt)
 	}
 }
 
@@ -321,8 +321,8 @@ func TestApplyCurrentInputFileUploadsFirstTurnWithNumberedHistoryTranscript(t *t
 			t.Fatalf("expected uploaded transcript to contain %q, got %q", want, uploadedText)
 		}
 	}
-	if !strings.Contains(uploadedText, promptcompat.ThinkingInjectionMarker) {
-		t.Fatalf("expected thinking injection in current input file, got %q", uploadedText)
+	if strings.Contains(uploadedText, promptcompat.ThinkingInjectionMarker) || !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.ThinkingInjectionMarker) {
+		t.Fatalf("thinking instruction must stay at the start of the live prompt, got %q", out.FinalPrompt)
 	}
 
 	if strings.Contains(out.FinalPrompt, "first turn content that is long enough") {
@@ -432,8 +432,8 @@ func TestApplyCurrentInputFileUploadsFullContextFile(t *testing.T) {
 		t.Fatalf("expected default model type for merged request, got %q", upload.ModelType)
 	}
 	uploadedText := string(upload.Data)
-	// The trailing user turn (and the thinking injection appended to it) stays
-	// inline in the live prompt, so HISTORY.txt ends at the tool result.
+	// The trailing user turn stays inline; the thinking instruction leads the
+	// live prompt as a system instruction, so HISTORY.txt ends at the tool result.
 	for _, want := range []string{"# HISTORY.txt", "=== 1. SYSTEM ===", "=== 2. USER ===", "=== 3. ASSISTANT ===", "=== 4. TOOL ===", "system instructions", "first user turn", "hidden reasoning", "tool result"} {
 		if !strings.Contains(uploadedText, want) {
 			t.Fatalf("expected full context file to contain %q, got %q", want, uploadedText)
@@ -451,8 +451,8 @@ func TestApplyCurrentInputFileUploadsFullContextFile(t *testing.T) {
 	if !strings.Contains(out.FinalPrompt, "[User]:latest user turn") {
 		t.Fatalf("expected continuation system turn followed by the inline latest user turn, got %s", out.FinalPrompt)
 	}
-	if !strings.Contains(out.FinalPrompt, promptcompat.ThinkingInjectionMarker) {
-		t.Fatalf("expected thinking injection to follow the inline latest user turn, got %s", out.FinalPrompt)
+	if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.ThinkingInjectionMarker) {
+		t.Fatalf("expected thinking injection before continuation and user messages, got %s", out.FinalPrompt)
 	}
 	if strings.Contains(out.FinalPrompt, "[User]:继续会话") {
 		t.Fatalf("continuation prompt must not render as a user turn, got %s", out.FinalPrompt)

@@ -10,13 +10,14 @@ type StandardRequest struct {
 	// Messages 是本次请求渲染 FinalPrompt 所依据的标准消息列表。每个出口在标准化
 	// 之后都必须把「prompt 真正由之渲染的那一份」放在这里，而不是协议原样、也不是
 	// 少了某个协议专属字段的中间形态：凡是改写 Messages 后重建 prompt 的共享步骤
-	// （思考注入、current input file 续写）都按这份列表重放整份输入，出口如果存的
+	// （思考注入重建、current input file 续写）都按这份列表重放整份输入，出口如果存的
 	// 是另一份列表，重建出来的 prompt 就会静默丢掉差额——Anthropic 的顶层 `system`
 	// 曾经就是这样丢掉的。
 	//
 	// 它同时是历史归档与 HISTORY.txt 转录的输入（internal/responsehistory、
 	// internal/promptcompat/history_transcript.go），因此这条不变量也决定
-	// 「本地记录 / 上传上下文」与「实际发给上游的 prompt」是否一致。
+	// 「本地记录 / 上传上下文」与「实际发给上游的 prompt」是否一致。服务端生成的
+	// 工具规则、搜索说明及 ThinkingInjectionPrompt 另行组装，不写入客户端消息正文。
 	Messages                []any
 	HistoryText             string
 	PromptTokenText         string
@@ -47,6 +48,9 @@ type StandardRequest struct {
 	SystemTextToolsDisabled bool
 	Stream                  bool
 	Thinking                bool
+	// ThinkingInjectionPrompt is a generated leading system instruction, kept
+	// separate from client messages so user text and uploaded history stay intact.
+	ThinkingInjectionPrompt string
 	Search                  bool
 	RefFileIDs              []string
 	RefFileTokens           int
@@ -74,9 +78,7 @@ func (r StandardRequest) BuildPromptFromMessages(messages []any) (string, []stri
 	} else {
 		finalPrompt, toolNames = BuildOpenAIPrompt(messages, r.ToolsRaw, "", r.ToolChoice, r.Thinking, r.ToolReminderConfig(), r.ToolMarker)
 	}
-	if r.Search {
-		finalPrompt = prependBuiltinSearchPrompt(finalPrompt, r.ToolMarker)
-	}
+	finalPrompt = r.withPromptInstructions(finalPrompt)
 	return finalPrompt, toolNames
 }
 

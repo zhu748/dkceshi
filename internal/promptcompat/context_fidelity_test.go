@@ -196,14 +196,16 @@ func TestThinkingInjectionUsesRequestedTextAndMigratesOldDefault(t *testing.T) {
 		t.Fatal("requested injection differs")
 	}
 	for _, setting := range []string{"", legacyThinkingInjectionPrompt} {
-		messages, _ := AppendThinkingInjectionPromptToLatestUser([]any{map[string]any{"role": "user", "content": "Q"}}, setting)
-		if messages[0].(map[string]any)["content"] != "Q\n\n"+want {
+		out := ApplyThinkingInjection(thinkingInjectionStoreStub{enabled: true, prompt: setting}, thinkingInjectionRequest())
+		if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+want+"\n\n") {
 			t.Fatal("default injection not applied/migrated")
 		}
 	}
 	const original = "  indented code\n "
-	messages, _ := AppendThinkingInjectionPromptToLatestUser([]any{map[string]any{"role": "user", "content": original}}, "")
-	if messages[0].(map[string]any)["content"] != original+"\n\n"+want {
+	req := thinkingInjectionRequest()
+	req.Messages = []any{map[string]any{"role": "user", "content": original}}
+	out := ApplyThinkingInjection(thinkingInjectionStoreStub{enabled: true}, req)
+	if out.Messages[0].(map[string]any)["content"] != original {
 		t.Fatal("thinking injection changed original whitespace")
 	}
 }

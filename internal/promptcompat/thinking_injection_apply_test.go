@@ -29,8 +29,7 @@ func thinkingInjectionRequest() StandardRequest {
 }
 
 // TestApplyThinkingInjectionRewritesMessagesAndPrompt 验证设置开启且本次请求启用
-// 思考时，注入落在最后一条 user 消息上，prompt 由改写后的消息重建（因此仍然带着
-// 工具提示词），并且返回的 ToolNames 不丢。
+// 思考时，注入先于全部消息和工具说明，客户端消息保持原文，ToolNames 不丢。
 func TestApplyThinkingInjectionRewritesMessagesAndPrompt(t *testing.T) {
 	out := ApplyThinkingInjection(thinkingInjectionStoreStub{enabled: true}, thinkingInjectionRequest())
 
@@ -38,17 +37,20 @@ func TestApplyThinkingInjectionRewritesMessagesAndPrompt(t *testing.T) {
 		t.Fatalf("expected the message list to stay one turn, got %#v", out.Messages)
 	}
 	content, _ := out.Messages[0].(map[string]any)["content"].(string)
-	if !strings.Contains(content, ThinkingInjectionMarker) {
-		t.Fatalf("expected the latest user turn to carry the injection, got %q", content)
+	if content != "hello" {
+		t.Fatalf("thinking injection rewrote the user message: %q", content)
 	}
-	if !strings.Contains(out.FinalPrompt, ThinkingInjectionMarker) {
-		t.Fatalf("expected the rebuilt prompt to carry the injection, got %q", out.FinalPrompt)
+	if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+ThinkingInjectionMarker) {
+		t.Fatalf("expected the injection to be the first system component, got %q", out.FinalPrompt)
 	}
 	if !strings.Contains(out.FinalPrompt, "You have access to these tools:") {
 		t.Fatalf("expected the rebuild to keep the tool prompt, got %q", out.FinalPrompt)
 	}
 	if len(out.ToolNames) == 0 {
 		t.Fatalf("expected tool names to survive the rebuild, got %#v", out.ToolNames)
+	}
+	if got := out.CompletionPayload("session")["prompt"]; got != out.FinalPrompt {
+		t.Fatal("upstream payload differs from the prompt with the leading injection")
 	}
 }
 
@@ -117,6 +119,30 @@ func TestApplyThinkingInjectionSkipsDuplicate(t *testing.T) {
 
 	if strings.Count(twice.FinalPrompt, ThinkingInjectionMarker) != 1 {
 		t.Fatalf("expected exactly one injection after applying twice, got %q", twice.FinalPrompt)
+	}
+}
+
+func TestThinkingInjectionLeadsOpenAINormalizedRequests(t *testing.T) {
+	for _, responses := range []bool{false, true} {
+		req := map[string]any{
+			"model":    "deepseek-v4.1-flash-search",
+			"messages": []any{map[string]any{"role": "system", "content": "SYSTEM-RULE"}, map[string]any{"role": "user", "content": "hello"}},
+			"input":    "hello", "instructions": "SYSTEM-RULE",
+		}
+		var std StandardRequest
+		var err error
+		if responses {
+			std, err = NormalizeOpenAIResponsesRequest(nil, req, "", markerUnderTest)
+		} else {
+			std, err = NormalizeOpenAIChatRequest(nil, req, "", markerUnderTest)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := ApplySearchPrompt(ApplyThinkingInjection(thinkingInjectionStoreStub{enabled: true}, std))
+		if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+DefaultThinkingInjectionPrompt+"\n\n[System]:Built-in web search protocol") || !strings.Contains(out.FinalPrompt, "SYSTEM-RULE") || !strings.Contains(out.FinalPrompt, "[User]:hello") {
+			t.Fatalf("responses=%v: normalized request lost leading injection or client messages: %q", responses, out.FinalPrompt)
+		}
 	}
 }
 

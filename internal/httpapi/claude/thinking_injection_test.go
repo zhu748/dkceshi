@@ -12,11 +12,11 @@ import (
 
 // 「思考注入」是全局设置，但此前只接在 OpenAI 两个出口上：打开它，Claude 与
 // Gemini 的 prompt 完全没有变化。这两条测试锁定 Claude 出口已经接上，注入落在
-// 最后一条 user 消息上，并且发生在 current-input-file 之前（与 OpenAI 同位置）。
+// 最前系统位置，并且发生在 current-input-file 之前（与 OpenAI 同位置）。
 //
 // 消息列表里刻意放了一条 system 轮：重建是按 StandardRequest.Messages 重放整份
 // 输入的，任何一轮（包括 system）都不允许在重建时消失。
-func TestClaudeAppliesThinkingInjectionToLatestUserTurn(t *testing.T) {
+func TestClaudeAppliesThinkingInjectionToLeadingSystem(t *testing.T) {
 	h := &Handler{
 		Store: claudeHistoryConfig{thinkingInjection: true},
 		DS:    &claudeCurrentInputDS{},
@@ -42,8 +42,8 @@ func TestClaudeAppliesThinkingInjectionToLatestUserTurn(t *testing.T) {
 		t.Fatalf("the rebuild must keep every turn of Messages, got %q", out.FinalPrompt)
 	}
 	content, _ := out.Messages[1].(map[string]any)["content"].(string)
-	if !strings.Contains(content, promptcompat.ThinkingInjectionMarker) {
-		t.Fatalf("expected the latest user turn to carry the injection, got %#v", out.Messages)
+	if content != "hello" || !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.ThinkingInjectionMarker) {
+		t.Fatalf("expected a leading system injection and unchanged user content, got %#v", out.Messages)
 	}
 }
 

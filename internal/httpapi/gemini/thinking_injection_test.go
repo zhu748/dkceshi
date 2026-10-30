@@ -25,7 +25,7 @@ func (testGeminiThinkingConfig) ThinkingInjectionPrompt() string  { return "" }
 
 // 「思考注入」是全局设置，但此前只接在 OpenAI 两个出口上：打开它，Gemini 的
 // prompt 完全没有变化。这两条测试锁定 Gemini 出口已经接上。
-func TestGeminiAppliesThinkingInjectionToLatestUserTurn(t *testing.T) {
+func TestGeminiAppliesThinkingInjectionToLeadingSystem(t *testing.T) {
 	h := &Handler{
 		Store: testGeminiThinkingConfig{enabled: true},
 		DS:    &testGeminiDS{},
@@ -45,8 +45,8 @@ func TestGeminiAppliesThinkingInjectionToLatestUserTurn(t *testing.T) {
 		t.Fatalf("expected the thinking injection in the rebuilt prompt, got %q", out.FinalPrompt)
 	}
 	content, _ := out.Messages[0].(map[string]any)["content"].(string)
-	if !strings.Contains(content, promptcompat.ThinkingInjectionMarker) {
-		t.Fatalf("expected the latest user turn to carry the injection, got %#v", out.Messages)
+	if content != "hello" || !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.ThinkingInjectionMarker) {
+		t.Fatalf("expected a leading system injection and unchanged user content, got %#v", out.Messages)
 	}
 }
 

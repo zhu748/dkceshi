@@ -25,9 +25,8 @@ type ThinkingInjectionReader interface {
 var _ ThinkingInjectionReader = (*config.Store)(nil)
 
 // ApplyThinkingInjection applies the 「思考注入」 setting to a normalized request:
-// when the setting is on and this request asked for thinking, it appends the
-// injection prompt to the latest user turn and rebuilds the prompt from the
-// rewritten messages.
+// when enabled for a thinking request, its generated system instruction is the
+// first text sent upstream. Client messages and the configured text are preserved.
 //
 // Every protocol surface calls it once, before the current-input-file step, so
 // the setting behaves the same on OpenAI Chat / Responses, Gemini and Claude
@@ -37,20 +36,23 @@ func ApplyThinkingInjection(store any, stdReq StandardRequest) StandardRequest {
 	if !ok || !reader.ThinkingInjectionEnabled() || !stdReq.Thinking {
 		return stdReq
 	}
-	messages, changed := AppendThinkingInjectionPromptToLatestUser(stdReq.Messages, reader.ThinkingInjectionPrompt())
-	if !changed {
+	injectionPrompt := strings.TrimSpace(reader.ThinkingInjectionPrompt())
+	if injectionPrompt == "" || injectionPrompt == legacyThinkingInjectionPrompt {
+		injectionPrompt = DefaultThinkingInjectionPrompt
+	}
+	if stdReq.ThinkingInjectionPrompt == injectionPrompt && strings.HasPrefix(stdReq.FinalPrompt, thinkingSystemPrefix(injectionPrompt)) {
 		return stdReq
 	}
+	stdReq.ThinkingInjectionPrompt = injectionPrompt
 	// The rebuild replays stdReq.Messages through the same surface-aware builder
 	// the adapter used (StandardRequest.BuildPromptFromMessages), so an exit that
 	// opted out of the system-text tool branch does not get it back here — and,
 	// because Messages is the list FinalPrompt was rendered from, no turn can go
 	// missing on the way through.
-	finalPrompt, toolNames := stdReq.BuildPromptFromMessages(messages)
+	finalPrompt, toolNames := stdReq.BuildPromptFromMessages(stdReq.Messages)
 	if len(toolNames) == 0 && len(stdReq.ToolNames) > 0 {
 		toolNames = stdReq.ToolNames
 	}
-	stdReq.Messages = messages
 	// The shared builder marks generated tool syntax before merging user content.
 	stdReq.FinalPrompt = finalPrompt
 	// PromptTokenText is the text the usage reports count, and every exit sets it
@@ -62,66 +64,26 @@ func ApplyThinkingInjection(store any, stdReq StandardRequest) StandardRequest {
 	return stdReq
 }
 
-func AppendThinkingInjectionToLatestUser(messages []any) ([]any, bool) {
-	return AppendThinkingInjectionPromptToLatestUser(messages, "")
+// withPromptInstructions composes generated instructions in one order on normal
+// requests and file continuations: thinking first, search next, then the client
+// conversation. Strip only our exact leading prefix, never text inside a message.
+func (r StandardRequest) withPromptInstructions(text string) string {
+	prefix := ""
+	if r.ThinkingInjectionPrompt != "" {
+		prefix = thinkingSystemPrefix(r.ThinkingInjectionPrompt)
+		text = strings.TrimPrefix(text, prefix)
+	}
+	if r.Search {
+		text = prependBuiltinSearchPrompt(text, r.ToolMarker)
+	}
+	if text == "" {
+		return ""
+	}
+	return prefix + text
 }
 
-func AppendThinkingInjectionPromptToLatestUser(messages []any, injectionPrompt string) ([]any, bool) {
-	if len(messages) == 0 {
-		return messages, false
-	}
-	injectionPrompt = strings.TrimSpace(injectionPrompt)
-	if injectionPrompt == "" || injectionPrompt == legacyThinkingInjectionPrompt {
-		injectionPrompt = DefaultThinkingInjectionPrompt
-	}
-	for i := len(messages) - 1; i >= 0; i-- {
-		msg, ok := messages[i].(map[string]any)
-		if !ok {
-			continue
-		}
-		if strings.ToLower(strings.TrimSpace(asString(msg["role"]))) != "user" {
-			continue
-		}
-		content := msg["content"]
-		normalizedContent := NormalizeOpenAIContentForPrompt(content)
-		if strings.Contains(normalizedContent, ThinkingInjectionMarker) || strings.Contains(normalizedContent, injectionPrompt) {
-			return messages, false
-		}
-		updatedContent := appendThinkingInjectionToContent(content, injectionPrompt)
-		out := append([]any(nil), messages...)
-		cloned := make(map[string]any, len(msg))
-		for k, v := range msg {
-			cloned[k] = v
-		}
-		cloned["content"] = updatedContent
-		out[i] = cloned
-		return out, true
-	}
-	return messages, false
-}
-
-func appendThinkingInjectionToContent(content any, injectionPrompt string) any {
-	switch x := content.(type) {
-	case string:
-		return appendTextBlock(x, injectionPrompt)
-	case []any:
-		out := append([]any(nil), x...)
-		out = append(out, map[string]any{
-			"type": "text",
-			"text": injectionPrompt,
-		})
-		return out
-	default:
-		text := NormalizeOpenAIContentForPrompt(content)
-		return appendTextBlock(text, injectionPrompt)
-	}
-}
-
-func appendTextBlock(base, addition string) string {
-	if base == "" {
-		return addition
-	}
-	return base + "\n\n" + addition
+func thinkingSystemPrefix(injectionPrompt string) string {
+	return "<｜System｜>" + injectionPrompt + "\n\n"
 }
 
 const legacyThinkingInjectionPrompt = `text: You are a helpful software engineer assistant.

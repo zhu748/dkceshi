@@ -331,7 +331,7 @@ go run ./cmd/ds2api
 - `auto_delete.mode`：请求结束后的远端会话清理策略，支持 `none` / `single` / `all`。
 - `input_file`：上下文拆分上传策略，默认关闭；启用后将较早历史上传为 `HISTORY.txt`，工具目录上传为 `TOOLS.txt`，当前任务及其工具循环保留在实时 prompt。
 - 旧 `current_input_file` 配置键已忽略，需要迁移为 `input_file`。
-- `thinking_injection`：默认**关闭**；启用后在最新 user 消息末尾追加思考增强提示词，提高高强度推理与工具调用前的思考稳定性；`prompt` 留空时使用内置默认提示词。按需启用方式：(1) 全局打开 `thinking_injection.enabled=true`，或 (2) 使用带 `-thinkinginject` 后缀的模型 ID 单次触发。
+- `thinking_injection`：默认**关闭**；打开 `thinking_injection.enabled=true` 且本轮启用 thinking 时，在整个提示词最开头注入 `<｜System｜>Reasoning Effort: ...`，位于其他系统指令、工具说明和用户消息之前；`prompt` 留空使用内置默认提示词，自定义文本也放在相同位置。
 
 环境变量完整列表见 [部署指南](docs/DEPLOY.md)，接口鉴权规则见 [API.md](API.md#鉴权规则)。
 

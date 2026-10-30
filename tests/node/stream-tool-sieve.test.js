@@ -31,6 +31,32 @@ function collectText(events) {
     .join('');
 }
 
+test('field-named malformed parameter tags preserve the source values', () => {
+  const value = '\n  原文 <|EPSE|description"> & <tag>\r\n  ';
+  for (const quote of ['"', "'"]) {
+    const raw = '<|EPSE|tool_calls><|EPSE|invoke name="edit"><|EPSE|parameter name="file_path"><![CDATA[a.txt]]></|EPSE|parameter>' +
+      `<|EPSE|old_string${quote}><![CDATA[${value}]]></|EPSE|parameter>` +
+      `<|EPSE|new_string${quote}><![CDATA[]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`;
+    assert.deepEqual(parseToolCalls(raw, ['edit']), [{ name: 'edit', input: { file_path: 'a.txt', old_string: value, new_string: '' } }]);
+  }
+});
+
+test('field-named malformed parameter tags survive every stream split', () => {
+  const raw = '<|EPSE|tool_calls><|EPSE|invoke name="pwsh"><|EPSE|parameter name="command"><![CDATA[Get-Date]]></|EPSE|parameter><|EPSE|description"><![CDATA[Show date]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>';
+  for (let split = 0; split <= raw.length; split += 1) {
+    const events = runSieve([raw.slice(0, split), raw.slice(split)], ['pwsh']);
+    assert.equal(collectText(events), '', `split ${split}`);
+    assert.deepEqual(events.filter(e => e.type === 'tool_calls').flatMap(e => e.calls), [
+      { name: 'pwsh', input: { command: 'Get-Date', description: 'Show date' } },
+    ], `split ${split}`);
+  }
+});
+
+test('unclosed field-named parameter cannot be silently dropped', () => {
+  const raw = '<|EPSE|tool_calls><|EPSE|invoke name="pwsh"><|EPSE|parameter name="command">Get-Date</|EPSE|parameter><|EPSE|description"><![CDATA[lost]]></|EPSE|invoke></|EPSE|tool_calls>';
+  assert.deepEqual(parseToolCalls(raw, ['pwsh']), []);
+});
+
 test('extractToolNames keeps only declared tool names (Go parity)', () => {
   const names = extractToolNames([
     { function: { description: 'no name tool' } },

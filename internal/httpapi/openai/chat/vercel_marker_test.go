@@ -64,9 +64,10 @@ func markerTools() []any {
 func TestHandleVercelStreamPrepareReturnsToolMarker(t *testing.T) {
 	t.Setenv("VERCEL", "1")
 	t.Setenv("DS2API_VERCEL_INTERNAL_SECRET", "stream-secret")
+	thinkingInjection := true
 
 	h := &Handler{
-		Store: mockOpenAIConfig{},
+		Store: mockOpenAIConfig{thinkingInjection: &thinkingInjection},
 		Auth:  markerAuthStub{},
 		DS:    &inlineUploadDSStub{},
 	}
@@ -96,6 +97,9 @@ func TestHandleVercelStreamPrepareReturnsToolMarker(t *testing.T) {
 		t.Fatalf("expected tool_marker=%q, got %#v", markerUnderTest, body["tool_marker"])
 	}
 	finalPrompt, _ := body["final_prompt"].(string)
+	if !strings.HasPrefix(finalPrompt, "<｜System｜>"+promptcompat.DefaultThinkingInjectionPrompt+"\n\n") {
+		t.Fatalf("Node prepare lost the leading system injection: %q", finalPrompt)
+	}
 	if strings.Contains(finalPrompt, toolcall.EPSEKeyword) {
 		t.Fatalf("final prompt still contains the canonical keyword: %q", finalPrompt)
 	}
@@ -103,6 +107,9 @@ func TestHandleVercelStreamPrepareReturnsToolMarker(t *testing.T) {
 		t.Fatalf("final prompt missing the marker shell: %q", finalPrompt)
 	}
 	payload, _ := body["payload"].(map[string]any)
+	if payload["prompt"] != finalPrompt {
+		t.Fatal("Node prepare prompt differs from its upstream payload")
+	}
 	if promptText, _ := payload["prompt"].(string); strings.Contains(promptText, toolcall.EPSEKeyword) {
 		t.Fatalf("completion payload prompt still contains the canonical keyword: %q", promptText)
 	}

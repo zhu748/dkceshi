@@ -1,81 +1,48 @@
 package promptcompat
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestAppendThinkingInjectionToLatestUserStringContent(t *testing.T) {
-	messages := []any{
-		map[string]any{"role": "user", "content": "older"},
-		map[string]any{"role": "assistant", "content": "ok"},
-		map[string]any{"role": "user", "content": "latest"},
-	}
-
-	out, changed := AppendThinkingInjectionToLatestUser(messages)
-	if !changed {
-		t.Fatal("expected thinking injection to be appended")
-	}
-	latest := out[2].(map[string]any)
-	content, _ := latest["content"].(string)
-	if !strings.Contains(content, "latest\n\n"+ThinkingInjectionMarker) {
-		t.Fatalf("expected injection after latest user text, got %q", content)
-	}
-	older := out[0].(map[string]any)
-	if older["content"] != "older" {
-		t.Fatalf("expected older user message unchanged, got %#v", older["content"])
-	}
-}
-
-func TestAppendThinkingInjectionToLatestUserArrayContent(t *testing.T) {
-	messages := []any{
-		map[string]any{
-			"role": "user",
-			"content": []any{
-				map[string]any{"type": "text", "text": "latest"},
-			},
-		},
-	}
-
-	out, changed := AppendThinkingInjectionToLatestUser(messages)
-	if !changed {
-		t.Fatal("expected thinking injection to be appended")
-	}
-	content, _ := out[0].(map[string]any)["content"].([]any)
-	if len(content) != 2 {
-		t.Fatalf("expected appended text block, got %#v", content)
-	}
-	block, _ := content[1].(map[string]any)
-	if block["type"] != "text" || !strings.Contains(block["text"].(string), ThinkingInjectionMarker) {
-		t.Fatalf("unexpected appended block: %#v", block)
+func TestThinkingInjectionIsFirstSystemComponent(t *testing.T) {
+	for _, messages := range [][]any{
+		{map[string]any{"role": "user", "content": "latest"}},
+		{map[string]any{"role": "system", "content": "BASE-SYSTEM"}, map[string]any{"role": "developer", "content": "BASE-DEVELOPER"}, map[string]any{"role": "user", "content": "latest"}},
+		{map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "latest"}, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/image.png"}}}}},
+	} {
+		req := thinkingInjectionRequest()
+		req.Messages = messages
+		before := NormalizeOpenAIContentForPrompt(messages[len(messages)-1].(map[string]any)["content"])
+		out := ApplyThinkingInjection(thinkingInjectionStoreStub{enabled: true}, req)
+		if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+DefaultThinkingInjectionPrompt+"\n\n") {
+			t.Fatalf("thinking instruction is not the first system component: %q", out.FinalPrompt)
+		}
+		if !reflect.DeepEqual(out.Messages, messages) || before != NormalizeOpenAIContentForPrompt(messages[len(messages)-1].(map[string]any)["content"]) {
+			t.Fatal("thinking injection rewrote client messages")
+		}
+		if !strings.Contains(out.FinalPrompt, "[User]:"+before) {
+			t.Fatalf("user content was lost: %q", out.FinalPrompt)
+		}
 	}
 }
 
-func TestAppendThinkingInjectionToLatestUserCustomPrompt(t *testing.T) {
-	messages := []any{
-		map[string]any{"role": "user", "content": "latest"},
+func TestThinkingInjectionUsesCustomSystemPrefix(t *testing.T) {
+	out := ApplyThinkingInjection(thinkingInjectionStoreStub{enabled: true, prompt: "custom thinking format"}, thinkingInjectionRequest())
+	if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>custom thinking format\n\n") {
+		t.Fatalf("custom instruction was not placed first: %q", out.FinalPrompt)
 	}
-
-	out, changed := AppendThinkingInjectionPromptToLatestUser(messages, "custom thinking format")
-	if !changed {
-		t.Fatal("expected custom thinking injection to be appended")
-	}
-	content, _ := out[0].(map[string]any)["content"].(string)
-	if !strings.Contains(content, "latest\n\ncustom thinking format") {
-		t.Fatalf("expected custom injection after latest user text, got %q", content)
+	if strings.Contains(out.FinalPrompt, ThinkingInjectionMarker) {
+		t.Fatal("default thinking instruction was added with a custom prompt")
 	}
 }
 
-func TestAppendThinkingInjectionToLatestUserSkipsDuplicate(t *testing.T) {
-	messages := []any{
-		map[string]any{"role": "user", "content": "latest\n\n" + DefaultThinkingInjectionPrompt},
-	}
-
-	out, changed := AppendThinkingInjectionToLatestUser(messages)
-	if changed {
-		t.Fatal("expected duplicate injection to be skipped")
-	}
-	if len(out) != 1 {
-		t.Fatalf("unexpected messages: %#v", out)
+func TestThinkingInjectionUserQuoteDoesNotSuppressSystemPrefix(t *testing.T) {
+	req := thinkingInjectionRequest()
+	req.Messages = []any{map[string]any{"role": "user", "content": "Explain this prompt:\n" + DefaultThinkingInjectionPrompt}}
+	out := ApplyThinkingInjection(thinkingInjectionStoreStub{enabled: true}, req)
+	if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+DefaultThinkingInjectionPrompt) || !reflect.DeepEqual(out.Messages, req.Messages) {
+		t.Fatal("a user quotation suppressed the generated system instruction or was modified")
 	}
 }

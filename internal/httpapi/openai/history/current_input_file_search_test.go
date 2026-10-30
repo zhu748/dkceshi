@@ -18,6 +18,8 @@ func TestCurrentInputFilePreservesNativeSearchInstructions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			req := markerStandardRequest(markerUnderTest)
 			req.Search = true
+			req.Thinking = true
+			req.ThinkingInjectionPrompt = promptcompat.DefaultThinkingInjectionPrompt
 			req.ResolvedModel = "deepseek-v4.1-flash-search"
 			if systemTools {
 				req.ToolsRaw = nil
@@ -31,6 +33,9 @@ func TestCurrentInputFilePreservesNativeSearchInstructions(t *testing.T) {
 			}
 			if !out.CurrentInputFileApplied || strings.Count(out.FinalPrompt, "Built-in web search protocol") != 1 {
 				t.Fatal("history split dropped or duplicated live search instructions")
+			}
+			if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.DefaultThinkingInjectionPrompt+"\n\n[System]:Built-in web search protocol") || strings.Count(out.PromptTokenText, promptcompat.ThinkingInjectionMarker) != 1 {
+				t.Fatal("history split moved or duplicated the leading thinking instruction")
 			}
 			if !strings.Contains(out.PromptTokenText, out.FinalPrompt) || !strings.Contains(out.PromptTokenText, out.HistoryText) {
 				t.Fatal("token text must include uploaded history and live search instructions")

@@ -30,6 +30,8 @@ type ToolMarkupTag struct {
 	SelfClosing bool
 	EPSELike    bool
 	Canonical   bool
+	// ParameterName is explicit in a malformed <|EPSE|field"> opener.
+	ParameterName string
 }
 
 func ContainsToolMarkupSyntaxOutsideIgnored(text string) (hasEPSE, hasCanonical bool) {
@@ -167,6 +169,11 @@ func scanToolMarkupTagAt(text string, start int) (ToolMarkupTag, bool) {
 	}
 	prefixStart := i
 	i, epseLike := consumeToolMarkupNamePrefix(text, i)
+	if epseLike && !closing {
+		if tag, ok := scanFieldNamedParameter(text, start, i); ok {
+			return tag, true
+		}
+	}
 	name, nameLen := matchToolMarkupName(text, i, epseLike)
 	shorthandParameter := false
 	if nameLen == 0 {

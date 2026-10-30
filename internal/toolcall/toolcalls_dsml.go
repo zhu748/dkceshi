@@ -49,7 +49,9 @@ func rewriteEPSEToolMarkupOutsideIgnored(text string) string {
 			b.WriteByte('/')
 		}
 		b.WriteString(tag.Name)
-		if delimLen := xmlTagEndDelimiterLenEndingAt(text, tag.End); delimLen > 0 {
+		if tag.ParameterName != "" {
+			b.WriteString(` name="` + tag.ParameterName + `">`)
+		} else if delimLen := xmlTagEndDelimiterLenEndingAt(text, tag.End); delimLen > 0 {
 			b.WriteString(text[tag.NameEnd : tag.End+1-delimLen])
 			b.WriteByte('>')
 		} else {

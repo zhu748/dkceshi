@@ -66,6 +66,7 @@ func ToolCallFormatSpecForMarker(marker string) string {
 3a) 标签语法中所允许使用的标点符号字符集仅限 ASCII 的 < > / = " 以及半角竖线 |。
 4) 所有字符串类型的参数值都必须通过 <![CDATA[...]]> 进行包裹，即使内容极其简短也不例外；这涵盖了代码段、脚本、文件内容、提示词、路径、名称和查询语句等。
 5) 每一个顶层参数都必须体现为 <|EPSE|parameter name="ARG_NAME">...</|EPSE|parameter> 节点形式。
+5a) 不得把参数开标签简写为 <|EPSE|ARG_NAME">；description、old_string、new_string 等字段也必须使用完整的 parameter name="..." 外壳。
 6) 对象和数组可在参数主体内使用 JSON 字面量以完整保留类型，也兼容嵌套 XML 元素和重复的 <item> 子元素。
 7) 数字、布尔值和 null 保持为纯文本。
 8) 仅使用工具架构(schema)中定义的参数名称。请勿自行创建字段。

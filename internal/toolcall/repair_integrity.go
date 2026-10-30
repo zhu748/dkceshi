@@ -95,9 +95,11 @@ func repairIdentities(text string) []repairIdentity {
 			continue
 		}
 		kind, end, closing := "", -1, false
+		parameterName := ""
 		closeStart, closeEnd := -1, -1
 		if tag, ok := scanToolMarkupTagAt(text, i); ok {
 			kind, end, closing = tag.Name, tag.End, tag.Closing
+			parameterName = tag.ParameterName
 			if kind == "parameter" && tag.NameStart == tag.NameEnd {
 				// The lenient markup scanner also calls unknown named EPSE
 				// shells shorthand parameters. A nonempty local name such as
@@ -130,6 +132,9 @@ func repairIdentities(text string) []repairIdentity {
 		}
 		attrs := parseXMLTagAttributes(text[i : end+1])
 		name := strings.TrimSpace(html.UnescapeString(attrs["name"]))
+		if parameterName != "" {
+			name = parameterName
+		}
 		jsonEnd := -1
 		if !closing && name != "" {
 			if kind != "parameter" {

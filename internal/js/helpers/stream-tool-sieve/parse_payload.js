@@ -409,7 +409,8 @@ function replaceEPSEToolMarkupOutsideIgnored(text) {
     }
     const tag = scanToolMarkupTagAt(raw, i);
     if (tag) {
-      out += `<${tag.closing ? '/' : ''}${tag.name}${raw.slice(tag.nameEnd, tag.end)}>`;
+      const attrs = tag.parameterName ? ` name="${tag.parameterName}"` : raw.slice(tag.nameEnd, tag.end);
+      out += `<${tag.closing ? '/' : ''}${tag.name}${attrs}>`;
       i = tag.end + 1;
       continue;
     }
@@ -652,6 +653,10 @@ function scanToolMarkupTagAt(text, start) {
   const prefixStart = i;
   i = prefix.next;
   let epseLike = prefix.epseLike;
+  if (epseLike && !closing) {
+    const field = scanFieldNamedParameter(raw, start, i);
+    if (field) return field;
+  }
   let { name, len } = matchToolMarkupName(raw, i, epseLike);
   let shorthandParameter = false;
   if (!name) {
@@ -712,6 +717,18 @@ function scanToolMarkupTagAt(text, start) {
     selfClosing: isSelfClosingXmlTag(raw.slice(start, end)),
     epseLike,
     canonical: !epseLike,
+  };
+}
+
+// Go parity: parameter_shorthand.go. The field name is present in the source;
+// only the missing parameter/name shell is restored, never the value.
+function scanFieldNamedParameter(raw, start, from) {
+  const match = /^([A-Za-z_][A-Za-z0-9_.:-]*)["'][ \t\r\n]*>/.exec(raw.slice(from));
+  if (!match || TOOL_MARKUP_NAMES.some(tag => tag.raw === match[1].toLowerCase())) return null;
+  return {
+    start, end: from + match[0].length - 1, nameStart: from, nameEnd: from + match[1].length,
+    name: 'parameter', closing: false, selfClosing: false, epseLike: true, canonical: false,
+    parameterName: match[1],
   };
 }
 
@@ -1298,7 +1315,9 @@ function canonicalizeRecognizedToolMarkupTag(rawTag, tag) {
   idx = prefix.next;
   const nameMatch = consumeToolKeyword(raw, idx, rawNameForTag(tag));
   const afterName = nameMatch.ok ? nameMatch.next : idx;
-  const attrs = parseCanonicalToolMarkupAttrs(raw, afterName);
+  const attrs = tag.parameterName
+    ? [{ key: 'name', value: tag.parameterName }]
+    : parseCanonicalToolMarkupAttrs(raw, afterName);
 
   let out = '<';
   if (tag.closing) {
