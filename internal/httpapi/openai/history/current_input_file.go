@@ -172,6 +172,7 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 	}
 	// Token accounting must reflect the actual downstream context:
 	// uploaded context files + the continuation live prompt.
+	stdReq = promptcompat.ApplySearchPrompt(stdReq)
 	tokenParts := []string{fileText}
 	if strings.TrimSpace(toolsText) != "" {
 		tokenParts = append(tokenParts, toolsText)

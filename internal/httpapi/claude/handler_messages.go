@@ -163,6 +163,7 @@ func (h *Handler) applyCurrentInputFile(ctx context.Context, a *auth.RequestAuth
 		return stdReq, nil
 	}
 	stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
+	stdReq = promptcompat.ApplySearchPrompt(stdReq)
 	return (history.Service{Store: h.Store, DS: h.DS}).ApplyCurrentInputFile(ctx, a, stdReq)
 }
 

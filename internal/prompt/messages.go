@@ -76,6 +76,16 @@ func renderMessages(messages []map[string]any, completion, headings bool) string
 	return b.String()
 }
 
+// PrependSystemInstruction adds a trusted generated prelude before the
+// serialized conversation, preserving its message boundaries and assistant
+// prefill without scanning user content for role headers.
+func PrependSystemInstruction(text, instruction string) string {
+	if instruction = strings.TrimSpace(instruction); instruction == "" {
+		return text
+	}
+	return systemMarker + instruction + "\n\n" + text
+}
+
 func NormalizeContent(v any) string {
 	if v == nil {
 		return ""

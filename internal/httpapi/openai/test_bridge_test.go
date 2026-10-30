@@ -85,6 +85,7 @@ func (h *openAITestSurface) ChatCompletions(w http.ResponseWriter, r *http.Reque
 
 func (h *openAITestSurface) applyCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
 	stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
+	stdReq = promptcompat.ApplySearchPrompt(stdReq)
 	svc := history.Service{Store: h.Store, DS: h.DS}
 	out, err := svc.ApplyCurrentInputFile(ctx, a, stdReq)
 	if err != nil || out.CurrentInputFileApplied {

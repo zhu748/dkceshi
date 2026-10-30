@@ -67,10 +67,17 @@ type StandardRequest struct {
 // 走这里：出口差异（例如「system 文本声明工具」分支是否适用）记录在请求上，换成通用
 // 构造器重建会让出口已经关掉的分支悄悄复活。
 func (r StandardRequest) BuildPromptFromMessages(messages []any) (string, []string) {
+	var finalPrompt string
+	var toolNames []string
 	if r.SystemTextToolsDisabled {
-		return BuildOpenAIPromptWithoutSystemTextTools(messages, r.ToolsRaw, "", r.ToolChoice, r.Thinking, r.ToolReminderConfig(), r.ToolMarker)
+		finalPrompt, toolNames = BuildOpenAIPromptWithoutSystemTextTools(messages, r.ToolsRaw, "", r.ToolChoice, r.Thinking, r.ToolReminderConfig(), r.ToolMarker)
+	} else {
+		finalPrompt, toolNames = BuildOpenAIPrompt(messages, r.ToolsRaw, "", r.ToolChoice, r.Thinking, r.ToolReminderConfig(), r.ToolMarker)
 	}
-	return BuildOpenAIPrompt(messages, r.ToolsRaw, "", r.ToolChoice, r.Thinking, r.ToolReminderConfig(), r.ToolMarker)
+	if r.Search {
+		finalPrompt = prependBuiltinSearchPrompt(finalPrompt, r.ToolMarker)
+	}
+	return finalPrompt, toolNames
 }
 
 // SystemTextToolsApply 报告本请求是否适用「system 文本声明工具」分支：出口允许该

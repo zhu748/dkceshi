@@ -245,7 +245,28 @@ HISTORY/TOOLS 与其他上传均使用
 旧 DeepSeek flash/pro/vision 名称及内置 OpenAI、Claude、Gemini alias 按基准规则解析。
 自定义 alias 支持最多八跳。仅保留 -nothinking 行为后缀；旧的 -autodelete、-forcehistory、
 -thinkinginject、-v4f 不再暴露或解析。思考注入、上下文文件和自动删除由各自配置控制。
-搜索通过 search_enabled 传给上游，本项目不注入独立的联网搜索提示词。
+搜索通过 search_enabled 传给上游，并为启用搜索的模型注入上游内置联网提示词。
+
+### 搜索模型的内置联网提示词
+
+移植自 `ouqiting20/ds2api` 的 `a2c51de`，提示词原文统一保存在
+`internal/promptcompat/search_prompt.go` 的 `BuiltinSearchPrompt`。
+按别名解析后的 `StandardRequest.Search` 开关生效，包括 `deepseek-v4.1-flash-search`、
+`deepseek-v4.1-flash-search-nothinking` 和映射到它们的别名；普通模型不注入。
+
+提示词说明原生 `search({"queries":"...||..."})`、每次最多 5 条短关键词查询、
+每条中文查询最多 30 个中文字符，以及 `open({"open_list":[{"cursor":0,"id":0}]})`。
+搜索轮次和结果编号从 0 开始，只能引用实际返回的条目；独立查询可并行，依赖查询根据前一轮结果调整，
+最终按实际来源整合答案。参数示例不代表已经执行的搜索结果。
+
+`ApplySearchPrompt` 在各协议的思考注入之后、历史文件处理之前，向已渲染提示词前置独立 system 说明。
+OpenAI Chat、Responses、Claude、Gemini 共用这一份文本；Vercel Node 使用 Go prepare / switch
+生成的提示词。消息重建和历史文件续写保留说明，计入 PromptTokenText，重复应用不叠加。
+
+内置 search/open 由上游原生执行，不加入客户端 ToolsRaw / ToolNames，也不改写原始 Messages 或号池路由。
+客户端即使声明同名工具，其 schema、工具选择策略和调用格式仍只约束该客户端工具。
+EPSE-only 与 DSML 禁用规则继续限定在客户端工具范围，生成说明中的协议名称沿用调用者标识，
+不改写用户正文。`force_disable_tools` 控制客户端工具，内置搜索仍由模型能力开关决定。
 
 实现及回归：`internal/config/models.go`、`internal/config/model_alias_test.go`，
 API 测试页面的默认模型和说明同步更新。
