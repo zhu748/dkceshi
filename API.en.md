@@ -419,6 +419,9 @@ If `tool_choice=required` is violated in stream mode, DS2API emits `response.fai
 Business auth required. Fetches cached responses created by `POST /v1/responses` (caller-scoped; only the same key/token can read).
 
 > Backed by in-memory TTL store. Default TTL is `900s` (configurable via `responses.store_ttl_seconds`).
+> Runtime TTL changes apply to subsequent writes; existing records keep their original expiry. The cache
+> holds at most 256 records and 128 MiB of serialized responses plus replay context, evicting the earliest
+> expiry when full. Invalid JSON cannot replace a valid cached record.
 
 ### `POST /v1/embeddings`
 
@@ -1228,6 +1231,10 @@ Clears packet-capture entries:
 ---
 
 ## Error Payloads
+
+A non-streaming completion interrupted by a read error before the upstream terminal signal returns
+HTTP `502` with code `upstream_read_error`. Partial text or parsed tool calls are not delivered as a
+successful completion, and this failure does not enter empty-output retries.
 
 Compatible routes (`/v1/*`, `/anthropic/*`) use the same error envelope:
 

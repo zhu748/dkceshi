@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -49,7 +50,11 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 		// holding the connection and its buffers.
 		stopBodyClose := func() bool { return false }
 		if closer, ok := body.(io.Closer); ok {
-			stopBodyClose = context.AfterFunc(ctx, func() { _ = closer.Close() })
+			stopBodyClose = context.AfterFunc(ctx, func() {
+				if err := closer.Close(); err != nil {
+					slog.Warn("[sse] close cancelled stream failed", "error", err)
+				}
+			})
 		}
 		defer stopBodyClose()
 
@@ -73,9 +78,9 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 			for {
 				line, err := reader.ReadBytes('\n')
 				if len(line) > 0 {
-					copied := append([]byte(nil), line...)
 					select {
-					case scanCh <- copied:
+					// ReadBytes already returns an owned slice, unlike ReadSlice.
+					case scanCh <- line:
 					case <-ctx.Done():
 						close(scanCh)
 						scanDone <- ctx.Err()

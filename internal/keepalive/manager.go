@@ -469,6 +469,11 @@ func (m *Manager) executeKeepAlive(ctx context.Context, acc config.Account) {
 	}
 
 	collected := sse.CollectStream(resp, true, true)
+	if collected.ReadError != nil {
+		config.Logger.Warn("[keepalive] upstream stream interrupted", "account", a.AccountID, "error", collected.ReadError)
+		recordFinish("error", collected.Text, collected.Thinking, http.StatusBadGateway, collected.ReadError.Error())
+		return
+	}
 	if collected.UpstreamError != "" {
 		config.Logger.Warn("[keepalive] upstream returned error", "account", a.AccountID, "error", collected.UpstreamError)
 		recordFinish("error", collected.Text, collected.Thinking, http.StatusBadGateway, collected.UpstreamError)

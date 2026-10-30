@@ -88,6 +88,10 @@ func (p *Pool) acquireLocked(target string, exclude map[string]bool, filter Acco
 	if p.closed {
 		return config.Account{}, false
 	}
+	// A saturated global limit cannot be repaired by scanning other accounts.
+	if p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight {
+		return config.Account{}, false
+	}
 	if target != "" {
 		if exclude[target] || !p.canAcquireIDLocked(target) {
 			return config.Account{}, false

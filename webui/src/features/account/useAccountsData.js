@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createLatestRequest } from '../../utils/latestRequest.js'
 
 export function useAccountsData({ apiFetch, onConfigRefresh }) {
     const [queueStatus, setQueueStatus] = useState(null)
     const [keysExpanded, setKeysExpanded] = useState(false)
+    const accountRequests = useRef(createLatestRequest()).current
+    const queueRequests = useRef(createLatestRequest()).current
 
     const [accounts, setAccounts] = useState([])
     const [page, setPage] = useState(1)
@@ -32,14 +35,16 @@ export function useAccountsData({ apiFetch, onConfigRefresh }) {
         targetQuery = searchQuery,
         targetStatus = filterStatus
     ) => {
+        const request = accountRequests.start()
         setLoadingAccounts(true)
         try {
             let url = `/admin/accounts?page=${targetPage}&page_size=${targetPageSize}`
             if (targetQuery.trim()) url += `&q=${encodeURIComponent(targetQuery.trim())}`
             if (targetStatus && targetStatus !== 'all') url += `&status=${encodeURIComponent(targetStatus)}`
-            const res = await apiFetch(url)
+            const res = await apiFetch(url, { signal: request.signal })
             if (res.ok) {
                 const data = await res.json()
+                if (!request.isCurrent()) return
                 const nextCounts = data.counts && typeof data.counts === 'object'
                     ? {
                         total: data.counts.total ?? 0,
@@ -69,9 +74,10 @@ export function useAccountsData({ apiFetch, onConfigRefresh }) {
                 onConfigRefresh?.()
             }
         } catch (e) {
+            if (!request.isCurrent()) return
             console.error('Failed to fetch accounts:', e)
         } finally {
-            setLoadingAccounts(false)
+            if (request.isCurrent()) setLoadingAccounts(false)
         }
     }
 
@@ -91,13 +97,16 @@ export function useAccountsData({ apiFetch, onConfigRefresh }) {
     }
 
     const fetchQueueStatus = async () => {
+        const request = queueRequests.start()
         try {
-            const res = await apiFetch('/admin/queue/status')
+            const res = await apiFetch('/admin/queue/status', { signal: request.signal })
             if (res.ok) {
                 const data = await res.json()
+                if (!request.isCurrent()) return
                 setQueueStatus(data)
             }
         } catch (e) {
+            if (!request.isCurrent()) return
             console.error('Failed to fetch queue status:', e)
         }
     }
@@ -106,7 +115,11 @@ export function useAccountsData({ apiFetch, onConfigRefresh }) {
         fetchAccounts()
         fetchQueueStatus()
         const interval = setInterval(fetchQueueStatus, 5000)
-        return () => clearInterval(interval)
+        return () => {
+            clearInterval(interval)
+            accountRequests.cancel()
+            queueRequests.cancel()
+        }
     }, [])
 
     return {

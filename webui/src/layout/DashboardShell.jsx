@@ -107,7 +107,7 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
         const res = await fetch(url, { ...options, headers })
 
         if (res.status === 401) {
-            onLogout()
+            onLogout(token)
             throw new Error(t('auth.expired'))
         }
         return res

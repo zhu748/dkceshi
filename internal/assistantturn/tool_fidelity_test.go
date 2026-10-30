@@ -1,12 +1,28 @@
 package assistantturn
 
 import (
+	"io"
+	"net/http"
 	"testing"
 
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolcall"
 )
+
+func TestCollectedReadErrorCannotBeClearedByParsedTools(t *testing.T) {
+	turn := BuildTurnFromCollected(sse.CollectResult{
+		Text:      `<tool_calls><invoke name="run"><parameter name="cmd">ls</parameter></invoke></tool_calls>`,
+		ReadError: io.ErrUnexpectedEOF,
+	}, BuildOptions{ToolNames: []string{"run"}})
+	if len(turn.ToolCalls) != 1 {
+		t.Fatalf("expected a parsed call to exercise finalization: %+v", turn)
+	}
+	outcome := FinalizeTurn(turn, FinalizeOptions{})
+	if !outcome.ShouldFail || outcome.Error.Status != http.StatusBadGateway || outcome.Error.Code != "upstream_read_error" {
+		t.Fatalf("parsed tools must not hide a failed read: %+v", outcome)
+	}
+}
 
 func TestRequiredToolChoicePreservesUpstreamFailure(t *testing.T) {
 	for _, policy := range []promptcompat.ToolChoicePolicy{

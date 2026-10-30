@@ -65,8 +65,9 @@ func (p *Pool) recordAccountRateRequestLocked(accountID string) {
 		entry.windowStart = now
 		entry.count = 1
 		entry.unavailable = false
+		windowStart := entry.windowStart
 		entry.timer = time.AfterFunc(window, func() {
-			p.resetAccountRateLimit(accountID)
+			p.resetAccountRateLimit(accountID, entry, windowStart)
 		})
 	} else {
 		entry.count++
@@ -85,12 +86,12 @@ func (p *Pool) recordAccountRateRequestLocked(accountID string) {
 	}
 }
 
-func (p *Pool) resetAccountRateLimit(accountID string) {
+func (p *Pool) resetAccountRateLimit(accountID string, expected *rateLimitEntry, windowStart time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	entry, ok := p.rateLimits[accountID]
-	if !ok {
+	if !ok || p.closed || entry != expected || !entry.windowStart.Equal(windowStart) {
 		return
 	}
 	if entry.timer != nil {
@@ -189,9 +190,11 @@ func (p *Pool) SyncRateLimits() {
 
 	limit := p.rateLimitMaxPerMinuteLocked()
 	recovered := false
-	for _, entry := range p.rateLimits {
-		if entry.unavailable && entry.count < limit {
-			entry.unavailable = false
+	for id, entry := range p.rateLimits {
+		wasUnavailable := entry.unavailable
+		p.isRateLimitedLocked(id) // Expire old counts before applying the new limit.
+		entry.unavailable = entry.count >= limit
+		if wasUnavailable && !entry.unavailable {
 			recovered = true
 		}
 	}

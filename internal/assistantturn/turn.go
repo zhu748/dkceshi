@@ -253,10 +253,12 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	parsed := shared.DetectAssistantToolCalls(result.Text, text, result.Thinking, result.ToolDetectionThinking, opts.ToolNames)
 	calls := toolcall.NormalizeParsedToolCallsForSchemas(parsed.Calls, opts.ToolsRaw)
 	repairCompleted := false
-	if repaired, replaced := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
-		calls = mergeRepairedToolCalls(calls, repaired)
-		text = deductRepairedSource(text, replaced)
-		repairCompleted = true
+	if result.ReadError == nil {
+		if repaired, replaced := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
+			calls = mergeRepairedToolCalls(calls, repaired)
+			text = deductRepairedSource(text, replaced)
+			repairCompleted = true
+		}
 	}
 	parsed.Calls = calls
 
@@ -287,6 +289,9 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	}
 	turn.Usage = BuildUsage(opts.Model, opts.Prompt, thinking, text, opts.RefFileTokens)
 	turn.Error = validateToolOutput(turn, opts, repairCompleted)
+	if result.ReadError != nil {
+		turn.Error = &OutputError{Status: http.StatusBadGateway, Code: "upstream_read_error", Message: "Upstream stream read failed: " + result.ReadError.Error()}
+	}
 	if turn.Error != nil {
 		turn.StopReason = StopReasonError
 	}
@@ -442,7 +447,7 @@ func FinalizeTurn(turn Turn, opts FinalizeOptions) FinalOutcome {
 	hasVisibleText := strings.TrimSpace(turn.Text) != ""
 	hasVisibleThinking := strings.TrimSpace(turn.Thinking) != ""
 	err := turn.Error
-	if hasToolCalls && (err == nil || err.Code != "tool_choice_violation" && err.Code != "invalid_tool_arguments") {
+	if hasToolCalls && (err == nil || err.Code != "tool_choice_violation" && err.Code != "invalid_tool_arguments" && err.Code != "upstream_read_error") {
 		err = nil
 	}
 	finishReason := FinishReason(turn)

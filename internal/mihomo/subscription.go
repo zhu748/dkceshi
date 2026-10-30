@@ -62,9 +62,12 @@ func FetchSubscription(ctx context.Context, rawURL string) ([]config.MihomoNode,
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("订阅返回 HTTP %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, subscriptionMaxBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, subscriptionMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("读取订阅内容失败: %w", err)
+	}
+	if len(body) > subscriptionMaxBytes {
+		return nil, fmt.Errorf("订阅内容超过 16 MiB: %w", errContentTooLarge)
 	}
 	return ParseSubscription(body)
 }

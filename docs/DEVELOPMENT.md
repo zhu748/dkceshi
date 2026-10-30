@@ -84,6 +84,23 @@ go test -v ./internal/toolcall ./internal/toolstream -count=1
 ./tests/scripts/run-unit-node.sh
 ```
 
+### 运行时和管理台边界
+
+- 每分钟限速热更新会按当前窗口计数重新判断状态；下调阈值立即生效，旧窗口/旧账号条目的定时器不能清空新窗口。
+- 全局并发已满时，取号和等待者匹配立即停止，不再遍历所有候选账号。
+- Responses 缓存保留不可变 JSON 快照；输入编码失败保留原记录，TTL 更新仅影响后续写入。
+- 管理台登录恢复、列表和配置读取需防止迟到响应提交状态；共享请求世代控制位于 `webui/src/utils/latestRequest.js`。
+- 会话 token 与过期时间必须来自同一存储位置，当前标签页会话优先；退出或新登录会取消旧验证，旧 token 的 401 不能清除新会话。
+- 代理订阅超过 16 MiB 时返回错误，不能把截断的有效 YAML 前缀作为完整订阅使用。
+
+补充微基准：
+
+```bash
+go test ./internal/account -run '^$' -bench BenchmarkAcquireSaturatedGlobalLimit -benchmem -count=3
+go test ./internal/httpapi/openai/responses -run '^$' -bench BenchmarkResponseStore -benchmem -count=3
+go test ./internal/sse -run '^$' -bench BenchmarkParsedLinePump -benchmem -count=3
+```
+
 ## 5. 测试选择
 
 小范围 Go 改动：

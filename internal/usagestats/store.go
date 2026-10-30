@@ -80,6 +80,7 @@ type legacyV1File struct {
 // 落盘采用版本化文件 + 后台定时 flush，费用按请求发生时刻的波峰倍率累计。
 type Store struct {
 	mu           sync.Mutex
+	flushMu      sync.Mutex // Serialize disk writes without holding mu during I/O.
 	path         string
 	settingsPath string
 	entries      map[string]*Entry
@@ -177,12 +178,12 @@ func (s *Store) Summary() []Entry {
 		return []Entry{}
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	out := make([]Entry, 0, len(s.entries))
 	for _, entry := range s.entries {
 		out = append(out, *entry)
 	}
+	s.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Date != out[j].Date {
 			return out[i].Date > out[j].Date
@@ -337,8 +338,13 @@ func (s *Store) SaveSettings(settings UsageSettings) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.settings = normalizeSettings(settings)
-	return s.saveSettingsLocked()
+	previous := s.settings
+	s.settings = cloneSettings(normalizeSettings(settings))
+	if err := s.saveSettingsLocked(); err != nil {
+		s.settings = previous
+		return err
+	}
+	return nil
 }
 
 func (s *Store) Close() {
@@ -375,6 +381,14 @@ func (s *Store) flushLoop() {
 }
 
 func (s *Store) flushNow() error {
+	return s.flushWith(writeFileAtomic)
+}
+
+func (s *Store) flushWith(write func(string, []byte) error) error {
+	// Serialize before taking a snapshot so an older flush cannot replace a
+	// newer revision after that revision has already cleared the dirty flag.
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
 	s.mu.Lock()
 	if !s.dirty {
 		s.mu.Unlock()
@@ -384,9 +398,19 @@ func (s *Store) flushNow() error {
 	payload := s.snapshotLocked()
 	s.mu.Unlock()
 
+	sort.Slice(payload.Entries, func(i, j int) bool {
+		if payload.Entries[i].Date != payload.Entries[j].Date {
+			return payload.Entries[i].Date < payload.Entries[j].Date
+		}
+		if payload.Entries[i].Model != payload.Entries[j].Model {
+			return payload.Entries[i].Model < payload.Entries[j].Model
+		}
+		return payload.Entries[i].CallerID < payload.Entries[j].CallerID
+	})
+
 	body, err := json.MarshalIndent(payload, "", "  ")
 	if err == nil {
-		err = writeFileAtomic(s.path, append(body, '\n'))
+		err = write(s.path, append(body, '\n'))
 	}
 	if err != nil {
 		return fmt.Errorf("save usage stats: %w", err)
@@ -409,15 +433,6 @@ func (s *Store) snapshotLocked() fileData {
 	for _, entry := range s.entries {
 		payload.Entries = append(payload.Entries, *entry)
 	}
-	sort.Slice(payload.Entries, func(i, j int) bool {
-		if payload.Entries[i].Date != payload.Entries[j].Date {
-			return payload.Entries[i].Date < payload.Entries[j].Date
-		}
-		if payload.Entries[i].Model != payload.Entries[j].Model {
-			return payload.Entries[i].Model < payload.Entries[j].Model
-		}
-		return payload.Entries[i].CallerID < payload.Entries[j].CallerID
-	})
 	return payload
 }
 

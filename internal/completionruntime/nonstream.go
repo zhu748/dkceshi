@@ -479,7 +479,11 @@ func collectAttempt(resp *http.Response, a *auth.RequestAuth, stdReq promptcompa
 	// this build and another in the terminal build, doubling cost, latency and
 	// leaked sessions. Build without the repair invoker so repair runs only in
 	// the single terminal build.
-	return assistantturn.BuildTurnFromCollected(result, buildOptionsWithoutRepair(stdReq, usagePrompt, opts)), nil
+	turn := assistantturn.BuildTurnFromCollected(result, buildOptionsWithoutRepair(stdReq, usagePrompt, opts))
+	if result.ReadError != nil {
+		return turn, turn.Error
+	}
+	return turn, nil
 }
 
 func buildOptions(stdReq promptcompat.StandardRequest, prompt string, opts Options) assistantturn.BuildOptions {

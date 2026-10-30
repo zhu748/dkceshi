@@ -100,8 +100,9 @@ export function sameUsageRecords(a, b) {
             if (xu !== yu) return false
             continue
         }
-        if (xu.prompt !== yu.prompt || xu.completion !== yu.completion ||
-            xu.reasoning !== yu.reasoning || xu.total !== yu.total) {
+        if (xu.prompt_tokens !== yu.prompt_tokens || xu.completion_tokens !== yu.completion_tokens ||
+            xu.total_tokens !== yu.total_tokens ||
+            xu.completion_tokens_details?.reasoning_tokens !== yu.completion_tokens_details?.reasoning_tokens) {
             return false
         }
     }
@@ -124,10 +125,10 @@ export function aggregateDaily(records) {
             reasoning: 0,
             total: 0,
             cost: 0,
-            byModel: {},
-            byModelCost: {},
-            byCaller: {},
-            byCallerCost: {},
+            byModel: Object.create(null),
+            byModelCost: Object.create(null),
+            byCaller: Object.create(null),
+            byCallerCost: Object.create(null),
         }
         entry.calls += (r.calls_count || 0)
         entry.prompt += usage.prompt
@@ -158,10 +159,10 @@ function emptyDayEntry(key, ts) {
         reasoning: 0,
         total: 0,
         cost: 0,
-        byModel: {},
-        byModelCost: {},
-        byCaller: {},
-        byCallerCost: {},
+        byModel: Object.create(null),
+        byModelCost: Object.create(null),
+        byCaller: Object.create(null),
+        byCallerCost: Object.create(null),
     }
 }
 
@@ -183,10 +184,9 @@ function mergeDayEntry(target, source) {
     }
 }
 
-// MAX_ALL_POINTS caps how many points an "all" range renders. Beyond this the
-// per-day series would grow unbounded with ledger age, so adjacent days are
-// folded into buckets (the bucket keeps its first day as the key/label).
-const MAX_ALL_POINTS = 180
+// Bound every chart, including a finite range extended by a future-dated CSV
+// entry. Buckets keep their first day as the key/label and retain all totals.
+const MAX_CHART_POINTS = 180
 
 export function fillDateRange(daily, dateRange) {
     const sorted = (daily || []).slice().sort((a, b) => a.key.localeCompare(b.key))
@@ -215,19 +215,19 @@ export function fillDateRange(daily, dateRange) {
     const out = []
     const last = new Date(end.getTime())
 
-    if (dateRange === 'all') {
-        const totalDays = Math.floor((last.getTime() - start.getTime()) / 86400000) + 1
-        const step = Math.max(1, Math.ceil(totalDays / MAX_ALL_POINTS))
-        const cursor = new Date(start.getTime())
-        while (cursor <= last) {
-            const key = dayKey(cursor.getTime())
-            const bucket = emptyDayEntry(key, cursor.getTime())
-            for (let offset = 0; offset < step; offset++) {
-                const day = byKey.get(dayKey(cursor.getTime() + offset * 86400000))
-                if (day) mergeDayEntry(bucket, day)
-            }
-            out.push(bucket)
-            cursor.setUTCDate(cursor.getUTCDate() + step)
+    const totalDays = Math.floor((last.getTime() - start.getTime()) / 86400000) + 1
+    if (dateRange === 'all' || totalDays > MAX_CHART_POINTS) {
+        const step = Math.max(1, Math.ceil(totalDays / MAX_CHART_POINTS))
+        const startMs = start.getTime()
+        const bucketMs = step * 86400000
+        for (let ts = startMs; ts <= last.getTime(); ts += bucketMs) {
+            out.push(emptyDayEntry(dayKey(ts), ts))
+        }
+        // Visit recorded days once, rather than iterating every missing day
+        // between the oldest and newest entry (potentially millions of days).
+        for (const day of byKey.values()) {
+            const index = Math.floor((parseDayKey(day.key).getTime() - startMs) / bucketMs)
+            if (out[index]) mergeDayEntry(out[index], day)
         }
         return out
     }

@@ -1,9 +1,6 @@
 package sse
 
-import (
-	"strings"
-	"unicode/utf8"
-)
+import "strings"
 
 const minContinuationSnapshotLen = 32
 
@@ -11,10 +8,7 @@ func TrimContinuationOverlap(existing, incoming string) string {
 	if incoming == "" {
 		return ""
 	}
-	if existing == "" {
-		return incoming
-	}
-	if utf8.RuneCountInString(incoming) < minContinuationSnapshotLen {
+	if existing == "" || !isContinuationSnapshot(incoming) {
 		return incoming
 	}
 	if len(incoming) > len(existing) {
@@ -23,35 +17,28 @@ func TrimContinuationOverlap(existing, incoming string) string {
 		}
 		return incoming
 	}
-	if len(incoming) < len(existing) && strings.HasPrefix(existing, incoming) {
+	if strings.HasPrefix(existing, incoming) {
 		return ""
 	}
 	return incoming
 }
 
 func TrimContinuationOverlapFromBuilder(existing *strings.Builder, incoming string) string {
-	if incoming == "" {
-		return ""
-	}
-	if existing == nil || existing.Len() == 0 {
+	if existing == nil {
 		return incoming
 	}
-	if utf8.RuneCountInString(incoming) < minContinuationSnapshotLen {
-		return incoming
-	}
-	existingLen := existing.Len()
-	if len(incoming) > existingLen {
-		existingStr := existing.String()
-		if strings.HasPrefix(incoming, existingStr) {
-			return incoming[existingLen:]
-		}
-		return incoming
-	}
-	if len(incoming) < existingLen {
-		existingStr := existing.String()
-		if strings.HasPrefix(existingStr, incoming) {
-			return ""
+	return TrimContinuationOverlap(existing.String(), incoming)
+}
+
+// Only the threshold matters; counting an entire multi-megabyte snapshot on
+// every delta adds a full scan before the prefix comparison can even begin.
+func isContinuationSnapshot(text string) bool {
+	count := 0
+	for range text {
+		count++
+		if count >= minContinuationSnapshotLen {
+			return true
 		}
 	}
-	return incoming
+	return false
 }

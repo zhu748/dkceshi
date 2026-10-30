@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,7 @@ type CollectResult struct {
 	ToolDetectionThinking string
 	ContentFilter         bool
 	UpstreamError         string
+	ReadError             error
 	CitationLinks         map[int]string
 	ResponseMessageID     int
 	// FirstResponseMessageID is the id the completion started with. When
@@ -38,7 +40,11 @@ type CollectResult struct {
 // The caller is responsible for closing resp.Body unless closeBody is true.
 func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) CollectResult {
 	if closeBody {
-		defer func() { _ = resp.Body.Close() }()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				slog.Warn("[sse] response body close failed", "error", err)
+			}
+		}()
 	}
 	text := strings.Builder{}
 	thinking := strings.Builder{}
@@ -54,7 +60,7 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 	if thinkingEnabled {
 		currentType = "thinking"
 	}
-	_ = dsprotocol.ScanSSELines(resp, func(line []byte) bool {
+	readErr := dsprotocol.ScanSSELines(resp, func(line []byte) bool {
 		chunk, done, parsed := ParseDeepSeekSSELine(line)
 		if parsed && !done {
 			collector.ingestChunk(chunk)
@@ -112,12 +118,19 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 		}
 		return true
 	})
+	// FINISHED freezes the answer while we continue reading late citations.
+	// A failure before that point means the answer is incomplete; a failure
+	// after a terminal status must not turn a completed answer into an error.
+	if stopped {
+		readErr = nil
+	}
 	return CollectResult{
 		Text:                   text.String(),
 		Thinking:               thinking.String(),
 		ToolDetectionThinking:  toolDetectionThinking.String(),
 		ContentFilter:          contentFilter,
 		UpstreamError:          upstreamError,
+		ReadError:              readErr,
 		CitationLinks:          collector.build(),
 		ResponseMessageID:      responseMessageID,
 		FirstResponseMessageID: firstResponseMessageID,

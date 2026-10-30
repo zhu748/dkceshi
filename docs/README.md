@@ -17,6 +17,8 @@
 ### 专题文档
 
 - [DS2API 项目价值说明](./project-value.md)
+- [2026-10-31 项目审查与性能优化记录](./review-2026-10-31.md)
+- [2026-10-31 第二阶段全面审查与修复](./review-2026-10-31-followup.md)
 - [API -> 网页对话纯文本兼容主链路说明](./prompt-compatibility.md)
 - [Tool Calling 统一语义](./toolcall-semantics.md)
 - [DeepSeek SSE 行为结构说明（逆向观察）](./DeepSeekSSE行为结构说明-2026-04-05.md)

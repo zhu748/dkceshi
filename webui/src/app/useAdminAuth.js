@@ -1,61 +1,37 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { detectRuntimeEnv } from '../utils/runtimeEnv'
+import { createAdminSession } from './adminSession.js'
 
-export function useAdminAuth({ isProduction, location, t }) {
+export function useAdminAuth({ isProduction, location }) {
     const [message, setMessage] = useState(null)
     const [token, setToken] = useState(null)
     const [authChecking, setAuthChecking] = useState(true)
+    const messageTimer = useRef(null)
 
     const isAdminRoute = location.pathname.startsWith('/admin') || isProduction
     const runtimeEnv = useMemo(() => detectRuntimeEnv(), [])
     const isVercel = runtimeEnv.isVercel
+    const session = useMemo(() => createAdminSession({ onToken: setToken, onChecking: setAuthChecking }), [])
 
     const showMessage = useCallback((type, text) => {
+        clearTimeout(messageTimer.current)
         setMessage({ type, text })
-        setTimeout(() => setMessage(null), 5000)
+        messageTimer.current = setTimeout(() => {
+            setMessage(null)
+            messageTimer.current = null
+        }, 5000)
     }, [])
 
-    const handleLogout = useCallback(() => {
-        setToken(null)
-        localStorage.removeItem('ds2api_token')
-        localStorage.removeItem('ds2api_token_expires')
-        sessionStorage.removeItem('ds2api_token')
-        sessionStorage.removeItem('ds2api_token_expires')
-    }, [])
-
-    const handleLogin = useCallback((newToken) => {
-        setToken(newToken)
-    }, [])
+    useEffect(() => () => clearTimeout(messageTimer.current), [])
 
     useEffect(() => {
         if (!isAdminRoute) {
             setAuthChecking(false)
-            return
+            return undefined
         }
-
-        const checkAuth = async () => {
-            const storedToken = localStorage.getItem('ds2api_token') || sessionStorage.getItem('ds2api_token')
-            const expiresAt = parseInt(localStorage.getItem('ds2api_token_expires') || sessionStorage.getItem('ds2api_token_expires') || '0')
-
-            if (storedToken && expiresAt > Date.now()) {
-                try {
-                    const res = await fetch('/admin/verify', {
-                        headers: { 'Authorization': `Bearer ${storedToken}` }
-                    })
-                    if (res.ok) {
-                        setToken(storedToken)
-                    } else {
-                        handleLogout()
-                    }
-                } catch {
-                    setToken(storedToken)
-                }
-            }
-            setAuthChecking(false)
-        }
-
-        checkAuth()
-    }, [handleLogout, isAdminRoute, t])
+        session.restore()
+        return () => session.cancel()
+    }, [isAdminRoute, session])
 
     return {
         token,
@@ -64,7 +40,7 @@ export function useAdminAuth({ isProduction, location, t }) {
         isAdminRoute,
         isVercel,
         showMessage,
-        handleLogin,
-        handleLogout,
+        handleLogin: session.login,
+        handleLogout: session.logout,
     }
 }

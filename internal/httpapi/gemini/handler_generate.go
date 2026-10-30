@@ -226,7 +226,11 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 		rec := httptest.NewRecorder()
 		h.OpenAI.ChatCompletions(rec, proxyReq)
 		res := rec.Result()
-		defer func() { _ = res.Body.Close() }()
+		defer func() {
+			if err := res.Body.Close(); err != nil {
+				config.Logger.Warn("[gemini] response body close failed", "error", err)
+			}
+		}()
 		body, _ := io.ReadAll(res.Body)
 		for k, vv := range res.Header {
 			for _, v := range vv {
@@ -256,7 +260,11 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 	rec := httptest.NewRecorder()
 	h.OpenAI.ChatCompletions(rec, proxyReq)
 	res := rec.Result()
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			config.Logger.Warn("[gemini] response body close failed", "error", err)
+		}
+	}()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		for k, vv := range res.Header {
@@ -368,7 +376,11 @@ func writeGeminiErrorFromOpenAI(w http.ResponseWriter, status int, raw []byte) {
 
 //nolint:unused // retained for native Gemini non-stream handling path.
 func (h *Handler) handleNonStreamGenerateContent(w http.ResponseWriter, resp *http.Response, model, finalPrompt string, thinkingEnabled bool, toolNames []string) {
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			config.Logger.Warn("[gemini] response body close failed", "error", err)
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
@@ -379,6 +391,10 @@ func (h *Handler) handleNonStreamGenerateContent(w http.ResponseWriter, resp *ht
 	}
 
 	result := sse.CollectStream(resp, thinkingEnabled, true)
+	if result.ReadError != nil {
+		writeGeminiError(w, http.StatusBadGateway, result.ReadError.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, buildGeminiGenerateContentResponse(
 		model,
 		finalPrompt,

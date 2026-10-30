@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +48,50 @@ const powSafetyMargin = 20 * time.Second
 
 // powPrefetchTimeout 是异步预取请求的最大耗时，超时则放弃，下次 GetPow 会触发同步获取。
 const powPrefetchTimeout = 10 * time.Second
+
+const maxPowCacheEntries = 256
+
+func powCacheIdentity(a *auth.RequestAuth) string {
+	if a == nil {
+		return ""
+	}
+	if a.AccountID != "" {
+		return a.AccountID
+	}
+	if a.DeepSeekToken == "" {
+		return ""
+	}
+	// Direct-token requests have no managed AccountID. Never merge them into
+	// one empty-account slot, and never retain their raw credential as a key.
+	sum := sha256.Sum256([]byte(a.DeepSeekToken))
+	return "\x00" + hex.EncodeToString(sum[:])
+}
+
+// makeRoomLocked bounds idle proofs and in-flight prefetches together. When
+// all slots are fetching, foreground calls still work without another prefetch.
+func (c *powPrefetchCache) makeRoomLocked(key string) bool {
+	now := c.now()
+	for k, entry := range c.entries {
+		if !entry.fetching && !now.Before(entry.expireAt.Add(-powSafetyMargin)) {
+			delete(c.entries, k)
+		}
+	}
+	if _, exists := c.entries[key]; exists || len(c.entries) < maxPowCacheEntries {
+		return true
+	}
+	oldestKey := ""
+	var oldest time.Time
+	for k, entry := range c.entries {
+		if !entry.fetching && (oldestKey == "" || entry.fetchedAt.Before(oldest)) {
+			oldestKey, oldest = k, entry.fetchedAt
+		}
+	}
+	if oldestKey == "" {
+		return false
+	}
+	delete(c.entries, oldestKey)
+	return true
+}
 
 func newPowPrefetchCache(fetcher func(ctx context.Context, a *auth.RequestAuth, targetPath string, maxAttempts int) (powSolution, error)) *powPrefetchCache {
 	return &powPrefetchCache{
@@ -95,12 +141,15 @@ func (c *powPrefetchCache) Put(accountID, targetPath, pow string, expireAt time.
 	}
 	key := powCacheKey(accountID, targetPath)
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.makeRoomLocked(key) {
+		return
+	}
 	c.entries[key] = &powCacheEntry{
 		pow:       pow,
 		fetchedAt: c.now(),
 		expireAt:  expireAt,
 	}
-	c.mu.Unlock()
 }
 
 // SchedulePrefetch 异步预取一个 PoW 写入缓存。如果当前已有缓存或正在预取，则跳过。
@@ -110,7 +159,11 @@ func (c *powPrefetchCache) SchedulePrefetch(ctx context.Context, a *auth.Request
 	if c == nil || c.fetcher == nil || a == nil {
 		return
 	}
-	key := powCacheKey(a.AccountID, targetPath)
+	identity := powCacheIdentity(a)
+	if identity == "" {
+		return
+	}
+	key := powCacheKey(identity, targetPath)
 	c.mu.Lock()
 	// 已有缓存或正在预取，跳过
 	if existing, ok := c.entries[key]; ok && existing.pow != "" && c.now().Before(existing.expireAt.Add(-powSafetyMargin)) {
@@ -118,6 +171,10 @@ func (c *powPrefetchCache) SchedulePrefetch(ctx context.Context, a *auth.Request
 		return
 	}
 	if existing, ok := c.entries[key]; ok && existing.fetching {
+		c.mu.Unlock()
+		return
+	}
+	if !c.makeRoomLocked(key) {
 		c.mu.Unlock()
 		return
 	}

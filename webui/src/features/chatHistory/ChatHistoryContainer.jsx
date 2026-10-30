@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 
 import { useI18n } from '../../i18n'
+import { createDetailResource } from './detailResource'
 import { ChatHistoryListPane, ConfirmClearDialog, DesktopDetailPane, MobileDetailModal } from './ChatHistoryPanels'
 import {
     DISABLED_LIMIT,
@@ -40,9 +41,10 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     const [pendingJumpToAssistant, setPendingJumpToAssistant] = useState(false)
 
     const inFlightRef = useRef(false)
-    const detailInFlightRef = useRef(false)
+    const selectedIdRef = useRef(selectedId)
+    selectedIdRef.current = selectedId
+    const detailResource = useRef(createDetailResource()).current
     const listETagRef = useRef('')
-    const detailETagRef = useRef('')
     const assistantStartRef = useRef(null)
     const detailScrollRef = useRef(null)
     const mobileCloseTimerRef = useRef(null)
@@ -103,29 +105,13 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     }
 
     const loadDetail = async (id, { announceError = false } = {}) => {
-        if (!id || detailInFlightRef.current) return
-        detailInFlightRef.current = true
+        if (!id || id !== selectedIdRef.current) return
         try {
-            const headers = {}
-            if (detailETagRef.current) {
-                headers['If-None-Match'] = detailETagRef.current
-            }
-            const res = await apiFetch(`/admin/chat-history/${encodeURIComponent(id)}`, { headers })
-            if (res.status === 304) {
-                return
-            }
-            const data = await res.json()
-            if (!res.ok) {
-                throw new Error(data?.detail || t('chatHistory.loadFailed'))
-            }
-            detailETagRef.current = res.headers.get('ETag') || ''
-            setSelectedDetail(data.item || null)
+            await detailResource.load(id, apiFetch, setSelectedDetail, t('chatHistory.loadFailed'))
         } catch (error) {
             if (announceError) {
                 onMessage?.('error', error.message || t('chatHistory.loadFailed'))
             }
-        } finally {
-            detailInFlightRef.current = false
         }
     }
 
@@ -152,11 +138,21 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     }, [autoRefreshReady, selectedId, selectedSummary?.status])
 
     useEffect(() => {
-        if (!selectedId) return undefined
-        detailETagRef.current = ''
+        detailResource.invalidate()
         setSelectedDetail(null)
-        loadDetail(selectedId, { announceError: false })
+        if (selectedId) loadDetail(selectedId, { announceError: false })
+        return () => detailResource.cancel()
     }, [selectedId, mobileDetailOpen])
+
+    // Fetch the final revision even when a completed summary stops polling
+    // before the last streaming detail request has seen the completed output.
+    useEffect(() => {
+        if (selectedId && selectedSummary?.status !== 'streaming' &&
+            (selectedDetail?.id !== selectedId ||
+                selectedSummary?.detail_revision > (selectedDetail?.revision || 0))) {
+            loadDetail(selectedId, { announceError: false })
+        }
+    }, [selectedId, selectedSummary?.status, selectedSummary?.detail_revision, selectedDetail?.id, selectedDetail?.revision])
 
     useEffect(() => {
         if (!pendingJumpToAssistant || !selectedItem || selectedItem.id !== selectedId) return undefined
@@ -198,7 +194,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     const handleRefresh = async ({ manual = true } = {}) => {
         await loadList({ mode: manual ? 'manual' : 'silent', announceError: manual })
         if (selectedId) {
-            detailETagRef.current = ''
+            detailResource.invalidate()
             await loadDetail(selectedId, { announceError: manual })
         }
     }
@@ -242,8 +238,8 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
             if (!res.ok) {
                 throw new Error(data?.detail || t('chatHistory.deleteFailed'))
             }
-            if (selectedId === id) {
-                detailETagRef.current = ''
+            if (selectedIdRef.current === id) {
+                detailResource.invalidate()
                 setSelectedDetail(null)
             }
             syncItems(items.filter(item => item.id !== id))
@@ -265,7 +261,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
                 throw new Error(data?.detail || t('chatHistory.clearFailed'))
             }
             listETagRef.current = ''
-            detailETagRef.current = ''
+            detailResource.invalidate()
             setSelectedDetail(null)
             syncItems([])
             onMessage?.('success', t('chatHistory.clearSuccess'))
@@ -305,7 +301,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
             return
         }
         if (itemId === selectedId) {
-            detailETagRef.current = ''
+            detailResource.invalidate()
             setSelectedDetail(null)
             loadDetail(itemId, { announceError: false })
             return

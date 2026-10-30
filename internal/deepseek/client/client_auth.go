@@ -145,7 +145,7 @@ func (c *Client) GetPowForTarget(ctx context.Context, a *auth.RequestAuth, targe
 	}
 	// 1. 先查 PoW 预取缓存（复刻 App 行为：completion 后异步预取的 PoW）
 	if a != nil {
-		if pow, ok := c.powCache.Get(a.AccountID, targetPath); ok {
+		if pow, ok := c.powCache.Get(powCacheIdentity(a), targetPath); ok {
 			config.Logger.Debug("[get_pow] cache hit", "account", a.AccountID, "target_path", targetPath)
 			// 命中后异步触发下一次预取，复刻 App「取走即预取」行为
 			c.powCache.SchedulePrefetch(ctx, a, targetPath, maxAttempts)

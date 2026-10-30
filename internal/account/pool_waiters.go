@@ -83,6 +83,9 @@ func (p *Pool) waiterCanAcquireLocked(waiter *poolWaiter) bool {
 	if p.closed {
 		return false
 	}
+	if p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight {
+		return false
+	}
 	for _, id := range p.queue {
 		if waiter.target != "" && waiter.target != id || waiter.exclude[id] || !p.canAcquireIDLocked(id) {
 			continue

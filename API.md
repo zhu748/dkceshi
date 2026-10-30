@@ -425,6 +425,8 @@ data: [DONE]
 需要业务鉴权。查询 `POST /v1/responses` 生成并缓存的 response 对象（按调用方鉴权隔离，仅同一 key/token 可读取）。
 
 > 当前为内存 TTL 存储，默认过期时间 `900s`（可用 `responses.store_ttl_seconds` 调整）。
+> 热更新 TTL 对之后写入的记录生效，已有记录保留原到期时间。缓存最多保留 256 条记录、
+> 128 MiB 的序列化响应与续接上下文；满载时淘汰最早到期的记录。无效 JSON 不会覆盖有效缓存。
 
 ### `POST /v1/embeddings`
 
@@ -1240,6 +1242,9 @@ data: {"type":"message_stop"}
 ---
 
 ## 错误响应格式
+
+非流式 completion 在上游结束信号之前发生读取错误时，返回 HTTP `502`，错误码为
+`upstream_read_error`。已收到的部分正文或工具调用不会作为完整成功结果交付，也不进入空输出补偿。
 
 兼容路由（`/v1/*`、`/anthropic/*`）统一使用以下结构：
 

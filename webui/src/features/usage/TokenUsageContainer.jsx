@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../i18n'
 import { useTheme } from '../../themeProvider'
 import './usage.css'
-import EChart from './EChart'
 import ModelRow from './ModelRow'
 import SettingsPanel from './SettingsPanel'
 import { useUsageRecords } from './useUsageRecords'
@@ -27,6 +26,8 @@ const MODEL_PALETTE = ['#FF8800', '#FF5500', '#FFAA33', '#E64400', '#FFB84D', '#
 const API_KEY_PALETTE = ['#A0DCFD', '#60B3FE', '#0C70F3', '#4DA3FF', '#1F6FEB', '#38BDF8', '#7DD3FC', '#1D4ED8']
 const OTHER_COLOR = '#94A3B8'
 const TOP_N = 8
+// Summary, filters and export become usable before the chart engine loads.
+const EChart = lazy(() => import('./EChart'))
 
 export default function TokenUsageContainer({ authFetch, onMessage }) {
     const { lang, t } = useI18n()
@@ -555,7 +556,9 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
                                         </div>
                                     </div>
                                 </div>
-                                <EChart option={mainOption} height={272} />
+                                <Suspense fallback={<div role="status" style={{ height: 272 }}>{t('usage.loading')}</div>}>
+                                    <EChart option={mainOption} height={272} ariaLabel={costMode ? t('usage.costUsage') : t('usage.tokenUsage')} />
+                                </Suspense>
                                 <div className="usage-legend">
                                     {topSeries.map((s) => (
                                         <span

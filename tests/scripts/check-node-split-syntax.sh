@@ -4,9 +4,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 TARGETS_FILE="${1:-$ROOT_DIR/plans/node-syntax-gate-targets.txt}"
 
-if [[ ! -f "$TARGETS_FILE" ]]; then
-  echo "checked=0 missing=0 invalid=0"
-  exit 0
+if [[ -f "$TARGETS_FILE" ]]; then
+  targets="$(cat "$TARGETS_FILE")"
+elif [[ $# -gt 0 ]]; then
+  echo "target list not found: $TARGETS_FILE" >&2
+  exit 1
+else
+  # Old refactor plans may be removed. Keep the default gate meaningful by
+  # checking current source and scripts, including newly added files. JSX is
+  # validated by the WebUI build instead of node --check.
+  targets="$(git -C "$ROOT_DIR" ls-files --cached --others --exclude-standard -- '*.js' '*.mjs' '*.cjs')"
 fi
 
 checked=0
@@ -29,7 +36,7 @@ while IFS= read -r file; do
     echo "INVALID $file"
     invalid=$((invalid + 1))
   fi
-done < "$TARGETS_FILE"
+done <<< "$targets"
 
 echo "checked=$checked missing=$missing invalid=$invalid"
 

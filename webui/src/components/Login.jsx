@@ -3,6 +3,7 @@ import { Key, ArrowRight, ShieldCheck, Lock, Check } from 'lucide-react'
 import clsx from 'clsx'
 import { useI18n } from '../i18n'
 import LanguageToggle from './LanguageToggle'
+import { saveStoredAdminSession } from '../app/adminSession.js'
 
 export default function Login({ onLogin, onMessage }) {
     const { t } = useI18n()
@@ -26,9 +27,7 @@ export default function Login({ onLogin, onMessage }) {
             const data = await res.json()
 
             if (res.ok && data.success) {
-                const storage = remember ? localStorage : sessionStorage
-                storage.setItem('ds2api_token', data.token)
-                storage.setItem('ds2api_token_expires', Date.now() + data.expires_in * 1000)
+                saveStoredAdminSession(data.token, data.expires_in, remember)
 
                 onLogin(data.token)
                 if (data.message) {

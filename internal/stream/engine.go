@@ -76,7 +76,9 @@ func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 			initialType = "text"
 		}
 	}
-	parsedLines, done := sse.StartParsedLinePump(cfg.Context, cfg.Body, cfg.ThinkingEnabled, initialType)
+	pumpCtx, cancelPump := context.WithCancel(cfg.Context)
+	defer cancelPump()
+	parsedLines, done := sse.StartParsedLinePump(pumpCtx, cfg.Body, cfg.ThinkingEnabled, initialType)
 
 	var ticker *time.Ticker
 	if cfg.KeepAliveInterval > 0 {
@@ -89,6 +91,9 @@ func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 	keepaliveCount := 0
 
 	finalize := func(reason StopReason, scannerErr error) {
+		// Finalization may start another upstream attempt. Stop this attempt's
+		// reader first, without cancelling the caller's shared retry context.
+		cancelPump()
 		if hooks.OnFinalize != nil {
 			hooks.OnFinalize(reason, scannerErr)
 		}

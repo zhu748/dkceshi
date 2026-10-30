@@ -113,15 +113,22 @@ func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *c
 			return "", err
 		}
 		if resp.StatusCode != http.StatusOK {
-			_ = resp.Body.Close()
+			if err := resp.Body.Close(); err != nil {
+				config.Logger.Warn("[toolcall_repair] close error response failed", "error", err)
+			}
 			config.Logger.Warn("[toolcall_repair] upstream non-200", "status_code", resp.StatusCode, "elapsed_ms", time.Since(startedAt).Milliseconds())
 			record.failure(resp.StatusCode, errToolCallRepairUpstream)
 			return "", errToolCallRepairUpstream
 		}
 		result := sse.CollectStream(resp, false, true)
+		if result.ReadError != nil {
+			record.failure(http.StatusBadGateway, result.ReadError)
+			return "", result.ReadError
+		}
 		if strings.TrimSpace(result.UpstreamError) != "" {
 			config.Logger.Warn("[toolcall_repair] upstream stream error", "error", result.UpstreamError, "elapsed_ms", time.Since(startedAt).Milliseconds())
 			record.failure(http.StatusBadGateway, errors.New(result.UpstreamError))
+			return "", errors.New(result.UpstreamError)
 		} else {
 			config.Logger.Info("[toolcall_repair] succeeded", "output_len", len(result.Text), "elapsed_ms", time.Since(startedAt).Milliseconds())
 			record.success(result.Text)
