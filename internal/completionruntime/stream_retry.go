@@ -2,7 +2,6 @@ package completionruntime
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"strings"
 
@@ -41,10 +40,13 @@ type ConsumeAttemptResult struct {
 }
 
 type StreamRetryHooks struct {
-	ConsumeAttempt   func(resp *http.Response, allowDeferEmpty bool) ConsumeAttemptResult
-	Finalize         func(attempts int)
-	ParentMessageID  func() int
-	OnRetry          func(attempts int)
+	ConsumeAttempt  func(resp *http.Response, allowDeferEmpty bool) ConsumeAttemptResult
+	Finalize        func(attempts int)
+	ParentMessageID func() int
+	OnRetry         func(attempts int)
+	// OnRegenerate discards undelivered output before a new generation.
+	// Continue/resume deliberately preserves the current attempt state.
+	OnRegenerate     func()
 	OnRetryPrompt    func(prompt string)
 	OnRetryFailure   func(status int, message, code string)
 	OnAccountSwitch  func(sessionID string)
@@ -62,6 +64,9 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 	if hooks.ConsumeAttempt == nil {
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	surface := strings.TrimSpace(opts.Surface)
 	if surface == "" {
 		surface = "completion"
@@ -74,297 +79,151 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 	if retryMax <= 0 {
 		retryMax = shared.EmptyOutputRetryMaxAttempts()
 	}
-
 	attempts := 0
 	accountSwitchAttempted := false
 	currentResp := initialResp
 	currentPayload := clonePayload(payload)
+	failed := false
+	fail := func(err *assistantturn.OutputError) {
+		if failed {
+			return
+		}
+		failed = true
+		if ctx.Err() == nil && hooks.OnRetryFailure != nil {
+			hooks.OnRetryFailure(err.Status, err.Message, err.Code)
+		}
+	}
+	reset := func() {
+		if hooks.OnRegenerate != nil {
+			hooks.OnRegenerate()
+		}
+	}
+	adopt := func(start StartResult) {
+		currentResp, currentPayload, pow = start.Response, start.Payload, start.Pow
+		reset()
+		if hooks.OnAccountSwitch != nil {
+			hooks.OnAccountSwitch(start.SessionID)
+		}
+		if hooks.OnRetryPrompt != nil {
+			hooks.OnRetryPrompt(opts.UsagePrompt)
+		}
+	}
+	switchAccount := func(err *assistantturn.OutputError) bool {
+		if !canRetryOnAlternateAccount(ctx, a, err, opts.RetryEnabled, &accountSwitchAttempted) {
+			return false
+		}
+		start, startErr := startPayloadCompletionOnAlternateAccount(ctx, ds, a, payload, opts, maxAttempts)
+		if startErr != nil {
+			fail(startErr)
+			return false
+		}
+		adopt(start)
+		config.Logger.Info("[completion_runtime_account_switch_retry] retrying on alternate account", "surface", surface, "account", a.AccountID, "error_code", err.Code)
+		return true
+	}
 	for {
-		allowAccountSwitch := opts.RetryEnabled && attempts >= retryMax && a != nil && a.UseConfigToken
-		result := hooks.ConsumeAttempt(currentResp, opts.RetryEnabled && (attempts < retryMax || allowAccountSwitch))
+		if ctx.Err() != nil {
+			if currentResp != nil && currentResp.Body != nil {
+				closeRetryBody(surface, currentResp.Body)
+			}
+			return
+		}
+		if responseErr := completionResponseError(currentResp, a); responseErr != nil {
+			if switchAccount(responseErr) {
+				continue
+			}
+			fail(responseErr)
+			return
+		}
+		allowDefer := opts.RetryEnabled && (attempts < retryMax || a != nil && a.UseConfigToken)
+		result := hooks.ConsumeAttempt(currentResp, allowDefer)
+		if ctx.Err() != nil {
+			return
+		}
 		if result.Terminal {
 			if hooks.OnTerminal != nil {
 				hooks.OnTerminal(attempts)
 			}
 			return
 		}
-		if !result.Retryable || !opts.RetryEnabled {
-			if hooks.Finalize != nil {
+		pendingErr := buildEmptyOutputError(hooks)
+		if !result.Retryable || !opts.RetryEnabled || !result.ResumeContinue && !IsRetryableOutputError(pendingErr) {
+			if !failed && hooks.Finalize != nil {
 				hooks.Finalize(attempts)
 			}
 			return
 		}
-
 		if attempts >= retryMax {
 			if result.ResumeContinue {
-				// Continue-resume budget exhausted: surface the interruption
-				// instead of silently delivering a truncated response.
-				if hooks.OnRetryFailure != nil {
-					hooks.OnRetryFailure(http.StatusBadGateway, "Upstream stream interrupted and continue-resume attempts are exhausted.", "upstream_interrupted")
-				}
+				fail(&assistantturn.OutputError{Status: http.StatusBadGateway, Message: "Upstream stream interrupted and continue-resume attempts are exhausted.", Code: "upstream_interrupted"})
 				return
 			}
-			emptyErr := buildEmptyOutputError(hooks)
-			if canRetryOnAlternateAccount(ctx, a, emptyErr, opts.RetryEnabled, &accountSwitchAttempted) {
-				switched, switchErr := startPayloadCompletionOnAlternateAccount(ctx, ds, a, payload, opts, maxAttempts)
-				if switchErr != nil {
-					if hooks.OnRetryFailure != nil {
-						hooks.OnRetryFailure(switchErr.Status, switchErr.Message, switchErr.Code)
-					}
-					return
-				}
-				if switched.Response != nil {
-					config.Logger.Info("[completion_runtime_account_switch_retry] retrying after empty output", "surface", surface, "stream", opts.Stream, "account", a.AccountID, "error_code", emptyErr.Code)
-					currentResp = switched.Response
-					currentPayload = switched.Payload
-					pow = switched.Pow
-					if hooks.OnAccountSwitch != nil {
-						hooks.OnAccountSwitch(switched.SessionID)
-					}
-					if hooks.OnRetryPrompt != nil {
-						hooks.OnRetryPrompt(opts.UsagePrompt)
-					}
-					continue
-				}
+			if switchAccount(pendingErr) {
+				continue
 			}
-			if hooks.Finalize != nil {
+			if !failed && hooks.EmptyOutputError != nil && hooks.EmptyOutputError() != nil {
+				// Finalization already validated and optionally repaired this
+				// attempt. Report the stored failure without running repair twice.
+				fail(pendingErr)
+			} else if !failed && hooks.Finalize != nil {
 				hooks.Finalize(attempts)
 			}
 			return
 		}
-
 		attempts++
 		parentMessageID := 0
 		if hooks.ParentMessageID != nil {
 			parentMessageID = hooks.ParentMessageID()
 		}
 		parentMessageID = retryParentMessageID(parentMessageID, currentPayload)
-
+		retryPow, powErr := ds.GetPow(ctx, a, maxAttempts)
+		if powErr != nil {
+			config.Logger.Warn("[completion_runtime_retry] PoW fetch failed, reusing original", "surface", surface, "error", powErr)
+			retryPow = pow
+		}
 		if result.ResumeContinue {
-			// Interrupted with partial output: resume the same upstream message
-			// via the continue endpoint instead of opening a synthetic retry.
-			config.Logger.Info("[completion_runtime_continue_resume] resuming interrupted stream", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "parent_message_id", parentMessageID)
-			retryPow, powErr := ds.GetPow(ctx, a, maxAttempts)
-			if powErr != nil {
-				config.Logger.Warn("[completion_runtime_continue_resume] retry PoW fetch failed, falling back to original PoW", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "error", powErr)
-				retryPow = pow
-			}
 			sessionID, _ := currentPayload["chat_session_id"].(string)
-			resumer, ok := ds.(continueResumer)
-			if !ok {
-				if hooks.OnRetryFailure != nil {
-					hooks.OnRetryFailure(http.StatusInternalServerError, "Streaming resume via continue endpoint is not supported by this caller.", "error")
-				}
-				return
-			}
-			nextResp, err := resumer.ContinueCompletion(ctx, a, sessionID, parentMessageID, retryPow)
+			next, err := resumeStream(ctx, ds, a, sessionID, parentMessageID, retryPow)
 			if err != nil {
-				if hooks.OnRetryFailure != nil {
-					hooks.OnRetryFailure(http.StatusBadGateway, "Failed to resume interrupted stream: "+err.Error(), "upstream_interrupted")
-				}
-				config.Logger.Warn("[completion_runtime_continue_resume] continue request failed", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "error", err)
+				fail(err)
 				return
 			}
-			if nextResp.StatusCode != http.StatusOK {
-				body, readErr := io.ReadAll(nextResp.Body)
-				if readErr != nil {
-					config.Logger.Warn("[completion_runtime_continue_resume] continue error body read failed", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "error", readErr)
-				}
-				closeRetryBody(surface, nextResp.Body)
-				msg := strings.TrimSpace(string(body))
-				if msg == "" {
-					msg = http.StatusText(nextResp.StatusCode)
-				}
-				if hooks.OnRetryFailure != nil {
-					hooks.OnRetryFailure(nextResp.StatusCode, msg, "error")
-				}
-				return
-			}
+			currentResp = next
 			if hooks.OnRetry != nil {
 				hooks.OnRetry(attempts)
 			}
-			currentResp = nextResp
 			continue
 		}
-
-		config.Logger.Info("[completion_runtime_empty_retry] attempting synthetic retry", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "parent_message_id", parentMessageID)
-		retryPow, powErr := ds.GetPow(ctx, a, maxAttempts)
-		if powErr != nil {
-			config.Logger.Warn("[completion_runtime_empty_retry] retry PoW fetch failed, falling back to original PoW", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "error", powErr)
-			retryPow = pow
-		}
+		config.Logger.Info("[completion_runtime_output_retry] regenerating undelivered output", "surface", surface, "retry_attempt", attempts, "error_code", pendingErr.Code)
 		retryPayload := shared.ClonePayloadForEmptyOutputRetry(currentPayload, parentMessageID)
-		nextResp, err := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
-		if err != nil {
-			callErr := completionCallOutputError(ctx, err)
-			if canRetryOnAlternateAccount(ctx, a, callErr, opts.RetryEnabled, &accountSwitchAttempted) {
-				switched, switchErr := startPayloadCompletionOnAlternateAccount(ctx, ds, a, payload, opts, maxAttempts)
-				if switchErr != nil {
-					if hooks.OnRetryFailure != nil {
-						hooks.OnRetryFailure(switchErr.Status, switchErr.Message, switchErr.Code)
-					}
-					return
-				}
-				if switched.Response != nil {
-					config.Logger.Info("[completion_runtime_account_switch_retry] retrying after retry request failure", "surface", surface, "stream", opts.Stream, "account", a.AccountID, "error_code", callErr.Code)
-					currentResp = switched.Response
-					currentPayload = switched.Payload
-					pow = switched.Pow
-					if hooks.OnAccountSwitch != nil {
-						hooks.OnAccountSwitch(switched.SessionID)
-					}
-					if hooks.OnRetryPrompt != nil {
-						hooks.OnRetryPrompt(opts.UsagePrompt)
-					}
-					continue
-				}
+		if IsToolOutputError(pendingErr) {
+			retryPayload = shared.ClonePayloadForToolOutputRetry(currentPayload, parentMessageID)
+		}
+		next, callErr := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
+		var outErr *assistantturn.OutputError
+		if callErr != nil {
+			outErr = completionCallOutputError(ctx, callErr)
+		} else {
+			outErr = completionResponseError(next, a)
+		}
+		if outErr != nil {
+			if switchAccount(outErr) {
+				continue
 			}
-			if hooks.OnRetryFailure != nil {
-				hooks.OnRetryFailure(callErr.Status, callErr.Message, callErr.Code)
-			}
-			config.Logger.Warn("[completion_runtime_empty_retry] retry request failed", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "error", err)
+			fail(outErr)
 			return
 		}
-		if nextResp.StatusCode != http.StatusOK {
-			body, readErr := io.ReadAll(nextResp.Body)
-			if readErr != nil {
-				config.Logger.Warn("[completion_runtime_empty_retry] retry error body read failed", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "error", readErr)
-			}
-			closeRetryBody(surface, nextResp.Body)
-			msg := strings.TrimSpace(string(body))
-			if msg == "" {
-				msg = http.StatusText(nextResp.StatusCode)
-			}
-			if captchaBody := tryDetectCaptchaFromBody(body); captchaBody != "" {
-				config.Logger.Warn("[completion_runtime_empty_retry] captcha challenge detected, mapping to 429 for account switch", "surface", surface, "stream", opts.Stream, "account", a.AccountID, "detail", captchaBody)
-				if canRetryOnAlternateAccount(ctx, a, &assistantturn.OutputError{Status: http.StatusTooManyRequests}, opts.RetryEnabled, &accountSwitchAttempted) {
-					switched, switchErr := startPayloadCompletionOnAlternateAccount(ctx, ds, a, payload, opts, maxAttempts)
-					if switchErr != nil {
-						if hooks.OnRetryFailure != nil {
-							hooks.OnRetryFailure(switchErr.Status, switchErr.Message, switchErr.Code)
-						}
-						return
-					}
-					if switched.Response != nil {
-						config.Logger.Info("[completion_runtime_account_switch_retry] retrying after captcha", "surface", surface, "stream", opts.Stream, "account", a.AccountID)
-						currentResp = switched.Response
-						currentPayload = clonePayload(payload)
-						pow = switched.Pow
-						if hooks.OnAccountSwitch != nil {
-							hooks.OnAccountSwitch(switched.SessionID)
-						}
-						if hooks.OnRetryPrompt != nil {
-							hooks.OnRetryPrompt(opts.UsagePrompt)
-						}
-						continue
-					}
-				}
-				if hooks.OnRetryFailure != nil {
-					hooks.OnRetryFailure(http.StatusTooManyRequests, "Captcha challenge detected, account may be rate-limited.", "captcha_required")
-				}
-				return
-			}
-			if transientErr := transientUpstreamError(nextResp.StatusCode, msg); transientErr != nil {
-				if canRetryOnAlternateAccount(ctx, a, transientErr, opts.RetryEnabled, &accountSwitchAttempted) {
-					switched, switchErr := startPayloadCompletionOnAlternateAccount(ctx, ds, a, payload, opts, maxAttempts)
-					if switchErr != nil {
-						if hooks.OnRetryFailure != nil {
-							hooks.OnRetryFailure(switchErr.Status, switchErr.Message, switchErr.Code)
-						}
-						return
-					}
-					if switched.Response != nil {
-						config.Logger.Info("[completion_runtime_account_switch_retry] retrying after transient upstream status", "surface", surface, "stream", opts.Stream, "account", a.AccountID, "status", nextResp.StatusCode)
-						currentResp = switched.Response
-						currentPayload = switched.Payload
-						pow = switched.Pow
-						if hooks.OnAccountSwitch != nil {
-							hooks.OnAccountSwitch(switched.SessionID)
-						}
-						if hooks.OnRetryPrompt != nil {
-							hooks.OnRetryPrompt(opts.UsagePrompt)
-						}
-						continue
-					}
-				}
-				if hooks.OnRetryFailure != nil {
-					hooks.OnRetryFailure(transientErr.Status, transientErr.Message, transientErr.Code)
-				}
-				return
-			}
-			if hooks.OnRetryFailure != nil {
-				hooks.OnRetryFailure(nextResp.StatusCode, msg, "error")
-			}
-			return
-		}
+		reset()
 		if hooks.OnRetry != nil {
 			hooks.OnRetry(attempts)
 		}
 		if hooks.OnRetryPrompt != nil {
-			hooks.OnRetryPrompt(shared.UsagePromptWithEmptyOutputRetry(opts.UsagePrompt, attempts))
+			usagePrompt := shared.UsagePromptWithEmptyOutputRetry(opts.UsagePrompt, attempts)
+			if IsToolOutputError(pendingErr) {
+				usagePrompt = shared.UsagePromptWithToolOutputRetry(opts.UsagePrompt, attempts)
+			}
+			hooks.OnRetryPrompt(usagePrompt)
 		}
-		currentResp = nextResp
-		currentPayload = retryPayload
-	}
-}
-
-func startPayloadCompletionOnAlternateAccount(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, payload map[string]any, opts StreamRetryOptions, maxAttempts int) (StartResult, *assistantturn.OutputError) {
-	if segments := shouldSegmentExpertPrompt(opts.Request, Options{ExpertPromptSegment: opts.ExpertPromptSegment}); segments != nil {
-		return StartCompletionWithSegments(ctx, ds, a, opts.Request, Options{
-			MaxAttempts:         maxAttempts,
-			RetryEnabled:        opts.RetryEnabled,
-			RetryMaxAttempts:    opts.RetryMaxAttempts,
-			CurrentInputFile:    opts.CurrentInputFile,
-			ExpertPromptSegment: opts.ExpertPromptSegment,
-		}, segments)
-	}
-	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
-	if err != nil {
-		return StartResult{}, authOutputError(a)
-	}
-	pow, err := ds.GetPow(ctx, a, maxAttempts)
-	if err != nil {
-		return StartResult{SessionID: sessionID}, powOutputError(a, err)
-	}
-	nextPayload := clonePayload(payload)
-	if opts.CurrentInputFile != nil && opts.Request.CurrentInputFileApplied {
-		stdReq, prepErr := reuploadCurrentInputFileForAccount(ctx, ds, a, opts.Request, Options{CurrentInputFile: opts.CurrentInputFile})
-		if prepErr != nil {
-			return StartResult{SessionID: sessionID}, prepErr
-		}
-		nextPayload = stdReq.CompletionPayload(sessionID)
-	}
-	nextPayload["chat_session_id"] = sessionID
-	delete(nextPayload, "parent_message_id")
-	resp, err := ds.CallCompletion(ctx, a, nextPayload, pow, maxAttempts)
-	if err != nil {
-		return StartResult{SessionID: sessionID, Payload: nextPayload, Pow: pow}, completionCallOutputError(ctx, err)
-	}
-	return StartResult{SessionID: sessionID, Payload: nextPayload, Pow: pow, Response: resp}, nil
-}
-
-func buildEmptyOutputError(hooks StreamRetryHooks) *assistantturn.OutputError {
-	if hooks.EmptyOutputError != nil {
-		if err := hooks.EmptyOutputError(); err != nil {
-			return err
-		}
-	}
-	return &assistantturn.OutputError{Status: http.StatusTooManyRequests}
-}
-
-func clonePayload(payload map[string]any) map[string]any {
-	clone := make(map[string]any, len(payload))
-	for k, v := range payload {
-		clone[k] = v
-	}
-	return clone
-}
-
-func closeRetryBody(surface string, body io.Closer) {
-	if body == nil {
-		return
-	}
-	if err := body.Close(); err != nil {
-		config.Logger.Warn("[completion_runtime_empty_retry] retry response body close failed", "surface", surface, "error", err)
+		currentResp, currentPayload = next, retryPayload
 	}
 }

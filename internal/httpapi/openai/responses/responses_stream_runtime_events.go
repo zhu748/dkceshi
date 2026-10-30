@@ -70,7 +70,7 @@ func (s *responsesStreamRuntime) processToolStreamEvents(events []toolstream.Eve
 			s.emitFunctionCallDeltaEvents(filtered)
 		}
 		if len(evt.ToolCalls) > 0 {
-			if s.toolChoice.Constrained() {
+			if s.toolChoice.Constrained() || s.toolsRaw != nil {
 				continue
 			}
 			s.emitFunctionCallDoneEvents(evt.ToolCalls, s.toolCallOffset)

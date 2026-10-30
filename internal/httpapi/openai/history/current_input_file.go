@@ -98,6 +98,7 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 	// the exit does not sieve.
 	systemDeclaredTools := stdReq.SystemTextToolsApply()
 	fileText = injectCurrentInputFileContinuation(fileText)
+	fileText = stdReq.WithHistoryThinkingInstruction(fileText)
 	toolsText, _ := promptcompat.BuildOpenAIToolsContextTranscript(stdReq.ToolsRaw, stdReq.ToolChoice)
 	modelType := "default"
 	if resolvedType, ok := config.GetModelType(stdReq.ResolvedModel); ok {

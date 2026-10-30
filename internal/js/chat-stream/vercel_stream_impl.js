@@ -51,11 +51,13 @@ const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completio
 const DEEPSEEK_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
 const EMPTY_OUTPUT_RETRY_SUFFIX = 'Previous reply had no visible output. Please regenerate the visible final answer or tool call now.';
 const EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS = 1;
+const TOOL_OUTPUT_RETRY_SUFFIX = 'Previous reply contained an invalid tool call. Regenerate the answer using only the declared tools, valid complete JSON arguments matching their schemas, and the requested tool_choice and parallel_tool_calls policy.';
 const AUTO_CONTINUE_MAX_ROUNDS = 32;
 const TRANSIENT_SWITCH_MAX_ATTEMPTS = 3;
 const TRANSIENT_UPSTREAM_STATUS = new Set([500, 502, 503, 504]);
 const TRANSIENT_UPSTREAM_KEYWORDS = [
-  '暂时', '稍后', '请重试', '繁忙', '超时',
+  '暂时', '稍后', '请重试', '繁忙', '超时', '不可用', '服务异常', '限流', '请求过于频繁',
+  'too many requests', 'rate limit', 'internal server error', 'connection reset',
   'temporarily', 'try again', 'unavailable', 'timeout', 'overloaded', 'busy',
 ];
 
@@ -323,13 +325,13 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let contentPolicy = createContentPolicy();
     let usagePrompt = finalPrompt;
     const toolSieveEnabled = toolPolicy.toolSieveEnabled;
-    const toolSieveState = createToolSieveState();
+    let toolSieveState = createToolSieveState();
     toolSieveState.deferMalformed = true;
     // 调用者专属工具调用标识（由 Go 侧按 API Key 派生并随 prepare 下发）。
     // 上游只会输出该标识，而 sieve / 独立解析 / 复读守卫都只认 EPSE，
     // 因此所有流入文本都要先经它有状态地归一化回 EPSE（跨分片标识会被
     // 暂存到下一片，避免半截标识泄漏成正文）。
-    const markerNormalizer = createMarkerNormalizer(prep.body.tool_marker);
+    let markerNormalizer = createMarkerNormalizer(prep.body.tool_marker);
     let toolCallsEmitted = false;
     let toolCallsDoneEmitted = false;
     let toolCallOffset = 0;
@@ -339,14 +341,29 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let buffered = '';
     let ended = false;
     let lastEmptyDetail = null;
-    const { sendFrame, sendDeltaFrame } = createChatCompletionEmitter({
+    let answerDelivered = false;
+    const { sendFrame, sendDeltaFrame: emitDeltaFrame } = createChatCompletionEmitter({
       res,
       sessionID: responseID,
       created,
       model,
       isClosed: () => clientClosed,
     });
+    const sendDeltaFrame = (delta) => {
+      if (delta.content || delta.tool_calls) answerDelivered = true;
+      emitDeltaFrame(delta);
+    };
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
+    const resetForRegeneration = () => {
+      outputText = '';
+      deferredToolText = '';
+      detectionThinkingText = '';
+      lastEmptyDetail = null;
+      toolSieveState = createToolSieveState();
+      toolSieveState.deferMalformed = true;
+      markerNormalizer = createMarkerNormalizer(prep.body.tool_marker);
+      resetStreamToolCallState(streamToolCallIDs, streamToolNames);
+    };
 
     const finish = async (reason, options = {}) => {
       if (ended) {
@@ -388,6 +405,10 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           const validation = await fetchStreamValidation(req, leaseID, outputText, thinkingText, detectionThinkingText, upstreamController.signal);
           if (!validation.ok) {
             const error = validation.body.error || {};
+            if (options.deferEmpty && !answerDelivered && ['invalid_tool_arguments', 'tool_choice_violation'].includes(error.code)) {
+              lastEmptyDetail = { status: validation.status, message: error.message || 'Tool validation failed', code: error.code };
+              return false;
+            }
             ended = true;
             leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: outputText, error: error.message || 'Tool validation failed' };
             sendFailedChunk(res, validation.status, leaseCompletion.error, error.code || 'invalid_tool_arguments');
@@ -411,6 +432,10 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       const violation = (detected.length > 0 || toolCallsEmitted || outputText.trim() !== '')
         ? toolChoiceViolation(detected, toolPolicy.choice) : '';
       if (violation) {
+        if (options.deferEmpty && !answerDelivered) {
+          lastEmptyDetail = { status: 422, message: violation, code: 'tool_choice_violation' };
+          return false;
+        }
         ended = true;
         leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: '', error: violation };
         sendFailedChunk(res, 422, violation, 'tool_choice_violation');
@@ -457,7 +482,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           return false;
         }
         ended = true;
-        const detail = upstreamEmptyOutputDetail(reason === 'content_filter', outputText, thinkingText);
+        const detail = lastEmptyDetail || upstreamEmptyOutputDetail(reason === 'content_filter', outputText, thinkingText);
         leaseCompletion = { finish_reason: reason, usage: null, thinking: thinkingText, content: outputText, error: detail.message };
         sendFailedChunk(res, detail.status, detail.message, detail.code);
         await releaseLease();
@@ -553,11 +578,18 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
               if (parsed.errorMessage) {
                 // 临时上游错误（如“服务器暂时不可用”）可重试：交给外层重试/切号
                 // 循环处理，而不是伪装成 content_filter 直接终止。
-                if (isTransientUpstreamMessage(parsed.errorMessage)) {
+                deltaCoalescer.flush();
+                if (isTransientUpstreamMessage(parsed.errorMessage) && !answerDelivered && allowDeferEmpty) {
                   lastEmptyDetail = { status: 503, message: parsed.errorMessage, code: 'upstream_unavailable' };
                   return { terminal: false, retryable: true, responseMessageID: continueState.responseMessageID, interrupted: false };
                 }
-                return { terminal: await finish('content_filter'), retryable: false };
+                deltaCoalescer.flush();
+                ended = true;
+                leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: outputText, error: parsed.errorMessage };
+                sendFailedChunk(res, 502, parsed.errorMessage, 'upstream_error');
+                await releaseLease();
+                if (!res.writableEnded && !res.destroyed) res.end();
+                return { terminal: true, retryable: false };
               }
               if (parsed.contentFilter) {
                 return { terminal: await finish(outputText.trim() === '' ? 'content_filter' : 'stop'), retryable: false };
@@ -688,6 +720,17 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           }
           // No partial output: fall through to the normal empty-output path.
           break;
+        } finally {
+          // Release the old upstream stream before retrying or waiting for a
+          // different account. Otherwise an error event can leave its HTTP
+          // stream alive and keep consuming upstream concurrency.
+          const finishedReader = reader;
+          reader = null;
+          if (finishedReader) {
+            try { await finishedReader.cancel(); }
+            catch (err) { if (!clientClosed) console.warn('[vercel_stream] reader cancel failed', err.message); }
+            finishedReader.releaseLock();
+          }
         }
 
         if (contentCut !== CUT_NONE) {
@@ -721,13 +764,31 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
 
     let retryAttempts = 0;
     let accountSwitchAttempted = false;
+    let transientSwitchAttempts = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
+      if (!completionRes.ok || !completionRes.body) {
+        const status = completionRes.ok ? 502 : completionRes.status || 502;
+        const message = completionRes.body && !completionRes.bodyUsed ? await completionRes.text() : (lastEmptyDetail && lastEmptyDetail.message) || '';
+        if (!isTransientUpstreamStatus(status) && !isAccountAuthFailureStatus(status) && status !== 429) {
+          ended = true;
+          leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: outputText, error: message };
+          sendFailedChunk(res, status, message, 'upstream_error');
+          await releaseLease();
+          if (!res.writableEnded && !res.destroyed) res.end();
+          return;
+        }
+        lastEmptyDetail = { status, message, code: isAccountAuthFailureStatus(status) ? 'account_unauthorized' : 'upstream_unavailable' };
+      }
+      const pendingTransient = lastEmptyDetail && ['upstream_unavailable', 'account_unauthorized'].includes(lastEmptyDetail.code);
+      const allowDeferEmpty = retryAttempts < EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS || !accountSwitchAttempted || pendingTransient;
+      const processed = completionRes.ok && completionRes.body
+        ? await processStream(completionRes, allowDeferEmpty)
+        : { terminal: false, retryable: true, interrupted: false };
       const isUpstreamUnavailable = lastEmptyDetail && lastEmptyDetail.code === 'upstream_unavailable';
       const isAccountUnauthorized = lastEmptyDetail && lastEmptyDetail.code === 'account_unauthorized';
       const isInputContentBlocked = lastEmptyDetail && lastEmptyDetail.code === 'input_content_blocked';
-      const allowDeferEmpty = retryAttempts < EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS || !accountSwitchAttempted || isUpstreamUnavailable || isAccountUnauthorized;
-      const processed = await processStream(completionRes, allowDeferEmpty);
+      const isToolOutputError = lastEmptyDetail && ['invalid_tool_arguments', 'tool_choice_violation'].includes(lastEmptyDetail.code);
       if (processed.terminal) {
         return;
       }
@@ -750,6 +811,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           return;
         }
         if (isUpstreamUnavailable || isAccountUnauthorized) {
+          if (answerDelivered || transientSwitchAttempts >= TRANSIENT_SWITCH_MAX_ATTEMPTS) {
+            await finish('stop');
+            return;
+          }
+          transientSwitchAttempts += 1;
           const switched = await fetchStreamSwitch(
             req,
             leaseID,
@@ -762,16 +828,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
             updateBaseHeaders(switched.body);
             usagePrompt = finalPrompt;
-            lastEmptyDetail = null;
-            outputText = '';
-            thinkingText = '';
-            detectionThinkingText = '';
+            resetForRegeneration();
             completionRes = await fetchCompletion(completionPayload);
             if (completionRes === null) {
-              return;
-            }
-            if (!completionRes.ok || !completionRes.body) {
-              await finish('stop');
               return;
             }
             continue;
@@ -789,15 +848,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
             updateBaseHeaders(switched.body);
             usagePrompt = finalPrompt;
-            outputText = '';
-            thinkingText = '';
-            detectionThinkingText = '';
+            resetForRegeneration();
             completionRes = await fetchCompletion(completionPayload);
             if (completionRes === null) {
-              return;
-            }
-            if (!completionRes.ok || !completionRes.body) {
-              await finish('stop');
               return;
             }
             continue;
@@ -813,14 +866,18 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         retry_attempt: retryAttempts,
         parent_message_id: processed.responseMessageID || 0,
       });
-      usagePrompt = usagePromptWithEmptyOutputRetry(finalPrompt, retryAttempts);
+      usagePrompt = isToolOutputError
+        ? `${finalPrompt}\n${asString(completionPayload.prompt)}\n\n${TOOL_OUTPUT_RETRY_SUFFIX}`
+        : usagePromptWithEmptyOutputRetry(finalPrompt, retryAttempts);
       const retryPowHeader = await refreshPowHeader('retry');
       if (!retryPowHeader) {
         return;
       }
       completionRes = await fetchDeepSeekStream(
         DEEPSEEK_COMPLETION_URL,
-        clonePayloadForEmptyOutputRetry(completionPayload, processed.responseMessageID),
+        isToolOutputError
+          ? { ...clonePayloadForEmptyOutputRetry(completionPayload, processed.responseMessageID), prompt: `${asString(completionPayload.prompt)}\n\n${TOOL_OUTPUT_RETRY_SUFFIX}` }
+          : clonePayloadForEmptyOutputRetry(completionPayload, processed.responseMessageID),
         retryPowHeader,
       );
       if (completionRes === null) {
@@ -840,6 +897,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         await finish('stop');
         return;
       }
+      resetForRegeneration();
     }
   } finally {
     req.removeListener('aborted', onReqAborted);
@@ -1186,18 +1244,27 @@ async function detectMutedOrBannedResponse(res) {
     return { mutedUntil: 0, banned: false, response: res };
   }
   if (firstChunk[0] !== 0x7b) { // '{'
+    let cancelled = false;
+    let released = false;
+    const releaseSource = () => {
+      if (!released) { released = true; reader.releaseLock(); }
+    };
     const newBody = new ReadableStream({
-      start(controller) {
-        controller.enqueue(firstChunk);
-        const pump = () => reader.read().then(({ done, value }) => {
-          if (done) {
-            controller.close();
-            return;
-          }
-          controller.enqueue(value);
-          return pump();
-        }).catch(err => controller.error(err));
-        pump();
+      start(controller) { controller.enqueue(firstChunk); },
+      async pull(controller) {
+        try {
+          const { done, value } = await reader.read();
+          if (cancelled) return;
+          if (done) { controller.close(); releaseSource(); }
+          else controller.enqueue(value);
+        } catch (err) {
+          if (!cancelled) { controller.error(err); releaseSource(); }
+        }
+      },
+      async cancel(reason) {
+        cancelled = true;
+        try { if (!released) await reader.cancel(reason); }
+        finally { releaseSource(); }
       },
     });
     return { mutedUntil: 0, banned: false, response: new Response(newBody, res) };

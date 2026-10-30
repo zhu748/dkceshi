@@ -2,6 +2,7 @@ package claude
 
 import (
 	"ds2api/internal/assistantturn"
+	"ds2api/internal/completionruntime"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolcall"
@@ -75,7 +76,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 				continue
 			}
 			if len(evt.ToolCalls) > 0 {
-				if s.toolChoice.Constrained() {
+				if s.toolChoice.Constrained() || s.toolsRaw != nil {
 					continue
 				}
 				s.closeTextBlock()
@@ -123,6 +124,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
 		RawText:               s.rawText.String(),
+		UpstreamError:         s.upstreamErr,
 		VisibleText:           s.text.String(),
 		RawThinking:           s.rawThinking.String(),
 		VisibleThinking:       s.thinking.String(),
@@ -147,7 +149,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		AlreadyEmittedToolCalls: s.toolCallsDetected,
 	})
 	if outcome.ShouldFail {
-		if deferEmptyOutput {
+		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.textEmitted || s.toolCallsDetected) {
 			s.finalErrorStatus = outcome.Error.Status
 			s.finalErrorMessage = outcome.Error.Message
 			s.finalErrorCode = outcome.Error.Code

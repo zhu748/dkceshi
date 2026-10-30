@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"ds2api/internal/assistantturn"
+	"ds2api/internal/completionruntime"
 	"ds2api/internal/toolcall"
 	"net/http"
 	"strings"
@@ -114,7 +115,7 @@ func newResponsesStreamRuntime(
 		toolNames:             toolNames,
 		toolsRaw:              toolsRaw,
 		bufferToolContent:     bufferToolContent,
-		emitEarlyToolDeltas:   emitEarlyToolDeltas && !toolChoice.Constrained(),
+		emitEarlyToolDeltas:   emitEarlyToolDeltas && !toolChoice.Constrained() && toolsRaw == nil,
 		sieve:                 toolstream.State{DeferMalformed: true},
 		streamToolCallIDs:     map[int]string{},
 		functionItemIDs:       map[int]string{},
@@ -215,7 +216,11 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	textParsed := turn.ParsedToolCalls
 	detected := turn.ToolCalls
 	s.logToolPolicyRejections(textParsed)
-	if turn.Error != nil && (turn.Error.Code == "tool_choice_violation" || turn.Error.Code == "invalid_tool_arguments") {
+	if turn.Error != nil {
+		if completionruntime.CanDeferOutputError(turn.Error, deferEmptyOutput, s.visibleText.Len() > 0 || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
+			s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = turn.Error.Status, turn.Error.Message, turn.Error.Code
+			return false
+		}
 		s.closeReasoningItem()
 		s.closeMessageItem()
 		s.failResponse(turn.Error.Status, turn.Error.Message, turn.Error.Code)
@@ -241,7 +246,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	})
 	if outcome.ShouldFail {
 		status, message, code := outcome.Error.Status, outcome.Error.Message, outcome.Error.Code
-		if deferEmptyOutput {
+		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.visibleText.Len() > 0 || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
 			s.finalErrorStatus = status
 			s.finalErrorMessage = message
 			s.finalErrorCode = code

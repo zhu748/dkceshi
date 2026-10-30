@@ -50,6 +50,7 @@ func (h *Handler) handleResponsesStreamWithRetry(w http.ResponseWriter, r *http.
 		ParentMessageID: func() int {
 			return streamRuntime.responseMessageID
 		},
+		OnRegenerate: streamRuntime.resetForRegeneration,
 		OnRetryPrompt: func(prompt string) {
 			streamRuntime.finalPrompt = prompt
 		},
@@ -115,6 +116,7 @@ func (h *Handler) consumeResponsesStreamAttempt(r *http.Request, resp *http.Resp
 	// over: a cut that ended the previous attempt (an empty-output retry, or a
 	// retry on another account) must not keep discarding this one's text.
 	streamRuntime.accumulator.ResetContentPolicy()
+	streamRuntime.upstreamErr = ""
 	// On a continue/resume (or retry) round the stream has already consumed
 	// part of the message. Never blindly re-seed the segment cursor to
 	// "thinking" in that case: if the message already entered the content

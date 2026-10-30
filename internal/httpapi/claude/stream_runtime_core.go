@@ -241,7 +241,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 				continue
 			}
 			if len(evt.ToolCalls) > 0 {
-				if s.toolChoice.Constrained() {
+				if s.toolChoice.Constrained() || s.toolsRaw != nil {
 					continue
 				}
 				s.closeTextBlock()

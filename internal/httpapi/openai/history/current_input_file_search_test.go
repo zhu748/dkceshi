@@ -34,8 +34,11 @@ func TestCurrentInputFilePreservesNativeSearchInstructions(t *testing.T) {
 			if !out.CurrentInputFileApplied || strings.Count(out.FinalPrompt, "Built-in web search protocol") != 1 {
 				t.Fatal("history split dropped or duplicated live search instructions")
 			}
-			if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.DefaultThinkingInjectionPrompt+"\n\n[System]:Built-in web search protocol") || strings.Count(out.PromptTokenText, promptcompat.ThinkingInjectionMarker) != 1 {
+			if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.DefaultThinkingInjectionPrompt+"\n\n[System]:Built-in web search protocol") || strings.Count(out.FinalPrompt, promptcompat.ThinkingInjectionMarker) != 1 {
 				t.Fatal("history split moved or duplicated the leading thinking instruction")
+			}
+			if strings.Count(out.HistoryText, promptcompat.ThinkingInjectionMarker) != 1 || strings.Count(out.PromptTokenText, promptcompat.ThinkingInjectionMarker) != 2 {
+				t.Fatal("token text must count one thinking instruction in the file and one in the live prompt")
 			}
 			if !strings.Contains(out.PromptTokenText, out.FinalPrompt) || !strings.Contains(out.PromptTokenText, out.HistoryText) {
 				t.Fatal("token text must include uploaded history and live search instructions")

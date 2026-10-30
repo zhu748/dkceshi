@@ -495,6 +495,16 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 	if strings.TrimSpace(a.TargetAccount) != "" {
 		return false
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return false
+	}
+	// Share the normal bounded queue rather than failing merely because the
+	// replacement account is busy. The caller's earlier deadline always wins.
+	waitCtx, cancel := context.WithTimeout(ctx, accountSwitchWaitTimeout)
+	defer cancel()
 	if a.TriedAccounts == nil {
 		a.TriedAccounts = map[string]bool{}
 	}
@@ -506,7 +516,7 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 		return acc.MatchesPoolType(a.ToolsPresent)
 	})
 	for {
-		acc, ok := r.Pool.Acquire("", a.TriedAccounts, filter)
+		acc, ok := r.Pool.AcquireWait(waitCtx, "", a.TriedAccounts, filter)
 		if !ok {
 			// No replacement is available. a.AccountID still names the account whose
 			// slot this call just returned, and releaseAccountSlot remembers that, so

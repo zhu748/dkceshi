@@ -86,6 +86,17 @@ func thinkingSystemPrefix(injectionPrompt string) string {
 	return "<｜System｜>" + injectionPrompt + "\n\n"
 }
 
+// WithHistoryThinkingInstruction makes the uploaded history self-contained:
+// the effective thinking instruction precedes the filename and history summary.
+// Client messages stay unchanged, and the live prompt retains its own prefix.
+func (r StandardRequest) WithHistoryThinkingInstruction(transcript string) string {
+	if !r.Thinking || r.ThinkingInjectionPrompt == "" || strings.TrimSpace(transcript) == "" {
+		return transcript
+	}
+	prefix := thinkingSystemPrefix(r.ThinkingInjectionPrompt)
+	return prefix + strings.TrimPrefix(transcript, prefix)
+}
+
 const legacyThinkingInjectionPrompt = `text: You are a helpful software engineer assistant.
 description: Bootstrap with shell/read, then expose the full Standard tool catalog after the first durable tool call.
 **when you thought, start with "we need..."**`

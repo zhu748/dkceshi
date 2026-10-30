@@ -143,6 +143,7 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
   const fetchRequests = [];
   let completionCalls = 0;
   let continueCalls = 0;
+  let validationCalls = 0;
   const prepareBody = {
     session_id: 'chatcmpl-test',
     lease_id: 'lease-test',
@@ -167,7 +168,15 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
       return jsonResponse(prepareBody);
     }
     if (textURL.includes('__stream_validate=1')) {
+      const replies = prepareOverrides.validation_responses;
+      if (Array.isArray(replies) && replies.length) {
+        const reply = replies[Math.min(validationCalls++, replies.length - 1)];
+        return jsonResponse(reply.body, reply.status || 200);
+      }
       return jsonResponse(prepareOverrides.validation_result || { tool_calls: [] }, prepareOverrides.validation_status || 200);
+    }
+    if (textURL.includes('__stream_switch=1')) {
+      return jsonResponse(prepareOverrides.switch_result || { error: 'no alternate account' }, prepareOverrides.switch_result ? 200 : 429);
     }
     if (textURL.includes('__stream_pow=1')) {
       return jsonResponse({ pow_header: 'pow-header-refreshed' });
@@ -178,11 +187,11 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
     if (textURL.includes('/continue')) {
       const idx = Math.min(continueCalls + 1, upstreamSequences.length - 1);
       continueCalls += 1;
-      return sseResponse(upstreamSequences[idx]);
+      return upstreamSequences[idx] instanceof Response ? upstreamSequences[idx] : sseResponse(upstreamSequences[idx]);
     }
     const idx = Math.min(completionCalls, upstreamSequences.length - 1);
     completionCalls += 1;
-    return sseResponse(upstreamSequences[idx]);
+    return upstreamSequences[idx] instanceof Response ? upstreamSequences[idx] : sseResponse(upstreamSequences[idx]);
   };
   try {
     const req = new MockStreamRequest();
@@ -2023,4 +2032,75 @@ test('malformed prefix before a valid tool remains quarantined', async () => {
   const choices = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse).flatMap(event => event.choices || []);
   assert.equal(choices.some(choice => choice.delta.content), false);
   assert.equal(choices.some(choice => choice.delta.tool_calls), true);
+});
+
+
+test('transient SSE errors regenerate without leaking an error frame', async () => {
+  const { frames, fetchURLs } = await runMockVercelStreamSequence([
+    ['data: {"error":{"message":"服务器暂时不可用"}}\n\n'],
+    ['data: {"p":"response/content","v":"healthy answer"}\n\n', 'data: [DONE]\n\n'],
+  ]);
+  const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.equal(events.some(event => event.error), false);
+  assert.equal(events.filter(event => event.choices?.[0]?.delta?.content === 'healthy answer').length, 1);
+  assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
+  assert.equal(fetchURLs.filter(url => url.includes('__stream_pow=1')).length, 1);
+});
+
+test('schema failure retries with corrective prompt and discards the rejected call', async () => {
+  const line = raw => `data: ${JSON.stringify({ p: 'response/content', v: raw })}\n\n`;
+  const wire = [{ index: 0, id: 'call_good', type: 'function', function: { name: 'lookup', arguments: '{"query":"ok"}' } }];
+  const { frames, fetchBodies } = await runMockVercelStreamSequence([
+    [line('<tool_calls><invoke name="lookup"></invoke></tool_calls>'), 'data: [DONE]\n\n'],
+    [line('<tool_calls><invoke name="lookup"><parameter name="query">ok</parameter></invoke></tool_calls>'), 'data: [DONE]\n\n'],
+  ], { validate_tools: true, tool_names: ['lookup'], validation_responses: [
+    { status: 422, body: { error: { code: 'invalid_tool_arguments', message: 'missing query' } } },
+    { body: { tool_calls: wire } },
+  ] });
+  const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.equal(events.some(event => event.error), false);
+  assert.deepEqual(events.flatMap(event => event.choices?.[0]?.delta?.tool_calls || []), wire);
+  assert.ok(fetchBodies.some(body => body.prompt?.includes('Previous reply contained an invalid tool call.')));
+  assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
+});
+
+test('permanent errors and already delivered answers never regenerate', async () => {
+  for (const partial of [false, true]) {
+    const lines = partial ? ['data: {"p":"response/content","v":"partial"}\n\n'] : [];
+    lines.push(`data: ${JSON.stringify({ error: { message: partial ? '服务器暂时不可用' : '内容超长，请删减后再试' } })}\n\n`);
+    const { frames, fetchURLs } = await runMockVercelStreamSequence([lines]);
+    const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+    assert.equal(events.filter(event => event.error).length, 1);
+    assert.equal(fetchURLs.some(url => url.includes('__stream_pow=1') || url.includes('__stream_switch=1')), false);
+    assert.equal(events.some(event => event.choices?.[0]?.finish_reason === 'stop'), false);
+  }
+});
+
+test('HTTP 503 on a synthetic retry switches accounts without parsing an error body as SSE', async () => {
+  const { frames, fetchURLs } = await runMockVercelStreamSequence([
+    ['data: [DONE]\n\n'],
+    jsonResponse({ error: 'temporarily unavailable' }, 503),
+    ['data: {"p":"response/content","v":"alternate answer"}\n\n', 'data: [DONE]\n\n'],
+  ], { switch_result: { session_id: 'second', deepseek_token: 'token-second', pow_header: 'pow-second', payload: { prompt: 'hello', chat_session_id: 'second' } } });
+  const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.equal(events.some(event => event.error), false);
+  assert.equal(fetchURLs.filter(url => url.includes('__stream_switch=1')).length, 1);
+  assert.equal(events.some(event => event.choices?.[0]?.delta?.content === 'alternate answer'), true);
+  assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
+});
+
+
+test('retry cancels an open failed upstream reader before starting the next attempt', async () => {
+  let cancelled = 0;
+  const first = new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode('data: {"error":{"message":"服务不可用"}}\n\n')); },
+    cancel() { cancelled += 1; },
+  }), { headers: { 'content-type': 'text/event-stream' } });
+  const { frames } = await runMockVercelStreamSequence([
+    first,
+    ['data: {"p":"response/content","v":"recovered"}\n\n', 'data: [DONE]\n\n'],
+  ]);
+  assert.equal(cancelled, 1);
+  const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.equal(events.some(event => event.error), false);
 });

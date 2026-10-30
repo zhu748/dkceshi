@@ -3,9 +3,7 @@ package completionruntime
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
@@ -244,7 +242,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 	accumulatedRawThinking := ""
 	accumulatedToolDetectionThinking := ""
 	for {
-		turn, outErr := collectAttempt(currentResp, stdReq, usagePrompt, opts)
+		turn, outErr := collectAttempt(currentResp, a, stdReq, usagePrompt, opts)
 		if outErr != nil {
 			if canRetryOnAlternateAccount(ctx, a, outErr, opts.RetryEnabled, &accountSwitchAttempted) {
 				switched, switchErr := startStandardCompletionOnAlternateAccount(ctx, ds, a, stdReq, opts, maxAttempts)
@@ -277,6 +275,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			Thinking:               turn.RawThinking,
 			ToolDetectionThinking:  turn.DetectionThinking,
 			ContentFilter:          turn.ContentFilter,
+			UpstreamError:          turn.UpstreamError,
 			CitationLinks:          turn.CitationLinks,
 			ResponseMessageID:      turn.ResponseMessageID,
 			FirstResponseMessageID: turn.FirstResponseMessageID,
@@ -286,7 +285,8 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		if retryMax <= 0 {
 			retryMax = shared.EmptyOutputRetryMaxAttempts()
 		}
-		if !opts.RetryEnabled || !assistantturn.ShouldRetryEmptyOutput(turn, attempts, retryMax) {
+		toolRetry := IsToolOutputError(turn.Error) && attempts < retryMax
+		if !opts.RetryEnabled || !toolRetry && !assistantturn.ShouldRetryEmptyOutput(turn, attempts, retryMax) {
 			if canRetryOnAlternateAccount(ctx, a, turn.Error, opts.RetryEnabled, &accountSwitchAttempted) {
 				switched, switchErr := startStandardCompletionOnAlternateAccount(ctx, ds, a, stdReq, opts, maxAttempts)
 				if switchErr != nil {
@@ -317,6 +317,9 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			retryPow = pow
 		}
 		retryPayload := shared.ClonePayloadForEmptyOutputRetry(payload, parentMessageID)
+		if toolRetry {
+			retryPayload = shared.ClonePayloadForToolOutputRetry(payload, parentMessageID)
+		}
 		nextResp, err := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		if err != nil {
 			callErr := completionCallOutputError(ctx, err)
@@ -342,6 +345,10 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		}
 		payload = retryPayload
 		usagePrompt = shared.UsagePromptWithEmptyOutputRetry(usagePrompt, attempts)
+		if toolRetry {
+			usagePrompt = shared.UsagePromptWithToolOutputRetry(stdReq.PromptTokenText, attempts)
+			accumulatedRawThinking, accumulatedToolDetectionThinking = "", ""
+		}
 		currentResp = nextResp
 	}
 }
@@ -375,6 +382,9 @@ func canRetryOnAlternateAccount(ctx context.Context, a *auth.RequestAuth, outErr
 	if outErr == nil || !retryEnabled || a == nil || !a.UseConfigToken {
 		return false
 	}
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
 	if isAccountMuted(outErr) {
 		return a.SwitchAccount(ctx)
 	}
@@ -389,7 +399,7 @@ func canRetryOnAlternateAccount(ctx context.Context, a *auth.RequestAuth, outErr
 		// 调用点和 Vercel 路径同源，见 auth.RequestAuth.RecoverAuthFailure。
 		return a.RecoverAuthFailure(ctx) != auth.AuthRecoveryNone
 	}
-	if outErr.Status != http.StatusTooManyRequests {
+	if outErr.Status != http.StatusTooManyRequests && !IsToolOutputError(outErr) {
 		return false
 	}
 	if attempted == nil || *attempted {
@@ -452,27 +462,15 @@ func reuploadCurrentInputFileForAccount(ctx context.Context, ds DeepSeekCaller, 
 	return out, nil
 }
 
-func collectAttempt(resp *http.Response, stdReq promptcompat.StandardRequest, usagePrompt string, opts Options) (assistantturn.Turn, *assistantturn.OutputError) {
+func collectAttempt(resp *http.Response, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, usagePrompt string, opts Options) (assistantturn.Turn, *assistantturn.OutputError) {
+	if outErr := completionResponseError(resp, a); outErr != nil {
+		return assistantturn.Turn{}, outErr
+	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
 			config.Logger.Warn("[completion_runtime] response body close failed", "surface", stdReq.Surface, "error", err)
 		}
 	}()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		message := strings.TrimSpace(string(body))
-		if message == "" {
-			message = http.StatusText(resp.StatusCode)
-		}
-		if captchaBody := tryDetectCaptchaFromBody(body); captchaBody != "" {
-			config.Logger.Warn("[completion_runtime] captcha challenge detected, mapping to 429 for account switch", "surface", stdReq.Surface, "detail", captchaBody)
-			return assistantturn.Turn{}, &assistantturn.OutputError{Status: http.StatusTooManyRequests, Message: "Captcha challenge detected, account may be rate-limited.", Code: "captcha_required"}
-		}
-		if transientErr := transientUpstreamError(resp.StatusCode, message); transientErr != nil {
-			return assistantturn.Turn{}, transientErr
-		}
-		return assistantturn.Turn{}, &assistantturn.OutputError{Status: resp.StatusCode, Message: message, Code: "error"}
-	}
 	result := sse.CollectStream(resp, stdReq.Thinking, false)
 	// collectAttempt only accumulates raw text/thinking across retries; the
 	// terminal turn is rebuilt once from turn.RawText by the retry loop (see

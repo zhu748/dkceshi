@@ -127,6 +127,14 @@ func completionCallOutputError(ctx context.Context, err error) *assistantturn.Ou
 // as over-long input are intentionally absent.
 var transientUpstreamErrorKeywords = []string{
 	"暂时",
+	"不可用",
+	"服务异常",
+	"限流",
+	"请求过于频繁",
+	"too many requests",
+	"rate limit",
+	"internal server error",
+	"connection reset",
 	"稍后",
 	"请重试",
 	"繁忙",
@@ -160,4 +168,39 @@ func IsTransientUpstreamErrorMessage(message string) bool {
 // a transient message that justifies switching accounts.
 func isRetryableUpstreamError(outErr *assistantturn.OutputError) bool {
 	return outErr != nil && outErr.Code == "upstream_error" && IsTransientUpstreamErrorMessage(outErr.Message)
+}
+
+// completionResponseError validates every response, including responses opened
+// after failover. Error bodies must never be fed to the SSE parser as empty
+// successful streams. This function consumes non-200 bodies exactly once.
+func completionResponseError(resp *http.Response, a *auth.RequestAuth) *assistantturn.OutputError {
+	if resp == nil {
+		return &assistantturn.OutputError{Status: http.StatusBadGateway, Message: "Upstream returned no response.", Code: "upstream_unavailable"}
+	}
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	if err := managedUnauthorizedResponseError(resp, a); err != nil {
+		return err
+	}
+	if err := transientUpstreamResponseError(resp); err != nil {
+		return err
+	}
+	var body []byte
+	if resp.Body != nil {
+		var err error
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		if err != nil {
+			config.Logger.Warn("[completion_runtime] error response read failed", "error", err)
+		}
+		closeRetryBody("completion", resp.Body)
+	}
+	if tryDetectCaptchaFromBody(body) != "" {
+		return &assistantturn.OutputError{Status: http.StatusTooManyRequests, Message: "Captcha challenge detected, account may be rate-limited.", Code: "captcha_required"}
+	}
+	message := strings.TrimSpace(string(body))
+	if message == "" {
+		message = http.StatusText(resp.StatusCode)
+	}
+	return &assistantturn.OutputError{Status: resp.StatusCode, Message: message, Code: "error"}
 }

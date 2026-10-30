@@ -1,5 +1,12 @@
 package account
 
+type poolWaiter struct {
+	ready   chan struct{}
+	target  string
+	exclude map[string]bool
+	filter  AccountFilter
+}
+
 // canQueueLocked 判断是否还有排队等待的意义。
 //   - target 模式：target 必须存在、未被 exclude、且满足 filter
 //   - 轮询模式：队列中至少存在一个未被 exclude、且满足 filter 的账号
@@ -60,15 +67,35 @@ func (p *Pool) canQueueLocked(target string, exclude map[string]bool, filter Acc
 }
 
 func (p *Pool) notifyWaiterLocked() {
-	if len(p.waiters) == 0 {
+	// Wake the oldest waiter that can use a free slot. A waiter for a busy
+	// tools-only account must not strand requests for an idle no-tools account.
+	for i, waiter := range p.waiters {
+		if !p.waiterCanAcquireLocked(waiter) {
+			continue
+		}
+		p.waiters = append(p.waiters[:i], p.waiters[i+1:]...)
+		close(waiter.ready)
 		return
 	}
-	waiter := p.waiters[0]
-	p.waiters = p.waiters[1:]
-	close(waiter)
 }
 
-func (p *Pool) removeWaiterLocked(waiter chan struct{}) bool {
+func (p *Pool) waiterCanAcquireLocked(waiter *poolWaiter) bool {
+	if p.closed {
+		return false
+	}
+	for _, id := range p.queue {
+		if waiter.target != "" && waiter.target != id || waiter.exclude[id] || !p.canAcquireIDLocked(id) {
+			continue
+		}
+		acc, ok := p.store.FindAccount(id)
+		if ok && acc.IsSchedulable() && (waiter.filter == nil || waiter.filter(acc)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Pool) removeWaiterLocked(waiter *poolWaiter) bool {
 	for i, w := range p.waiters {
 		if w != waiter {
 			continue
@@ -81,7 +108,7 @@ func (p *Pool) removeWaiterLocked(waiter chan struct{}) bool {
 
 func (p *Pool) drainWaitersLocked() {
 	for _, waiter := range p.waiters {
-		close(waiter)
+		close(waiter.ready)
 	}
 	p.waiters = nil
 }

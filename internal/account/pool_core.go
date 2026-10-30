@@ -13,7 +13,7 @@ type Pool struct {
 	mu                     sync.Mutex
 	queue                  []string
 	inUse                  map[string]int
-	waiters                []chan struct{}
+	waiters                []*poolWaiter
 	maxInflightPerAccount  int
 	recommendedConcurrency int
 	maxQueueSize           int

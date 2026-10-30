@@ -331,7 +331,7 @@ go run ./cmd/ds2api
 - `auto_delete.mode`：请求结束后的远端会话清理策略，支持 `none` / `single` / `all`。
 - `input_file`：上下文拆分上传策略，默认关闭；启用后将较早历史上传为 `HISTORY.txt`，工具目录上传为 `TOOLS.txt`，当前任务及其工具循环保留在实时 prompt。
 - 旧 `current_input_file` 配置键已忽略，需要迁移为 `input_file`。
-- `thinking_injection`：默认**关闭**；打开 `thinking_injection.enabled=true` 且本轮启用 thinking 时，在整个提示词最开头注入 `<｜System｜>Reasoning Effort: ...`，位于其他系统指令、工具说明和用户消息之前；`prompt` 留空使用内置默认提示词，自定义文本也放在相同位置。
+- `thinking_injection`：默认**关闭**；打开 `thinking_injection.enabled=true` 且本轮启用 thinking 时，在整个提示词最开头注入 `<｜System｜>Reasoning Effort: ...`，位于其他系统指令、工具说明和用户消息之前；`prompt` 留空使用内置默认提示词，自定义文本也放在相同位置。历史拆分开启时，HISTORY.txt 也先放本次生效的思考强度系统提示词，再放先前历史说明和消息。
 
 环境变量完整列表见 [部署指南](docs/DEPLOY.md)，接口鉴权规则见 [API.md](API.md#鉴权规则)。
 
@@ -361,6 +361,11 @@ Gemini 路由还可以使用 `x-goog-api-key`，或在没有认证头时使用 `
 - 当 in-flight 槽位满时，请求进入等待队列，**不会立即 429**
 - 超出总承载上限后才返回 `429 Too Many Requests`，当前响应不附带 `Retry-After`
 - completion 空输出类 429 会先做同账号补偿重试；托管账号模式还会在最终返回 429 前切到另一个可用账号 fresh retry 一次
+- 请求出错后的换号也共用等待队列；备用账号正在使用时，每次换号最多等待 30 秒，客户端取消或更短的请求期限会提前终止等待。
+- 队列释放槽位时唤醒能使用该账号/工具池的请求，避免其他池的队首请求阻塞可执行请求。
+- 临时上游错误及模型生成的无效工具调用统一参与有限重试。工具输出先做格式修复，仍不合规时同账号重新生成一次，再尝试另一个匹配账号。
+- 流式回复仅在尚未交付正文或工具调用时重新生成；已交付的回复不会换号重放。带正式工具定义的调用通过完整参数与策略校验后才交付，普通正文仍可流式输出。
+- 审核拦截、请求参数错误、超长输入和客户端取消不参与生成重试。
 - `GET /admin/queue/status` 返回实时并发状态
 
 ## Tool Call 适配

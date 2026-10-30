@@ -476,11 +476,12 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		ParentMessageID: func() int {
 			return streamRuntime.responseMessageID
 		},
+		OnRegenerate: streamRuntime.resetForRegeneration,
 		OnRetryPrompt: func(prompt string) {
 			streamRuntime.promptTokenText = prompt
 		},
 		OnRetryFailure: func(status int, message, code string) {
-			streamRuntime.sendErrorWithCode(status, strings.TrimSpace(message), code)
+			streamRuntime.failRetry(status, strings.TrimSpace(message), code)
 		},
 		EmptyOutputError: func() *assistantturn.OutputError {
 			if streamRuntime.finalErrorCode == "" {
@@ -497,6 +498,7 @@ func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Respons
 	// over: a cut that ended the previous attempt (an empty-output retry, or a
 	// retry on another account) must not keep discarding this one's text.
 	streamRuntime.resetContentPolicy()
+	streamRuntime.upstreamErr = ""
 	initialType := "text"
 	if thinkingEnabled {
 		initialType = "thinking"
@@ -521,19 +523,11 @@ func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Respons
 			scannerErr = err
 		},
 	})
-	if string(finalReason) == "upstream_error" {
-		if streamRuntime.history != nil {
-			streamRuntime.history.Error(500, streamRuntime.upstreamErr, "upstream_error", responsehistory.ThinkingForArchive(streamRuntime.rawThinking.String(), streamRuntime.toolDetectionThinking.String(), streamRuntime.thinking.String()), responsehistory.TextForArchive(streamRuntime.rawText.String(), streamRuntime.text.String()))
-		}
-		streamRuntime.sendError(streamRuntime.upstreamErr)
+	if r.Context().Err() != nil {
 		return true, false
 	}
-	if scannerErr != nil && finalReason != streamengine.StopReasonIdleTimeout && finalReason != streamengine.StopReasonNoContentTimeout {
-		if streamRuntime.history != nil {
-			streamRuntime.history.Error(500, scannerErr.Error(), "error", responsehistory.ThinkingForArchive(streamRuntime.rawThinking.String(), streamRuntime.toolDetectionThinking.String(), streamRuntime.thinking.String()), responsehistory.TextForArchive(streamRuntime.rawText.String(), streamRuntime.text.String()))
-		}
-		streamRuntime.sendError(scannerErr.Error())
-		return true, false
+	if scannerErr != nil || finalReason == streamengine.StopReasonIdleTimeout || finalReason == streamengine.StopReasonNoContentTimeout {
+		streamRuntime.upstreamErr = "Upstream stream unavailable: interrupted before completion."
 	}
 	terminalWritten := streamRuntime.finalize("end_turn", allowDeferEmpty)
 	if terminalWritten {

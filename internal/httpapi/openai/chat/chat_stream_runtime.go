@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ds2api/internal/assistantturn"
+	"ds2api/internal/completionruntime"
 	openaifmt "ds2api/internal/format/openai"
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
@@ -35,6 +36,7 @@ type chatStreamRuntime struct {
 	stripReferenceMarkers bool
 
 	firstChunkSent       bool
+	visibleTextEmitted   bool
 	bufferToolContent    bool
 	emitEarlyToolDeltas  bool
 	toolCallsEmitted     bool
@@ -156,6 +158,9 @@ func (s *chatStreamRuntime) sendDelta(delta map[string]any) {
 	if len(delta) == 0 {
 		return
 	}
+	if content, _ := delta["content"].(string); content != "" {
+		s.visibleTextEmitted = true
+	}
 	if !s.firstChunkSent {
 		delta["role"] = "assistant"
 		s.firstChunkSent = true
@@ -256,8 +261,11 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		ToolCallRepairCtx:     s.toolCallRepairCtx,
 		ToolMarker:            s.toolSieve.Marker,
 	})
-	if turn.Error != nil && (turn.Error.Code == "tool_choice_violation" || turn.Error.Code == "invalid_tool_arguments") {
+	if turn.Error != nil {
 		s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = turn.Error.Status, turn.Error.Message, turn.Error.Code
+		if completionruntime.CanDeferOutputError(turn.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
+			return false
+		}
 		s.sendFailedChunk(turn.Error.Status, turn.Error.Message, turn.Error.Code)
 		return true
 	}
@@ -277,7 +285,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		batch := chatDeltaBatch{runtime: s}
 		for _, evt := range toolstream.Flush(&s.toolSieve, s.toolNames) {
 			if len(evt.ToolCalls) > 0 {
-				if s.toolChoice.Constrained() {
+				if s.toolChoice.Constrained() || s.toolsRaw != nil {
 					continue
 				}
 				batch.flush()
@@ -307,7 +315,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	})
 	if outcome.ShouldFail {
 		status, message, code := outcome.Error.Status, outcome.Error.Message, outcome.Error.Code
-		if deferEmptyOutput {
+		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
 			s.finalErrorStatus = status
 			s.finalErrorMessage = message
 			s.finalErrorCode = code
@@ -374,7 +382,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 					continue
 				}
 				if len(evt.ToolCallDeltas) > 0 {
-					if !s.emitEarlyToolDeltas || s.toolChoice.Constrained() {
+					if !s.emitEarlyToolDeltas || (s.toolChoice.Constrained() || s.toolsRaw != nil) {
 						continue
 					}
 					filtered := filterIncrementalToolCallDeltasByAllowed(evt.ToolCallDeltas, s.streamToolNames)
@@ -394,7 +402,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 					continue
 				}
 				if len(evt.ToolCalls) > 0 {
-					if s.toolChoice.Constrained() {
+					if s.toolChoice.Constrained() || s.toolsRaw != nil {
 						continue
 					}
 					batch.flush()

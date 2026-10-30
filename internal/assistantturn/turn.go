@@ -380,12 +380,12 @@ func BuildUsage(model, prompt, thinking, text string, refFileTokens int) Usage {
 }
 
 func ValidateTurn(turn Turn, policy promptcompat.ToolChoicePolicy) *OutputError {
-	// No answer is an upstream failure, even when a tool call was required.
-	// Preserve its classification so retry and content-filter handling still run.
+	// Preserve explicit upstream errors even after partial text. A truncated
+	// answer must not be reported as successful or regenerated after delivery.
+	if strings.TrimSpace(turn.UpstreamError) != "" {
+		return &OutputError{Status: http.StatusBadRequest, Message: turn.UpstreamError, Code: "upstream_error"}
+	}
 	if len(turn.ToolCalls) == 0 && strings.TrimSpace(turn.Text) == "" {
-		if strings.TrimSpace(turn.UpstreamError) != "" {
-			return &OutputError{Status: http.StatusBadRequest, Message: turn.UpstreamError, Code: "upstream_error"}
-		}
 		status, message, code := UpstreamEmptyOutputDetail(turn.ContentFilter, turn.Text, turn.Thinking)
 		return &OutputError{Status: status, Message: message, Code: code}
 	}

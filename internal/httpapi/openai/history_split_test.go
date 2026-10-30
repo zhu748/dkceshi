@@ -321,8 +321,11 @@ func TestApplyCurrentInputFileUploadsFirstTurnWithNumberedHistoryTranscript(t *t
 			t.Fatalf("expected uploaded transcript to contain %q, got %q", want, uploadedText)
 		}
 	}
-	if strings.Contains(uploadedText, promptcompat.ThinkingInjectionMarker) || !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.ThinkingInjectionMarker) {
-		t.Fatalf("thinking instruction must stay at the start of the live prompt, got %q", out.FinalPrompt)
+	if !strings.HasPrefix(uploadedText, "<｜System｜>"+promptcompat.DefaultThinkingInjectionPrompt+"\n\n# HISTORY.txt\nPrior conversation history and tool progress.") {
+		t.Fatalf("thinking instruction must precede the uploaded history introduction, got %q", uploadedText)
+	}
+	if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+promptcompat.ThinkingInjectionMarker) {
+		t.Fatalf("thinking instruction must also lead the live continuation, got %q", out.FinalPrompt)
 	}
 
 	if strings.Contains(out.FinalPrompt, "first turn content that is long enough") {

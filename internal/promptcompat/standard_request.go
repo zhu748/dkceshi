@@ -49,7 +49,8 @@ type StandardRequest struct {
 	Stream                  bool
 	Thinking                bool
 	// ThinkingInjectionPrompt is a generated leading system instruction, kept
-	// separate from client messages so user text and uploaded history stay intact.
+	// separate from client messages. It leads the live prompt and, when history
+	// splitting is enabled, the generated history file before its introduction.
 	ThinkingInjectionPrompt string
 	Search                  bool
 	RefFileIDs              []string

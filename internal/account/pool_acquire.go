@@ -52,11 +52,15 @@ func (p *Pool) AcquireWait(ctx context.Context, target string, exclude map[strin
 	exclude = normalizeExclude(exclude)
 	for {
 		if ctx.Err() != nil {
+			p.mu.Lock()
+			p.notifyWaiterLocked()
+			p.mu.Unlock()
 			return config.Account{}, false
 		}
 
 		p.mu.Lock()
 		if acc, ok := p.acquireLocked(target, exclude, filter); ok {
+			p.notifyWaiterLocked()
 			p.mu.Unlock()
 			return acc, true
 		}
@@ -64,7 +68,7 @@ func (p *Pool) AcquireWait(ctx context.Context, target string, exclude map[strin
 			p.mu.Unlock()
 			return config.Account{}, false
 		}
-		waiter := make(chan struct{})
+		waiter := &poolWaiter{ready: make(chan struct{}), target: target, exclude: exclude, filter: filter}
 		p.waiters = append(p.waiters, waiter)
 		p.mu.Unlock()
 
@@ -72,9 +76,10 @@ func (p *Pool) AcquireWait(ctx context.Context, target string, exclude map[strin
 		case <-ctx.Done():
 			p.mu.Lock()
 			p.removeWaiterLocked(waiter)
+			p.notifyWaiterLocked()
 			p.mu.Unlock()
 			return config.Account{}, false
-		case <-waiter:
+		case <-waiter.ready:
 		}
 	}
 }
