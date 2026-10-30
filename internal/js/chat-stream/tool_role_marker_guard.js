@@ -1,77 +1,66 @@
 'use strict';
 
-// Guard against the hallucinated `[Tool]:` role marker: the model occasionally
-// finishes a tool call, prints the prompt's tool-result role marker itself,
-// invents a tool result, and then keeps answering its own invented dialogue.
-// `[Tool]:` is prompt structure and never reply text, so the stream is cut
-// there — the text produced before the marker is delivered normally, the marker
-// and everything after it is dropped.
-//
-// Mirrors internal/sse/tool_role_marker_guard.go; keep the marker in sync.
-
 const TOOL_ROLE_MARKER = '[Tool]:';
-
-// Longest proper prefix of the marker that is withheld while waiting for the
-// rest of a marker split across SSE fragments.
-const TOOL_ROLE_MARKER_HOLDBACK = TOOL_ROLE_MARKER.length - 1;
-
 function createToolRoleMarkerGuard() {
-  return { pending: '', tripped: false };
+  return { pending: '', tripped: false, cdata: false, quote: false, escaped: false, code: '', ticks: 0, fence: false, fenceClosing: false, notLineStart: false };
 }
-
-// indexToolRoleMarker returns the offset of the first case-insensitive
-// occurrence of the role marker in text, or -1.
-function indexToolRoleMarker(text) {
-  if (typeof text !== 'string' || text.length < TOOL_ROLE_MARKER.length) {
-    return -1;
-  }
-  return text.toLowerCase().indexOf(TOOL_ROLE_MARKER.toLowerCase());
-}
-
-// trailingToolRoleMarkerPrefixLen returns the length of the longest suffix of
-// text that is a proper prefix of the role marker (case-insensitive), so a
-// marker still arriving one fragment at a time can be withheld.
-function trailingToolRoleMarkerPrefixLen(text) {
-  const limit = Math.min(TOOL_ROLE_MARKER_HOLDBACK, text.length);
-  for (let l = limit; l > 0; l -= 1) {
-    if (text.slice(text.length - l).toLowerCase() === TOOL_ROLE_MARKER.slice(0, l).toLowerCase()) {
-      return l;
-    }
-  }
-  return 0;
-}
-
-// feedToolRoleMarkerGuard consumes the next raw text fragment and returns the
-// prefix that is safe to forward downstream. A trailing fragment that could
-// still grow into the marker is withheld until a later feed; once tripped the
-// guard returns '' forever, so the caller ends the upstream read and finishes
-// with the text it already forwarded.
-//
-// The withheld fragment is deliberately never released: by construction it is
-// the beginning of a marker, and a reply that ends inside one ends inside
-// fabricated text.
-function feedToolRoleMarkerGuard(guard, text) {
-  if (!guard || guard.tripped) {
-    return '';
-  }
+function scan(guard, text, final = false) {
+  if (!guard || guard.tripped) return '';
   const data = guard.pending + (typeof text === 'string' ? text : '');
   guard.pending = '';
-  if (!data) {
-    return '';
+  let i = 0;
+  for (; i < data.length;) {
+    const tail = data.slice(i);
+    if (guard.cdata) {
+      if (tail.startsWith(']]>')) { guard.cdata = false; i += 3; continue; }
+      if (!final && ']]>'.startsWith(tail)) break;
+      i++; continue;
+    }
+    if (guard.code) {
+      if (guard.fenceClosing) {
+        if (data[i] === '\n' || data[i] === '\r') { guard.code = ''; guard.fenceClosing = false; guard.notLineStart = false; i++; continue; }
+        if (data[i] === ' ' || data[i] === '\t') { i++; continue; }
+        guard.fenceClosing = false;
+      }
+      if (data[i] === guard.code) {
+        let n = 0; while (data[i + n] === guard.code) n++;
+        if (!final && i + n === data.length) break;
+        if (!guard.fence && n === guard.ticks) { guard.code = ''; guard.ticks = 0; }
+        else if (guard.fence && !guard.notLineStart && n >= guard.ticks) guard.fenceClosing = true;
+        i += n; guard.notLineStart = true; continue;
+      }
+      if (data[i] === '\n' || data[i] === '\r') guard.notLineStart = false;
+      else if (data[i] !== ' ' && data[i] !== '\t') guard.notLineStart = true;
+      i++; continue;
+    }
+    if (guard.quote) {
+      if (guard.escaped) guard.escaped = false;
+      else if (data[i] === '\\') guard.escaped = true;
+      else if (data[i] === '"') guard.quote = false;
+      i++; continue;
+    }
+    if (tail.startsWith('<![CDATA[')) { guard.cdata = true; i += 9; continue; }
+    if (!final && '<![CDATA['.startsWith(tail)) break;
+    if (data[i] === '`' || (data[i] === '~' && !guard.notLineStart)) {
+      const ch = data[i]; let n = 0; while (data[i + n] === ch) n++;
+      if (!final && i + n === data.length) break;
+      if (ch === '`' || n >= 3) { guard.code = ch; guard.ticks = n; guard.fence = n >= 3 && !guard.notLineStart; }
+      i += n; guard.notLineStart = true; continue;
+    }
+    if (data[i] === '"') { guard.quote = true; i++; continue; }
+    if (tail.slice(0, TOOL_ROLE_MARKER.length).toLowerCase() === TOOL_ROLE_MARKER.toLowerCase()) { guard.tripped = true; return data.slice(0, i); }
+    if (!final && tail.length < TOOL_ROLE_MARKER.length && TOOL_ROLE_MARKER.toLowerCase().startsWith(tail.toLowerCase())) break;
+    if (data[i] === '\n' || data[i] === '\r') guard.notLineStart = false;
+    else if (data[i] !== ' ' && data[i] !== '\t') guard.notLineStart = true;
+    i++;
   }
-  const idx = indexToolRoleMarker(data);
-  if (idx >= 0) {
-    guard.tripped = true;
-    return data.slice(0, idx);
-  }
-  const hold = trailingToolRoleMarkerPrefixLen(data);
-  guard.pending = data.slice(data.length - hold);
-  return data.slice(0, data.length - hold);
+  guard.pending = data.slice(i);
+  return data.slice(0, i);
 }
-
-module.exports = {
-  TOOL_ROLE_MARKER,
-  createToolRoleMarkerGuard,
-  feedToolRoleMarkerGuard,
-  indexToolRoleMarker,
-};
+function feedToolRoleMarkerGuard(guard, text) { return scan(guard, text); }
+function indexToolRoleMarker(text) {
+  const guard = createToolRoleMarkerGuard();
+  const kept = scan(guard, text, true);
+  return guard.tripped ? kept.length : -1;
+}
+module.exports = { TOOL_ROLE_MARKER, createToolRoleMarkerGuard, feedToolRoleMarkerGuard, indexToolRoleMarker };

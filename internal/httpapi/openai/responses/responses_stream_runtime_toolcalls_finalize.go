@@ -2,7 +2,6 @@ package responses
 
 import (
 	"ds2api/internal/toolcall"
-	"encoding/json"
 	"sort"
 	"strings"
 
@@ -105,18 +104,8 @@ func (s *responsesStreamRuntime) buildCompletedResponseObject(finalThinking, fin
 		if strings.TrimSpace(tc.Name) == "" {
 			continue
 		}
-		argsBytes, _ := json.Marshal(tc.Input)
-		indexed = append(indexed, indexedItem{
-			index: s.ensureFunctionOutputIndex(idx),
-			item: map[string]any{
-				"id":        s.ensureFunctionItemID(idx),
-				"type":      "function_call",
-				"call_id":   s.ensureToolCallID(idx),
-				"name":      tc.Name,
-				"arguments": string(argsBytes),
-				"status":    "completed",
-			},
-		})
+		field, value := openaifmt.ResponsesToolInput(tc.Name, tc.Input, s.toolsRaw)
+		indexed = append(indexed, indexedItem{index: s.ensureFunctionOutputIndex(idx), item: openaifmt.BuildResponsesToolItem(tc.Name, field, value, s.ensureFunctionItemID(idx), s.ensureToolCallID(idx), "completed")})
 	}
 
 	sort.SliceStable(indexed, func(i, j int) bool {

@@ -7,8 +7,8 @@ import (
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
 	"encoding/json"
-	"fmt"
-	"time"
+	"github.com/google/uuid"
+	"strings"
 
 	streamengine "ds2api/internal/stream"
 )
@@ -43,7 +43,7 @@ func (s *claudeStreamRuntime) sendToolUseBlock(idx int, tc toolcall.ParsedToolCa
 		"index": idx,
 		"content_block": map[string]any{
 			"type":  "tool_use",
-			"id":    fmt.Sprintf("toolu_%d_%d", time.Now().Unix(), idx),
+			"id":    "toolu_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 			"name":  tc.Name,
 			"input": map[string]any{},
 		},
@@ -70,7 +70,14 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 
 	if s.bufferToolContent {
 		for _, evt := range toolstream.Flush(&s.sieve, s.toolNames) {
+			if evt.Deferred {
+				s.deferredText.WriteString(evt.Content)
+				continue
+			}
 			if len(evt.ToolCalls) > 0 {
+				if s.toolChoice.Constrained() {
+					continue
+				}
 				s.closeTextBlock()
 				s.toolCallsDetected = true
 				normalized := toolcall.NormalizeParsedToolCallsForSchemas(evt.ToolCalls, s.toolsRaw)
@@ -130,6 +137,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		StripReferenceMarkers: s.stripReferenceMarkers,
 		ToolNames:             s.toolNames,
 		ToolsRaw:              s.toolsRaw,
+		ToolChoice:            s.toolChoice,
 		ToolCallRepair:        s.toolCallRepair,
 		ToolCallRepairCtx:     s.toolCallRepairCtx,
 		ToolMarker:            s.sieve.Marker,
@@ -155,6 +163,9 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		return true
 	}
 
+	if len(turn.ToolCalls) == 0 && !s.toolCallsDetected {
+		s.emitDeferredText()
+	}
 	s.ended = true
 	s.closeThinkingBlock()
 

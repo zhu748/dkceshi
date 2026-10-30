@@ -66,9 +66,11 @@ func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *c
 		return nil
 	}
 	return func(ctx context.Context, prompt string) (string, error) {
-		// Detach from the parent deadline but keep cancellation semantics via a
-		// fresh 10s budget dedicated to the repair pass.
-		repairCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), toolCallRepairTimeout)
+		// Repair belongs to the request: cancellation and its shorter deadline win.
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		repairCtx, cancel := context.WithTimeout(ctx, toolCallRepairTimeout)
 		defer cancel()
 		startedAt := time.Now()
 
@@ -96,7 +98,7 @@ func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *c
 		// context detached from ctx/repairCtx (via WithoutCancel) so a repair
 		// timeout does not cancel the cleanup, and it does not prolong the main
 		// request.
-		defer deleteRepairSession(ctx, ds, a, sessionID)
+		defer enqueueRepairSessionDelete(ds, a, sessionID)
 		pow, err := ds.GetPow(repairCtx, a, 1)
 		if err != nil {
 			config.Logger.Warn("[toolcall_repair] get pow failed", "error", err, "timeout", errors.Is(err, context.DeadlineExceeded), "elapsed_ms", time.Since(startedAt).Milliseconds())

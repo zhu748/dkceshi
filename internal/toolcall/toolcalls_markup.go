@@ -1,7 +1,7 @@
 package toolcall
 
 import (
-	"encoding/json"
+	"ds2api/internal/jsonvalue"
 	"html"
 	"regexp"
 	"strings"
@@ -60,7 +60,7 @@ func parseMarkupValue(inner string) any {
 	}
 
 	var jsonValue any
-	if json.Unmarshal([]byte(value), &jsonValue) == nil {
+	if jsonvalue.Unmarshal([]byte(value), &jsonValue) == nil {
 		return jsonValue
 	}
 	return value
@@ -130,7 +130,7 @@ func parseJSONLiteralValue(raw string) (any, bool) {
 	}
 
 	var parsed any
-	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+	if err := jsonvalue.Unmarshal([]byte(trimmed), &parsed); err != nil {
 		return nil, false
 	}
 	return parsed, true

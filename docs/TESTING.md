@@ -321,3 +321,9 @@ if [ $exit_code -ne 0 ]; then
   exit 1
 fi
 ```
+
+## Agent 语义回归
+
+新增回归覆盖：角色标记在 CDATA/引号/代码中跨任意分片保真、大整数与精确小数、Schema 本地引用和嵌套约束、Claude/Gemini 工具策略、Responses reasoning/custom items 回放、previous_response_id 隔离与 store:false、custom 输入事件及最终对象 ID 一致、Go/Node 交付前共享校验、坏工具代码修复后的防泄漏、请求取消与异步清理。
+
+这些测试使用模拟上游，不代表所有版本的 Codex CLI、Claude Code 或真实网页上游均已联调。并发改动可运行 `go test -race ./internal/completionruntime ./internal/httpapi/openai/responses ./internal/toolcall`。

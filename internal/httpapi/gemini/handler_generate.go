@@ -3,6 +3,7 @@ package gemini
 import (
 	"bytes"
 	"context"
+	"ds2api/internal/jsonvalue"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
@@ -70,7 +72,7 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 	}
 	routeModel := strings.TrimSpace(chi.URLParam(r, "model"))
 	var req map[string]any
-	if err := json.Unmarshal(raw, &req); err != nil {
+	if err := jsonvalue.Unmarshal(raw, &req); err != nil {
 		writeGeminiError(w, http.StatusBadRequest, "invalid json")
 		return true
 	}
@@ -196,14 +198,14 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 	}
 	routeModel := strings.TrimSpace(chi.URLParam(r, "model"))
 	var req map[string]any
-	if err := json.Unmarshal(raw, &req); err != nil {
+	if err := jsonvalue.Unmarshal(raw, &req); err != nil {
 		writeGeminiError(w, http.StatusBadRequest, "invalid json")
 		return true
 	}
 	translatedReq := translatorcliproxy.ToOpenAI(sdktranslator.FormatGemini, routeModel, raw, stream)
 	if !strings.Contains(string(translatedReq), `"stream"`) {
 		var reqMap map[string]any
-		if json.Unmarshal(translatedReq, &reqMap) == nil {
+		if jsonvalue.Unmarshal(translatedReq, &reqMap) == nil {
 			reqMap["stream"] = stream
 			if b, e := json.Marshal(reqMap); e == nil {
 				translatedReq = b
@@ -283,7 +285,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 
 func applyGeminiThinkingPolicyToOpenAIRequest(translated []byte, original map[string]any) []byte {
 	req := map[string]any{}
-	if err := json.Unmarshal(translated, &req); err != nil {
+	if err := jsonvalue.Unmarshal(translated, &req); err != nil {
 		return translated
 	}
 	enabled, ok := resolveGeminiThinkingOverride(original)
@@ -350,7 +352,7 @@ func numericAny(raw any) (float64, bool) {
 func writeGeminiErrorFromOpenAI(w http.ResponseWriter, status int, raw []byte) {
 	message := strings.TrimSpace(string(raw))
 	var parsed map[string]any
-	if err := json.Unmarshal(raw, &parsed); err == nil {
+	if err := jsonvalue.Unmarshal(raw, &parsed); err == nil {
 		if errObj, ok := parsed["error"].(map[string]any); ok {
 			if msg, ok := errObj["message"].(string); ok && strings.TrimSpace(msg) != "" {
 				message = strings.TrimSpace(msg)
@@ -442,6 +444,7 @@ func buildGeminiPartsFromTurn(turn assistantturn.Turn) []map[string]any {
 		for _, tc := range turn.ToolCalls {
 			parts = append(parts, map[string]any{
 				"functionCall": map[string]any{
+					"id":   "call_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 					"name": tc.Name,
 					"args": tc.Input,
 				},
@@ -491,6 +494,7 @@ func buildGeminiPartsFromFinal(finalText, finalThinking string, toolNames []stri
 		for _, tc := range detected {
 			parts = append(parts, map[string]any{
 				"functionCall": map[string]any{
+					"id":   "call_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 					"name": tc.Name,
 					"args": tc.Input,
 				},

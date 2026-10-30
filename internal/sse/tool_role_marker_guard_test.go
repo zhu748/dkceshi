@@ -113,3 +113,26 @@ func TestToolRoleMarkerHasNoSelfOverlap(t *testing.T) {
 		}
 	}
 }
+
+func TestToolRoleGuardPreservesLiteralsAcrossEveryChunkBoundary(t *testing.T) {
+	for _, literal := range []string{
+		"<parameter><![CDATA[before [Tool]: after]]></parameter>",
+		"`[Tool]:` is literal", "\"[Tool]:\" is a quoted value",
+		"```text\n[Tool]: literal\n```\n", "```text\n```not-a-close\n[Tool]: literal\n```\n", "~~~text\n[Tool]: literal\n~~~\n",
+	} {
+		input := literal + "\n[Tool]: fabricated"
+		for size := 1; size <= len(input); size++ {
+			var guard ToolRoleMarkerGuard
+			var got strings.Builder
+			for start := 0; start < len(input); start += size {
+				got.WriteString(guard.Feed(input[start:min(start+size, len(input))]))
+			}
+			if got.String() != literal+"\n" || !guard.Tripped() {
+				t.Fatalf("size=%d literal=%q got=%q tripped=%v", size, literal, got.String(), guard.Tripped())
+			}
+		}
+		if got, cut := TrimToolRoleMarker(input); !cut || got != literal+"\n" {
+			t.Fatalf("nonstream literal damaged: %q", got)
+		}
+	}
+}

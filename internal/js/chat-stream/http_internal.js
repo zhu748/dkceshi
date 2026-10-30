@@ -125,6 +125,23 @@ async function fetchStreamSwitch(req, leaseID, options = {}) {
   };
 }
 
+async function fetchStreamValidation(req, leaseID, content, thinking, detectionThinking, signal) {
+  const url = buildInternalGoURL(req);
+  url.pathname = '/v1/chat/completions';
+  url.searchParams.set('__stream_validate', '1');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'POST', headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),
+      body: JSON.stringify({ lease_id: leaseID, content, thinking, detection_thinking: detectionThinking }),
+      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+    });
+    const body = await response.json();
+    return { ok: response.ok, status: response.status, body };
+  } finally { clearTimeout(timeout); }
+}
+
 function relayPreparedFailure(res, prep) {
   if (prep.status === 401 && looksLikeVercelAuthPage(prep.text)) {
     writeOpenAIError(
@@ -265,6 +282,7 @@ module.exports = {
   fetchStreamPrepare,
   fetchStreamPow,
   fetchStreamSwitch,
+  fetchStreamValidation,
   relayPreparedFailure,
   safeReadText,
   buildInternalGoURL,

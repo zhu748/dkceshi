@@ -1,7 +1,7 @@
 package toolcall
 
 import (
-	"encoding/json"
+	"ds2api/internal/jsonvalue"
 	"html"
 	"strings"
 )
@@ -50,20 +50,20 @@ func parseLooseArrayElementValue(raw string) (any, bool) {
 	}
 
 	var parsed any
-	if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+	if err := jsonvalue.Unmarshal([]byte(trimmed), &parsed); err == nil {
 		return parsed, true
 	}
 
 	repairedBackslashes := repairInvalidJSONBackslashes(trimmed)
 	if repairedBackslashes != trimmed {
-		if err := json.Unmarshal([]byte(repairedBackslashes), &parsed); err == nil {
+		if err := jsonvalue.Unmarshal([]byte(repairedBackslashes), &parsed); err == nil {
 			return parsed, true
 		}
 	}
 
 	repairedLoose := RepairLooseJSON(trimmed)
 	if repairedLoose != trimmed {
-		if err := json.Unmarshal([]byte(repairedLoose), &parsed); err == nil {
+		if err := jsonvalue.Unmarshal([]byte(repairedLoose), &parsed); err == nil {
 			return parsed, true
 		}
 	}

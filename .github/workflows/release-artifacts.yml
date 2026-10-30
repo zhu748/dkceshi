@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -45,20 +47,33 @@ jobs:
           cache: "npm"
           cache-dependency-path: webui/package-lock.json
 
+      - name: Install WebUI dependencies
+        run: npm ci --prefix webui --prefer-offline --no-audit
+
       - name: Release Blocking Gates
         run: |
           ./tests/scripts/check-refactor-line-gate.sh
           ./tests/scripts/run-unit-all.sh
 
       - name: Build WebUI
-        run: |
-          npm ci --prefix webui --prefer-offline --no-audit
-          npm run build --prefix webui
+        run: npm run build --prefix webui
 
       - name: Build Multi-Platform Archives
         env:
           RELEASE_BUILD_JOBS: "3"
         run: ./scripts/build-release-archives.sh
+
+      - name: Upload binary release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum *.tar.gz *.zip > sha256sums.txt)
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" dist/*.tar.gz dist/*.zip dist/sha256sums.txt --clobber
+          else
+            gh release create "${RELEASE_TAG}" dist/*.tar.gz dist/*.zip dist/sha256sums.txt --title "${RELEASE_TAG}" --notes ""
+          fi
 
       - name: Prepare Docker release inputs
         run: |

@@ -107,6 +107,7 @@ type geminiStreamRuntime struct {
 	toolCallRepair    toolcall.ToolCallRepairInvoker
 	toolCallRepairCtx context.Context
 	toolMarker        string
+	toolChoice        promptcompat.ToolChoicePolicy
 }
 
 func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow string, stdReq promptcompat.StandardRequest, model, finalPrompt string, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, historySession *responsehistory.Session) {
@@ -138,6 +139,8 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 	runtime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)
 	runtime.toolCallRepairCtx = r.Context()
 	runtime.toolMarker = a.ToolMarker
+	runtime.toolChoice = stdReq.ToolChoice
+	runtime.bufferContent = runtime.bufferContent || stdReq.ToolChoice.Constrained()
 
 	completionruntime.ExecuteStreamWithRetry(r.Context(), h.DS, a, resp, payload, pow, completionruntime.StreamRetryOptions{
 		Surface:             "gemini.generate_content",
@@ -368,6 +371,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 		StripReferenceMarkers: s.stripReferenceMarkers,
 		ToolNames:             s.toolNames,
 		ToolsRaw:              s.toolsRaw,
+		ToolChoice:            s.toolChoice,
 		ToolCallRepair:        s.toolCallRepair,
 		ToolCallRepairCtx:     s.toolCallRepairCtx,
 		ToolMarker:            s.toolMarker,

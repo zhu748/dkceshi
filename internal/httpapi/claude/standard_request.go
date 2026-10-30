@@ -35,12 +35,9 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 	// API Key 上的「强制禁用工具调用」：工具定义已在入口处被清除，这里只把
 	// 状态带到标准请求上，供 current_input_file 等共享链路判断。
 	toolsDisabled := promptcompat.ToolsForceDisabledInRequest(req)
-	toolPolicy := promptcompat.DefaultToolChoicePolicy()
-	if toolsDisabled {
-		// API Key 上的「强制禁用工具调用」：工具策略钉成 none，与 OpenAI Chat /
-		// Responses、Gemini 保持一致，保证 StandardRequest.ToolChoice 不变量成立
-		// （ToolsDisabled 为 true 时 ToolChoice 必为 ToolChoiceNone）。
-		toolPolicy = promptcompat.ToolChoicePolicy{Mode: promptcompat.ToolChoiceNone}
+	toolPolicy, err := claudeToolPolicy(req)
+	if err != nil {
+		return claudeNormalizedRequest{}, err
 	}
 	toolsRequested, _ := req["tools"].([]any)
 	reminder := promptcompat.ResolveToolReminder(store)

@@ -40,6 +40,7 @@ type chatStreamRuntime struct {
 	toolCallsEmitted     bool
 	toolCallsDoneEmitted bool
 
+	deferredText      strings.Builder
 	toolSieve         toolstream.State
 	streamToolCallIDs map[int]string
 	streamToolNames   map[int]string
@@ -122,6 +123,7 @@ func newChatStreamRuntime(
 		stripReferenceMarkers: stripReferenceMarkers,
 		bufferToolContent:     bufferToolContent,
 		emitEarlyToolDeltas:   emitEarlyToolDeltas,
+		toolSieve:             toolstream.State{DeferMalformed: true},
 		streamToolCallIDs:     map[int]string{},
 		streamToolNames:       map[int]string{},
 		accumulator: shared.StreamAccumulator{
@@ -254,7 +256,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		ToolCallRepairCtx:     s.toolCallRepairCtx,
 		ToolMarker:            s.toolSieve.Marker,
 	})
-	if turn.Error != nil && turn.Error.Code == "tool_choice_violation" {
+	if turn.Error != nil && (turn.Error.Code == "tool_choice_violation" || turn.Error.Code == "invalid_tool_arguments") {
 		s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = turn.Error.Status, turn.Error.Message, turn.Error.Code
 		s.sendFailedChunk(turn.Error.Status, turn.Error.Message, turn.Error.Code)
 		return true
@@ -268,6 +270,10 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		s.toolCallsEmitted = true
 		s.toolCallsDoneEmitted = true
 	} else if s.bufferToolContent {
+		if !s.toolCallsEmitted && s.deferredText.Len() > 0 {
+			s.sendDelta(map[string]any{"content": cleanVisibleOutput(s.deferredText.String(), s.stripReferenceMarkers)})
+			s.deferredText.Reset()
+		}
 		batch := chatDeltaBatch{runtime: s}
 		for _, evt := range toolstream.Flush(&s.toolSieve, s.toolNames) {
 			if len(evt.ToolCalls) > 0 {
@@ -363,6 +369,10 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 		} else {
 			events := toolstream.ProcessChunk(&s.toolSieve, p.RawText, s.toolNames)
 			for _, evt := range events {
+				if evt.Deferred {
+					s.deferredText.WriteString(evt.Content)
+					continue
+				}
 				if len(evt.ToolCallDeltas) > 0 {
 					if !s.emitEarlyToolDeltas || s.toolChoice.Constrained() {
 						continue

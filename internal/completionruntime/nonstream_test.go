@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"ds2api/internal/account"
 	"ds2api/internal/auth"
@@ -27,6 +29,8 @@ type fakeDeepSeekCaller struct {
 	fireAndStopCounter int
 	continueCalls      []continueCallInfo
 	deletedSessions    []string
+	deletedMu          sync.Mutex
+	deleted            chan string
 }
 
 type continueCallInfo struct {
@@ -117,7 +121,12 @@ func (f *fakeDeepSeekCaller) FireCompletionAndStop(_ context.Context, a *auth.Re
 }
 
 func (f *fakeDeepSeekCaller) DeleteSession(_ context.Context, _ *auth.RequestAuth, sessionID string, _ int) (*dsclient.DeleteSessionResult, error) {
+	f.deletedMu.Lock()
 	f.deletedSessions = append(f.deletedSessions, sessionID)
+	f.deletedMu.Unlock()
+	if f.deleted != nil {
+		f.deleted <- sessionID
+	}
 	return &dsclient.DeleteSessionResult{SessionID: sessionID, Success: true}, nil
 }
 
@@ -132,7 +141,7 @@ func (f *fakeDeepSeekCaller) DeleteSession(_ context.Context, _ *auth.RequestAut
 func TestExecuteNonStreamWithRetryRepairsOnce(t *testing.T) {
 	bad := `<|EPSE|call name=\"Bash\"><|EPSE|parameter name=\"command\"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|call>`
 	repaired := `<|EPSE|tool_calls><|EPSE|invoke name=\"Bash\"><|EPSE|parameter name=\"command\"><![CDATA[DS_SLOT_0]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
-	ds := &fakeDeepSeekCaller{responses: []*http.Response{
+	ds := &fakeDeepSeekCaller{deleted: make(chan string, 1), responses: []*http.Response{
 		// main completion emits bad tool-call text
 		sseHTTPResponse(http.StatusOK, `data: {"response_message_id":7,"p":"response/content","v":"`+bad+`"}`),
 		// first (and only expected) repair completion
@@ -162,6 +171,14 @@ func TestExecuteNonStreamWithRetryRepairsOnce(t *testing.T) {
 	if len(ds.payloads) != 2 {
 		t.Fatalf("expected 2 completions (main + single repair), got %d", len(ds.payloads))
 	}
+	// Cleanup runs asynchronously; synchronize before inspecting the record.
+	select {
+	case <-ds.deleted:
+	case <-time.After(time.Second):
+		t.Fatal("repair session cleanup did not run")
+	}
+	ds.deletedMu.Lock()
+	defer ds.deletedMu.Unlock()
 	// The single repair session must be deleted (M2).
 	if len(ds.deletedSessions) != 1 {
 		t.Fatalf("expected 1 deleted repair session, got %d (%v)", len(ds.deletedSessions), ds.deletedSessions)

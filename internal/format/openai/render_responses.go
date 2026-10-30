@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"ds2api/internal/jsonvalue"
 	"ds2api/internal/toolcall"
 	"encoding/json"
 	"strings"
@@ -94,16 +95,12 @@ func toResponsesFunctionCallItems(toolCalls []toolcall.ParsedToolCall, toolsRaw 
 		if strings.TrimSpace(tc.Name) == "" {
 			continue
 		}
-		argsBytes, _ := json.Marshal(tc.Input)
-		args := normalizeJSONString(string(argsBytes))
-		out = append(out, map[string]any{
-			"id":        "fc_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
-			"type":      "function_call",
-			"call_id":   "call_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
-			"name":      tc.Name,
-			"arguments": args,
-			"status":    "completed",
-		})
+		field, value := ResponsesToolInput(tc.Name, tc.Input, toolsRaw)
+		prefix := "fc_"
+		if field == "input" {
+			prefix = "ctc_"
+		}
+		out = append(out, BuildResponsesToolItem(tc.Name, field, value, prefix+strings.ReplaceAll(uuid.NewString(), "-", ""), "call_"+strings.ReplaceAll(uuid.NewString(), "-", ""), "completed"))
 	}
 	return out
 }
@@ -114,7 +111,7 @@ func normalizeJSONString(raw string) string {
 		return "{}"
 	}
 	var v any
-	if err := json.Unmarshal([]byte(s), &v); err != nil {
+	if err := jsonvalue.Unmarshal([]byte(s), &v); err != nil {
 		return raw
 	}
 	b, err := json.Marshal(v)

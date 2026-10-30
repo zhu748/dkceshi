@@ -54,6 +54,8 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 
 	itemType := strings.ToLower(strings.TrimSpace(asString(m["type"])))
 	switch itemType {
+	case "input_image", "image_url", "input_file", "file":
+		return map[string]any{"role": "user", "content": []any{m}}
 	case "message", "input_message":
 		role := strings.ToLower(strings.TrimSpace(asString(m["role"])))
 		if role == "assistant" {
@@ -75,7 +77,7 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"role":    normalizeOpenAIRoleForPrompt(role),
 			"content": content,
 		}
-	case "function_call_output", "tool_result":
+	case "function_call_output", "custom_tool_call_output", "tool_result":
 		content, hasOutput := m["output"]
 		if !hasOutput {
 			content = m["content"]
@@ -107,7 +109,7 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			}
 		}
 		return out
-	case "function_call", "tool_call":
+	case "function_call", "custom_tool_call", "tool_call":
 		name := strings.TrimSpace(asString(m["name"]))
 		var fn map[string]any
 		if rawFn, ok := m["function"].(map[string]any); ok {
@@ -138,6 +140,9 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"name":      name,
 			"arguments": prompt.StringifyToolCallArguments(argsRaw),
 		}
+		if itemType == "custom_tool_call" {
+			functionPayload["arguments"] = map[string]any{"input": argsRaw}
+		}
 		call := map[string]any{
 			"type":     "function",
 			"function": functionPayload,
@@ -154,6 +159,9 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"role":       "assistant",
 			"tool_calls": []any{call},
 		}
+	case "reasoning":
+		text := responsesReasoningText(m)
+		return map[string]any{"role": "assistant", "reasoning_content": text, "id": m["id"]}
 	case "input_text":
 		if txt, _ := m["text"].(string); strings.TrimSpace(txt) != "" {
 			return map[string]any{
@@ -222,5 +230,26 @@ func normalizeResponsesFallbackPart(m map[string]any) string {
 			return normalized
 		}
 	}
+	if m["type"] != nil {
+		return ""
+	}
 	return strings.TrimSpace(fmt.Sprintf("%v", m))
+}
+
+func responsesReasoningText(item map[string]any) string {
+	for _, key := range []string{"content", "summary"} {
+		var parts []string
+		if entries, ok := item[key].([]any); ok {
+			for _, raw := range entries {
+				entry, _ := raw.(map[string]any)
+				if text, ok := entry["text"].(string); ok && text != "" {
+					parts = append(parts, text)
+				}
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n")
+		}
+	}
+	return asString(item["text"])
 }

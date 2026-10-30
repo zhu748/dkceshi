@@ -2,7 +2,7 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	"ds2api/internal/jsonvalue"
 	"io"
 	"net/http"
 	"strings"
@@ -20,6 +20,10 @@ import (
 )
 
 func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("__stream_validate") == "1" {
+		h.handleVercelStreamValidate(w, r)
+		return
+	}
 	if isVercelStreamReleaseRequest(r) {
 		h.handleVercelStreamRelease(w, r)
 		return
@@ -39,7 +43,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, openAIGeneralMaxSize)
 	var req map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "too large") {
 			writeOpenAIError(w, http.StatusRequestEntityTooLarge, "request body too large")
 			return

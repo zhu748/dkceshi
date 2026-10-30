@@ -1,6 +1,8 @@
 package responses
 
 import (
+	"ds2api/internal/jsonvalue"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -11,12 +13,15 @@ type storedResponse struct {
 	Owner     string
 	Value     map[string]any
 	ExpiresAt time.Time
+	Context   []any
+	Size      int
 }
 
 type responseStore struct {
 	mu    sync.Mutex
 	ttl   time.Duration
 	items map[string]storedResponse
+	bytes int
 }
 
 func newResponseStore(ttl time.Duration) *responseStore {
@@ -44,15 +49,46 @@ func (s *responseStore) put(owner, id string, value map[string]any) {
 	if s == nil || owner == "" || id == "" || value == nil {
 		return
 	}
+	s.putContext(owner, id, value, nil)
+}
+
+func (s *responseStore) putContext(owner, id string, value map[string]any, context []any) {
+	if s == nil || owner == "" || id == "" || value == nil {
+		return
+	}
+	copied := cloneAnyMap(value)
+	replay := cloneMessages(context)
+	data, err := json.Marshal([]any{copied, replay})
+	if err != nil {
+		return
+	}
+	const maxStoreBytes = 128 << 20
+	if len(data) > maxStoreBytes {
+		return
+	}
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweepLocked(now)
-	s.items[responseStoreKey(owner, id)] = storedResponse{
-		Owner:     owner,
-		Value:     cloneAnyMap(value),
-		ExpiresAt: now.Add(s.ttl),
+	key := responseStoreKey(owner, id)
+	if old, ok := s.items[key]; ok {
+		s.bytes -= old.Size
+		delete(s.items, key)
 	}
+	for len(s.items) >= 256 || s.bytes+len(data) > maxStoreBytes {
+		oldest := ""
+		var expires time.Time
+		for k, item := range s.items {
+			if oldest == "" || item.ExpiresAt.Before(expires) {
+				oldest = k
+				expires = item.ExpiresAt
+			}
+		}
+		s.bytes -= s.items[oldest].Size
+		delete(s.items, oldest)
+	}
+	s.items[key] = storedResponse{Owner: owner, Value: copied, Context: replay, ExpiresAt: now.Add(s.ttl), Size: len(data)}
+	s.bytes += len(data)
 }
 
 func (s *responseStore) get(owner, id string) (map[string]any, bool) {
@@ -61,9 +97,9 @@ func (s *responseStore) get(owner, id string) (map[string]any, bool) {
 	}
 	now := time.Now()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.sweepLocked(now)
 	item, ok := s.items[responseStoreKey(owner, id)]
+	s.mu.Unlock()
 	if !ok {
 		return nil, false
 	}
@@ -76,6 +112,7 @@ func (s *responseStore) get(owner, id string) (map[string]any, bool) {
 func (s *responseStore) sweepLocked(now time.Time) {
 	for k, v := range s.items {
 		if now.After(v.ExpiresAt) {
+			s.bytes -= v.Size
 			delete(s.items, k)
 		}
 	}
@@ -85,11 +122,37 @@ func cloneAnyMap(in map[string]any) map[string]any {
 	if in == nil {
 		return nil
 	}
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
+	out, _ := cloneValue(in).(map[string]any)
+	return out
+}
+
+func cloneValue(in any) any {
+	if in == nil {
+		return nil
+	}
+	data, err := json.Marshal(in)
+	if err != nil {
+		return nil
+	}
+	var out any
+	if err = jsonvalue.Unmarshal(data, &out); err != nil {
+		return nil
 	}
 	return out
+}
+func cloneMessages(in []any) []any { out, _ := cloneValue(in).([]any); return out }
+func (s *responseStore) context(owner, id string) ([]any, bool) {
+	if s == nil || owner == "" || id == "" {
+		return nil, false
+	}
+	s.mu.Lock()
+	s.sweepLocked(time.Now())
+	item, ok := s.items[responseStoreKey(owner, id)]
+	s.mu.Unlock()
+	if !ok || item.Owner != owner || item.Context == nil {
+		return nil, false
+	}
+	return cloneMessages(item.Context), true
 }
 
 func (h *Handler) getResponseStore() *responseStore {

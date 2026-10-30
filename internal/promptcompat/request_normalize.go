@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"ds2api/internal/config"
+	"ds2api/internal/toolcall"
 	"ds2api/internal/util"
 )
 
@@ -178,6 +179,14 @@ func collectOpenAIChatPassThrough(req map[string]any) map[string]any {
 }
 
 func parseOpenAIToolPolicy(req map[string]any) (ToolChoicePolicy, error) {
+	return ParseOpenAIToolPolicy(req)
+}
+
+// ParseOpenAIToolPolicy is shared by adapters after mapping their policy fields.
+func ParseOpenAIToolPolicy(req map[string]any) (ToolChoicePolicy, error) {
+	if err := toolcall.ValidateToolSchemas(req["tools"]); err != nil {
+		return ToolChoicePolicy{}, err
+	}
 	policy, err := parseToolChoicePolicy(req["tool_choice"], req["tools"])
 	if err != nil {
 		return policy, err
@@ -198,6 +207,7 @@ func parseToolChoicePolicy(toolChoiceRaw any, toolsRaw any) (ToolChoicePolicy, e
 	declaredSet := namesToSet(declaredNames)
 	if len(declaredNames) > 0 {
 		policy.Allowed = declaredSet
+		policy.RestrictAllowed = true
 	}
 
 	if toolChoiceRaw == nil {
@@ -218,6 +228,16 @@ func parseToolChoicePolicy(toolChoiceRaw any, toolsRaw any) (ToolChoicePolicy, e
 			return ToolChoicePolicy{}, fmt.Errorf("unsupported tool_choice: %q", v)
 		}
 	case map[string]any:
+		if strings.EqualFold(asString(v["type"]), "allowed_tools") {
+			mode := asString(v["mode"])
+			if mode != "auto" && mode != "required" {
+				return ToolChoicePolicy{}, fmt.Errorf("tool_choice.allowed_tools mode must be auto or required")
+			}
+			if v["tools"] == nil {
+				return ToolChoicePolicy{}, fmt.Errorf("tool_choice.allowed_tools requires tools")
+			}
+			v = map[string]any{"type": mode, "allowed_tools": v["tools"]}
+		}
 		allowedOverride, hasAllowedOverride, err := parseAllowedToolNames(v["allowed_tools"])
 		if err != nil {
 			return ToolChoicePolicy{}, err

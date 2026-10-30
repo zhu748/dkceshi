@@ -3,8 +3,8 @@ package claude
 import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/toolcall"
-	"fmt"
-	"time"
+	"github.com/google/uuid"
+	"strings"
 
 	"ds2api/internal/prompt"
 	"ds2api/internal/util"
@@ -18,10 +18,10 @@ func BuildMessageResponseFromTurn(messageID, model string, turn assistantturn.Tu
 	stopReason := "end_turn"
 	if len(turn.ToolCalls) > 0 {
 		stopReason = "tool_use"
-		for i, tc := range turn.ToolCalls {
+		for _, tc := range turn.ToolCalls {
 			content = append(content, map[string]any{
 				"type":  "tool_use",
-				"id":    fmt.Sprintf("toolu_%d_%d", time.Now().Unix(), i),
+				"id":    "toolu_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 				"name":  tc.Name,
 				"input": tc.Input,
 			})
@@ -63,10 +63,10 @@ func BuildMessageResponse(messageID, model string, normalizedMessages []any, fin
 	stopReason := "end_turn"
 	if len(detected) > 0 {
 		stopReason = "tool_use"
-		for i, tc := range detected {
+		for _, tc := range detected {
 			content = append(content, map[string]any{
 				"type":  "tool_use",
-				"id":    fmt.Sprintf("toolu_%d_%d", time.Now().Unix(), i),
+				"id":    "toolu_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 				"name":  tc.Name,
 				"input": tc.Input,
 			})

@@ -29,6 +29,7 @@ const {
   fetchStreamPrepare,
   fetchStreamPow,
   fetchStreamSwitch,
+  fetchStreamValidation,
   relayPreparedFailure,
   createLeaseReleaser,
 } = require('./http_internal');
@@ -314,6 +315,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let thinkingText = '';
     let detectionThinkingText = '';
     let outputText = '';
+    let deferredToolText = '';
     // 上游正文通道的内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）统一由
     // 该策略持有，与 Go 侧 sse.ContentPolicy 语义一致；新增规则只需改策略本身。
     // 每个上游轮次在 processStream 的轮循环顶部重建一次（见下），因为规则状态
@@ -322,6 +324,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let usagePrompt = finalPrompt;
     const toolSieveEnabled = toolPolicy.toolSieveEnabled;
     const toolSieveState = createToolSieveState();
+    toolSieveState.deferMalformed = true;
     // 调用者专属工具调用标识（由 Go 侧按 API Key 派生并随 prepare 下发）。
     // 上游只会输出该标识，而 sieve / 独立解析 / 复读守卫都只认 EPSE，
     // 因此所有流入文本都要先经它有状态地归一化回 EPSE（跨分片标识会被
@@ -379,6 +382,30 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         const normalizer = createMarkerNormalizer(prep.body.tool_marker);
         detected = parseStandaloneToolCalls(normalizer.write(detectionThinkingText) + normalizer.flush(), toolNames);
       }
+      let validatedCalls = null;
+      if (prep.body.validate_tools === true && toolPolicy.constrained && (outputText.trim() || detected.length)) {
+        try {
+          const validation = await fetchStreamValidation(req, leaseID, outputText, thinkingText, detectionThinkingText, upstreamController.signal);
+          if (!validation.ok) {
+            const error = validation.body.error || {};
+            ended = true;
+            leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: outputText, error: error.message || 'Tool validation failed' };
+            sendFailedChunk(res, validation.status, leaseCompletion.error, error.code || 'invalid_tool_arguments');
+            await releaseLease(); if (!res.writableEnded && !res.destroyed) res.end(); return true;
+          }
+          validatedCalls = validation.body.tool_calls || [];
+          detected = validatedCalls.map(call => ({ name: call.function.name }));
+        } catch (error) {
+          if (clientClosed) {
+            ended = true; leaseCompletion = { finish_reason: 'stopped', usage: null, thinking: thinkingText, content: outputText, error: '' };
+            await releaseLease(); return true;
+          }
+          ended = true;
+          leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: outputText, error: 'Tool validation unavailable: ' + error.message };
+          sendFailedChunk(res, 502, leaseCompletion.error, 'tool_validation_unavailable');
+          await releaseLease(); if (!res.writableEnded && !res.destroyed) res.end(); return true;
+        }
+      }
       // An empty upstream result must retain its retry/error path. Required
       // tool policy applies to actual answers, not a missing response.
       const violation = (detected.length > 0 || toolCallsEmitted || outputText.trim() !== '')
@@ -391,10 +418,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (!res.writableEnded && !res.destroyed) res.end();
         return true;
       }
+      if (!detected.length && !toolCallsEmitted && deferredToolText) { deltaCoalescer.append('content', deferredToolText); deferredToolText = ''; }
       if (detected.length > 0 && !toolCallsDoneEmitted) {
         toolCallsEmitted = true;
         toolCallsDoneEmitted = true;
-        sendDeltaFrame({ tool_calls: formatOpenAIStreamToolCalls(detected, streamToolCallIDs, payload.tools) });
+        sendDeltaFrame({ tool_calls: validatedCalls || formatOpenAIStreamToolCalls(detected, streamToolCallIDs, payload.tools) });
       } else if (toolSieveEnabled) {
         const tailEvents = markerTail
           ? processToolSieveChunk(toolSieveState, markerTail, toolNames).concat(flushToolSieve(toolSieveState, toolNames))
@@ -585,6 +613,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                   }
                   const events = processToolSieveChunk(toolSieveState, safeText, toolNames);
                   for (const evt of events) {
+                    if (evt.deferred) { deferredToolText += evt.text || ''; continue; }
                     if (evt.type === 'tool_call_deltas') {
                       if (!emitEarlyToolDeltas) {
                         continue;

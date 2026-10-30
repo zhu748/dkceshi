@@ -41,6 +41,7 @@ type responsesStreamRuntime struct {
 	toolCallsEmitted     bool
 	toolCallsDoneEmitted bool
 
+	deferredText         strings.Builder
 	sieve                toolstream.State
 	accumulator          shared.StreamAccumulator
 	visibleText          strings.Builder
@@ -114,6 +115,7 @@ func newResponsesStreamRuntime(
 		toolsRaw:              toolsRaw,
 		bufferToolContent:     bufferToolContent,
 		emitEarlyToolDeltas:   emitEarlyToolDeltas && !toolChoice.Constrained(),
+		sieve:                 toolstream.State{DeferMalformed: true},
 		streamToolCallIDs:     map[int]string{},
 		functionItemIDs:       map[int]string{},
 		functionOutputIDs:     map[int]int{},
@@ -213,7 +215,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	textParsed := turn.ParsedToolCalls
 	detected := turn.ToolCalls
 	s.logToolPolicyRejections(textParsed)
-	if turn.Error != nil && turn.Error.Code == "tool_choice_violation" {
+	if turn.Error != nil && (turn.Error.Code == "tool_choice_violation" || turn.Error.Code == "invalid_tool_arguments") {
 		s.closeReasoningItem()
 		s.closeMessageItem()
 		s.failResponse(turn.Error.Status, turn.Error.Message, turn.Error.Code)
@@ -227,6 +229,10 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		}
 	}
 
+	if len(detected) == 0 && s.deferredText.Len() > 0 {
+		s.emitTextDelta(cleanVisibleOutput(s.deferredText.String(), s.stripReferenceMarkers))
+		s.deferredText.Reset()
+	}
 	s.closeReasoningItem()
 	s.closeMessageItem()
 

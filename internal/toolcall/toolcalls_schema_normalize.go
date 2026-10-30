@@ -18,7 +18,7 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 	out := make([]ParsedToolCall, len(calls))
 	for i, call := range calls {
 		out[i] = call
-		schema, ok := schemas[strings.ToLower(strings.TrimSpace(call.Name))]
+		schema, ok := schemas[strings.TrimSpace(call.Name)]
 		if !ok || call.Input == nil {
 			continue
 		}
@@ -52,7 +52,7 @@ func buildToolSchemaIndex(toolsRaw any) map[string]any {
 		if name == "" || schema == nil {
 			continue
 		}
-		out[strings.ToLower(name)] = schema
+		out[name] = schema
 	}
 	if len(out) == 0 {
 		return nil

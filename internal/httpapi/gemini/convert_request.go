@@ -33,7 +33,10 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 
 	toolsDisabled := promptcompat.ToolsForceDisabledInRequest(req)
 	toolsRaw := convertGeminiTools(req["tools"])
-	toolPolicy := promptcompat.DefaultToolChoicePolicy()
+	toolPolicy, err := geminiToolPolicy(req, toolsRaw)
+	if err != nil {
+		return promptcompat.StandardRequest{}, err
+	}
 	if toolsDisabled {
 		// API Key 上的「强制禁用工具调用」：请求侧工具定义已被清除，这里再
 		// 把工具策略钉成 none，使工具提示词与 EPSE 格式规范都不注入。

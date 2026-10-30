@@ -32,7 +32,10 @@ func convertGeminiTools(raw any) []any {
 					function["description"] = desc
 				}
 				if params, ok := decl["parameters"].(map[string]any); ok {
-					function["parameters"] = params
+					function["parameters"] = normalizeGeminiSchema(params)
+				}
+				if schema, exists := decl["parametersJsonSchema"]; exists {
+					function["parameters"] = schema
 				}
 				out = append(out, map[string]any{
 					"type":     "function",
@@ -58,7 +61,7 @@ func convertGeminiTools(raw any) []any {
 			fn["description"] = desc
 		}
 		if params, ok := tool["parameters"].(map[string]any); ok {
-			fn["parameters"] = params
+			fn["parameters"] = normalizeGeminiSchema(params)
 		}
 		out = append(out, map[string]any{
 			"type":     "function",

@@ -1,6 +1,10 @@
 package claude
 
-import "testing"
+import (
+	"ds2api/internal/assistantturn"
+	"ds2api/internal/toolcall"
+	"testing"
+)
 
 func TestBuildMessageResponseSkipsThinkingFallbackWhenFinalTextExists(t *testing.T) {
 	resp := BuildMessageResponse(
@@ -32,5 +36,19 @@ func TestBuildMessageResponseSkipsThinkingFallbackWhenFinalTextExists(t *testing
 	}
 	if foundTool {
 		t.Fatalf("unexpected tool_use block when finalText exists, got=%#v", resp["content"])
+	}
+}
+
+func TestToolCallIDsAreUniqueAcrossResponses(t *testing.T) {
+	turn := assistantturn.Turn{ToolCalls: []toolcall.ParsedToolCall{{Name: "lookup", Input: map[string]any{}}}}
+	seen := map[string]bool{}
+	for i := 0; i < 100; i++ {
+		obj := BuildMessageResponseFromTurn("message", "model", turn, false)
+		content := obj["content"].([]map[string]any)
+		id := content[0]["id"].(string)
+		if seen[id] {
+			t.Fatalf("duplicate call ID %s", id)
+		}
+		seen[id] = true
 	}
 }

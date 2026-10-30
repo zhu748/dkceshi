@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"ds2api/internal/auth"
 	dsclient "ds2api/internal/deepseek/client"
@@ -57,8 +58,8 @@ func (f *repairFakeCaller) FireCompletionAndStop(context.Context, *auth.RequestA
 }
 
 func (f *repairFakeCaller) DeleteSession(_ context.Context, _ *auth.RequestAuth, sessionID string, _ int) (*dsclient.DeleteSessionResult, error) {
-	atomic.AddInt64(&f.deletedSessions, 1)
 	f.deletedIDs = append(f.deletedIDs, sessionID)
+	atomic.AddInt64(&f.deletedSessions, 1)
 	return &dsclient.DeleteSessionResult{SessionID: sessionID, Success: true}, nil
 }
 
@@ -80,6 +81,7 @@ func TestNewToolCallRepairInvokerDeletesSession(t *testing.T) {
 	if got := atomic.LoadInt64(&ds.createdSessions); got != 1 {
 		t.Fatalf("expected 1 created session, got %d", got)
 	}
+	waitRepairDeletion(t, ds)
 	if got := atomic.LoadInt64(&ds.deletedSessions); got != 1 {
 		t.Fatalf("expected 1 deleted session, got %d", got)
 	}
@@ -99,6 +101,7 @@ func TestNewToolCallRepairInvokerDeletesSessionOnUpstreamError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected upstream error")
 	}
+	waitRepairDeletion(t, ds)
 	if got := atomic.LoadInt64(&ds.deletedSessions); got != 1 {
 		t.Fatalf("expected session deleted even on upstream error, got %d", got)
 	}
@@ -114,4 +117,28 @@ func (f *repairFailingCaller) CallCompletion(_ context.Context, _ *auth.RequestA
 
 func (f *repairFailingCaller) DeleteSession(ctx context.Context, a *auth.RequestAuth, sessionID string, n int) (*dsclient.DeleteSessionResult, error) {
 	return f.repairFakeCaller.DeleteSession(ctx, a, sessionID, n)
+}
+
+func waitRepairDeletion(t *testing.T, ds *repairFakeCaller) {
+	t.Helper()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for atomic.LoadInt64(&ds.deletedSessions) == 0 {
+		select {
+		case <-deadline.C:
+			t.Fatal("repair cleanup did not run")
+		case <-tick.C:
+		}
+	}
+}
+func TestRepairHonorsCancelledRequest(t *testing.T) {
+	ds := &repairFakeCaller{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := NewToolCallRepairInvoker(ds, &auth.RequestAuth{}, nil)(ctx, "repair")
+	if err != context.Canceled || atomic.LoadInt64(&ds.createdSessions) != 0 {
+		t.Fatalf("cancelled request started repair: %v", err)
+	}
 }

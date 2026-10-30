@@ -287,6 +287,11 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	}
 	turn.Usage = BuildUsage(opts.Model, opts.Prompt, thinking, text, opts.RefFileTokens)
 	turn.Error = ValidateTurn(turn, opts.ToolChoice)
+	if turn.Error == nil {
+		if err := toolcall.ValidateToolArguments(turn.ToolCalls, opts.ToolsRaw); err != nil {
+			turn.Error = &OutputError{Status: http.StatusUnprocessableEntity, Message: err.Error(), Code: "invalid_tool_arguments"}
+		}
+	}
 	if turn.Error != nil {
 		turn.StopReason = StopReasonError
 	}
@@ -358,6 +363,11 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	turn.Usage = BuildUsage(opts.Model, opts.Prompt, thinking, text, opts.RefFileTokens)
 	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
 		turn.Error = ValidateTurn(turn, opts.ToolChoice)
+		if turn.Error == nil {
+			if err := toolcall.ValidateToolArguments(turn.ToolCalls, opts.ToolsRaw); err != nil {
+				turn.Error = &OutputError{Status: http.StatusUnprocessableEntity, Message: err.Error(), Code: "invalid_tool_arguments"}
+			}
+		}
 	}
 	if turn.Error != nil {
 		turn.StopReason = StopReasonError
@@ -390,7 +400,7 @@ func ValidateTurn(turn Turn, policy promptcompat.ToolChoicePolicy) *OutputError 
 	if policy.DisableParallel && len(turn.ToolCalls) > 1 {
 		return &OutputError{Status: http.StatusUnprocessableEntity, Message: "parallel_tool_calls=false permits at most one tool call per response.", Code: "tool_choice_violation"}
 	}
-	if policy.Constrained() {
+	if policy.Constrained() || len(policy.Allowed) > 0 {
 		for _, call := range turn.ToolCalls {
 			if policy.IsNone() || !policy.Allows(call.Name) || (policy.Mode == promptcompat.ToolChoiceForced && call.Name != policy.ForcedName) {
 				return &OutputError{Status: http.StatusUnprocessableEntity, Message: "tool_choice forbids this tool call: " + call.Name, Code: "tool_choice_violation"}
@@ -437,7 +447,7 @@ func FinalizeTurn(turn Turn, opts FinalizeOptions) FinalOutcome {
 	hasVisibleText := strings.TrimSpace(turn.Text) != ""
 	hasVisibleThinking := strings.TrimSpace(turn.Thinking) != ""
 	err := turn.Error
-	if hasToolCalls && (err == nil || err.Code != "tool_choice_violation") {
+	if hasToolCalls && (err == nil || err.Code != "tool_choice_violation" && err.Code != "invalid_tool_arguments") {
 		err = nil
 	}
 	finishReason := FinishReason(turn)

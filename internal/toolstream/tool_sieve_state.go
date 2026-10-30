@@ -6,6 +6,7 @@ import (
 )
 
 type State struct {
+	DeferMalformed         bool
 	pending                strings.Builder
 	capture                strings.Builder
 	capturing              bool
@@ -59,6 +60,7 @@ func (s *State) flushNormalizer() string {
 }
 
 type Event struct {
+	Deferred       bool
 	Content        string
 	ToolCalls      []toolcall.ParsedToolCall
 	ToolCallDeltas []ToolCallDelta

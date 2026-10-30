@@ -137,7 +137,8 @@ func buildToolPromptParts(tools []any, policy ToolChoicePolicy, includeReadCache
 		if !ok {
 			continue
 		}
-		name, desc, schema := toolcall.ExtractToolMeta(tool)
+		name, desc, _ := toolcall.ExtractToolMeta(tool)
+		schema := toolcall.ToolSchemaForPrompt(tool)
 		name = strings.TrimSpace(name)
 		if !isAllowed(name) {
 			continue

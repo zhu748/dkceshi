@@ -1,7 +1,7 @@
 package toolcall
 
 import (
-	"encoding/json"
+	"ds2api/internal/jsonvalue"
 	"encoding/xml"
 	"html"
 	"regexp"
@@ -143,7 +143,7 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 	inner := strings.TrimSpace(block.Body)
 	if strings.HasPrefix(inner, "{") {
 		var payload map[string]any
-		if err := json.Unmarshal([]byte(inner), &payload); err == nil {
+		if err := jsonvalue.Unmarshal([]byte(inner), &payload); err == nil {
 			input := map[string]any{}
 			if params, ok := payload["input"].(map[string]any); ok {
 				input = params

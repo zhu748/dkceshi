@@ -71,3 +71,18 @@ func (s *claudeStreamRuntime) sendMessageStart() {
 		},
 	})
 }
+
+func (s *claudeStreamRuntime) emitDeferredText() {
+	text := cleanVisibleOutput(s.deferredText.String(), s.stripReferenceMarkers)
+	s.deferredText.Reset()
+	if text == "" {
+		return
+	}
+	s.closeThinkingBlock()
+	idx := s.nextBlockIndex
+	s.nextBlockIndex++
+	s.send("content_block_start", map[string]any{"type": "content_block_start", "index": idx, "content_block": map[string]any{"type": "text", "text": ""}})
+	s.send("content_block_delta", map[string]any{"type": "content_block_delta", "index": idx, "delta": map[string]any{"type": "text_delta", "text": text}})
+	s.send("content_block_stop", map[string]any{"type": "content_block_stop", "index": idx})
+	s.textEmitted = true
+}

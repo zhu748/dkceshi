@@ -3,6 +3,7 @@ package claude
 import (
 	"bytes"
 	"context"
+	"ds2api/internal/jsonvalue"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,7 +73,7 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 		return true
 	}
 	var req map[string]any
-	if err := json.Unmarshal(raw, &req); err != nil {
+	if err := jsonvalue.Unmarshal(raw, &req); err != nil {
 		writeClaudeError(w, http.StatusBadRequest, "invalid json")
 		return true
 	}
@@ -203,7 +204,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 		return true
 	}
 	var req map[string]any
-	if err := json.Unmarshal(raw, &req); err != nil {
+	if err := jsonvalue.Unmarshal(raw, &req); err != nil {
 		writeClaudeError(w, http.StatusBadRequest, "invalid json")
 		return true
 	}
@@ -295,7 +296,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 
 func applyClaudeThinkingPolicyToOpenAIRequest(translated []byte, original map[string]any) ([]byte, bool) {
 	req := map[string]any{}
-	if err := json.Unmarshal(translated, &req); err != nil {
+	if err := jsonvalue.Unmarshal(translated, &req); err != nil {
 		return translated, false
 	}
 	enabled, ok := util.ResolveThinkingOverride(original)
@@ -319,7 +320,7 @@ func applyClaudeThinkingPolicyToOpenAIRequest(translated []byte, original map[st
 
 func stripClaudeThinkingBlocks(raw []byte) []byte {
 	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	if err := jsonvalue.Unmarshal(raw, &payload); err != nil {
 		return raw
 	}
 	content, _ := payload["content"].([]any)
@@ -446,6 +447,8 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		promptTokenText,
 		historySession,
 	)
+	streamRuntime.toolChoice = stdReq.ToolChoice
+	streamRuntime.bufferToolContent = true
 	streamRuntime.sieve.Marker = a.ToolMarker
 	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
 	streamRuntime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)

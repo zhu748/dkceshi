@@ -166,6 +166,9 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
     if (textURL.includes('__stream_prepare=1')) {
       return jsonResponse(prepareBody);
     }
+    if (textURL.includes('__stream_validate=1')) {
+      return jsonResponse(prepareOverrides.validation_result || { tool_calls: [] }, prepareOverrides.validation_status || 200);
+    }
     if (textURL.includes('__stream_pow=1')) {
       return jsonResponse({ pow_header: 'pow-header-refreshed' });
     }
@@ -1963,4 +1966,46 @@ test('reasoning-only calls use Go fallback without exposing hidden reasoning', a
     if (!visibleAnswer) assert.deepEqual(JSON.parse(calls[0].function.arguments), { key: 'value' });
     assert.equal(parsed.at(-1).choices[0].finish_reason, visibleAnswer ? 'stop' : 'tool_calls');
   }
+});
+
+test('role guard preserves CDATA, quotes and Markdown across every chunk boundary', () => {
+  for (const literal of ['<parameter><![CDATA[before [Tool]: after]]></parameter>', '`[Tool]:` is literal', '"[Tool]:" is quoted', '```text\n[Tool]: literal\n```\n', '```text\n```not-a-close\n[Tool]: literal\n```\n', '~~~text\n[Tool]: literal\n~~~\n']) {
+    const input = literal + '\n[Tool]: fabricated';
+    for (let size = 1; size <= input.length; size++) {
+      const guard = createToolRoleMarkerGuard(); let out = '';
+      for (let start = 0; start < input.length; start += size) out += feedToolRoleMarkerGuard(guard, input.slice(start, start + size));
+      assert.equal(out, literal + '\n', `size=${size} literal=${literal}`);
+      assert.equal(guard.tripped, true);
+    }
+  }
+});
+
+test('Node uses Go validation and forwards lossless argument strings', async () => {
+  const markup = '<tool_calls><invoke name="lookup"><parameter name="id">9007199254740993</parameter></invoke></tool_calls>';
+  const wire = [{ index: 0, id: 'call_validated', type: 'function', function: { name: 'lookup', arguments: '{"id":9007199254740993}' } }];
+  const result = await runMockVercelStream([`data: ${JSON.stringify({ p: 'response/content', v: markup })}\n\n`, 'data: [DONE]\n\n'], {
+    validate_tools: true, tool_names: ['lookup'], tool_choice: { Mode: 'auto', RestrictAllowed: true, Allowed: { lookup: {} } }, validation_result: { tool_calls: wire },
+  });
+  assert.equal(result.fetchURLs.filter(url => url.includes('__stream_validate=1')).length, 1);
+  const calls = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse).flatMap(frame => frame.choices || []).flatMap(choice => choice.delta.tool_calls || []);
+  assert.deepEqual(calls, wire);
+});
+
+test('Node never emits a tool rejected by shared schema validation', async () => {
+  const markup = '<tool_calls><invoke name="lookup"></invoke></tool_calls>';
+  const result = await runMockVercelStream([`data: ${JSON.stringify({ p: 'response/content', v: markup })}\n\n`, 'data: [DONE]\n\n'], {
+    validate_tools: true, tool_names: ['lookup'], validation_status: 422, validation_result: { error: { message: 'missing path', code: 'invalid_tool_arguments' } },
+  });
+  const events = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.equal(events.some(event => event.error && event.error.code === 'invalid_tool_arguments'), true);
+  assert.equal(events.some(event => event.choices && event.choices.some(choice => choice.delta.tool_calls)), false);
+});
+
+test('malformed prefix before a valid tool remains quarantined', async () => {
+  const bad = '<|EPSE|call name="Bash"><|EPSE|parameter name="command"><![CDATA[bad]]></|EPSE|parameter></|EPSE|call>';
+  const good = '<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>';
+  const result = await runMockVercelStream([`data: ${JSON.stringify({ p: 'response/content', v: bad + good })}\n\n`, 'data: [DONE]\n\n']);
+  const choices = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse).flatMap(event => event.choices || []);
+  assert.equal(choices.some(choice => choice.delta.content), false);
+  assert.equal(choices.some(choice => choice.delta.tool_calls), true);
 });

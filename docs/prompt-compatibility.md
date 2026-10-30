@@ -64,7 +64,7 @@ Claude 的工具声明只采用顶层 tools，避免普通 system 文本误触�
 API Key 配置中的 `force_disable_tools` 会在工具检测前清除工具定义并阻止格式注入。
 账号管理页的新建/编辑 Key 弹窗读取 `credential_flag_specs`，显示同一开关；Key 列表显示生效徽标，
 新增和编辑均将开关值提交给后端。
-工具选择策略由标准请求持有：OpenAI Chat 和 Responses 解析 auto/none/required/指定工具。
+工具选择策略由标准请求持有：OpenAI Chat 和 Responses 解析 auto/none/required/指定工具，及标准 `{type:"allowed_tools", mode, tools}` 子集。Claude 的 auto/none/any/tool 与 disable_parallel_tool_use、Gemini 的 functionCallingConfig 先映射成同一策略。
 Chat 的 Go、Vercel Node 和 Responses 流式路径对受约束调用延迟交付，在收尾校验 none、必需调用及指定工具；
 违反策略返回 tool_choice_violation，不能先输出禁止的调用再报错。工具执行器仍应验证工具名和参数。
 required/指定工具约束不会把上游空响应误判成策略违规：空响应继续走原有重试、审核及上游错误分类；
@@ -72,7 +72,7 @@ required/指定工具约束不会把上游空响应误判成策略违规：空�
 
 OpenAI Chat/Responses 的 `parallel_tool_calls: false` 会转换为共享单调用约束：
 提示词要求每轮最多一个调用，收尾也检查数量；不合规时返回错误，不静默截掉其余调用。
-显式 `allowed_tools` 子集在 auto 模式下同样校验，未设置显式子集时保留原兼容检测行为。
+提供正式工具目录时，auto 模式也检查工具名，名称区分大小写；没有正式目录的 system 文本工具仍保留兼容检测。JSON Schema 在共享层编译和校验（含本地 $ref、required、enum、额外字段和嵌套结构），不符合参数约束返回 invalid_tool_arguments。外部 $ref 不读取网络或文件。受约束调用在完整校验前不会交付。
 指定工具若被同一请求的 `allowed_tools` 排除，在归一化阶段直接报错，不能静默扩大允许集合。
 
 ## Agent 工具循环
@@ -102,11 +102,11 @@ CDATA 中的标签示例及原始参数内容应逐字保真，不能被确定�
 流式识别出工具块后输出协议原生工具增量，避免原始标签泄漏到正文；收尾阶段还会检测
 仅思维链中存在的工具调用，并按客户端 thinking 开关决定是否显示思维链。
 当存在无法确定性恢复的残余工具意图时，收尾可发起一次 LLM 格式修复：
-复用同一账号、新建会话、关闭思考、十秒超时，并在结束后清理修复会话。
+复用同一账号、新建会话、关闭思考；修复继承客户端取消和期限，最多十秒。会话删除进入固定容量队列（128 项、2 个 worker），使用凭据快照，独立十秒期限，不阻塞工具交付；队列满或删除失败写日志。
 参数通过 DS_SLOT 占位保护；修复失败或占位被破坏时保留原始残片，不输出半修复内容。
 已流式发出的结构化调用不会回滚并重修。
 
-正文截断规则及流式解析在 Go 和 Node 保持一致，包括闭标签复读和虚构 `[Tool]:` 角色。
+疑似坏工具块缓存在独立区域，完成解析/修复后才决定是否作为正文释放，避免先发送坏代码再发送修复后的调用。正文截断规则及流式解析在 Go 和 Node 保持一致，包括闭标签复读和虚构 `[Tool]:` 角色；CDATA、引号字符串、Markdown 代码中的同名文本保留，跨分片状态不重扫全文。
 详见 [toolcall-semantics.md](toolcall-semantics.md)。
 
 ## 历史拆分
@@ -236,3 +236,15 @@ API 测试页面的默认模型和说明同步更新。
 preserve_image=true 保留原图；文档、文件引用、账号绑定及纯文本提示词组装语义不变。
 详见 [APK 请求对齐核对](apk-request-alignment.md)，包括尚未覆盖的格式和远程设置边界。
 本轮原始抓包证据及批量轮询规则见 [三份 HAR 补充](android-har-reference-2026-10-29.md)。
+
+## Responses 多轮状态与 custom tools
+
+`previous_response_id` 按调用者检索输入和输出的可重放上下文，在本次上传与账号分配前恢复；不存在、过期或跨调用者引用返回错误，不启动上游请求。只继承对话输入和 output items，不继承上一轮顶层 `instructions`；本轮应重发 instructions 与 tools。`store:false` 不保存 Responses 对象或续接状态（独立的响应日志策略仍由其配置控制）。
+
+状态存储是进程内缓存，TTL 使用 responses store 配置（默认 15 分钟），最多 256 项、序列化预算 128 MiB，超额淘汰较早条目；服务重启、多实例未共享状态或缓存淘汰后，请携带完整历史。写入和读取深拷贝嵌套数据，克隆工作不持有全局读取锁。未支持的 Conversations API 明确拒绝。
+
+标准 `reasoning` items 的 content/summary 作为 assistant reasoning 恢复，不再降级为 user 文本；不解密 encrypted_content。custom_tool_call 与 custom_tool_call_output 保留 assistant/tool 角色和 call_id。`type:custom` 的自由文本在内部工具协议中使用唯一字符串参数 input，输出还原为 custom_tool_call/input 和 custom_tool_call_input 的 delta/done 事件。format/grammar 描述进入提示词；不宣称原生 CFG 约束解码。当前服务器不执行 OpenAI 托管工具。
+
+Vercel prepare 声明 validate_tools 能力时，Node 将原始候选文本交给带租约校验的 Go 内部端点，复用同一参数校验、修复和工具策略，再发送 arguments 字符串；JavaScript 不重新解析该字符串中的大整数。校验端点不可用时返回错误，不交付未经校验的调用。
+
+工具参数在输入解码、历史渲染、输出解析和 Responses 回译中保持数字值；不能被 float64 无损重新编码的数值保留为 json.Number。CDATA 字符串不作数字推断。Claude 工具 ID 使用随机 UUID，避免同秒多轮重名；Gemini functionCall 同样返回 ID，供原样回填。

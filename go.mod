@@ -11,6 +11,7 @@ require (
 	github.com/hupe1980/go-tiktoken v0.0.10
 	github.com/refraction-networking/utls v1.8.2
 	github.com/router-for-me/CLIProxyAPI/v6 v6.9.14
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	golang.org/x/image v0.24.0
 )
 

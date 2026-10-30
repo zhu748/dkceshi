@@ -162,3 +162,7 @@ go test -v -run 'TestParseToolCalls|TestProcessToolSieve' ./internal/toolcall ./
 ### 7.4 防御触发路径
 
 - 即使意图识别漏判（`SawToolCallIntent=false`），只要确定性解析器仍看到工具调用语法（`SawToolCallSyntax=true`）且解析出零个 call，finalize 兜底仍会用原始未 strip 文本作为坏码触发一次 LLM 修复，避免任何意图检测漏判导致坏工具调用代码作为可见正文静默泄漏；对普通正文（无工具语法）不触发。
+
+## Agent 交付边界更新
+
+正式工具目录的名称和参数在共享 assistant turn 收尾阶段校验；默认 auto 也限制声明工具名。坏的候选代码在开启 DeferMalformed 的流式 sieve 中隔离，修复前不输出为正文；修复失败才释放原片段。角色截断守卫跳过 CDATA、引号字符串及 Markdown 代码，不能把参数正文中的 `[Tool]:` 当成工具结果角色。数字参数采用无损 JSON 解码，字符串 CDATA 不改变类型。Responses custom tools 的内部参数为单个 input 字符串，具体 wire 事件由 Responses renderer 负责。详见 prompt-compatibility.md。

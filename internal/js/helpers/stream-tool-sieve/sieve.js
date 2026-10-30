@@ -49,7 +49,7 @@ function processToolSieveChunk(state, chunk, toolNames) {
       if (Array.isArray(consumed.calls) && consumed.calls.length > 0) {
         if (consumed.prefix) {
           noteText(state, consumed.prefix);
-          events.push({ type: 'text', text: consumed.prefix });
+          events.push({ type: 'text', text: consumed.prefix, deferred: !!state.deferMalformed && consumed.prefix.includes('<|EPSE') });
         }
         // Emit the completed tool call immediately so the runtime can mark the
         // turn as tool-call emitting before the capture suffix (tail prose after
@@ -65,7 +65,7 @@ function processToolSieveChunk(state, chunk, toolNames) {
       }
       if (consumed.prefix) {
         noteText(state, consumed.prefix);
-        events.push({ type: 'text', text: consumed.prefix });
+        events.push({ type: 'text', text: consumed.prefix, deferred: !!state.deferMalformed && consumed.prefix.includes('<|EPSE') });
       }
       if (consumed.suffix) {
         state.pending += consumed.suffix;
@@ -126,7 +126,7 @@ function flushToolSieve(state, toolNames) {
     if (consumed.ready) {
       if (consumed.prefix) {
         noteText(state, consumed.prefix);
-        events.push({ type: 'text', text: consumed.prefix });
+        events.push({ type: 'text', text: consumed.prefix, deferred: !!state.deferMalformed && consumed.prefix.includes('<|EPSE') });
       }
       if (Array.isArray(consumed.calls) && consumed.calls.length > 0) {
         events.push({ type: 'tool_calls', calls: consumed.calls });
@@ -219,6 +219,10 @@ function findToolSegmentStart(state, s) {
   let offset = 0;
   while (true) {
     const hit = findNextToolInterceptTag(s, offset);
+    if (state && state.deferMalformed) {
+      const candidate = s.indexOf('<|EPSE', offset);
+      if (candidate >= 0 && (!hit || candidate < hit.start) && !insideCodeFenceWithState(state, s.slice(0, candidate)) && markdownCodeSpanStateAt(state, s.slice(0, candidate)).ticks === 0) return candidate;
+    }
     if (!hit) {
       return -1;
     }
@@ -344,8 +348,10 @@ function consumeToolCapture(state, toolNames, final) {
   // XML-only tool call extraction.
   const xmlResult = consumeXMLToolCaptureImpl(captured, toolNames, trimWrappingJSONFence);
   if (xmlResult.ready) {
+    if (state.deferMalformed && !final && !xmlResult.calls.length) return { ready: false };
     return xmlResult;
   }
+  if (state.deferMalformed && !final && captured.includes('<|EPSE')) return { ready: false };
   // If XML tags are present but block is incomplete, keep buffering.
   if (hasOpenXMLToolTag(captured)) {
     return { ready: false, prefix: '', calls: [], suffix: '' };

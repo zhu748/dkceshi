@@ -1,8 +1,9 @@
 package responses
 
 import (
+	"ds2api/internal/jsonvalue"
 	"ds2api/internal/toolcall"
-	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -52,12 +53,21 @@ func (h *Handler) GetResponseByID(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, openAIGeneralMaxSize)
 	var req map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "too large") {
 			writeOpenAIError(w, http.StatusRequestEntityTooLarge, "request body too large")
 			return
 		}
 		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	replayContext, restoreErr := h.restoreContinuation(r, req)
+	if restoreErr != nil {
+		status := http.StatusBadRequest
+		if errors.Is(restoreErr, errContinuationUnauthorized) {
+			status = http.StatusUnauthorized
+		}
+		writeOpenAIError(w, status, restoreErr.Error())
 		return
 	}
 	// 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。
@@ -118,6 +128,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 		Surface:  "openai.responses",
 		Standard: stdReq,
 	})
+	persist := h.responsePersister(owner, responseID, req, replayContext)
 	if !stdReq.Stream {
 		result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 			RetryEnabled:          true,
@@ -142,7 +153,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 		}
 		responseObj := openaifmt.BuildResponseObjectWithToolCalls(responseID, stdReq.ResponseModel, result.Turn.Prompt, result.Turn.Thinking, result.Turn.Text, result.Turn.ToolCalls, stdReq.ToolsRaw)
 		responseObj["usage"] = assistantturn.OpenAIResponsesUsage(result.Turn)
-		h.getResponseStore().put(owner, responseID, responseObj)
+		persist(responseObj)
 		writeJSON(w, http.StatusOK, responseObj)
 		return
 	}

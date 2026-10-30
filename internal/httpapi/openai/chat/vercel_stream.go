@@ -2,7 +2,6 @@ package chat
 
 import (
 	"crypto/subtle"
-	"encoding/json"
 	"net/http"
 	"os"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 	"ds2api/internal/config"
 	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/httpapi/openai/history"
+	"ds2api/internal/jsonvalue"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/util"
 
@@ -34,7 +34,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 	}
 
 	var req map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
@@ -121,6 +121,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		"thinking_enabled": stdReq.Thinking,
 		"search_enabled":   stdReq.Search,
 		"tool_choice":      stdReq.ToolChoice,
+		"validate_tools":   stdReq.ToolChoice.Constrained() || len(stdReq.ToolNames) > 0 || stdReq.SystemTextToolsApply(),
 		"tool_names":       stdReq.ToolNames,
 		// The Node stream mirror performs the tool sieve itself, so it needs the
 		// caller-specific marker to normalize the model's output back to EPSE
@@ -148,7 +149,7 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 	}
 
 	var req map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
@@ -223,7 +224,7 @@ func (h *Handler) handleVercelStreamPow(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
@@ -262,7 +263,7 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
 		return
 	}

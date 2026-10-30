@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
@@ -23,6 +24,7 @@ type claudeStreamRuntime struct {
 	toolNames       []string
 	messages        []any
 	toolsRaw        any
+	toolChoice      promptcompat.ToolChoicePolicy
 	promptTokenText string
 
 	thinkingEnabled       bool
@@ -35,6 +37,7 @@ type claudeStreamRuntime struct {
 	text              strings.Builder
 	responseMessageID int
 
+	deferredText          strings.Builder
 	sieve                 toolstream.State
 	rawText               strings.Builder
 	rawThinking           strings.Builder
@@ -108,6 +111,7 @@ func newClaudeStreamRuntime(
 		toolsRaw:              toolsRaw,
 		promptTokenText:       promptTokenText,
 		history:               history,
+		sieve:                 toolstream.State{DeferMalformed: true},
 		messageID:             fmt.Sprintf("msg_%d", time.Now().UnixNano()),
 		thinkingBlockIndex:    -1,
 		textBlockIndex:        -1,
@@ -232,7 +236,14 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 
 		events := toolstream.ProcessChunk(&s.sieve, rawTrimmed, s.toolNames)
 		for _, evt := range events {
+			if evt.Deferred {
+				s.deferredText.WriteString(evt.Content)
+				continue
+			}
 			if len(evt.ToolCalls) > 0 {
+				if s.toolChoice.Constrained() {
+					continue
+				}
 				s.closeTextBlock()
 				s.toolCallsDetected = true
 				normalized := toolcall.NormalizeParsedToolCallsForSchemas(evt.ToolCalls, s.toolsRaw)

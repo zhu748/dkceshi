@@ -1,6 +1,9 @@
 package toolstream
 
-import "ds2api/internal/toolcall"
+import (
+	"ds2api/internal/toolcall"
+	"strings"
+)
 
 func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 	if state == nil {
@@ -32,7 +35,7 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 			if len(calls) > 0 {
 				if prefix != "" {
 					state.noteText(prefix)
-					events = append(events, Event{Content: prefix})
+					events = append(events, Event{Content: prefix, Deferred: state.DeferMalformed && toolcall.DetectToolCallIntent(prefix)})
 				}
 				// Emit the completed tool call immediately so the runtime can mark
 				// the turn as tool-call emitting before the capture suffix (tail
@@ -48,7 +51,7 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 			}
 			if prefix != "" {
 				state.noteText(prefix)
-				events = append(events, Event{Content: prefix})
+				events = append(events, Event{Content: prefix, Deferred: state.DeferMalformed && toolcall.DetectToolCallIntent(prefix)})
 			}
 			if suffix != "" {
 				state.pending.WriteString(suffix)
@@ -72,7 +75,7 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 				if resetMarkdownSpan {
 					state.markdownCodeSpanTicks = 0
 				}
-				events = append(events, Event{Content: prefix})
+				events = append(events, Event{Content: prefix, Deferred: state.DeferMalformed && toolcall.DetectToolCallIntent(prefix)})
 			}
 			state.pending.Reset()
 			state.capture.WriteString(pending[start:])
@@ -119,7 +122,7 @@ func Flush(state *State, toolNames []string) []Event {
 		if ready {
 			if consumedPrefix != "" {
 				state.noteText(consumedPrefix)
-				events = append(events, Event{Content: consumedPrefix})
+				events = append(events, Event{Content: consumedPrefix, Deferred: state.DeferMalformed && len(consumedCalls) == 0})
 			}
 			if len(consumedCalls) > 0 {
 				events = append(events, Event{ToolCalls: consumedCalls})
@@ -142,7 +145,7 @@ func Flush(state *State, toolNames []string) []Event {
 					if prefix, calls, suffix, recoveredReady := consumeXMLToolCapture(recovered, toolNames); recoveredReady && len(calls) > 0 {
 						if prefix != "" {
 							state.noteText(prefix)
-							events = append(events, Event{Content: prefix})
+							events = append(events, Event{Content: prefix, Deferred: state.DeferMalformed && toolcall.DetectToolCallIntent(prefix)})
 						}
 						events = append(events, Event{ToolCalls: calls})
 						if suffix != "" {
@@ -153,13 +156,13 @@ func Flush(state *State, toolNames []string) []Event {
 						// If capture never resolved into a real tool call, release
 						// the buffered text instead of swallowing it.
 						state.noteText(content)
-						events = append(events, Event{Content: content})
+						events = append(events, Event{Content: content, Deferred: state.DeferMalformed})
 					}
 				} else {
 					// If capture never resolved into a real tool call, release the
 					// buffered text instead of swallowing it.
 					state.noteText(content)
-					events = append(events, Event{Content: content})
+					events = append(events, Event{Content: content, Deferred: state.DeferMalformed})
 				}
 			}
 		}
@@ -174,7 +177,7 @@ func Flush(state *State, toolNames []string) []Event {
 		content = toolcall.StripDSMLResidue(content)
 		// If pending never resolved into a real tool call, release it as text.
 		state.noteText(content)
-		events = append(events, Event{Content: content})
+		events = append(events, Event{Content: content, Deferred: state.DeferMalformed})
 		state.pending.Reset()
 	}
 	return events
@@ -214,6 +217,14 @@ func findToolSegmentStart(state *State, s string) int {
 	offset := 0
 	for {
 		start, end, ok := findNextToolInterceptTag(s, offset)
+		if state != nil && state.DeferMalformed {
+			if candidate := strings.Index(s[offset:], "<|EPSE"); candidate >= 0 {
+				candidate += offset
+				if (!ok || candidate < start) && !insideCodeFenceWithState(state, s[:candidate]) && markdownCodeSpanStateAt(state, s[:candidate]).ticks == 0 {
+					return candidate
+				}
+			}
+		}
 		if !ok {
 			return -1
 		}
@@ -356,10 +367,16 @@ func consumeToolCapture(state *State, toolNames []string, final bool) (prefix st
 
 	// XML tool call extraction only.
 	if xmlPrefix, xmlCalls, xmlSuffix, xmlReady := consumeXMLToolCapture(captured, toolNames); xmlReady {
+		if state.DeferMalformed && !final && len(xmlCalls) == 0 {
+			return "", nil, "", false
+		}
 		return xmlPrefix, xmlCalls, xmlSuffix, true
 	}
 	// If XML tags are present but block is incomplete, keep buffering.
 	if hasOpenXMLToolTag(captured) {
+		return "", nil, "", false
+	}
+	if state.DeferMalformed && !final && strings.Contains(captured, "<|EPSE") {
 		return "", nil, "", false
 	}
 	// DSML never parses into a tool call: hide it from visible content while

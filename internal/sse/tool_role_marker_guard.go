@@ -2,109 +2,152 @@ package sse
 
 import "strings"
 
-// ToolRoleMarker is the plain-text role marker that introduces a tool result in
-// the assembled prompt (see internal/prompt/messages.go). It is prompt
-// structure, never reply text.
-//
-// The model occasionally hallucinates it: after emitting a tool call it prints
-// `[Tool]:` itself, invents a tool result, and then keeps answering its own
-// invented dialogue. Everything from the marker on is fabricated, so the
-// compatibility layer cuts the turn there — the text produced before the marker
-// is delivered normally, the marker and everything after it is dropped.
 const ToolRoleMarker = "[Tool]:"
 
-// toolRoleMarkerHoldbackLen is the longest proper prefix of ToolRoleMarker that
-// Feed withholds while waiting for the rest of a marker that a later fragment
-// may still complete.
-const toolRoleMarkerHoldbackLen = len(ToolRoleMarker) - 1
-
-// ToolRoleMarkerGuard is a streaming detector for a hallucinated `[Tool]:` role
-// marker on the raw text channel.
-//
-// Text arrives in arbitrary fragments — SSE deltas routinely split the marker
-// across frames — so Feed withholds a trailing fragment that could still grow
-// into the marker and resumes matching on the next call. Once tripped the guard
-// stays tripped and returns nothing, so the caller ends the upstream read and
-// finishes with the text it already forwarded.
-//
-// Matching is case-insensitive, so a drifted `[tool]:` is cut as well.
-//
-// The withheld fragment is deliberately never released: by construction it is
-// the beginning of a marker, and a reply that ends inside one ends inside
-// fabricated text. That costs at most len(ToolRoleMarker)-1 trailing bytes and
-// only when the reply stops on a marker prefix such as a dangling `[To`.
+// ToolRoleMarkerGuard cuts invented tool-result turns while preserving literal
+// markers in CDATA, quoted strings and Markdown code across arbitrary chunks.
+// Only a short unfinished delimiter is held; the complete response is not rescanned.
 type ToolRoleMarkerGuard struct {
-	pending string
-	tripped bool
+	pending      string
+	tripped      bool
+	inCDATA      bool
+	quote        bool
+	escaped      bool
+	code         byte
+	ticks        int
+	fence        bool
+	fenceClosing bool
+	notLineStart bool
 }
 
-// Tripped reports whether a role marker was already detected.
-func (g *ToolRoleMarkerGuard) Tripped() bool {
-	return g != nil && g.tripped
-}
+func (g *ToolRoleMarkerGuard) Tripped() bool           { return g != nil && g.tripped }
+func (g *ToolRoleMarkerGuard) Feed(text string) string { return g.feed(text, false) }
 
-// Feed consumes the next raw text fragment and returns the prefix that is safe
-// to forward downstream. A trailing fragment that could still grow into the
-// marker is withheld until a later Feed.
-//
-// Once tripped it returns "" forever: the marker and everything after it is
-// dropped.
-func (g *ToolRoleMarkerGuard) Feed(text string) string {
+func (g *ToolRoleMarkerGuard) feed(text string, final bool) string {
 	if g == nil || g.tripped {
 		return ""
 	}
 	data := g.pending + text
 	g.pending = ""
-	if idx := indexToolRoleMarker(data); idx >= 0 {
-		g.tripped = true
-		return data[:idx]
+	i := 0
+	for i < len(data) {
+		tail := data[i:]
+		if g.inCDATA {
+			if strings.HasPrefix(tail, "]]>") {
+				g.inCDATA = false
+				i += 3
+				continue
+			}
+			if !final && strings.HasPrefix("]]>", tail) {
+				break
+			}
+			i++
+			continue
+		}
+		if g.code != 0 {
+			if g.fenceClosing {
+				if data[i] == '\n' || data[i] == '\r' {
+					g.code = 0
+					g.fenceClosing = false
+					g.notLineStart = false
+					i++
+					continue
+				}
+				if data[i] == ' ' || data[i] == '\t' {
+					i++
+					continue
+				}
+				g.fenceClosing = false
+			}
+			if data[i] == g.code {
+				n := 0
+				for i+n < len(data) && data[i+n] == g.code {
+					n++
+				}
+				if !final && i+n == len(data) {
+					break
+				}
+				if !g.fence && n == g.ticks {
+					g.code = 0
+					g.ticks = 0
+				} else if g.fence && !g.notLineStart && n >= g.ticks {
+					g.fenceClosing = true
+				}
+				i += n
+				g.notLineStart = true
+				continue
+			}
+			if data[i] == '\n' || data[i] == '\r' {
+				g.notLineStart = false
+			} else if data[i] != ' ' && data[i] != '\t' {
+				g.notLineStart = true
+			}
+			i++
+			continue
+		}
+		if g.quote {
+			if g.escaped {
+				g.escaped = false
+			} else if data[i] == '\\' {
+				g.escaped = true
+			} else if data[i] == '"' {
+				g.quote = false
+			}
+			i++
+			continue
+		}
+		const cdata = "<![CDATA["
+		if strings.HasPrefix(tail, cdata) {
+			g.inCDATA = true
+			i += len(cdata)
+			continue
+		}
+		if !final && strings.HasPrefix(cdata, tail) {
+			break
+		}
+		if data[i] == '`' || (data[i] == '~' && !g.notLineStart) {
+			ch := data[i]
+			n := 0
+			for i+n < len(data) && data[i+n] == ch {
+				n++
+			}
+			if !final && i+n == len(data) {
+				break
+			}
+			if ch == '`' || n >= 3 {
+				g.code = ch
+				g.ticks = n
+				g.fence = n >= 3 && !g.notLineStart
+			}
+			i += n
+			g.notLineStart = true
+			continue
+		}
+		if data[i] == '"' {
+			g.quote = true
+			i++
+			continue
+		}
+		if len(tail) >= len(ToolRoleMarker) && strings.EqualFold(tail[:len(ToolRoleMarker)], ToolRoleMarker) {
+			g.tripped = true
+			return data[:i]
+		}
+		if !final && len(tail) < len(ToolRoleMarker) && strings.EqualFold(tail, ToolRoleMarker[:len(tail)]) {
+			break
+		}
+		if data[i] == '\n' || data[i] == '\r' {
+			g.notLineStart = false
+		} else if data[i] != ' ' && data[i] != '\t' {
+			g.notLineStart = true
+		}
+		i++
 	}
-	hold := trailingToolRoleMarkerPrefixLen(data)
-	g.pending = data[len(data)-hold:]
-	return data[:len(data)-hold]
+	g.pending = data[i:]
+	return data[:i]
 }
 
-// TrimToolRoleMarker removes the first `[Tool]:` role marker and everything
-// after it, reporting whether a marker was found. It is the non-streaming
-// counterpart of ToolRoleMarkerGuard.
 func TrimToolRoleMarker(text string) (string, bool) {
-	idx := indexToolRoleMarker(text)
-	if idx < 0 {
-		return text, false
-	}
-	return text[:idx], true
-}
-
-// indexToolRoleMarker returns the offset of the first case-insensitive
-// occurrence of the role marker in text, or -1.
-func indexToolRoleMarker(text string) int {
-	if len(text) < len(ToolRoleMarker) {
-		return -1
-	}
-	for i := 0; i+len(ToolRoleMarker) <= len(text); i++ {
-		if strings.EqualFold(text[i:i+len(ToolRoleMarker)], ToolRoleMarker) {
-			return i
-		}
-	}
-	return -1
-}
-
-// trailingToolRoleMarkerPrefixLen returns the length of the longest suffix of
-// text that is a proper prefix of the role marker (case-insensitive ASCII), so
-// Feed can withhold a marker that is still arriving one fragment at a time.
-//
-// Slicing at an arbitrary byte offset is safe: a fragment that starts inside a
-// multi-byte rune never folds to the ASCII marker, so the scan cannot match
-// there.
-func trailingToolRoleMarkerPrefixLen(text string) int {
-	limit := toolRoleMarkerHoldbackLen
-	if len(text) < limit {
-		limit = len(text)
-	}
-	for l := limit; l > 0; l-- {
-		if strings.EqualFold(text[len(text)-l:], ToolRoleMarker[:l]) {
-			return l
-		}
-	}
-	return 0
+	var g ToolRoleMarkerGuard
+	kept := g.feed(text, true)
+	return kept, g.tripped
 }

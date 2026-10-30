@@ -150,11 +150,11 @@ OpenAI `/v1/*` 仍是推荐的规范路径；同时支持 `/models`、`/chat/com
 
 | 级别 | 平台 | 当前状态 |
 | --- | --- | --- |
-| P0 | Codex CLI/SDK（`wire_api=chat` / `wire_api=responses`） | ✅ |
-| P0 | OpenAI SDK（JS/Python，chat + responses） | ✅ |
+| P0 | Codex CLI/SDK（`wire_api=chat` / `wire_api=responses`） | 支持函数工具、Responses 文本 custom tools；具体客户端版本需联调 |
+| P0 | OpenAI SDK（JS/Python，chat + responses） | 支持函数调用、工具策略及 Responses 状态续接 |
 | P0 | Vercel AI SDK（openai-compatible） | ✅ |
-| P0 | Anthropic SDK（messages） | ✅ |
-| P0 | Google Gemini SDK（generateContent） | ✅ |
+| P0 | Anthropic SDK（messages） | 支持工具结果回传、工具选择及并行约束 |
+| P0 | Google Gemini SDK（generateContent） | 支持函数调用、调用 ID、工具选择及 Schema 转换 |
 | P1 | LangChain / LlamaIndex / OpenWebUI（OpenAI 兼容接入） | ✅ |
 
 ## 模型支持
@@ -329,8 +329,8 @@ go run ./cmd/ds2api
 - `model_aliases`：OpenAI / Claude / Gemini 共用的模型 alias 映射。
 - `runtime`：账号并发、队列与 token 刷新策略，可通过 Admin Settings 热更新。
 - `auto_delete.mode`：请求结束后的远端会话清理策略，支持 `none` / `single` / `all`。
-- `current_input_file`：全局生效的上下文拆分上传策略；默认开启且阈值为 `0`，触发时将完整上下文合并上传为 `chat_context.txt` 上下文文件。
-- 如果关闭 `current_input_file`，请求会直接透传，不上传拆分上下文文件。
+- `input_file`：上下文拆分上传策略，默认关闭；启用后将较早历史上传为 `HISTORY.txt`，工具目录上传为 `TOOLS.txt`，当前任务及其工具循环保留在实时 prompt。
+- 旧 `current_input_file` 配置键已忽略，需要迁移为 `input_file`。
 - `thinking_injection`：默认**关闭**；启用后在最新 user 消息末尾追加思考增强提示词，提高高强度推理与工具调用前的思考稳定性；`prompt` 留空时使用内置默认提示词。按需启用方式：(1) 全局打开 `thinking_injection.enabled=true`，或 (2) 使用带 `-thinkinginject` 后缀的模型 ID 单次触发。
 
 环境变量完整列表见 [部署指南](docs/DEPLOY.md)，接口鉴权规则见 [API.md](API.md#鉴权规则)。

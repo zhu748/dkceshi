@@ -13,7 +13,7 @@ function resolveToolcallPolicy(prepBody, payloadTools) {
     toolNames = ['__any_tool__'];
   }
   const choice = (prepBody && prepBody.tool_choice) || {};
-  const constrained = !!choice.RestrictAllowed || !!choice.DisableParallel || (!!choice.Mode && choice.Mode !== 'auto');
+  const constrained = !!(prepBody && prepBody.validate_tools) || !!choice.RestrictAllowed || !!choice.DisableParallel || (!!choice.Mode && choice.Mode !== 'auto');
   return {
     choice, constrained,
     toolNames,

@@ -3,7 +3,6 @@ package responses
 import (
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
-	"encoding/json"
 	"strings"
 
 	openaifmt "ds2api/internal/format/openai"
@@ -241,7 +240,11 @@ func (s *responsesStreamRuntime) ensureFunctionItemID(callIndex int) string {
 	if id, ok := s.functionItemIDs[callIndex]; ok && strings.TrimSpace(id) != "" {
 		return id
 	}
-	id := "fc_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	prefix := "fc_"
+	if toolcall.IsCustomTool(s.toolsRaw, s.functionNames[callIndex]) {
+		prefix = "ctc_"
+	}
+	id := prefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 	s.functionItemIDs[callIndex] = id
 	return id
 }
@@ -285,14 +288,8 @@ func (s *responsesStreamRuntime) ensureFunctionItemAdded(callIndex int, name str
 	outputIndex := s.ensureFunctionOutputIndex(callIndex)
 	itemID := s.ensureFunctionItemID(callIndex)
 	callID := s.ensureToolCallID(callIndex)
-	item := map[string]any{
-		"id":        itemID,
-		"type":      "function_call",
-		"call_id":   callID,
-		"name":      fnName,
-		"arguments": "",
-		"status":    "in_progress",
-	}
+	field, _ := openaifmt.ResponsesToolInput(fnName, nil, s.toolsRaw)
+	item := openaifmt.BuildResponsesToolItem(fnName, field, "", itemID, callID, "in_progress")
 	s.sendEvent(
 		"response.output_item.added",
 		openaifmt.BuildResponsesOutputItemAddedPayload(s.responseID, itemID, outputIndex, item),
@@ -336,21 +333,21 @@ func (s *responsesStreamRuntime) emitFunctionCallDoneEvents(calls []toolcall.Par
 		outputIndex := s.ensureFunctionOutputIndex(idx)
 		itemID := s.ensureFunctionItemID(idx)
 		callID := s.ensureToolCallID(idx)
-		argsBytes, _ := json.Marshal(tc.Input)
-		args := string(argsBytes)
+		field, args := openaifmt.ResponsesToolInput(tc.Name, tc.Input, s.toolsRaw)
+		previousArgs := s.functionArgs[idx]
 		s.functionArgs[idx] = args
-		s.sendEvent(
-			"response.function_call_arguments.done",
-			openaifmt.BuildResponsesFunctionCallArgumentsDonePayload(s.responseID, itemID, outputIndex, callID, tc.Name, args),
-		)
-		item := map[string]any{
-			"id":        itemID,
-			"type":      "function_call",
-			"call_id":   callID,
-			"name":      tc.Name,
-			"arguments": args,
-			"status":    "completed",
+		if field == "input" {
+			s.sendEvent("response.custom_tool_call_input.delta", map[string]any{"type": "response.custom_tool_call_input.delta", "item_id": itemID, "output_index": outputIndex, "delta": args})
+			s.sendEvent("response.custom_tool_call_input.done", map[string]any{"type": "response.custom_tool_call_input.done", "item_id": itemID, "output_index": outputIndex, "input": args})
+		} else {
+			// Complete XML calls are atomic. Emit their arguments once as a delta so
+			// SDKs that accumulate deltas obtain the same value as the done item.
+			if delta := strings.TrimPrefix(args, previousArgs); delta != "" && strings.HasPrefix(args, previousArgs) {
+				s.sendEvent("response.function_call_arguments.delta", openaifmt.BuildResponsesFunctionCallArgumentsDeltaPayload(s.responseID, itemID, outputIndex, callID, delta))
+			}
+			s.sendEvent("response.function_call_arguments.done", openaifmt.BuildResponsesFunctionCallArgumentsDonePayload(s.responseID, itemID, outputIndex, callID, tc.Name, args))
 		}
+		item := openaifmt.BuildResponsesToolItem(tc.Name, field, args, itemID, callID, "completed")
 		s.sendEvent(
 			"response.output_item.done",
 			openaifmt.BuildResponsesOutputItemDonePayload(s.responseID, itemID, outputIndex, item),
