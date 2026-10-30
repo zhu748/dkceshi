@@ -1,6 +1,7 @@
 package promptcompat
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -92,7 +93,7 @@ func TestBuildOpenAIPromptReminderToggle(t *testing.T) {
 	if strings.Contains(finalPrompt, toolCallReminderHead) {
 		t.Fatalf("custom reminder must replace the built-in one, got: %q", finalPrompt)
 	}
-	if !strings.HasSuffix(finalPrompt, customPrompt+"[Assistant]:") {
+	if !strings.HasSuffix(regexp.MustCompile(`\n\[EndMessage:[^\]]+\]\n\n`).ReplaceAllString(finalPrompt, ""), customPrompt+"[Assistant]:") {
 		t.Fatalf("custom reminder must stay immediately before the [Assistant] marker, got: %q", finalPrompt)
 	}
 }

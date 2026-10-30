@@ -9,13 +9,9 @@ import (
 
 const assistantReasoningLabel = "reasoning_content"
 
-// NormalizeOpenAIMessagesForPrompt renders the request messages into the
-// prompt-visible message list. The optional toolMarker is the caller-specific
-// tool-call marker: history that carries the marker form (for example a
-// pass-through client echoing raw model output) is normalized back to EPSE
-// before the assistant tool-markup probe parses it, so the block is recognized
-// whichever form the history happens to carry. Rendering stays in EPSE form;
-// the prompt boundary converts it to the marker afterwards.
+// NormalizeOpenAIMessagesForPrompt preserves message boundaries and metadata.
+// Generated history tool tags use the caller marker; ordinary content is never
+// rewritten by a later whole-prompt substitution.
 func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...string) []map[string]any {
 	_ = traceID
 	marker := firstToolMarker(toolMarker)
@@ -25,6 +21,7 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 		if !ok {
 			continue
 		}
+		before := len(out)
 		role := strings.ToLower(strings.TrimSpace(asString(msg["role"])))
 		switch role {
 		case "assistant":
@@ -35,12 +32,16 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 			out = append(out, map[string]any{
 				"role":    "assistant",
 				"content": content,
+				"prefix":  msg["prefix"],
 			})
 		case "tool", "function":
 			content := buildToolContentForPrompt(msg)
 			out = append(out, map[string]any{
-				"role":    "tool",
-				"content": content,
+				"role":         "tool",
+				"content":      content,
+				"tool_call_id": msg["tool_call_id"],
+				"name":         msg["name"],
+				"is_error":     msg["is_error"],
 			})
 		case "user", "system", "developer":
 			out = append(out, map[string]any{
@@ -60,17 +61,24 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 				"content": content,
 			})
 		}
+		if len(out) > before {
+			for _, key := range []string{"name", "id", "prefix", "tool_call_id", "is_error"} {
+				if value, ok := msg[key]; ok {
+					out[len(out)-1][key] = value
+				}
+			}
+		}
 	}
 	return out
 }
 
 func buildAssistantContentForPrompt(msg map[string]any, marker string) string {
-	content := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
+	content := NormalizeOpenAIContentForPrompt(msg["content"])
 	reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
 	if reasoning == "" {
 		reasoning = strings.TrimSpace(extractOpenAIReasoningContentFromMessage(msg["content"]))
 	}
-	toolHistory := prompt.FormatToolCallsForPrompt(msg["tool_calls"])
+	toolHistory := prompt.FormatToolCallsForPromptForMarker(msg["tool_calls"], marker)
 	if toolHistory == "" {
 		content = normalizeAssistantToolMarkupContentForPrompt(content, marker)
 	}
@@ -109,7 +117,7 @@ func normalizeAssistantToolMarkupContentForPrompt(content, marker string) string
 	if trimmed == "" {
 		return content
 	}
-	trimmed = toolcall.NormalizeMarkerText(trimmed, marker)
+	trimmed = toolcall.NormalizeToolMarkupMarker(trimmed, marker)
 	if !isStandaloneAssistantToolMarkupBlock(trimmed) {
 		return content
 	}
@@ -124,7 +132,7 @@ func normalizeAssistantToolMarkupContentForPrompt(content, marker string) string
 			"input": call.Input,
 		})
 	}
-	if formatted := prompt.FormatToolCallsForPrompt(raw); formatted != "" {
+	if formatted := prompt.FormatToolCallsForPromptForMarker(raw, marker); formatted != "" {
 		return formatted
 	}
 	return content
@@ -210,7 +218,7 @@ func formatPromptLabeledBlock(label, text string) string {
 
 func buildToolContentForPrompt(msg map[string]any) string {
 	content := NormalizeOpenAIContentForPrompt(msg["content"])
-	if strings.TrimSpace(content) == "" {
+	if msg["content"] == nil {
 		return "null"
 	}
 	return content
@@ -222,9 +230,6 @@ func NormalizeOpenAIContentForPrompt(v any) string {
 
 func normalizeOpenAIRoleForPrompt(role string) string {
 	role = strings.ToLower(strings.TrimSpace(role))
-	if role == "developer" {
-		return "system"
-	}
 	return role
 }
 

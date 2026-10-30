@@ -1,7 +1,7 @@
 package gemini
 
 import (
-	"fmt"
+	"ds2api/internal/promptcompat"
 	"strings"
 )
 
@@ -9,12 +9,7 @@ const maxGeminiRawPromptChars = 1024
 
 func geminiMessagesFromRequest(req map[string]any) []any {
 	out := make([]any, 0, 8)
-	toolCallCounter := 0
-	nextToolCallID := func() string {
-		toolCallCounter++
-		return fmt.Sprintf("call_gemini_%d", toolCallCounter)
-	}
-	lastToolCallIDByName := map[string]string{}
+	links := promptcompat.NewToolCallLinker("call_gemini")
 	if sys := normalizeGeminiSystemInstruction(req["systemInstruction"]); strings.TrimSpace(sys) != "" {
 		out = append(out, map[string]any{
 			"role":    "system",
@@ -23,6 +18,19 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 	}
 
 	contents, _ := req["contents"].([]any)
+	for _, raw := range contents {
+		content, _ := raw.(map[string]any)
+		parts, _ := content["parts"].([]any)
+		for _, rawPart := range parts {
+			part, _ := rawPart.(map[string]any)
+			for _, kind := range []string{"functionCall", "functionResponse"} {
+				fn, _ := part[kind].(map[string]any)
+				for _, key := range []string{"id", "call_id", "callId", "tool_call_id"} {
+					links.Reserve(asString(fn[key]))
+				}
+			}
+		}
+	}
 	for _, item := range contents {
 		content, ok := item.(map[string]any)
 		if !ok {
@@ -84,11 +92,9 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 				if name := strings.TrimSpace(asString(fnCall["name"])); name != "" {
 					callID := strings.TrimSpace(asString(fnCall["id"]))
 					if callID == "" {
-						if callID = strings.TrimSpace(asString(fnCall["call_id"])); callID == "" {
-							callID = nextToolCallID()
-						}
+						callID = strings.TrimSpace(asString(fnCall["call_id"]))
 					}
-					lastToolCallIDByName[strings.ToLower(name)] = callID
+					callID = links.Call(name, callID)
 					msg := map[string]any{
 						"role": "assistant",
 						"tool_calls": []any{
@@ -121,12 +127,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 				if callID == "" {
 					callID = strings.TrimSpace(asString(fnResp["tool_call_id"]))
 				}
-				if callID == "" {
-					callID = strings.TrimSpace(lastToolCallIDByName[strings.ToLower(name)])
-				}
-				if callID == "" {
-					callID = nextToolCallID()
-				}
+				callID, name = links.Result(name, callID)
 				content := fnResp["response"]
 				if content == nil {
 					content = fnResp["output"]

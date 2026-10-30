@@ -46,7 +46,7 @@ func TestNormalizeOpenAIChatRequestRendersMarkerAtPromptBoundary(t *testing.T) {
 	if !strings.Contains(stdReq.FinalPrompt, "<|"+markerUnderTest+"|tool_calls>") {
 		t.Fatalf("prompt missing the marker shell: %q", stdReq.FinalPrompt)
 	}
-	if !strings.Contains(stdReq.FinalPrompt, "<|"+markerUnderTest+"|parameter name=\"path\">") {
+	if !strings.Contains(stdReq.FinalPrompt, "<|"+markerUnderTest+"|parameter name=\"PARAMETER_NAME\">") {
 		t.Fatalf("prompt examples were not rendered with the marker: %q", stdReq.FinalPrompt)
 	}
 }
@@ -86,10 +86,10 @@ func TestNormalizeOpenAIMessagesRecognizesMarkerHistory(t *testing.T) {
 	if !strings.Contains(content, "CDATA[README.MD]") {
 		t.Fatalf("marker-form history block was not re-rendered: %q", content)
 	}
-	if !strings.Contains(content, "<|EPSE|tool_calls>") {
+	if !strings.Contains(content, "<|"+markerUnderTest+"|tool_calls>") {
 		t.Fatalf("expected the canonical shell before the boundary rewrite: %q", content)
 	}
-	if strings.Contains(content, "<|"+markerUnderTest) {
+	if strings.Contains(content, "<|EPSE|") {
 		t.Fatalf("marker must not survive into the internal render: %q", content)
 	}
 }
@@ -105,7 +105,7 @@ func TestNormalizeOpenAIMessagesMarkerHistoryMatchesCanonicalHistory(t *testing.
 		map[string]any{"role": "assistant", "content": markerToolMarkupBlock(markerUnderTest)},
 	}
 
-	want, _ := NormalizeOpenAIMessagesForPrompt(canonical, "")[0]["content"].(string)
+	want, _ := NormalizeOpenAIMessagesForPrompt(canonical, "", markerUnderTest)[0]["content"].(string)
 	got, _ := NormalizeOpenAIMessagesForPrompt(markerForm, "", markerUnderTest)[0]["content"].(string)
 	if got != want {
 		t.Fatalf("marker-form history rendered differently:\n got %q\nwant %q", got, want)

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"ds2api/internal/config"
-	"ds2api/internal/toolcall"
 	"ds2api/internal/util"
 )
 
@@ -39,15 +38,18 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 		responseModel = resolvedModel
 	}
 	toolsDisabled := ToolsForceDisabledInRequest(req)
-	// OpenAI Chat historically ignores `tool_choice` and always uses the default
-	// policy; a force-disabled request pins it to `none` instead.
-	toolPolicy := DefaultToolChoicePolicy()
+	var toolPolicy ToolChoicePolicy
 	if toolsDisabled {
 		toolPolicy = ToolChoicePolicy{Mode: ToolChoiceNone}
+	} else {
+		var err error
+		toolPolicy, err = parseOpenAIToolPolicy(req)
+		if err != nil {
+			return StandardRequest{}, err
+		}
 	}
 	reminder := ResolveToolReminder(store)
 	finalPrompt, toolNames := BuildOpenAIPrompt(messagesRaw, req["tools"], traceID, toolPolicy, thinkingEnabled, reminder, marker)
-	finalPrompt = toolcall.ApplyToolMarker(finalPrompt, marker)
 	toolNames = ensureToolDetectionEnabled(toolNames, req["tools"])
 	passThrough := collectOpenAIChatPassThrough(req)
 	refFileIDs := CollectOpenAIRefFileIDs(req)
@@ -103,17 +105,18 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 	if toolsDisabled {
 		toolPolicy = ToolChoicePolicy{Mode: ToolChoiceNone}
 	} else {
-		parsed, err := parseToolChoicePolicy(req["tool_choice"], req["tools"])
+		parsed, err := parseOpenAIToolPolicy(req)
 		if err != nil {
 			return StandardRequest{}, err
 		}
 		toolPolicy = parsed
 	}
 	finalPrompt, toolNames := BuildOpenAIPrompt(messagesRaw, req["tools"], traceID, toolPolicy, thinkingEnabled, reminder, marker)
-	finalPrompt = toolcall.ApplyToolMarker(finalPrompt, marker)
 	toolNames = ensureToolDetectionEnabled(toolNames, req["tools"])
 	if !toolPolicy.IsNone() {
-		toolPolicy.Allowed = namesToSet(toolNames)
+		if len(toolPolicy.Allowed) == 0 {
+			toolPolicy.Allowed = namesToSet(toolNames)
+		}
 	}
 	passThrough := collectOpenAIChatPassThrough(req)
 	refFileIDs := CollectOpenAIRefFileIDs(req)
@@ -174,6 +177,21 @@ func collectOpenAIChatPassThrough(req map[string]any) map[string]any {
 	return out
 }
 
+func parseOpenAIToolPolicy(req map[string]any) (ToolChoicePolicy, error) {
+	policy, err := parseToolChoicePolicy(req["tool_choice"], req["tools"])
+	if err != nil {
+		return policy, err
+	}
+	if value, exists := req["parallel_tool_calls"]; exists && value != nil {
+		parallel, ok := value.(bool)
+		if !ok {
+			return ToolChoicePolicy{}, fmt.Errorf("parallel_tool_calls must be a boolean")
+		}
+		policy.DisableParallel = !parallel
+	}
+	return policy, nil
+}
+
 func parseToolChoicePolicy(toolChoiceRaw any, toolsRaw any) (ToolChoicePolicy, error) {
 	policy := DefaultToolChoicePolicy()
 	declaredNames := extractDeclaredToolNames(toolsRaw)
@@ -205,6 +223,7 @@ func parseToolChoicePolicy(toolChoiceRaw any, toolsRaw any) (ToolChoicePolicy, e
 			return ToolChoicePolicy{}, err
 		}
 		if hasAllowedOverride {
+			policy.RestrictAllowed = true
 			filtered := make([]string, 0, len(allowedOverride))
 			for _, name := range allowedOverride {
 				if _, ok := declaredSet[name]; !ok {
@@ -244,6 +263,11 @@ func parseToolChoicePolicy(toolChoiceRaw any, toolsRaw any) (ToolChoicePolicy, e
 			policy.Allowed = namesToSet([]string{name})
 		default:
 			return ToolChoicePolicy{}, fmt.Errorf("unsupported tool_choice.type: %q", typ)
+		}
+		if hasAllowedOverride && policy.Mode == ToolChoiceForced {
+			if _, ok := namesToSet(allowedOverride)[policy.ForcedName]; !ok {
+				return ToolChoicePolicy{}, fmt.Errorf("tool_choice forced function %q is excluded by allowed_tools", policy.ForcedName)
+			}
 		}
 	default:
 		return ToolChoicePolicy{}, fmt.Errorf("tool_choice must be a string or object")

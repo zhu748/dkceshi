@@ -12,14 +12,17 @@ function resolveToolcallPolicy(prepBody, payloadTools) {
   if (toolNames.length === 0 && Array.isArray(payloadTools) && payloadTools.length > 0) {
     toolNames = ['__any_tool__'];
   }
+  const choice = (prepBody && prepBody.tool_choice) || {};
+  const constrained = !!choice.RestrictAllowed || !!choice.DisableParallel || (!!choice.Mode && choice.Mode !== 'auto');
   return {
+    choice, constrained,
     toolNames,
     // 无论客户端是否传 tools，都启用 toolSieve 流式拦截（与 Go 侧一致）：
     // 模型在提示词中被要求使用 <|EPSE|tool_calls> 格式输出工具调用，若客户端
     // 未传 tools（如"继续会话"请求）而拦截关闭，会导致 EPSE 原文作为正文透传，
     // 产生乱码。toolSieve 解析不依赖工具名过滤，空列表也能正常拦截。
     toolSieveEnabled: true,
-    emitEarlyToolDeltas: true,
+    emitEarlyToolDeltas: !constrained,
   };
 }
 
@@ -42,7 +45,7 @@ function boolDefaultTrue(v) {
   return v !== false;
 }
 
-function formatIncrementalToolCallDeltas(deltas, idStore) {
+function formatIncrementalToolCallDeltas(deltas, idStore, offset = 0) {
   if (!Array.isArray(deltas) || deltas.length === 0) {
     return [];
   }
@@ -54,7 +57,7 @@ function formatIncrementalToolCallDeltas(deltas, idStore) {
     const index = Number.isInteger(d.index) ? d.index : 0;
     const id = ensureStreamToolCallID(idStore, index);
     const item = {
-      index,
+      index: index + offset,
       id,
       type: 'function',
     };
@@ -150,3 +153,16 @@ module.exports = {
   filterIncrementalToolCallDeltasByAllowed,
   resetStreamToolCallState,
 };
+
+function toolChoiceViolation(calls, choice = {}) {
+  const mode = choice.Mode;
+  if (choice.DisableParallel && calls.length > 1) return 'parallel_tool_calls=false permits at most one tool call per response.';
+  if ((!mode || mode === 'auto') && !choice.RestrictAllowed && !choice.DisableParallel) return '';
+  if ((mode === 'required' || mode === 'forced') && calls.length === 0) return 'tool_choice requires at least one valid tool call.';
+  for (const call of calls) {
+    const name = call.name || (call.function && call.function.name);
+    if (mode === 'none' || (mode === 'forced' && name !== choice.ForcedName) || (choice.Allowed && Object.keys(choice.Allowed).length && !Object.hasOwn(choice.Allowed, name))) return 'tool_choice forbids this tool call: ' + name;
+  }
+  return '';
+}
+module.exports.toolChoiceViolation = toolChoiceViolation;

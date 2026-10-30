@@ -399,13 +399,13 @@ func TestChatCompletionsCurrentInputFilePersistsNeutralPrompt(t *testing.T) {
 	if full.HistoryText != string(ds.uploadCalls[0].Data) {
 		t.Fatalf("expected uploaded current input file to be persisted in history text")
 	}
-	if len(full.Messages) != 2 {
+	if len(full.Messages) != 3 {
 		t.Fatalf("expected continuation prompt plus the inline latest user turn, got %#v", full.Messages)
 	}
 	if full.Messages[0].Role != "system" || !strings.Contains(full.Messages[0].Content, "继续会话") {
 		t.Fatalf("expected continuation prompt to be persisted as a system turn, got %#v", full.Messages[0])
 	}
-	if full.Messages[1].Role != "user" || full.Messages[1].Content != "latest user turn" {
+	if full.Messages[2].Role != "user" || full.Messages[2].Content != "latest user turn" {
 		t.Fatalf("expected inline latest user turn to be persisted, got %#v", full.Messages[1])
 	}
 	if full.UserInput != "latest user turn" {

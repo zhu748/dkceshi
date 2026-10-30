@@ -390,7 +390,7 @@ func TestApplyCurrentInputFilePreservesFullContextPromptForTokenCounting(t *test
 	}
 	// The trailing user turn stays inline in the live prompt; only the preceding
 	// turns move into HISTORY.txt.
-	if !strings.Contains(out.FinalPrompt, "[System]:继续会话[User]:latest user turn") {
+	if !strings.Contains(out.FinalPrompt, "[User]:latest user turn") {
 		t.Fatalf("expected live prompt to keep the trailing user turn inline, got %q", out.FinalPrompt)
 	}
 }
@@ -448,7 +448,7 @@ func TestApplyCurrentInputFileUploadsFullContextFile(t *testing.T) {
 	if !strings.Contains(out.FinalPrompt, "继续会话") {
 		t.Fatalf("expected continuation-oriented prompt in live prompt, got %s", out.FinalPrompt)
 	}
-	if !strings.Contains(out.FinalPrompt, "[System]:继续会话[User]:latest user turn") {
+	if !strings.Contains(out.FinalPrompt, "[User]:latest user turn") {
 		t.Fatalf("expected continuation system turn followed by the inline latest user turn, got %s", out.FinalPrompt)
 	}
 	if !strings.Contains(out.FinalPrompt, promptcompat.ThinkingInjectionMarker) {
@@ -521,8 +521,8 @@ func TestApplyCurrentInputFileUploadsToolsContextSeparately(t *testing.T) {
 	if !strings.Contains(out.FinalPrompt, "[System]:继续会话") {
 		t.Fatalf("expected continuation prompt to render as a system turn, got %q", out.FinalPrompt)
 	}
-	if strings.Contains(out.FinalPrompt, "TOOLS.txt") {
-		t.Fatalf("live prompt should not reference tools file by filename, got %q", out.FinalPrompt)
+	if !strings.Contains(out.FinalPrompt, "TOOLS.txt") {
+		t.Fatalf("live prompt must identify the tools file by filename, got %q", out.FinalPrompt)
 	}
 	if !strings.Contains(out.FinalPrompt, "工具调用格式规范") || !strings.Contains(out.FinalPrompt, "请记住：使用工具的唯一正确方式") {
 		t.Fatalf("expected live prompt to retain tool format instructions, got %q", out.FinalPrompt)
@@ -747,7 +747,7 @@ func TestChatCompletionsCurrentInputFileUploadsContextAndKeepsNeutralPrompt(t *t
 	if strings.Contains(promptText, "first user turn") {
 		t.Fatalf("expected prompt to hide earlier turns, got %s", promptText)
 	}
-	if !strings.Contains(promptText, "[System]:继续会话[User]:latest user turn") {
+	if !strings.Contains(promptText, "[User]:latest user turn") {
 		t.Fatalf("expected prompt to keep the trailing user turn inline, got %s", promptText)
 	}
 	refIDs, _ := ds.completionReq["ref_file_ids"].([]any)
@@ -809,7 +809,7 @@ func TestResponsesCurrentInputFileUploadsContextAndKeepsNeutralPrompt(t *testing
 	if strings.Contains(promptText, "first user turn") {
 		t.Fatalf("expected prompt to hide earlier turns, got %s", promptText)
 	}
-	if !strings.Contains(promptText, "[System]:继续会话[User]:latest user turn") {
+	if !strings.Contains(promptText, "[User]:latest user turn") {
 		t.Fatalf("expected prompt to keep the trailing user turn inline, got %s", promptText)
 	}
 	var body map[string]any
@@ -878,8 +878,8 @@ func TestResponsesCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 	if !strings.Contains(promptText, "继续会话") || !strings.Contains(promptText, "工具调用格式规范") {
 		t.Fatalf("expected live prompt to retain continuation and format instructions, got %q", promptText)
 	}
-	if strings.Contains(promptText, "TOOLS.txt") {
-		t.Fatalf("live prompt should not reference tools file by filename, got %q", promptText)
+	if !strings.Contains(promptText, "TOOLS.txt") {
+		t.Fatalf("live prompt must identify the tools file by filename, got %q", promptText)
 	}
 	if strings.Contains(promptText, "Description: search docs") {
 		t.Fatalf("live prompt should not inline tool descriptions, got %q", promptText)
@@ -1018,7 +1018,7 @@ func TestCurrentInputFileWorksAcrossAutoDeleteModes(t *testing.T) {
 				t.Fatalf("expected completion payload for mode=%s", mode)
 			}
 			promptText, _ := ds.completionReq["prompt"].(string)
-			if !strings.Contains(promptText, "[System]:继续会话[User]:latest user turn") || strings.Contains(promptText, "first user turn") {
+			if !strings.Contains(promptText, "[User]:latest user turn") || strings.Contains(promptText, "first user turn") {
 				t.Fatalf("unexpected prompt for mode=%s: %s", mode, promptText)
 			}
 		})

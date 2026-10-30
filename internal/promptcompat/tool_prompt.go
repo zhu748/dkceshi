@@ -20,15 +20,15 @@ type toolPromptParts struct {
 	Names        []string
 }
 
-func injectToolPrompt(messages []map[string]any, tools []any, policy ToolChoicePolicy, includeReadCacheGuard bool, reminder ToolReminderConfig) ([]map[string]any, []string) {
-	return injectToolPromptWithDescriptions(messages, tools, policy, true, includeReadCacheGuard, reminder)
+func injectToolPrompt(messages []map[string]any, tools []any, policy ToolChoicePolicy, includeReadCacheGuard bool, reminder ToolReminderConfig, markers ...string) ([]map[string]any, []string) {
+	return injectToolPromptWithDescriptions(messages, tools, policy, true, includeReadCacheGuard, reminder, markers...)
 }
 
-func injectToolPromptInstructionsOnly(messages []map[string]any, tools []any, policy ToolChoicePolicy, includeReadCacheGuard bool, reminder ToolReminderConfig) ([]map[string]any, []string) {
-	return injectToolPromptWithDescriptions(messages, tools, policy, false, includeReadCacheGuard, reminder)
+func injectToolPromptInstructionsOnly(messages []map[string]any, tools []any, policy ToolChoicePolicy, includeReadCacheGuard bool, reminder ToolReminderConfig, markers ...string) ([]map[string]any, []string) {
+	return injectToolPromptWithDescriptions(messages, tools, policy, false, includeReadCacheGuard, reminder, markers...)
 }
 
-func injectToolPromptWithDescriptions(messages []map[string]any, tools []any, policy ToolChoicePolicy, includeDescriptions bool, includeReadCacheGuard bool, reminder ToolReminderConfig) ([]map[string]any, []string) {
+func injectToolPromptWithDescriptions(messages []map[string]any, tools []any, policy ToolChoicePolicy, includeDescriptions bool, includeReadCacheGuard bool, reminder ToolReminderConfig, markers ...string) ([]map[string]any, []string) {
 	if policy.IsNone() {
 		return messages, nil
 	}
@@ -36,7 +36,7 @@ func injectToolPromptWithDescriptions(messages []map[string]any, tools []any, po
 	if parts.Instructions == "" {
 		return messages, parts.Names
 	}
-	toolPrompt := parts.Instructions
+	toolPrompt := toolcall.ApplyToolMarker(parts.Instructions, firstToolMarker(markers))
 	if includeDescriptions && parts.Descriptions != "" {
 		toolPrompt = parts.Descriptions + "\n\n" + toolPrompt
 	} else if !includeDescriptions && parts.Descriptions != "" {
@@ -44,14 +44,18 @@ func injectToolPromptWithDescriptions(messages []map[string]any, tools []any, po
 	}
 
 	for i := range messages {
-		if messages[i]["role"] == "system" {
+		if messages[i]["role"] == "system" || messages[i]["role"] == "developer" {
 			old, _ := messages[i]["content"].(string)
-			messages[i]["content"] = strings.TrimSpace(old + "\n\n" + toolPrompt)
-			return appendToolCallFormatReminder(messages, reminder), parts.Names
+			if old == "" {
+				messages[i]["content"] = toolPrompt
+			} else {
+				messages[i]["content"] = old + "\n\n" + toolPrompt
+			}
+			return appendToolCallFormatReminder(messages, reminder, markers...), parts.Names
 		}
 	}
 	messages = append([]map[string]any{{"role": "system", "content": toolPrompt}}, messages...)
-	return appendToolCallFormatReminder(messages, reminder), parts.Names
+	return appendToolCallFormatReminder(messages, reminder, markers...), parts.Names
 }
 
 // injectToolCallFormatSpecOnly appends the tool-name-independent tool-call
@@ -62,13 +66,16 @@ func injectToolPromptWithDescriptions(messages []map[string]any, tools []any, po
 // which this block supplies. No tool names are returned because none can be
 // reliably extracted from free-form system text; stream tool-call detection
 // does not depend on the tool-name list.
-func injectToolCallFormatSpecOnly(messages []map[string]any, policy ToolChoicePolicy, reminder ToolReminderConfig) ([]map[string]any, []string) {
+func injectToolCallFormatSpecOnly(messages []map[string]any, policy ToolChoicePolicy, reminder ToolReminderConfig, markers ...string) ([]map[string]any, []string) {
 	if policy.IsNone() {
 		return messages, nil
 	}
-	spec := toolcall.ToolCallFormatSpec()
+	spec := toolcall.ToolCallFormatSpecForMarker(firstToolMarker(markers))
+	if policy.DisableParallel {
+		spec += "\nFor this response, emit at most one tool call. Wait for its result before choosing the next action."
+	}
 	messages = appendToolCallFormatSpec(messages, spec)
-	return appendToolCallFormatReminder(messages, reminder), nil
+	return appendToolCallFormatReminder(messages, reminder, markers...), nil
 }
 
 // appendToolCallFormatReminder appends the short tool-call format reminder as
@@ -80,8 +87,8 @@ func injectToolCallFormatSpecOnly(messages []map[string]any, policy ToolChoicePo
 // The block is controlled by the 「底部格式提示注入」behavior setting: when the
 // setting is off the reminder is not injected at all, and a non-empty custom
 // prompt replaces the built-in text.
-func appendToolCallFormatReminder(messages []map[string]any, reminder ToolReminderConfig) []map[string]any {
-	return appendToolCallFormatSpec(messages, reminder.ReminderText())
+func appendToolCallFormatReminder(messages []map[string]any, reminder ToolReminderConfig, markers ...string) []map[string]any {
+	return appendToolCallFormatSpec(messages, toolcall.ApplyToolMarker(reminder.ReminderText(), firstToolMarker(markers)))
 }
 
 // appendToolCallFormatSpec appends the tool-call format spec as a system-role
@@ -96,7 +103,7 @@ func appendToolCallFormatSpec(messages []map[string]any, spec string) []map[stri
 	}
 	insertAt := len(messages)
 	if n := len(messages); n > 0 {
-		if role, _ := messages[n-1]["role"].(string); strings.EqualFold(strings.TrimSpace(role), "assistant") {
+		if role, _ := messages[n-1]["role"].(string); strings.EqualFold(strings.TrimSpace(role), "assistant") && messages[n-1]["prefix"] == true {
 			insertAt = n - 1
 		}
 	}
@@ -146,7 +153,10 @@ func buildToolPromptParts(tools []any, policy ToolChoicePolicy, includeReadCache
 		return toolPromptParts{Names: names}
 	}
 	descriptions := "You have access to these tools:\n\n" + strings.Join(toolSchemas, "\n\n")
-	instructions := toolcall.BuildToolCallInstructions(names)
+	instructions := toolcall.ToolCallFormatSpec()
+	if policy.DisableParallel {
+		instructions += "\nFor this response, emit at most one tool call. Wait for its result before choosing the next action."
+	}
 	if includeReadCacheGuard && hasReadLikeTool(names) {
 		instructions += "\n\nRead-tool cache guard: If a Read/read_file-style tool result says the file is unchanged, already available in history, should be referenced from previous context, or otherwise provides no file body, treat that result as missing content. Do not repeatedly call the same read request for that missing body. Request a full-content read if the tool supports it, or tell the user that the file contents need to be provided again."
 	}

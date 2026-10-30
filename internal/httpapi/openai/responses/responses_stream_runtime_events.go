@@ -55,14 +55,21 @@ func (s *responsesStreamRuntime) processToolStreamEvents(events []toolstream.Eve
 			if !s.emitEarlyToolDeltas {
 				continue
 			}
-			filtered := filterIncrementalToolCallDeltasByAllowed(evt.ToolCallDeltas, s.functionNames)
+			deltas := append([]toolstream.ToolCallDelta(nil), evt.ToolCallDeltas...)
+			for i := range deltas {
+				deltas[i].Index += s.toolCallOffset
+			}
+			filtered := filterIncrementalToolCallDeltasByAllowed(deltas, s.functionNames)
 			if len(filtered) == 0 {
 				continue
 			}
 			s.emitFunctionCallDeltaEvents(filtered)
 		}
 		if len(evt.ToolCalls) > 0 {
-			s.emitFunctionCallDoneEvents(evt.ToolCalls)
+			if s.toolChoice.Constrained() {
+				continue
+			}
+			s.emitFunctionCallDoneEvents(evt.ToolCalls, s.toolCallOffset)
 			if resetAfterToolCalls {
 				s.resetStreamToolCallState()
 			}

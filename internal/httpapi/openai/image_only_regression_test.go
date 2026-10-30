@@ -43,7 +43,7 @@ func TestImageOnlyRequestsKeepUserTurnAndFileReference(t *testing.T) {
 					t.Fatalf("refs=%v uploads=%d", refs, len(ds.uploadCalls))
 				}
 				prompt, _ := ds.completionReq["prompt"].(string)
-				if !strings.HasSuffix(prompt, "[User]:[Assistant]:") || strings.Contains(prompt, "QUJDRA==") || strings.Contains(prompt, "file-existing") {
+				if !strings.Contains(prompt, "[User]:[Attachment reference]") || !strings.HasSuffix(prompt, "[Assistant]:") || strings.Contains(prompt, "QUJDRA==") {
 					t.Fatalf("image turn lost or file data leaked: %q", prompt)
 				}
 			})

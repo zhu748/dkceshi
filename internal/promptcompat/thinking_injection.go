@@ -4,14 +4,12 @@ import (
 	"strings"
 
 	"ds2api/internal/config"
-	"ds2api/internal/toolcall"
 )
 
 const (
-	ThinkingInjectionMarker        = "text: You are a helpful software engineer assistant."
+	ThinkingInjectionMarker        = "Reasoning Effort: Beyond maximum — exhaustive, relentless, and uncompromising."
 	DefaultThinkingInjectionPrompt = ThinkingInjectionMarker + "\n" +
-		"description: Bootstrap with shell/read, then expose the full Standard tool catalog after the first durable tool call.\n" +
-		`**when you thought, start with "we need..."**`
+		"You MUST reason with the utmost depth and rigor, leaving absolutely nothing to chance: exhaustively decompose the problem into its most fundamental components, trace every causal chain to its root, and resolve the underlying cause rather than any surface symptom. Do not stop reasoning until you have independently verified the solution from multiple angles and are certain that no assumption remains unchecked and no error remains undiscovered."
 )
 
 // ThinkingInjectionReader 由配置存储实现，提供「思考注入」设置。与
@@ -53,11 +51,8 @@ func ApplyThinkingInjection(store any, stdReq StandardRequest) StandardRequest {
 		toolNames = stdReq.ToolNames
 	}
 	stdReq.Messages = messages
-	// The prompt is rebuilt from the messages, so the renderers emit the
-	// canonical EPSE keyword again: the caller-specific marker has to be
-	// re-applied here or this rebuild would silently drop it (the same
-	// invariant the request normalize path enforces).
-	stdReq.FinalPrompt = toolcall.ApplyToolMarker(finalPrompt, stdReq.ToolMarker)
+	// The shared builder marks generated tool syntax before merging user content.
+	stdReq.FinalPrompt = finalPrompt
 	// PromptTokenText is the text the usage reports count, and every exit sets it
 	// to the prompt it renders. Leaving it at the pre-injection value would make
 	// the reported prompt_tokens / input_tokens describe a prompt that was never
@@ -76,7 +71,7 @@ func AppendThinkingInjectionPromptToLatestUser(messages []any, injectionPrompt s
 		return messages, false
 	}
 	injectionPrompt = strings.TrimSpace(injectionPrompt)
-	if injectionPrompt == "" {
+	if injectionPrompt == "" || injectionPrompt == legacyThinkingInjectionPrompt {
 		injectionPrompt = DefaultThinkingInjectionPrompt
 	}
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -123,9 +118,12 @@ func appendThinkingInjectionToContent(content any, injectionPrompt string) any {
 }
 
 func appendTextBlock(base, addition string) string {
-	base = strings.TrimSpace(base)
 	if base == "" {
 		return addition
 	}
 	return base + "\n\n" + addition
 }
+
+const legacyThinkingInjectionPrompt = `text: You are a helpful software engineer assistant.
+description: Bootstrap with shell/read, then expose the full Standard tool catalog after the first durable tool call.
+**when you thought, start with "we need..."**`

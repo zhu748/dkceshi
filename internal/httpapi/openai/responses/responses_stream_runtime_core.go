@@ -48,6 +48,7 @@ type responsesStreamRuntime struct {
 	responseMessageID    int
 	upstreamErr          string
 	streamToolCallIDs    map[int]string
+	toolCallOffset       int
 	functionItemIDs      map[int]string
 	functionOutputIDs    map[int]int
 	functionArgs         map[int]string
@@ -112,7 +113,7 @@ func newResponsesStreamRuntime(
 		toolNames:             toolNames,
 		toolsRaw:              toolsRaw,
 		bufferToolContent:     bufferToolContent,
-		emitEarlyToolDeltas:   emitEarlyToolDeltas,
+		emitEarlyToolDeltas:   emitEarlyToolDeltas && !toolChoice.Constrained(),
 		streamToolCallIDs:     map[int]string{},
 		functionItemIDs:       map[int]string{},
 		functionOutputIDs:     map[int]int{},
@@ -212,6 +213,12 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	textParsed := turn.ParsedToolCalls
 	detected := turn.ToolCalls
 	s.logToolPolicyRejections(textParsed)
+	if turn.Error != nil && turn.Error.Code == "tool_choice_violation" {
+		s.closeReasoningItem()
+		s.closeMessageItem()
+		s.failResponse(turn.Error.Status, turn.Error.Message, turn.Error.Code)
+		return true
+	}
 
 	if len(detected) > 0 {
 		s.toolCallsEmitted = true

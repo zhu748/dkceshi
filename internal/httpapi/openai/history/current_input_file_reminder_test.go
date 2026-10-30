@@ -2,6 +2,7 @@ package history
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -53,7 +54,7 @@ func TestApplyCurrentInputFileRebuildUsesCustomBottomFormatPrompt(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ApplyCurrentInputFile: %v", err)
 	}
-	if !strings.HasSuffix(out.FinalPrompt, "自定义底部格式提醒[Assistant]:") {
+	if !strings.HasSuffix(regexp.MustCompile(`\n\[EndMessage:[^\]]+\]\n\n`).ReplaceAllString(out.FinalPrompt, ""), "自定义底部格式提醒[Assistant]:") {
 		t.Fatalf("custom reminder must stay immediately before the [Assistant] marker, got=%q", out.FinalPrompt)
 	}
 	if strings.Contains(out.FinalPrompt, reminderHead) {

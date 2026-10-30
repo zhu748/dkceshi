@@ -72,7 +72,7 @@ func MessagesDeclareToolsInSystemText(messages []any) bool {
 			continue
 		}
 		role, _ := msg["role"].(string)
-		if !strings.EqualFold(strings.TrimSpace(role), "system") {
+		if !strings.EqualFold(strings.TrimSpace(role), "system") && !strings.EqualFold(strings.TrimSpace(role), "developer") {
 			continue
 		}
 		if textMentionsTools(systemMessageText(msg["content"])) {

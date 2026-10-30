@@ -591,6 +591,21 @@ test('marker normalizer rewrites the caller marker back to EPSE', () => {
   assert.equal(normalizer.flush(), '');
 });
 
+test('marker normalization preserves literal values across every chunk boundary', () => {
+  for (const [open, close] of [['<![CDATA[', ']]>'], ['＜！［ＣＤＡＴＡ［', '］］＞']]) {
+    const literal = 'C:/Q7ZK3M/file.txt <|Q7ZK3M|invoke> 中文';
+    const input = `Q7ZK3M <|Q7ZK3M|parameter name="content">${open}${literal}${close}</|Q7ZK3M|parameter> <|Q7ZK3Mextra>`;
+    const want = `Q7ZK3M <|EPSE|parameter name="content">${open}${literal}${close}</|EPSE|parameter> <|Q7ZK3Mextra>`;
+    for (let size = 1; size <= input.length; size++) {
+      const n = createMarkerNormalizer('Q7ZK3M');
+      let actual = '';
+      for (let i = 0; i < input.length; i += size) actual += n.write(input.slice(i, i + size));
+      actual += n.flush();
+      assert.equal(actual, want, `size=${size}`);
+    }
+  }
+});
+
 test('marker normalizer is inert for empty and canonical markers', () => {
   for (const marker of ['', '   ', 'EPSE', 'epse', undefined, null]) {
     const normalizer = createMarkerNormalizer(marker);
@@ -640,8 +655,8 @@ const selfOverlappingMarkers = ['N3KZ5N', 'ABABAB', 'A2B2A2', 'M29MM2', 'ABCDEA'
 test('marker normalizer rewrites a self-overlapping marker ending a chunk', () => {
   for (const marker of selfOverlappingMarkers) {
     const normalizer = createMarkerNormalizer(marker);
-    assert.equal(normalizer.write(`<|${marker}`), '<|EPSE', `marker=${marker}`);
-    assert.equal(normalizer.write('|tool_calls>'), '|tool_calls>', `marker=${marker}`);
+    assert.equal(normalizer.write(`<|${marker}`), '<|', `marker=${marker}`);
+    assert.equal(normalizer.write('|tool_calls>'), 'EPSE|tool_calls>', `marker=${marker}`);
     assert.equal(normalizer.flush(), '', `marker=${marker}`);
   }
 });
@@ -696,6 +711,46 @@ test('vercel stream normalizes a marker tool call split across one-char chunks',
   assert.equal(content.includes(marker), false, `expected no marker leak, content=${JSON.stringify(content)}`);
   assert.equal(content.includes('<|EPSE|'), false, `expected no EPSE leak, content=${JSON.stringify(content)}`);
   assert.equal(parsed.at(-1).choices[0].finish_reason, 'tool_calls');
+});
+
+test('vercel tool arguments retain literal caller markers through incremental and final parsing', async () => {
+  const marker = 'Q7ZK3M';
+  const literal = 'C:/Q7ZK3M/file.txt <|Q7ZK3M|invoke> 中文';
+  const raw = `<|${marker}|tool_calls><|${marker}|invoke name="write"><|${marker}|parameter name="content"><![CDATA[${literal}]]></|${marker}|parameter></|${marker}|invoke></|${marker}|tool_calls>`;
+  const lines = [...raw].map(v => `data: ${JSON.stringify({ p: 'response/content', v })}\n\n`).concat('data: [DONE]\n\n');
+  for (const choice of [{ Mode: 'auto' }, { Mode: 'required' }]) {
+    const { frames } = await runMockVercelStream(lines, { tool_marker: marker, tool_choice: choice });
+    const parsed = frames.filter(frame => frame !== '[DONE]').map(frame => JSON.parse(frame));
+    const calls = parsed.flatMap(frame => frame.choices?.[0]?.delta?.tool_calls || []);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(JSON.parse(calls[0].function.arguments), { content: literal });
+    assert.equal(parsed.at(-1).choices[0].finish_reason, 'tool_calls');
+  }
+});
+
+test('required tool choice retries empty upstream responses before validating the answer', async () => {
+  const raw = '<tool_calls><invoke name="lookup"><parameter name="key">value</parameter></invoke></tool_calls>';
+  const { frames, fetchURLs } = await runMockVercelStreamSequence([
+    ['data: [DONE]\n\n'],
+    [`data: ${JSON.stringify({ p: 'response/content', v: raw })}\n\n`, 'data: [DONE]\n\n'],
+  ], { tool_choice: { Mode: 'required' } });
+  const parsed = frames.filter(frame => frame !== '[DONE]').map(frame => JSON.parse(frame));
+  assert.equal(fetchURLs.filter(url => url === 'https://chat.deepseek.com/api/v0/chat/completion').length, 2);
+  assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
+  assert.equal(parsed.some(frame => frame.error), false);
+  assert.equal(parsed.at(-1).choices[0].finish_reason, 'tool_calls');
+  const calls = parsed.flatMap(frame => frame.choices?.[0]?.delta?.tool_calls || []);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].function.name, 'lookup');
+});
+
+test('required tool choice still rejects a plain text answer', async () => {
+  const { frames } = await runMockVercelStream([
+    'data: {"p":"response/content","v":"plain text only"}\n\n', 'data: [DONE]\n\n',
+  ], { tool_choice: { Mode: 'required' } });
+  const parsed = frames.filter(frame => frame !== '[DONE]').map(frame => JSON.parse(frame));
+  assert.ok(parsed.some(frame => frame.error?.code === 'tool_choice_violation'));
+  assert.equal(parsed.some(frame => frame.choices?.[0]?.delta?.tool_calls), false);
 });
 
 test('vercel stream does not leak the marker into visible prose', async () => {
@@ -1858,4 +1913,54 @@ test('vercel stream does not release the withheld [Tool]: prefix at end of strea
   const release = fetchBodies.find((body) => Object.hasOwn(body, 'finish_reason'));
   assert.ok(release, 'expected a lease release body');
   assert.equal(release.content.includes('[To'), false, `expected no withheld prefix in reported content, content=${JSON.stringify(release.content)}`);
+});
+
+test('constrained tool choices buffer until final validation', () => {
+  const { toolChoiceViolation } = require('../../internal/js/chat-stream/toolcall_policy');
+  const policy = resolveToolcallPolicy({ tool_choice: { Mode: 'none' } }, []);
+  assert.equal(policy.emitEarlyToolDeltas, false);
+  assert.match(toolChoiceViolation([{ name: 'write' }], policy.choice), /forbids/);
+  assert.match(toolChoiceViolation([], { Mode: 'required' }), /requires/);
+  assert.match(toolChoiceViolation([{ name: 'write' }], { Mode: 'forced', ForcedName: 'read' }), /forbids/);
+  assert.equal(toolChoiceViolation([{ name: 'read' }], { Mode: 'forced', ForcedName: 'read' }), '');
+});
+
+test('separate tool blocks preserve global indices for client assembly', async () => {
+  const lines = ['a', 'b'].map(value => `data: ${JSON.stringify({ p: 'response/content', v: `<tool_calls><invoke name="read_file"><parameter name="path">${value}</parameter></invoke></tool_calls>\n` })}\n\n`);
+  lines.push('data: [DONE]\n\n');
+  const { frames } = await runMockVercelStream(lines);
+  const calls = frames.filter(frame => frame !== '[DONE]').flatMap(frame => JSON.parse(frame).choices?.[0]?.delta?.tool_calls || []);
+  assert.deepEqual(calls.map(call => call.index), [0, 1]);
+  assert.equal(new Set(calls.map(call => call.id)).size, 2);
+  assert.deepEqual(calls.map(call => JSON.parse(call.function.arguments).path), ['a', 'b']);
+});
+
+test('sequential and restricted auto choices never emit forbidden calls', async () => {
+  const block = name => `<tool_calls><invoke name="${name}"><parameter name="key">x</parameter></invoke></tool_calls>`;
+  for (const [choice, markup] of [
+    [{ Mode: 'auto', DisableParallel: true }, block('read') + block('write')],
+    [{ Mode: 'auto', RestrictAllowed: true, Allowed: { read: {} } }, block('write')],
+  ]) {
+    const { frames } = await runMockVercelStream([`data: ${JSON.stringify({ p: 'response/content', v: markup })}\n\n`, 'data: [DONE]\n\n'], { tool_choice: choice });
+    const parsed = frames.filter(frame => frame !== '[DONE]').map(frame => JSON.parse(frame));
+    assert.ok(parsed.some(frame => frame.error?.code === 'tool_choice_violation'));
+    assert.equal(parsed.some(frame => frame.choices?.[0]?.delta?.tool_calls), false);
+  }
+});
+
+test('reasoning-only calls use Go fallback without exposing hidden reasoning', async () => {
+  const marker = 'Q7ZK3M';
+  const markup = `<|${marker}|tool_calls><|${marker}|invoke name="lookup"><|${marker}|parameter name="key"><![CDATA[value]]></|${marker}|parameter></|${marker}|invoke></|${marker}|tool_calls>`;
+  for (const visibleAnswer of ['', 'Use the existing answer.']) {
+    const lines = [markup.slice(0, 20), markup.slice(20)].map(v => `data: ${JSON.stringify({ p: 'response/thinking_content', v })}\n\n`);
+    if (visibleAnswer) lines.push(`data: ${JSON.stringify({ p: 'response/content', v: visibleAnswer })}\n\n`);
+    lines.push('data: [DONE]\n\n');
+    const { frames } = await runMockVercelStream(lines, { tool_marker: marker, thinking_enabled: false });
+    const parsed = frames.filter(frame => frame !== '[DONE]').map(frame => JSON.parse(frame));
+    assert.equal(parsed.some(frame => frame.choices?.[0]?.delta?.reasoning_content), false);
+    const calls = parsed.flatMap(frame => frame.choices?.[0]?.delta?.tool_calls || []);
+    assert.equal(calls.length, visibleAnswer ? 0 : 1);
+    if (!visibleAnswer) assert.deepEqual(JSON.parse(calls[0].function.arguments), { key: 'value' });
+    assert.equal(parsed.at(-1).choices[0].finish_reason, visibleAnswer ? 'stop' : 'tool_calls');
+  }
 });

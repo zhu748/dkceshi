@@ -122,10 +122,10 @@ func TestBuildToolCallInstructions_AnchorsMissingOpeningWrapperFailureMode(t *te
 func TestBuildToolCallInstructions_RejectsEmptyParametersInPrompt(t *testing.T) {
 	out := BuildToolCallInstructions([]string{"Bash"})
 	for _, want := range []string{
-		"请勿输出占位符、空参数或仅包含空白字符的参数。",
-		"如果所需的参数值未知，请询问用户或正常回答，而不是输出空的工具调用。",
-		"切勿在命令为空的情况下调用它们。",
-		"Wrong 4 — 参数为空",
+		"请勿输出占位符或捏造参数",
+		"如果必需参数值未知，请询问用户或正常回答",
+		"参数名称以当前工具 schema 为准",
+		"Wrong 4 — 必需的命令内容缺失",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected empty-parameter instruction %q, got: %s", want, out)
@@ -152,7 +152,7 @@ func TestToolCallFormatReminder_RestatesSkeletonVerbatim(t *testing.T) {
   <|EPSE|invoke name="TOOL_NAME_HERE">
     <|EPSE|parameter name="PARAMETER_NAME"><![CDATA[PARAMETER_VALUE]]></|EPSE|parameter>
   </|EPSE|invoke>
-</|EPSE|tool_calls> .Please do not simplify or modify this framework in any way.The only valid label is EPSE; the use of any label prefixed with DSML is **strictly prohibited**.`
+</|EPSE|tool_calls> .Please do not simplify or modify this framework in any way.Use exactly the tag prefix shown above; do not substitute another tool format.`
 	if out != want {
 		t.Fatalf("reminder must stay byte-identical, got: %q", out)
 	}
@@ -167,7 +167,7 @@ func TestToolCallFormatReminderForMarker(t *testing.T) {
 	if !strings.Contains(out, "<|"+marker+"|tool_calls>") {
 		t.Fatalf("expected marker in skeleton, got %q", out)
 	}
-	if !strings.Contains(out, "The only valid label is "+marker) {
+	if !strings.Contains(out, "Use exactly the tag prefix shown above") {
 		t.Fatalf("expected label name to be replaced with marker, got %q", out)
 	}
 }

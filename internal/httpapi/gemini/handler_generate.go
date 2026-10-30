@@ -98,8 +98,8 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 		writeGeminiError(w, http.StatusBadRequest, err.Error())
 		return true
 	}
-	stdReq.FinalPrompt = toolcall.ApplyToolMarker(stdReq.FinalPrompt, a.ToolMarker)
 	stdReq.ToolMarker = a.ToolMarker
+	stdReq.FinalPrompt, stdReq.ToolNames = stdReq.BuildPromptFromMessages(stdReq.Messages)
 	// Usage 口径必须等于实际发送的那份 prompt：OpenAI 出口在
 	// NormalizeOpenAIChatRequest / NormalizeOpenAIResponsesRequest 内把
 	// PromptTokenText 与出口替换后的 FinalPrompt 一起赋值，这里同步一次，

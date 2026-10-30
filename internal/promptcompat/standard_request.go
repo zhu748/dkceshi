@@ -103,9 +103,11 @@ const (
 )
 
 type ToolChoicePolicy struct {
-	Mode       ToolChoiceMode
-	ForcedName string
-	Allowed    map[string]struct{}
+	Mode            ToolChoiceMode
+	ForcedName      string
+	Allowed         map[string]struct{}
+	RestrictAllowed bool
+	DisableParallel bool
 }
 
 func DefaultToolChoicePolicy() ToolChoicePolicy {
@@ -169,4 +171,9 @@ func (r StandardRequest) CompletionPayloadWithParentAndPrompt(sessionID string, 
 		payload[k] = v
 	}
 	return payload
+}
+
+// Constrained calls are buffered until the complete result can be validated.
+func (p ToolChoicePolicy) Constrained() bool {
+	return p.RestrictAllowed || p.DisableParallel || (p.Mode != "" && p.Mode != ToolChoiceAuto)
 }

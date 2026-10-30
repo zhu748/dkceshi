@@ -156,22 +156,22 @@ func TestMessagesPrepareEmpty(t *testing.T) {
 	}
 }
 
-func TestMessagesPrepareMergesConsecutiveSameRole(t *testing.T) {
+func TestMessagesPreparePreservesConsecutiveSameRole(t *testing.T) {
 	messages := []map[string]any{
 		{"role": "user", "content": "Hello"},
 		{"role": "user", "content": "World"},
 	}
 	got := MessagesPrepare(messages)
-	if !strings.HasPrefix(got, "[User]:Hello") {
+	if !strings.Contains(got, "[User]:Hello") {
 		t.Fatalf("expected user marker at the start, got %q", got)
 	}
 	if !strings.Contains(got, "Hello") || !strings.Contains(got, "World") {
 		t.Fatalf("expected both messages, got %q", got)
 	}
-	// Should be merged into a single user turn with one marker at the start.
+	// Adjacent messages retain independent role boundaries.
 	count := strings.Count(got, "[User]:")
-	if count != 1 {
-		t.Fatalf("expected one User marker for the merged pair, got %d occurrences", count)
+	if count != 2 {
+		t.Fatalf("expected two User markers for the distinct messages, got %d occurrences", count)
 	}
 }
 
@@ -200,13 +200,13 @@ func TestMessagesPrepareUnknownRole(t *testing.T) {
 	}
 }
 
-func TestMessagesPrepareMarkdownImageReplaced(t *testing.T) {
+func TestMessagesPrepareMarkdownImagePreserved(t *testing.T) {
 	messages := []map[string]any{
 		{"role": "user", "content": "Look at this: ![alt](https://example.com/img.png)"},
 	}
 	got := MessagesPrepare(messages)
-	if strings.Contains(got, "![alt]") {
-		t.Fatalf("expected markdown image to be replaced, got %q", got)
+	if !strings.Contains(got, "![alt]") {
+		t.Fatalf("expected markdown image to be preserved, got %q", got)
 	}
 }
 

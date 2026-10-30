@@ -1,0 +1,10 @@
+{
+  "writes": [
+    "<|EPSE|parameter name=\"content\"><![CDA",
+    "TA[C:/Q7ZK3M <|",
+    "Q7ZK3M|invoke>]]",
+    "></|EPSE|parameter>"
+  ],
+  "flush": "",
+  "output": "<|EPSE|parameter name=\"content\"><![CDATA[C:/Q7ZK3M <|Q7ZK3M|invoke>]]></|EPSE|parameter>"
+}

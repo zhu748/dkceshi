@@ -1,6 +1,7 @@
 package promptcompat
 
 import (
+	"strings"
 	"testing"
 
 	"ds2api/internal/config"
@@ -134,8 +135,8 @@ func TestStripImageBlocksFromMessages(t *testing.T) {
 	}
 	first, _ := stripped[0].(map[string]any)
 	firstContent, _ := first["content"].([]any)
-	if len(firstContent) != 1 {
-		t.Fatalf("expected 1 content block in first message, got %d", len(firstContent))
+	if len(firstContent) != 2 {
+		t.Fatalf("expected text and attachment reference in first message, got %d", len(firstContent))
 	}
 	if text := asString(firstContent[0].(map[string]any)["text"]); text != "hello" {
 		t.Fatalf("expected remaining text block 'hello', got %q", text)
@@ -165,8 +166,8 @@ func TestStripImageBlocksFromMessagesBareContentParts(t *testing.T) {
 		t.Fatalf("expected input_text to be preserved, got %v", first)
 	}
 	second, _ := stripped[1].(map[string]any)
-	if second["role"] != "user" || second["content"] != "" {
-		t.Fatalf("expected empty image user turn, got %v", second)
+	if second["role"] != "user" || !strings.Contains(asString(second["content"]), "file-123") {
+		t.Fatalf("expected image reference user turn, got %v", second)
 	}
 	third, _ := stripped[2].(map[string]any)
 	if asString(third["type"]) != "input_file" {

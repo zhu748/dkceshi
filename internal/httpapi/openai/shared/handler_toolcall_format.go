@@ -10,7 +10,7 @@ import (
 	"ds2api/internal/toolstream"
 )
 
-func FormatIncrementalStreamToolCallDeltas(deltas []toolstream.ToolCallDelta, ids map[int]string) []map[string]any {
+func FormatIncrementalStreamToolCallDeltas(deltas []toolstream.ToolCallDelta, ids map[int]string, offsets ...int) []map[string]any {
 	if len(deltas) == 0 {
 		return nil
 	}
@@ -25,7 +25,7 @@ func FormatIncrementalStreamToolCallDeltas(deltas []toolstream.ToolCallDelta, id
 			ids[d.Index] = callID
 		}
 		item := map[string]any{
-			"index": d.Index,
+			"index": d.Index + streamToolCallOffset(offsets),
 			"id":    callID,
 			"type":  "function",
 		}
@@ -70,7 +70,7 @@ func FilterIncrementalToolCallDeltasByAllowed(deltas []toolstream.ToolCallDelta,
 	return out
 }
 
-func FormatFinalStreamToolCallsWithStableIDs(calls []toolcall.ParsedToolCall, ids map[int]string, toolsRaw any) []map[string]any {
+func FormatFinalStreamToolCallsWithStableIDs(calls []toolcall.ParsedToolCall, ids map[int]string, toolsRaw any, offsets ...int) []map[string]any {
 	if len(calls) == 0 {
 		return nil
 	}
@@ -89,7 +89,7 @@ func FormatFinalStreamToolCallsWithStableIDs(calls []toolcall.ParsedToolCall, id
 		}
 		args, _ := json.Marshal(c.Input)
 		out = append(out, map[string]any{
-			"index": i,
+			"index": i + streamToolCallOffset(offsets),
 			"id":    callID,
 			"type":  "function",
 			"function": map[string]any{
@@ -99,4 +99,11 @@ func FormatFinalStreamToolCallsWithStableIDs(calls []toolcall.ParsedToolCall, id
 		})
 	}
 	return out
+}
+
+func streamToolCallOffset(offsets []int) int {
+	if len(offsets) > 0 {
+		return offsets[0]
+	}
+	return 0
 }

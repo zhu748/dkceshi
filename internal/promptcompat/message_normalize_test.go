@@ -41,7 +41,7 @@ func TestNormalizeOpenAIMessagesForPrompt_AssistantToolCallsAndToolResult(t *tes
 	if !strings.Contains(assistantContent, "<|EPSE|tool_calls>") {
 		t.Fatalf("assistant tool history should be preserved in EPSE form, got %q", assistantContent)
 	}
-	if !strings.Contains(assistantContent, `<|EPSE|invoke name="get_weather">`) {
+	if !strings.Contains(assistantContent, `<|EPSE|invoke name="get_weather"`) {
 		t.Fatalf("expected tool name in preserved history, got %q", assistantContent)
 	}
 	if !strings.Contains(normalized[3]["content"].(string), `"temp":18`) {
@@ -120,7 +120,7 @@ func TestNormalizeOpenAIMessagesForPrompt_FunctionRoleCompatible(t *testing.T) {
 	}
 }
 
-func TestNormalizeOpenAIMessagesForPrompt_EmptyToolContentPreservedAsNull(t *testing.T) {
+func TestNormalizeOpenAIMessagesForPrompt_EmptyToolContentPreserved(t *testing.T) {
 	raw := []any{
 		map[string]any{
 			"role":         "tool",
@@ -142,8 +142,8 @@ func TestNormalizeOpenAIMessagesForPrompt_EmptyToolContentPreservedAsNull(t *tes
 		t.Fatalf("expected tool role preserved, got %#v", normalized[0]["role"])
 	}
 	got, _ := normalized[0]["content"].(string)
-	if got != "null" {
-		t.Fatalf("expected empty tool content normalized as null string, got %q", got)
+	if got != "" {
+		t.Fatalf("expected empty tool content preserved, got %q", got)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestNormalizeOpenAIMessagesForPrompt_AssistantMultipleToolCallsRemainSepara
 	if strings.Count(content, "<|EPSE|invoke name=") != 2 {
 		t.Fatalf("expected two preserved tool call blocks, got %q", content)
 	}
-	if !strings.Contains(content, `<|EPSE|invoke name="search_web">`) || !strings.Contains(content, `<|EPSE|invoke name="eval_javascript">`) {
+	if !strings.Contains(content, `<|EPSE|invoke name="search_web"`) || !strings.Contains(content, `<|EPSE|invoke name="eval_javascript"`) {
 		t.Fatalf("expected both tool names in preserved history, got %q", content)
 	}
 }
@@ -283,7 +283,7 @@ func TestNormalizeOpenAIMessagesForPrompt_CanonicalizesStandaloneAssistantToolMa
 	content, _ := normalized[0]["content"].(string)
 	for _, want := range []string{
 		"<|EPSE|tool_calls>",
-		`<|EPSE|invoke name="Bash">`,
+		`<|EPSE|invoke name="Bash"`,
 		`<|EPSE|parameter name="command"><![CDATA[lsof -i :4321 -t]]></|EPSE|parameter>`,
 		`<|EPSE|parameter name="description"><![CDATA[Verify port 4321 is free]]></|EPSE|parameter>`,
 		"</|EPSE|tool_calls>",
@@ -299,7 +299,7 @@ func TestNormalizeOpenAIMessagesForPrompt_CanonicalizesStandaloneAssistantToolMa
 	}
 }
 
-func TestNormalizeOpenAIMessagesForPrompt_DeveloperRoleMapsToSystem(t *testing.T) {
+func TestNormalizeOpenAIMessagesForPrompt_DeveloperRoleIsPreserved(t *testing.T) {
 	raw := []any{
 		map[string]any{"role": "developer", "content": "必须先走工具调用"},
 		map[string]any{"role": "user", "content": "你好"},
@@ -308,8 +308,8 @@ func TestNormalizeOpenAIMessagesForPrompt_DeveloperRoleMapsToSystem(t *testing.T
 	if len(normalized) != 2 {
 		t.Fatalf("expected 2 normalized messages, got %d", len(normalized))
 	}
-	if normalized[0]["role"] != "system" {
-		t.Fatalf("expected developer role converted to system, got %#v", normalized[0]["role"])
+	if normalized[0]["role"] != "developer" {
+		t.Fatalf("expected developer role preserved, got %#v", normalized[0]["role"])
 	}
 }
 

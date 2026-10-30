@@ -24,7 +24,6 @@ import (
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	streamengine "ds2api/internal/stream"
-	"ds2api/internal/toolcall"
 	"ds2api/internal/translatorcliproxy"
 	"ds2api/internal/util"
 
@@ -102,8 +101,8 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 		writeClaudeError(w, http.StatusBadRequest, err.Error())
 		return true
 	}
-	norm.Standard.FinalPrompt = toolcall.ApplyToolMarker(norm.Standard.FinalPrompt, a.ToolMarker)
 	norm.Standard.ToolMarker = a.ToolMarker
+	norm.Standard.FinalPrompt, norm.Standard.ToolNames = norm.Standard.BuildPromptFromMessages(norm.Standard.Messages)
 	// Usage 口径必须等于实际发送的那份 prompt：OpenAI 出口在
 	// NormalizeOpenAIChatRequest / NormalizeOpenAIResponsesRequest 内把
 	// PromptTokenText 与出口替换后的 FinalPrompt 一起赋值，这里同步一次，

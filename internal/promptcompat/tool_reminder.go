@@ -9,8 +9,7 @@ import (
 
 // DefaultBottomFormatInjectionPrompt 是「底部格式提示注入」的内置提示词，即
 // 末尾工具调用格式复述（trailing reminder）的原文。它按规范形态 EPSE 渲染，
-// 出站时由 toolcall.ApplyToolMarker 在最终 prompt 字符串上统一替换成调用者
-// 专属标识，因此这里不需要感知 marker。
+// 组装时仅在生成的格式提醒中替换工具标识，然后才合并用户正文。
 var DefaultBottomFormatInjectionPrompt = toolcall.ToolCallFormatReminder()
 
 // ToolReminderConfig 是「底部格式提示注入」行为设置在请求期的解析结果。

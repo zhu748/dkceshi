@@ -43,6 +43,7 @@ type chatStreamRuntime struct {
 	toolSieve         toolstream.State
 	streamToolCallIDs map[int]string
 	streamToolNames   map[int]string
+	toolCallOffset    int
 	accumulator       shared.StreamAccumulator
 	responseMessageID int
 	upstreamErr       string
@@ -217,6 +218,7 @@ func (s *chatStreamRuntime) historyThinking() string {
 }
 
 func (s *chatStreamRuntime) resetStreamToolCallState() {
+	s.toolCallOffset += len(s.streamToolCallIDs)
 	s.streamToolCallIDs = map[int]string{}
 	s.streamToolNames = map[int]string{}
 }
@@ -252,6 +254,11 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		ToolCallRepairCtx:     s.toolCallRepairCtx,
 		ToolMarker:            s.toolSieve.Marker,
 	})
+	if turn.Error != nil && turn.Error.Code == "tool_choice_violation" {
+		s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = turn.Error.Status, turn.Error.Message, turn.Error.Code
+		s.sendFailedChunk(turn.Error.Status, turn.Error.Message, turn.Error.Code)
+		return true
+	}
 	s.finalThinking = turn.Thinking
 	s.finalText = turn.Text
 	if len(turn.ToolCalls) > 0 && !s.toolCallsDoneEmitted {
@@ -264,11 +271,14 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		batch := chatDeltaBatch{runtime: s}
 		for _, evt := range toolstream.Flush(&s.toolSieve, s.toolNames) {
 			if len(evt.ToolCalls) > 0 {
+				if s.toolChoice.Constrained() {
+					continue
+				}
 				batch.flush()
 				s.toolCallsEmitted = true
 				s.toolCallsDoneEmitted = true
 				s.sendDelta(map[string]any{
-					"tool_calls": formatFinalStreamToolCallsWithStableIDs(evt.ToolCalls, s.streamToolCallIDs, s.toolsRaw),
+					"tool_calls": formatFinalStreamToolCallsWithStableIDs(evt.ToolCalls, s.streamToolCallIDs, s.toolsRaw, s.toolCallOffset),
 				})
 				s.resetStreamToolCallState()
 			}
@@ -354,14 +364,14 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 			events := toolstream.ProcessChunk(&s.toolSieve, p.RawText, s.toolNames)
 			for _, evt := range events {
 				if len(evt.ToolCallDeltas) > 0 {
-					if !s.emitEarlyToolDeltas {
+					if !s.emitEarlyToolDeltas || s.toolChoice.Constrained() {
 						continue
 					}
 					filtered := filterIncrementalToolCallDeltasByAllowed(evt.ToolCallDeltas, s.streamToolNames)
 					if len(filtered) == 0 {
 						continue
 					}
-					formatted := formatIncrementalStreamToolCallDeltas(filtered, s.streamToolCallIDs)
+					formatted := formatIncrementalStreamToolCallDeltas(filtered, s.streamToolCallIDs, s.toolCallOffset)
 					if len(formatted) == 0 {
 						continue
 					}
@@ -374,11 +384,14 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 					continue
 				}
 				if len(evt.ToolCalls) > 0 {
+					if s.toolChoice.Constrained() {
+						continue
+					}
 					batch.flush()
 					s.toolCallsEmitted = true
 					s.toolCallsDoneEmitted = true
 					tcDelta := map[string]any{
-						"tool_calls": formatFinalStreamToolCallsWithStableIDs(evt.ToolCalls, s.streamToolCallIDs, s.toolsRaw),
+						"tool_calls": formatFinalStreamToolCallsWithStableIDs(evt.ToolCalls, s.streamToolCallIDs, s.toolsRaw, s.toolCallOffset),
 					}
 					s.sendDelta(tcDelta)
 					s.resetStreamToolCallState()

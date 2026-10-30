@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"ds2api/internal/promptcompat"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -8,10 +9,16 @@ import (
 
 func normalizeClaudeMessages(messages []any) []any {
 	out := make([]any, 0, len(messages))
-	state := &claudeToolCallState{
-		nameByID:       map[string]string{},
-		lastIDByName:   map[string]string{},
-		callIDSequence: 0,
+	state := promptcompat.NewToolCallLinker("call_claude")
+	for _, raw := range messages {
+		msg, _ := raw.(map[string]any)
+		blocks, _ := msg["content"].([]any)
+		for _, rawBlock := range blocks {
+			block, _ := rawBlock.(map[string]any)
+			for _, key := range []string{"id", "tool_use_id", "tool_call_id"} {
+				state.Reserve(safeStringValue(block[key]))
+			}
+		}
 	}
 	for _, m := range messages {
 		msg, ok := m.(map[string]any)
@@ -125,7 +132,7 @@ func normalizeClaudeToolUseToAssistant(block map[string]any, state *claudeToolCa
 	if block == nil {
 		return nil
 	}
-	name := strings.TrimSpace(fmt.Sprintf("%v", block["name"]))
+	name := safeStringValue(block["name"])
 	if name == "" {
 		return nil
 	}
@@ -133,11 +140,7 @@ func normalizeClaudeToolUseToAssistant(block map[string]any, state *claudeToolCa
 	if callID == "" {
 		callID = safeStringValue(block["tool_use_id"])
 	}
-	if callID == "" {
-		callID = state.nextID()
-	}
-	state.nameByID[callID] = name
-	state.lastIDByName[strings.ToLower(name)] = callID
+	callID = state.Call(name, callID)
 	arguments := block["input"]
 	if arguments == nil {
 		arguments = map[string]any{}
@@ -172,25 +175,15 @@ func normalizeClaudeToolResultToToolMessage(block map[string]any, state *claudeT
 	if toolCallID == "" {
 		toolCallID = safeStringValue(block["tool_call_id"])
 	}
-	if toolCallID == "" {
-		if name != "" {
-			toolCallID = strings.TrimSpace(state.lastIDByName[strings.ToLower(name)])
-		}
-	}
-	if toolCallID == "" {
-		toolCallID = state.nextID()
-	}
+	toolCallID, name = state.Result(name, toolCallID)
 	out := map[string]any{
 		"role":         "tool",
 		"tool_call_id": toolCallID,
+		"is_error":     block["is_error"],
 		"content":      normalizeClaudeToolResultContent(block["content"]),
 	}
 	if name != "" {
 		out["name"] = name
-		state.nameByID[toolCallID] = name
-		state.lastIDByName[strings.ToLower(name)] = toolCallID
-	} else if inferred := strings.TrimSpace(state.nameByID[toolCallID]); inferred != "" {
-		out["name"] = inferred
 	}
 	return out
 }

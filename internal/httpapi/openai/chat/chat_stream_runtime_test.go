@@ -65,6 +65,8 @@ func TestChatStreamFinalizeEnforcesRequiredToolChoice(t *testing.T) {
 		false,
 	)
 
+	runtime.accumulator.RawText.WriteString("plain text only")
+	runtime.accumulator.Text.WriteString("plain text only")
 	if !runtime.finalize("stop", false) {
 		t.Fatalf("expected terminal error to be written")
 	}

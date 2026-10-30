@@ -120,6 +120,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		"final_prompt":     stdReq.FinalPrompt,
 		"thinking_enabled": stdReq.Thinking,
 		"search_enabled":   stdReq.Search,
+		"tool_choice":      stdReq.ToolChoice,
 		"tool_names":       stdReq.ToolNames,
 		// The Node stream mirror performs the tool sieve itself, so it needs the
 		// caller-specific marker to normalize the model's output back to EPSE

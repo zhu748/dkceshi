@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -121,7 +122,7 @@ func TestNormalizeClaudeRequestInjectsToolsIntoTopLevelSystem(t *testing.T) {
 }
 
 const claudeReminderHead = "The only correct format for using tools is <|EPSE|tool_calls>"
-const claudeReminderTail = ".Please do not simplify or modify this framework in any way.The only valid label is EPSE; the use of any label prefixed with DSML is **strictly prohibited**."
+const claudeReminderTail = ".Please do not simplify or modify this framework in any way.Use exactly the tag prefix shown above; do not substitute another tool format."
 
 func TestNormalizeClaudeRequestAppendsToolCallReminderBeforeAssistantMarker(t *testing.T) {
 	t.Setenv("DS2API_CONFIG_JSON", `{}`)
@@ -159,7 +160,7 @@ func TestNormalizeClaudeRequestAppendsToolCallReminderBeforeAssistantMarker(t *t
 		if !containsStr(prompt, claudeReminderHead) {
 			t.Fatalf("%s: expected trailing tool-call reminder, got=%q", name, prompt)
 		}
-		if !strings.HasSuffix(prompt, claudeReminderTail+"[Assistant]:") {
+		if !strings.HasSuffix(regexp.MustCompile(`\n\[EndMessage:[^\]]+\]\n\n`).ReplaceAllString(prompt, ""), claudeReminderTail+"[Assistant]:") {
 			t.Fatalf("%s: reminder must be the last block before [Assistant]:, got=%q", name, prompt)
 		}
 		if strings.Count(prompt, claudeReminderHead) != 1 {

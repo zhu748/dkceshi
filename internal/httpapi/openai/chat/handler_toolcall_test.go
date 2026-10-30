@@ -504,6 +504,7 @@ func TestHandleStreamEmitsDistinctToolCallIDsAcrossSeparateToolBlocks(t *testing
 
 	ids := make([]string, 0, 2)
 	seen := make(map[string]struct{})
+	indices := map[int]string{}
 	for _, frame := range frames {
 		choices, _ := frame["choices"].([]any)
 		for _, item := range choices {
@@ -521,6 +522,11 @@ func TestHandleStreamEmitsDistinctToolCallIDsAcrossSeparateToolBlocks(t *testing
 				}
 				seen[id] = struct{}{}
 				ids = append(ids, id)
+				index := int(call["index"].(float64))
+				if prior := indices[index]; prior != "" && prior != id {
+					t.Fatalf("different calls reused index %d: %s and %s", index, prior, id)
+				}
+				indices[index] = id
 			}
 		}
 	}

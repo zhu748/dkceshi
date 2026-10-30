@@ -64,21 +64,23 @@ func ToolCallFormatSpecForMarker(marker string) string {
 3a) 标签语法中所允许使用的标点符号字符集仅限 ASCII 的 < > / = " 以及半角竖线 |。
 4) 所有字符串类型的参数值都必须通过 <![CDATA[...]]> 进行包裹，即使内容极其简短也不例外；这涵盖了代码段、脚本、文件内容、提示词、路径、名称和查询语句等。
 5) 每一个顶层参数都必须体现为 <|EPSE|parameter name="ARG_NAME">...</|EPSE|parameter> 节点形式。
-6) 对象在参数主体内使用嵌套的 XML 元素。数组可以使用重复的 <item> 子元素。
+6) 对象和数组可在参数主体内使用 JSON 字面量以完整保留类型，也兼容嵌套 XML 元素和重复的 <item> 子元素。
 7) 数字、布尔值和 null 保持为纯文本。
 8) 仅使用工具架构(schema)中定义的参数名称。请勿自行创建字段。
-9) 使用本次调用所需的实际值填充参数。请勿输出占位符、空参数或仅包含空白字符的参数。
-10) 如果所需的参数值未知，请询问用户或正常回答，而不是输出空的工具调用。
-11) 对于 Bash / execute_command 等 Shell 工具，命令或脚本必须包含在 command 参数中。切勿在命令为空的情况下调用它们。
+9) 使用本次调用所需的实际值填充参数。请勿输出占位符或捏造参数；schema 和任务允许的空字符串、空对象、空数组和 null 都是有效值，应保留其类型。
+10) 如果必需参数值未知，请询问用户或正常回答；无参数工具可以使用没有 parameter 节点的 invoke。
+11) 参数名称以当前工具 schema 为准；不同工具可能使用 command、cmd 或其他名称，不要根据工具名猜测字段。
 12) 请勿使用 Markdown 代码块标记包裹 XML。请勿输出解释、角色标识或内心独白。
 13) 如果调用工具，该工具代码块的第一个非空白字符必须严格为 <|EPSE|tool_calls>。
 14) 切勿省略起始标签 <|EPSE|tool_calls>，即使你打算随后使用 </|EPSE|tool_calls> 闭合标签。
-15) 工具标签只有上述带 EPSE 前缀的一种格式：<|EPSE|tool_calls> / <|EPSE|invoke> / <|EPSE|parameter>。请始终完整输出 <|EPSE| 前缀，不要省略前缀或使用无前缀的标签写法。
+15) 工具标签只有上述带标识前缀的一种格式：<|EPSE|tool_calls> / <|EPSE|invoke> / <|EPSE|parameter>。请始终完整输出 <|EPSE| 前缀，不要省略前缀或使用无前缀的标签写法。
 
 调用决策：
-- 历史对话中出现的 <|EPSE|tool_calls> 块是已经执行完毕的工具调用记录，其结果已包含在后续的 tool 消息中，属于背景信息而非待办事项。
+- 历史对话中的 <|EPSE|tool_calls> 是调用记录。使用 call_id 与 tool_call_id 关联结果；有匹配结果才表示已返回，is_error=true 表示失败。缺少结果不代表操作已完成，也不要盲目重复可能产生副作用的操作。
 - 是否需要调用工具，取决于当前任务还需要什么：若还需要新的信息或操作，请继续调用——同一工具允许用不同参数多次调用（如读取不同文件、执行不同命令），上次调用失败或结果不完整时也可重试；若信息已足够，则直接回答。
 - 不要因历史中曾调用过某工具而回避再次调用，也不要重复执行已经完成且结果正确的调用。
+- 只把互不依赖且本轮已知全部参数的调用放在同一个批次。若后续动作依赖前一个工具的结果，本轮只发出前一个调用，等待真实结果后再决定下一步。
+- 发出调用后结束本轮，不要代替工具编造结果或宣称操作成功。遇到失败先检查 is_error 和实际错误内容，修正原因后再重试，避免不加修改地重复失败调用。
 
 参数格式：
 - string => <|EPSE|parameter name="x"><![CDATA[value]]></|EPSE|parameter>
@@ -97,7 +99,7 @@ Wrong 2 — 使用 Markdown 代码块标记:
 Wrong 3 — 缺少起始包裹标签:
   <|EPSE|invoke name="TOOL_NAME">...</|EPSE|invoke>
   </|EPSE|tool_calls>
-Wrong 4 — 参数为空:
+Wrong 4 — 必需的命令内容缺失:
   <|EPSE|tool_calls>
     <|EPSE|invoke name="Bash">
       <|EPSE|parameter name="command"></|EPSE|parameter>
@@ -106,7 +108,7 @@ Wrong 4 — 参数为空:
 
 请记住：使用工具的唯一正确方式是在回复末尾使用 <|EPSE|tool_calls>...</|EPSE|tool_calls> 代码块。
 `
-	return strings.ReplaceAll(spec, EPSEKeyword, marker)
+	return ApplyToolMarker(spec, marker)
 }
 
 // ToolCallFormatReminder returns the short final reminder block that restates
@@ -127,8 +129,8 @@ func ToolCallFormatReminderForMarker(marker string) string {
   <|EPSE|invoke name="TOOL_NAME_HERE">
     <|EPSE|parameter name="PARAMETER_NAME"><![CDATA[PARAMETER_VALUE]]></|EPSE|parameter>
   </|EPSE|invoke>
-</|EPSE|tool_calls> .Please do not simplify or modify this framework in any way.The only valid label is EPSE; the use of any label prefixed with DSML is **strictly prohibited**.`
-	return strings.ReplaceAll(reminder, EPSEKeyword, marker)
+</|EPSE|tool_calls> .Please do not simplify or modify this framework in any way.Use exactly the tag prefix shown above; do not substitute another tool format.`
+	return ApplyToolMarker(reminder, marker)
 }
 
 type promptToolExample struct {

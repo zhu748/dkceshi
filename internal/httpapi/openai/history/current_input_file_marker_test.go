@@ -129,7 +129,7 @@ func TestReuploadAppliedCurrentInputFileUploadsMarkerForm(t *testing.T) {
 
 	stdReq := markerStandardRequest(markerUnderTest)
 	stdReq.CurrentInputFileApplied = true
-	stdReq.HistoryText = "# HISTORY.txt\n\n" + markerToolMarkupBlock(toolMarkerKeywordForTest()) + "\n"
+	stdReq.HistoryText = "# HISTORY.txt\n\n" + markerToolMarkupBlock(markerUnderTest) + "\n"
 	stdReq.CurrentInputFileID = "old-history"
 	stdReq.CurrentToolsFileID = ""
 

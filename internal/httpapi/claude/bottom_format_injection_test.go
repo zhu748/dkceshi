@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestNormalizeClaudeRequestBottomFormatInjectionCustomPrompt(t *testing.T) {
 		t.Fatalf("custom prompt=%q want 自定义底部格式提醒", norm.Standard.ToolReminderPrompt)
 	}
 	prompt := norm.Standard.FinalPrompt
-	if !strings.HasSuffix(prompt, "自定义底部格式提醒[Assistant]:") {
+	if !strings.HasSuffix(regexp.MustCompile(`\n\[EndMessage:[^\]]+\]\n\n`).ReplaceAllString(prompt, ""), "自定义底部格式提醒[Assistant]:") {
 		t.Fatalf("custom reminder must stay immediately before the [Assistant] marker, got=%q", prompt)
 	}
 	if containsStr(prompt, claudeReminderHead) {

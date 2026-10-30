@@ -148,7 +148,7 @@ func TestHandleVercelStreamSwitchReturnsToolMarkerAndReuploadsMarkerForm(t *test
 		CurrentInputFileApplied: true,
 		CurrentInputFileID:      "file-old",
 		CurrentToolsFileID:      "file-old-tools",
-		HistoryText:             "# HISTORY.txt\n\n" + markerToolBlock(toolcall.EPSEKeyword) + "\n",
+		HistoryText:             "# HISTORY.txt\n\n" + markerToolBlock(markerUnderTest) + "\n",
 		RefFileIDs:              []string{"file-old", "file-old-tools"},
 		ToolMarker:              markerUnderTest,
 	}

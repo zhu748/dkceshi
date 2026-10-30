@@ -126,14 +126,14 @@ func emptyOutputRetryMaxAttempts() int {
 	return shared.EmptyOutputRetryMaxAttempts()
 }
 
-func formatIncrementalStreamToolCallDeltas(deltas []toolstream.ToolCallDelta, ids map[int]string) []map[string]any {
-	return shared.FormatIncrementalStreamToolCallDeltas(deltas, ids)
+func formatIncrementalStreamToolCallDeltas(deltas []toolstream.ToolCallDelta, ids map[int]string, offsets ...int) []map[string]any {
+	return shared.FormatIncrementalStreamToolCallDeltas(deltas, ids, offsets...)
 }
 
 func filterIncrementalToolCallDeltasByAllowed(deltas []toolstream.ToolCallDelta, seenNames map[int]string) []toolstream.ToolCallDelta {
 	return shared.FilterIncrementalToolCallDeltasByAllowed(deltas, seenNames)
 }
 
-func formatFinalStreamToolCallsWithStableIDs(calls []toolcall.ParsedToolCall, ids map[int]string, toolsRaw any) []map[string]any {
-	return shared.FormatFinalStreamToolCallsWithStableIDs(calls, ids, toolsRaw)
+func formatFinalStreamToolCallsWithStableIDs(calls []toolcall.ParsedToolCall, ids map[int]string, toolsRaw any, offsets ...int) []map[string]any {
+	return shared.FormatFinalStreamToolCallsWithStableIDs(calls, ids, toolsRaw, offsets...)
 }

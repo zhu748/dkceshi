@@ -1,7 +1,6 @@
 # API → 纯文本上下文兼容说明
 
-本项目的提示词、工具调用、历史拆分和模型目录对齐
-`ouqiting20/ds2api` 的 `f9d2085`。请求头、登录及上游传输继续使用本项目原有实现。
+本项目最初基于 `ouqiting20/ds2api` 的 `f9d2085` 对齐提示词、工具调用、历史拆分和模型目录；当前消息保真与任务拆分规则以本文为准。请求头、登录及上游传输继续使用本项目原有实现。
 
 ## 统一请求链路
 
@@ -10,9 +9,19 @@ OpenAI Chat、Responses、Claude 和 Gemini 先转换为标准消息，再通过
 思考注入和历史拆分使用共享逻辑。Vercel Node 使用 Go prepare 返回的最终提示词，
 并同步使用相同的工具标记及解析规则。
 
-最终上下文按 `[System]:`、`[User]:`、`[Assistant]:`、`[Tool]:` 拼接，
-不再插入旧分支的特殊起止 token 或 Output integrity guard。
-历史 reasoning 以 `[reasoning_content]` 块保留，工具调用历史重新渲染为规范工具块。
+最终上下文保留 system、developer、user、assistant、tool 各自的角色与独立轮次，
+相邻同角色消息不再合并。每份转录使用由消息内容派生、且不出现在正文中的
+`[EndMessage:…]` 结束标记；开头说明角色标签只有位于消息边界时才表示真实角色。
+用户粘贴的角色标签、Markdown 图片、正文中的 EPSE 及工具参数 CDATA 均保持原文。
+转录前言说明 system、developer、user 的优先级及同角色后续指令的更新关系。
+这是一套纯文本转录协议，不能赋予字符串原生 API 的角色权限。
+
+历史 reasoning 以 `[reasoning_content]` 块保留。工具结果的 `tool_call_id`、名称及
+可用的 `is_error` 放入消息元数据；历史 invoke 携带 `call_id`，按 ID 配对而不是猜测顺序。
+字符串使用 CDATA，非字符串参数使用 JSON 字面量，完整保留 null、空字符串、空对象、
+空数组、嵌套数组和大整数文本。普通发送和 HISTORY.txt 使用同一转录器及元数据。
+已完成的 assistant 消息结束后生成新的 assistant 轮次；仅显式 `prefix: true`
+视为预填充续写，底部提醒放在预填充之前。
 
 相关实现：
 
@@ -24,8 +33,8 @@ OpenAI Chat、Responses、Claude 和 Gemini 先转换为标准消息，再通过
 ## 工具提示词和调用格式
 
 工具说明来自本次请求：`Tool`、`Description`、`Parameters`（JSON Schema）。
-说明后附统一格式规范、调用决策、参数类型规则和正反例。正确示例只选取当前请求中
-实际声明且有已知参数形态的工具。
+说明后附统一格式规范、调用决策和参数类型规则。请求组装只注入与工具名无关的语法骨架；
+不再按工具名称套用固定参数示例，避免同名工具 schema 不同导致误导。
 
 ```xml
 <|EPSE|tool_calls>
@@ -35,8 +44,8 @@ OpenAI Chat、Responses、Claude 和 Gemini 先转换为标准消息，再通过
 </|EPSE|tool_calls>
 ```
 
-字符串必须使用 CDATA；对象支持嵌套元素，数组支持重复 `<item>`，数字、布尔值和
-null 保持字面量。模型不得输出空参数、占位符或 Markdown 围栏。
+字符串必须使用 CDATA；对象和数组优先采用 JSON 字面量，也兼容嵌套元素和重复 `<item>`；数字、布尔值和
+null 保持字面量。schema 允许的空值合法；不得捏造未知参数、输出占位符或 Markdown 围栏。
 提示词明确区分已执行的历史调用与当前待完成的任务，避免重复执行成功操作，
 同时允许为了新信息、不同参数或失败重试再次调用同一工具。
 
@@ -45,16 +54,40 @@ null 保持字面量。模型不得输出空参数、占位符或 Markdown 围�
 只有有工具的请求才注入这些规则；OpenAI/Gemini 还兼容客户端在 system 文本中声明工具的形态。
 Claude 的工具声明只采用顶层 tools，避免普通 system 文本误触发工具协议。
 
-`EPSE` 是内部规范关键字。出站时统一替换成按调用者稳定派生的六位标识，
-返回文本在解析前恢复为 EPSE；流式归一化支持标识跨分片。历史文件、TOOLS.txt、
+`EPSE` 是内部规范关键字。生成工具协议时替换成按调用者稳定派生的六位标识，
+替换发生在合并用户内容之前，跳过 CDATA；返回文本仅把标签前缀恢复为 EPSE，
+正文、路径及 CDATA 内的同名字符串保持原样。流式归一化保留跨分片的标签/CDATA 状态，
+等待标识边界后再替换，避免改写包含标识的更长单词。历史文件、TOOLS.txt、
 思考注入后的重建及修复提示词也沿用同一标识。
 服务端密钥自动生成并保存，也可通过 `DS2API_TOOL_MARKER_SECRET` 固定。
 
 API Key 配置中的 `force_disable_tools` 会在工具检测前清除工具定义并阻止格式注入。
 账号管理页的新建/编辑 Key 弹窗读取 `credential_flag_specs`，显示同一开关；Key 列表显示生效徽标，
 新增和编辑均将开关值提交给后端。
-工具选择策略由标准请求持有：Responses 支持 required/指定工具；Chat 沿用基准项目的
-默认 auto 策略，忽略客户端 tool_choice。工具执行器仍应自行验证工具名和参数。
+工具选择策略由标准请求持有：OpenAI Chat 和 Responses 解析 auto/none/required/指定工具。
+Chat 的 Go、Vercel Node 和 Responses 流式路径对受约束调用延迟交付，在收尾校验 none、必需调用及指定工具；
+违反策略返回 tool_choice_violation，不能先输出禁止的调用再报错。工具执行器仍应验证工具名和参数。
+required/指定工具约束不会把上游空响应误判成策略违规：空响应继续走原有重试、审核及上游错误分类；
+实际返回了普通答案却没有要求的调用时，仍返回 tool_choice_violation。
+
+OpenAI Chat/Responses 的 `parallel_tool_calls: false` 会转换为共享单调用约束：
+提示词要求每轮最多一个调用，收尾也检查数量；不合规时返回错误，不静默截掉其余调用。
+显式 `allowed_tools` 子集在 auto 模式下同样校验，未设置显式子集时保留原兼容检测行为。
+指定工具若被同一请求的 `allowed_tools` 排除，在归一化阶段直接报错，不能静默扩大允许集合。
+
+## Agent 工具循环
+
+服务负责生成和转换工具调用，实际工具仍由调用端执行。调用端执行后携带原调用 ID
+回传结果，下一次新建上游会话时重新打包任务、调用和结果。提示词要求只并行发出互不依赖、
+参数已经确定的调用；有依赖的步骤等待真实结果后再继续，不提前编造结果或宣称成功。
+失败后的后续动作应参考实际错误，不能无条件重复相同失败调用。
+
+- Chat Go/Node 的流式工具 index 在整个响应内递增，不因新的工具块重新从 0 开始。
+- Responses 保留整轮的 item ID、call ID 和 output index，事件中的调用与最终 completed 对象保持一致，供下一轮结果回填。
+- Claude/Gemini 优先使用显式 ID。兼容缺少 ID 的同名结果时，按未返回调用的顺序配对；已匹配项移出队列，合成 ID 避开本请求中已有的 ID。
+- 缺少 ID 且结果乱序时不能可靠还原配对关系，调用端应传回原 ID。
+- Responses 的结果错误标志和显式 null 会保留，避免下一轮把失败当成成功或把 null 当成空字符串。
+- Node 与 Go 一样，仅在正文为空时尝试从推理通道恢复工具调用；关闭推理展示时，该内部检测不产生 reasoning_content 输出。
 
 相关实现：`internal/toolcall/tool_prompt.go`、`internal/promptcompat/tool_prompt.go`、
 `internal/toolcall/marker.go`。
@@ -92,14 +125,25 @@ CDATA 中的标签示例及原始参数内容应逐字保真，不能被确定�
 `input_file` 默认关闭。启用后，以完整 FinalPrompt 的 Unicode 字符数检查阈值，
 而非只统计最新一条输入。
 
-- 已有对话且末条有效消息为 user 时：前面的消息上传到固定文件名 `HISTORY.txt`，
-  最新 user 留在 live prompt 中。其余情况序列化完整上下文，长首轮输入仍能拆分。
-- 文件以 `# HISTORY.txt` 和 `=== N. ROLE ===` 分段，包含继续当前任务的说明。
-- 工具名称、描述和参数 schema 单独上传为 `TOOLS.txt`；live prompt 保留格式及策略，
-  并明确工具 schema 的权威来源是 TOOLS.txt。
-- live prompt 使用 system 角色的“继续会话”，不会伪造 user 消息。
-- 每次请求按当前账号上传文件；账号切换后重新上传，避免跨账号复用 file_id。
-- 上传文件和 live prompt 使用同一调用者标识，usage 按完整上下文计算。
+- 以最近一次 user 任务（包括连续 user 输入）及之后完整的 assistant/tool 链作为活动上下文，保留在 live prompt。
+- 如果活动结果引用了更早的工具调用，切分点回退到对应调用，避免跨文件拆散调用和结果。
+- 更早的消息上传 HISTORY.txt；此前的 system/developer 指令按原顺序保留在文件中，并在主提示词中重复固定，避免只在附件中生效。
+- 只有首个任务且已进入 assistant/tool 循环时，不为拆分强行把当前工具链搬进附件。
+- 单条长首轮 user 仍可外置到 HISTORY.txt，主提示词明确其位置；只有前置指令时，兼容外置指令同时保留最新 user 和指令的行为。
+- 文件采用 `# HISTORY.txt`、编号角色标题和与 live prompt 相同的独立消息边界。
+- 工具 schema 单独上传 TOOLS.txt，主提示词明确命名两个文件、它们的用途、当前任务位置和调用结果配对规则。
+- 图片和文件在原消息位置保留附件引用；不能用空正文判断并删除工具调用、空工具结果或图片轮次。
+- 生成文件按当前账号上传；账号切换后按原字节重传，不再次改写正文。usage 按文件和主提示词完整上下文计算。
+
+思考注入仍由现有开关控制，并且仅在本次请求启用 thinking 时追加到最近 user。
+默认文本现为以下原文；已保存的旧内置默认值自动按新默认值解释，自定义文本保留：
+
+```text
+Reasoning Effort: Beyond maximum — exhaustive, relentless, and uncompromising.
+You MUST reason with the utmost depth and rigor, leaving absolutely nothing to chance: exhaustively decompose the problem into its most fundamental components, trace every causal chain to its root, and resolve the underlying cause rather than any surface symptom. Do not stop reasoning until you have independently verified the solution from multiple angles and are certain that no assumption remains unchecked and no error remains undiscovered.
+```
+
+该文本是提示词，不会创建上游不存在的推理预算档位，也不代表模型推理质量得到保证。
 
 旧 `history_split` 与 `current_input_file` 配置键均忽略且不再写回。
 旧配置需要手动将 `current_input_file` 改名为 `input_file`。
@@ -121,7 +165,7 @@ OpenAI Chat/Responses、Claude base64 image/document 与 Gemini inlineData 共�
 通过 `/v1/files` 单独上传后，多账号环境需用返回的 account_id 固定后续请求的目标账号。
 PNG/JPEG 按显式或远程压缩配置处理；没有有效比例时保留原文件，文档内容保持原样。
 同一请求的内联文件先上传，再合并轮询，所有文件成功后才用于聊天。
-OpenAI Chat/Responses 剥离已上传的图片块时保留空文本用户轮次；纯图片首轮不会
+OpenAI Chat/Responses 剥离已上传的图片块时保留带 file_id 的文本附件引用及用户轮次；纯图片首轮不会
 因 messages 变空而返回 400，纯图片追问也不会退回上一条 assistant 的轮次。
 Responses 支持图片 content part 数组、message 数组和单对象 input；引用先汇总到 RefFileIDs。
 

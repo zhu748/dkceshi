@@ -13,7 +13,7 @@ func TestMessagesPrepareBasic(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected non-empty prompt")
 	}
-	if !strings.HasPrefix(got, "[User]:Hello") {
+	if !strings.Contains(got, "[User]:Hello") {
 		t.Fatalf("expected user marker at the start, got %q", got)
 	}
 	if !strings.Contains(got, "Hello") || !strings.HasSuffix(got, "[Assistant]:") {

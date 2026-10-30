@@ -100,7 +100,7 @@ func TestNormalizeClaudeMessagesToolUseToAssistantToolCalls(t *testing.T) {
 		t.Fatalf("expected the adapter to leave content empty, got %q", content)
 	}
 	prompt := promptcompat.RenderPromptText(got, true)
-	if !containsStr(prompt, "<|EPSE|tool_calls>") || !containsStr(prompt, `<|EPSE|invoke name="search_web">`) {
+	if !containsStr(prompt, "<|EPSE|tool_calls>") || !containsStr(prompt, `<|EPSE|invoke name="search_web"`) {
 		t.Fatalf("expected rendered prompt to include EPSE tool call history, got %q", prompt)
 	}
 	if !containsStr(prompt, `<|EPSE|parameter name="query"><![CDATA[latest]]></|EPSE|parameter>`) {
@@ -140,7 +140,7 @@ func TestNormalizeClaudeMessagesPreservesThinkingOnToolUseHistory(t *testing.T) 
 	if !containsStr(prompt, "[reasoning_content]\nneed live search before answering\n[/reasoning_content]") {
 		t.Fatalf("expected thinking in prompt history, got %q", prompt)
 	}
-	if !containsStr(prompt, `<|EPSE|invoke name="search_web">`) {
+	if !containsStr(prompt, `<|EPSE|invoke name="search_web"`) {
 		t.Fatalf("expected tool call in prompt history, got %q", prompt)
 	}
 }

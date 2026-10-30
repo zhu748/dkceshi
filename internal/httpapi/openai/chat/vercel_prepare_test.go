@@ -143,7 +143,7 @@ func TestHandleVercelStreamPrepareAppliesCurrentInputFile(t *testing.T) {
 	if strings.Contains(promptText, "first user turn") {
 		t.Fatalf("expected earlier turns hidden from prompt, got %s", promptText)
 	}
-	if !strings.Contains(promptText, "[System]:继续会话[User]:latest user turn") {
+	if !strings.Contains(promptText, "[User]:latest user turn") {
 		t.Fatalf("expected trailing user turn to stay inline in prompt, got %s", promptText)
 	}
 	refIDs, _ := payload["ref_file_ids"].([]any)
@@ -395,8 +395,8 @@ func TestHandleVercelStreamPrepareUploadsToolsSeparately(t *testing.T) {
 		if !strings.Contains(promptText, "继续会话") || !strings.Contains(promptText, "工具调用格式规范") {
 			t.Fatalf("expected %s to retain continuation and tool instructions, got %q", label, promptText)
 		}
-		if strings.Contains(promptText, "TOOLS.txt") {
-			t.Fatalf("expected %s not to reference tools file by filename, got %q", label, promptText)
+		if !strings.Contains(promptText, "TOOLS.txt") {
+			t.Fatalf("expected %s to identify the tools file by filename, got %q", label, promptText)
 		}
 		if strings.Contains(promptText, "Description: search docs") {
 			t.Fatalf("expected %s not to inline tool descriptions, got %q", label, promptText)
@@ -590,7 +590,7 @@ func TestHandleVercelStreamSwitchReuploadsCurrentInputFile(t *testing.T) {
 		RequestedModel:          "deepseek-v4.1-flash",
 		ResolvedModel:           "deepseek-v4.1-flash",
 		ResponseModel:           "deepseek-v4.1-flash",
-		FinalPrompt:             "继续会话 使用工具时请参照说明与格式要求，仅使用所列出的工具",
+		FinalPrompt:             "继续会话 使用工具时请参照说明与格式要求，仅使用 TOOLS.txt 所列出的工具",
 		PromptTokenText:         "# HISTORY.txt\n\n=== 1. USER ===\nhello\n\n# TOOLS.txt\nAvailable tool descriptions and parameter schemas for this request.\n\nYou have access to these tools:\n\nTool: search\nDescription: search docs\nParameters: {\"type\":\"object\"}\n",
 		HistoryText:             "# HISTORY.txt\n\n=== 1. USER ===\nhello\n",
 		CurrentInputFileApplied: true,
@@ -641,8 +641,8 @@ func TestHandleVercelStreamSwitchReuploadsCurrentInputFile(t *testing.T) {
 	if !strings.Contains(promptText, "继续会话") || !strings.Contains(promptText, "使用工具时请参照说明") {
 		t.Fatalf("expected switched payload prompt to retain continuation and tool guidance, got %q", promptText)
 	}
-	if strings.Contains(promptText, "TOOLS.txt") {
-		t.Fatalf("switched payload prompt should not reference tools file by filename, got %q", promptText)
+	if !strings.Contains(promptText, "TOOLS.txt") {
+		t.Fatalf("switched payload prompt must identify the tools file by filename, got %q", promptText)
 	}
 }
 

@@ -204,16 +204,16 @@ func TestMarkerNormalizerHoldsPartialMarkerUntilFlush(t *testing.T) {
 var selfOverlappingMarkers = []string{"N3KZ5N", "ABABAB", "A2B2A2", "M29MM2", "ABCDEA"}
 
 // TestMarkerNormalizerRewritesMarkerEndingChunk pins the exact regression: a
-// chunk that ends on a complete self-overlapping marker must be rewritten in
-// place instead of being split into a released head plus a withheld tail.
+// chunk ending on a complete marker waits for its boundary without releasing
+// a partial marker. A following letter could still make this an ordinary word.
 func TestMarkerNormalizerRewritesMarkerEndingChunk(t *testing.T) {
 	for _, marker := range selfOverlappingMarkers {
 		n := NewMarkerNormalizer(marker)
-		if got := n.Write("<|" + marker); got != "<|EPSE" {
-			t.Fatalf("marker %q: first chunk must rewrite the complete marker, got %q", marker, got)
+		if got := n.Write("<|" + marker); got != "<|" {
+			t.Fatalf("marker %q: first chunk must hold the complete marker, got %q", marker, got)
 		}
-		if got := n.Write("|tool_calls>"); got != "|tool_calls>" {
-			t.Fatalf("marker %q: second chunk must pass through, got %q", marker, got)
+		if got := n.Write("|tool_calls>"); got != "EPSE|tool_calls>" {
+			t.Fatalf("marker %q: second chunk must resolve the marker boundary, got %q", marker, got)
 		}
 		if got := n.Flush(); got != "" {
 			t.Fatalf("marker %q: nothing should be withheld, got %q", marker, got)

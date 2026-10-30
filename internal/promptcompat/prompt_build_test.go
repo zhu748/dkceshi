@@ -1,6 +1,7 @@
 package promptcompat
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -50,7 +51,7 @@ func TestBuildOpenAIFinalPrompt_HandlerPathIncludesToolRoundtripSemantics(t *tes
 	if !strings.Contains(finalPrompt, "<|EPSE|tool_calls>") {
 		t.Fatalf("handler finalPrompt should preserve assistant tool history: %q", finalPrompt)
 	}
-	if !strings.Contains(finalPrompt, `<|EPSE|invoke name="get_weather">`) {
+	if !strings.Contains(finalPrompt, `<|EPSE|invoke name="get_weather"`) {
 		t.Fatalf("handler finalPrompt should include tool name history: %q", finalPrompt)
 	}
 }
@@ -504,7 +505,7 @@ func TestBuildOpenAIFinalPromptTopLevelToolsStillGetDescriptions(t *testing.T) {
 }
 
 const toolCallReminderHead = "The only correct format for using tools is <|EPSE|tool_calls>"
-const toolCallReminderTail = ".Please do not simplify or modify this framework in any way.The only valid label is EPSE; the use of any label prefixed with DSML is **strictly prohibited**."
+const toolCallReminderTail = ".Please do not simplify or modify this framework in any way.Use exactly the tag prefix shown above; do not substitute another tool format."
 
 func assertReminderImmediatelyBeforeAssistantMarker(t *testing.T, finalPrompt string) {
 	t.Helper()
@@ -515,7 +516,7 @@ func assertReminderImmediatelyBeforeAssistantMarker(t *testing.T, finalPrompt st
 	if strings.Count(finalPrompt, toolCallReminderHead) != 1 {
 		t.Fatalf("expected exactly one reminder block, got: %q", finalPrompt)
 	}
-	if !strings.HasSuffix(finalPrompt, toolCallReminderTail+"[Assistant]:") {
+	if !strings.HasSuffix(regexp.MustCompile(`\n\[EndMessage:[^\]]+\]\n\n`).ReplaceAllString(finalPrompt, ""), toolCallReminderTail+"[Assistant]:") {
 		t.Fatalf("reminder must be the last block before [Assistant]:, got: %q", finalPrompt)
 	}
 	specIdx := strings.Index(finalPrompt, "工具调用格式规范")
@@ -655,7 +656,7 @@ func TestBuildOpenAIFinalPromptToolChoiceNoneOmitsReminder(t *testing.T) {
 func TestBuildOpenAIFinalPromptTrailingAssistantKeepsReminderBeforeIt(t *testing.T) {
 	messages := []any{
 		map[string]any{"role": "user", "content": "请调用工具"},
-		map[string]any{"role": "assistant", "content": "let me think"},
+		map[string]any{"role": "assistant", "prefix": true, "content": "let me think"},
 	}
 	tools := []any{
 		map[string]any{

@@ -10,7 +10,6 @@ import (
 	"ds2api/internal/config"
 	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/promptcompat"
-	"ds2api/internal/toolcall"
 )
 
 const (
@@ -56,18 +55,33 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 	if len([]rune(stdReq.FinalPrompt)) < threshold {
 		return stdReq, nil
 	}
-	// When the newest transcript-visible turn is a user turn, keep it inline in
-	// the live prompt and upload only the preceding turns as HISTORY.txt, so the
-	// model sees `[System]:继续会话[User]:...[Assistant]:` instead of having to
-	// dig the actual request out of the attached file. SplitTrailingUserTurn
-	// declines for single-turn requests (nothing would be left to upload), which
-	// keeps long first-turn inputs split out of the live prompt as before.
 	readGuard := promptcompat.ReadToolResultNeedsCacheGuard(stdReq.Messages)
-	historyMessages := stdReq.Messages
-	trailingUserText := ""
-	if leading, text, ok := promptcompat.SplitTrailingUserTurn(stdReq.Messages); ok {
-		historyMessages = leading
-		trailingUserText = text
+	historyMessages, activeMessages := promptcompat.SplitActiveContext(stdReq.Messages)
+	if len(historyMessages) == 0 {
+		// A first task with a tool loop must stay live. A lone long user input can
+		// still be externalized, with its location explicitly described below.
+		for _, raw := range stdReq.Messages {
+			msg, _ := raw.(map[string]any)
+			role, _ := msg["role"].(string)
+			if role == "assistant" || role == "tool" || role == "function" {
+				return stdReq, nil
+			}
+		}
+		historyMessages = stdReq.Messages
+		activeMessages = nil
+		for _, raw := range stdReq.Messages {
+			msg, _ := raw.(map[string]any)
+			role, _ := msg["role"].(string)
+			if role == "system" || role == "developer" {
+				activeMessages = append(activeMessages, raw)
+			}
+		}
+	}
+	// Preserve a first user turn inline when a leading instruction block is
+	// available to externalize; the instructions also remain pinned live.
+	if len(activeMessages) > 0 && len(historyMessages) == len(stdReq.Messages) {
+		historyMessages = append([]any(nil), activeMessages...)
+		activeMessages = stdReq.Messages
 	}
 	fileText := promptcompat.BuildOpenAICurrentInputContextTranscript(historyMessages, stdReq.ToolMarker)
 	if strings.TrimSpace(fileText) == "" {
@@ -95,10 +109,6 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 	// (in HISTORY.txt) and the per-key marker (in the live prompt).
 	// stdReq.HistoryText stores this rendered text so local archives and WebUI
 	// history stay synchronized with the actual uploaded payload.
-	fileText = toolcall.ApplyToolMarker(fileText, stdReq.ToolMarker)
-	if strings.TrimSpace(toolsText) != "" {
-		toolsText = toolcall.ApplyToolMarker(toolsText, stdReq.ToolMarker)
-	}
 	result, err := s.DS.UploadFile(ctx, a, dsclient.UploadFileRequest{
 		Filename:        currentInputFilename,
 		ContentType:     currentInputContentType,
@@ -147,12 +157,7 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 			"content": currentInputFilePrompt(toolFileID != ""),
 		},
 	}
-	if trailingUserText != "" {
-		messages = append(messages, map[string]any{
-			"role":    "user",
-			"content": trailingUserText,
-		})
-	}
+	messages = append(messages, activeMessages...)
 
 	stdReq.Messages = messages
 	stdReq.HistoryText = fileText
@@ -165,10 +170,6 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 	} else {
 		stdReq.FinalPrompt, stdReq.ToolNames = promptcompat.BuildOpenAIPromptWithToolInstructionsOnlyWithReadGuard(messages, stdReq.ToolsRaw, "", stdReq.ToolChoice, stdReq.Thinking, readGuard, stdReq.ToolReminderConfig(), stdReq.ToolMarker)
 	}
-	// Both rebuild branches re-render the tool-call format spec from the
-	// canonical EPSE keyword, so the caller-specific marker must be re-applied
-	// to the live prompt.
-	stdReq.FinalPrompt = toolcall.ApplyToolMarker(stdReq.FinalPrompt, stdReq.ToolMarker)
 	// Token accounting must reflect the actual downstream context:
 	// uploaded context files + the continuation live prompt.
 	tokenParts := []string{fileText}
@@ -201,10 +202,8 @@ func (s Service) ReuploadAppliedCurrentInputFile(ctx context.Context, a *auth.Re
 		Purpose:         currentInputPurpose,
 		ModelType:       modelType,
 		ThinkingEnabled: stdReq.Thinking,
-		// Re-upload for an account switch: HistoryText already carries the
-		// caller-specific marker, but ApplyToolMarker is idempotent and also
-		// guards any legacy canonical EPSE form.
-		Data: []byte(toolcall.ApplyToolMarker(stdReq.HistoryText, stdReq.ToolMarker)),
+		// Re-upload the exact rendered bytes for the new account.
+		Data: []byte(stdReq.HistoryText),
 	}, 3)
 	if err != nil {
 		return stdReq, fmt.Errorf("upload current user input file: %w", err)
@@ -223,7 +222,7 @@ func (s Service) ReuploadAppliedCurrentInputFile(ctx context.Context, a *auth.Re
 			Purpose:         currentInputPurpose,
 			ModelType:       modelType,
 			ThinkingEnabled: stdReq.Thinking,
-			Data:            []byte(toolcall.ApplyToolMarker(toolsText, stdReq.ToolMarker)),
+			Data:            []byte(toolsText),
 		}, 3)
 		if err != nil {
 			return stdReq, fmt.Errorf("upload current tools file: %w", err)
@@ -251,9 +250,9 @@ func injectCurrentInputFileContinuation(transcript string) string {
 }
 
 func currentInputFilePrompt(hasToolsFile bool) string {
-	prompt := "继续会话"
+	prompt := "继续会话。HISTORY.txt contains earlier conversation context in chronological order. Follow the current system/developer instructions and continue the active user task and tool results below. If no user task follows here, the current user input is in HISTORY.txt. Match tool results by tool_call_id; a call without a matching result is not known to have completed. Do not repeat completed operations or mention the context filenames in your answer."
 	if hasToolsFile {
-		prompt += " 使用工具时请参照说明与格式要求，仅使用所列出的工具"
+		prompt += " TOOLS.txt is the authoritative tool catalog and JSON Schemas for this request. Use only those tools and follow the live tool-choice and output-format rules."
 	}
 	return prompt
 }

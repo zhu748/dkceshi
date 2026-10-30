@@ -102,6 +102,20 @@ func TestBuildTurnFromCollectedToolChoiceRequired(t *testing.T) {
 	}
 }
 
+func TestFinalizeTurnRetainsToolChoiceViolationWithParsedCalls(t *testing.T) {
+	markup := `<|EPSE|tool_calls><|EPSE|invoke name="lookup"></|EPSE|invoke></|EPSE|tool_calls>`
+	for _, policy := range []promptcompat.ToolChoicePolicy{
+		{Mode: promptcompat.ToolChoiceNone},
+		{Mode: promptcompat.ToolChoiceForced, ForcedName: "other"},
+	} {
+		turn := BuildTurnFromCollected(sse.CollectResult{Text: markup}, BuildOptions{ToolNames: []string{"lookup"}, ToolChoice: policy})
+		outcome := FinalizeTurn(turn, FinalizeOptions{})
+		if len(turn.ToolCalls) != 1 || !outcome.ShouldFail || outcome.Error == nil || outcome.Error.Code != "tool_choice_violation" {
+			t.Fatalf("policy failure was discarded: turn=%#v outcome=%#v", turn, outcome)
+		}
+	}
+}
+
 func TestBuildTurnFromStreamSnapshotUsesVisibleTextAndRawToolDetection(t *testing.T) {
 	turn := BuildTurnFromStreamSnapshot(StreamSnapshot{
 		RawText:     `<tool_calls><invoke name="Write"><parameter name="content">{"x":1}</parameter></invoke></tool_calls>`,

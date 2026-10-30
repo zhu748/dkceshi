@@ -17,6 +17,7 @@ const { parseChunkForContent, isCitation, shouldSkipPath } = require('./sse_pars
 const { buildUsage } = require('./token_usage');
 const {
   resolveToolcallPolicy,
+  toolChoiceViolation,
   formatIncrementalToolCallDeltas,
   filterIncrementalToolCallDeltasByAllowed,
   resetStreamToolCallState,
@@ -311,6 +312,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const created = Math.floor(Date.now() / 1000);
     let currentType = thinkingEnabled ? 'thinking' : 'text';
     let thinkingText = '';
+    let detectionThinkingText = '';
     let outputText = '';
     // 上游正文通道的内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）统一由
     // 该策略持有，与 Go 侧 sse.ContentPolicy 语义一致；新增规则只需改策略本身。
@@ -327,6 +329,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const markerNormalizer = createMarkerNormalizer(prep.body.tool_marker);
     let toolCallsEmitted = false;
     let toolCallsDoneEmitted = false;
+    let toolCallOffset = 0;
     const streamToolCallIDs = new Map();
     const streamToolNames = new Map();
     const decoder = new TextDecoder();
@@ -369,7 +372,25 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         outputText += markerTail;
         feedContentPolicyTail(contentPolicy, markerTail);
       }
-      const detected = parseStandaloneToolCalls(outputText, toolNames);
+      let detected = parseStandaloneToolCalls(outputText, toolNames);
+      // Match the Go fallback: only use reasoning-channel calls when no body
+      // answer exists. Hidden reasoning remains internal and is never emitted.
+      if (detected.length === 0 && outputText.trim() === '' && detectionThinkingText) {
+        const normalizer = createMarkerNormalizer(prep.body.tool_marker);
+        detected = parseStandaloneToolCalls(normalizer.write(detectionThinkingText) + normalizer.flush(), toolNames);
+      }
+      // An empty upstream result must retain its retry/error path. Required
+      // tool policy applies to actual answers, not a missing response.
+      const violation = (detected.length > 0 || toolCallsEmitted || outputText.trim() !== '')
+        ? toolChoiceViolation(detected, toolPolicy.choice) : '';
+      if (violation) {
+        ended = true;
+        leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: '', error: violation };
+        sendFailedChunk(res, 422, violation, 'tool_choice_violation');
+        await releaseLease();
+        if (!res.writableEnded && !res.destroyed) res.end();
+        return true;
+      }
       if (detected.length > 0 && !toolCallsDoneEmitted) {
         toolCallsEmitted = true;
         toolCallsDoneEmitted = true;
@@ -380,10 +401,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           : flushToolSieve(toolSieveState, toolNames);
         for (const evt of tailEvents) {
           if (evt.type === 'tool_calls' && Array.isArray(evt.calls) && evt.calls.length > 0) {
+            if (toolPolicy.constrained) continue;
             deltaCoalescer.flush();
             toolCallsEmitted = true;
             toolCallsDoneEmitted = true;
-            sendDeltaFrame({ tool_calls: formatOpenAIStreamToolCalls(evt.calls, streamToolCallIDs, payload.tools) });
+            sendDeltaFrame({ tool_calls: formatOpenAIStreamToolCalls(evt.calls, streamToolCallIDs, payload.tools, toolCallOffset) });
+            toolCallOffset += streamToolCallIDs.size;
             resetStreamToolCallState(streamToolCallIDs, streamToolNames);
             continue;
           }
@@ -516,6 +539,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                 break;
               }
 
+              if (parsed.detectionThinking && outputText.trim() === '') {
+                detectionThinkingText += trimContinuationOverlap(detectionThinkingText, parsed.detectionThinking);
+              }
               for (const p of parsed.parts) {
                 if (!p.text) {
                   continue;
@@ -564,7 +590,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                         continue;
                       }
                       const filtered = filterIncrementalToolCallDeltasByAllowed(evt.deltas, toolNames, streamToolNames);
-                      const formatted = formatIncrementalToolCallDeltas(filtered, streamToolCallIDs);
+                      const formatted = formatIncrementalToolCallDeltas(filtered, streamToolCallIDs, toolCallOffset);
                       if (formatted.length > 0) {
                         toolCallsEmitted = true;
                         deltaCoalescer.flush();
@@ -573,10 +599,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                       continue;
                     }
                     if (evt.type === 'tool_calls') {
+                      if (toolPolicy.constrained) continue;
                       toolCallsEmitted = true;
                       toolCallsDoneEmitted = true;
                       deltaCoalescer.flush();
-                      sendDeltaFrame({ tool_calls: formatOpenAIStreamToolCalls(evt.calls, streamToolCallIDs, payload.tools) });
+                      sendDeltaFrame({ tool_calls: formatOpenAIStreamToolCalls(evt.calls, streamToolCallIDs, payload.tools, toolCallOffset) });
+                      toolCallOffset += streamToolCallIDs.size;
                       resetStreamToolCallState(streamToolCallIDs, streamToolNames);
                       continue;
                     }
@@ -708,6 +736,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             lastEmptyDetail = null;
             outputText = '';
             thinkingText = '';
+            detectionThinkingText = '';
             completionRes = await fetchCompletion(completionPayload);
             if (completionRes === null) {
               return;
@@ -733,6 +762,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             usagePrompt = finalPrompt;
             outputText = '';
             thinkingText = '';
+            detectionThinkingText = '';
             completionRes = await fetchCompletion(completionPayload);
             if (completionRes === null) {
               return;

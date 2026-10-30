@@ -28,7 +28,7 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 				content = txt
 			}
 		}
-		if content == nil {
+		if content == nil && role != "tool" && role != "function" {
 			return nil
 		}
 		out := map[string]any{
@@ -36,6 +36,9 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"content": content,
 		}
 		if role == "tool" || role == "function" {
+			if value, ok := m["is_error"]; ok {
+				out["is_error"] = value
+			}
 			if callID := strings.TrimSpace(asString(m["tool_call_id"])); callID != "" {
 				out["tool_call_id"] = callID
 			}
@@ -73,16 +76,16 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"content": content,
 		}
 	case "function_call_output", "tool_result":
-		content := m["output"]
-		if content == nil {
+		content, hasOutput := m["output"]
+		if !hasOutput {
 			content = m["content"]
-		}
-		if content == nil {
-			content = ""
 		}
 		out := map[string]any{
 			"role":    "tool",
 			"content": content,
+		}
+		if value, ok := m["is_error"]; ok {
+			out["is_error"] = value
 		}
 		if callID := strings.TrimSpace(asString(m["call_id"])); callID != "" {
 			out["tool_call_id"] = callID

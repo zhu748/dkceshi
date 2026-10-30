@@ -273,8 +273,8 @@ func TestGeminiCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 	if !strings.Contains(prompt, "继续会话") || !strings.Contains(prompt, "工具调用格式规范") {
 		t.Fatalf("expected live prompt to retain continuation and format instructions, got %q", prompt)
 	}
-	if strings.Contains(prompt, "TOOLS.txt") {
-		t.Fatalf("live prompt should not reference tools file by filename, got %q", prompt)
+	if !strings.Contains(prompt, "TOOLS.txt") {
+		t.Fatalf("live prompt must identify the tools file by filename, got %q", prompt)
 	}
 	if strings.Contains(prompt, "Description: eval") {
 		t.Fatalf("live prompt should not inline tool descriptions, got %q", prompt)

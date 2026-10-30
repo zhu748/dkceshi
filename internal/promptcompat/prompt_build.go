@@ -4,6 +4,8 @@ import (
 	"ds2api/internal/prompt"
 )
 
+const noToolPolicyPrompt = "Tool policy for this response: do not call tools. Answer using available context or explain what information is missing."
+
 func buildOpenAIFinalPrompt(messagesRaw []any, toolsRaw any, traceID string, thinkingEnabled bool, reminder ToolReminderConfig, toolMarker ...string) (string, []string) {
 	return BuildOpenAIPrompt(messagesRaw, toolsRaw, traceID, DefaultToolChoicePolicy(), thinkingEnabled, reminder, toolMarker...)
 }
@@ -50,11 +52,14 @@ func BuildOpenAIPromptWithToolInstructionsOnlyWithReadGuard(messagesRaw []any, t
 // model keeps emitting tool calls in the <|EPSE|tool_calls> format.
 //
 // The optional toolMarker is the caller-specific marker, threaded through so
-// history that carries the marker form is still recognized as tool markup. The
-// returned prompt stays in EPSE form; the caller re-applies the marker.
+// history that carries the marker form is still recognized as tool markup.
+// Generated tags are already rendered with the caller-specific marker.
 func BuildOpenAIPromptWithForcedFormatSpec(messagesRaw []any, traceID string, toolPolicy ToolChoicePolicy, thinkingEnabled bool, reminder ToolReminderConfig, toolMarker ...string) (string, []string) {
 	messages := NormalizeOpenAIMessagesForPrompt(messagesRaw, traceID, toolMarker...)
-	messages, toolNames := injectToolCallFormatSpecOnly(messages, toolPolicy, reminder)
+	if toolPolicy.IsNone() {
+		messages = appendToolCallFormatSpec(messages, noToolPolicyPrompt)
+	}
+	messages, toolNames := injectToolCallFormatSpecOnly(messages, toolPolicy, reminder, toolMarker...)
 	return prompt.MessagesPrepareWithThinking(messages, thinkingEnabled), toolNames
 }
 
@@ -69,11 +74,14 @@ func buildOpenAIPrompt(messagesRaw []any, toolsRaw any, traceID string, toolPoli
 func buildOpenAIPromptWithReadGuard(messagesRaw []any, toolsRaw any, traceID string, toolPolicy ToolChoicePolicy, thinkingEnabled bool, includeToolDescriptions bool, includeReadCacheGuard bool, allowSystemTextTools bool, reminder ToolReminderConfig, toolMarker ...string) (string, []string) {
 	messages := NormalizeOpenAIMessagesForPrompt(messagesRaw, traceID, toolMarker...)
 	toolNames := []string{}
+	if toolPolicy.IsNone() {
+		messages = appendToolCallFormatSpec(messages, noToolPolicyPrompt)
+	}
 	if tools, ok := toolsRaw.([]any); ok && len(tools) > 0 {
 		if includeToolDescriptions {
-			messages, toolNames = injectToolPrompt(messages, tools, toolPolicy, includeReadCacheGuard, reminder)
+			messages, toolNames = injectToolPrompt(messages, tools, toolPolicy, includeReadCacheGuard, reminder, toolMarker...)
 		} else {
-			messages, toolNames = injectToolPromptInstructionsOnly(messages, tools, toolPolicy, includeReadCacheGuard, reminder)
+			messages, toolNames = injectToolPromptInstructionsOnly(messages, tools, toolPolicy, includeReadCacheGuard, reminder, toolMarker...)
 		}
 	} else if allowSystemTextTools && !toolPolicy.IsNone() && MessagesDeclareToolsInSystemText(messagesRaw) {
 		// The caller exposed its tool catalog inside a system message rather
@@ -82,7 +90,7 @@ func buildOpenAIPromptWithReadGuard(messagesRaw []any, toolsRaw any, traceID str
 		// EPSE format spec so the model still knows how to emit tool calls.
 		// A force-disabled request resolves to ToolChoiceNone and never reaches
 		// this branch, so its system text cannot pull tool instructions back in.
-		messages, toolNames = injectToolCallFormatSpecOnly(messages, toolPolicy, reminder)
+		messages, toolNames = injectToolCallFormatSpecOnly(messages, toolPolicy, reminder, toolMarker...)
 	}
 	return prompt.MessagesPrepareWithThinking(messages, thinkingEnabled), toolNames
 }

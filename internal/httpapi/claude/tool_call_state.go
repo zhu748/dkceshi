@@ -1,20 +1,11 @@
 package claude
 
 import (
-	"fmt"
+	"ds2api/internal/promptcompat"
 	"strings"
 )
 
-type claudeToolCallState struct {
-	nameByID       map[string]string
-	lastIDByName   map[string]string
-	callIDSequence int
-}
-
-func (s *claudeToolCallState) nextID() string {
-	s.callIDSequence++
-	return fmt.Sprintf("call_claude_%d", s.callIDSequence)
-}
+type claudeToolCallState = promptcompat.ToolCallLinker
 
 func safeStringValue(v any) string {
 	s, ok := v.(string)

@@ -1,11 +1,14 @@
 package prompt
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
+	"io"
 	"sort"
 	"strings"
+
+	"ds2api/internal/toolcall"
 )
 
 var promptXMLTextEscaper = strings.NewReplacer(
@@ -13,8 +16,6 @@ var promptXMLTextEscaper = strings.NewReplacer(
 	"<", "&lt;",
 	">", "&gt;",
 )
-
-var promptXMLNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.:-]*$`)
 
 const (
 	promptEPSEToolCallsOpen  = "<|EPSE|tool_calls>"
@@ -40,7 +41,7 @@ func FormatToolCallsForPromptForMarker(raw any, marker string) string {
 	if marker == "" || marker == "EPSE" {
 		return out
 	}
-	return strings.ReplaceAll(out, "EPSE", marker)
+	return toolcall.ApplyToolMarker(out, marker)
 }
 
 func formatToolCallsForPromptEPSE(raw any) string {
@@ -117,12 +118,16 @@ func formatToolCallForPrompt(call map[string]any) string {
 		}
 	}
 
+	nameAttr := escapeXMLAttribute(name)
+	if id := strings.TrimSpace(asString(call["id"])); id != "" {
+		nameAttr += `" call_id="` + escapeXMLAttribute(id)
+	}
 	parameters := formatToolCallParametersForPrompt(argsRaw)
 	if parameters == "" {
-		return `  ` + promptEPSEInvokeOpen + ` name="` + escapeXMLAttribute(name) + `">` + promptEPSEInvokeClose
+		return `  ` + promptEPSEInvokeOpen + ` name="` + nameAttr + `">` + promptEPSEInvokeClose
 	}
 
-	return "  " + promptEPSEInvokeOpen + " name=\"" + escapeXMLAttribute(name) + "\">\n" +
+	return "  " + promptEPSEInvokeOpen + " name=\"" + nameAttr + "\">\n" +
 		parameters + "\n" +
 		"  " + promptEPSEInvokeClose
 }
@@ -130,7 +135,7 @@ func formatToolCallForPrompt(call map[string]any) string {
 func formatToolCallParametersForPrompt(raw any) string {
 	value := normalizePromptToolCallValue(raw)
 	body, ok := renderPromptToolParameters(value, "    ")
-	if ok && strings.TrimSpace(body) != "" {
+	if ok {
 		return body
 	}
 
@@ -180,37 +185,23 @@ func renderPromptToolParameters(value any, indent string) (string, bool) {
 	}
 }
 
+// JSON values inside parameters preserve empty collections, nested array shape,
+// numeric precision and keys that cannot be represented as XML element names.
 func renderPromptParameterNode(name string, value any, indent string) (string, bool) {
-	trimmedName := strings.TrimSpace(name)
-	if trimmedName == "" {
+	if name == "" {
 		return "", false
 	}
-	switch v := value.(type) {
-	case nil:
-		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + promptEPSEParameterClose, true
-	case map[string]any:
-		body, ok := renderPromptToolXMLBody(v, indent+"  ")
-		if !ok {
+	var body string
+	if text, ok := value.(string); ok {
+		body = renderPromptXMLText(text)
+	} else {
+		encoded, err := json.Marshal(value)
+		if err != nil {
 			return "", false
 		}
-		if strings.TrimSpace(body) == "" {
-			return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + promptEPSEParameterClose, true
-		}
-		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + "\">\n" + body + "\n" + indent + promptEPSEParameterClose, true
-	case []any:
-		body, ok := renderPromptToolXMLArray(v, indent+"  ")
-		if !ok {
-			return "", false
-		}
-		if strings.TrimSpace(body) == "" {
-			return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + promptEPSEParameterClose, true
-		}
-		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + "\">\n" + body + "\n" + indent + promptEPSEParameterClose, true
-	case string:
-		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + renderPromptXMLText(v) + promptEPSEParameterClose, true
-	default:
-		return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(trimmedName) + `">` + renderPromptXMLText(fmt.Sprint(v)) + promptEPSEParameterClose, true
+		body = escapeXMLText(string(encoded))
 	}
+	return indent + promptEPSEParameterOpen + ` name="` + escapeXMLAttribute(name) + `">` + body + promptEPSEParameterClose, true
 }
 
 func normalizePromptToolCallValue(raw any) any {
@@ -223,123 +214,27 @@ func normalizePromptToolCallValue(raw any) any {
 			return ""
 		}
 		var parsed any
-		if err := json.Unmarshal([]byte(s), &parsed); err == nil {
-			return parsed
-		}
-		return x
-	default:
-		return x
-	}
-}
-
-func renderPromptToolXMLBody(value any, indent string) (string, bool) {
-	switch v := value.(type) {
-	case nil:
-		return "", true
-	case map[string]any:
-		return renderPromptToolXMLMap(v, indent)
-	case []any:
-		return renderPromptToolXMLArray(v, indent)
-	case string:
-		return indent + "<content>" + renderPromptXMLText(v) + "</content>", true
-	case bool, float32, float64, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return indent + "<value>" + escapeXMLText(fmt.Sprint(v)) + "</value>", true
-	default:
-		return indent + "<value>" + renderPromptXMLText(fmt.Sprint(v)) + "</value>", true
-	}
-}
-
-func renderPromptToolXMLMap(m map[string]any, indent string) (string, bool) {
-	if len(m) == 0 {
-		return "", true
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		if !isValidPromptXMLName(k) {
-			return "", false
-		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	lines := make([]string, 0, len(keys))
-	for _, key := range keys {
-		rendered, ok := renderPromptToolXMLNode(key, m[key], indent)
-		if !ok {
-			return "", false
-		}
-		lines = append(lines, rendered)
-	}
-	return strings.Join(lines, "\n"), true
-}
-
-func renderPromptToolXMLArray(items []any, indent string) (string, bool) {
-	if len(items) == 0 {
-		return "", true
-	}
-	lines := make([]string, 0, len(items))
-	for _, item := range items {
-		rendered, ok := renderPromptToolXMLNode("item", item, indent)
-		if !ok {
-			return "", false
-		}
-		lines = append(lines, rendered)
-	}
-	return strings.Join(lines, "\n"), true
-}
-
-func renderPromptToolXMLNode(name string, value any, indent string) (string, bool) {
-	if !isValidPromptXMLName(name) {
-		return "", false
-	}
-	switch v := value.(type) {
-	case nil:
-		return indent + "<" + name + "></" + name + ">", true
-	case map[string]any:
-		inner, ok := renderPromptToolXMLMap(v, indent+"  ")
-		if !ok {
-			return "", false
-		}
-		if strings.TrimSpace(inner) == "" {
-			return indent + "<" + name + "></" + name + ">", true
-		}
-		return indent + "<" + name + ">\n" + inner + "\n" + indent + "</" + name + ">", true
-	case []any:
-		if len(v) == 0 {
-			return indent + "<" + name + "></" + name + ">", true
-		}
-		lines := make([]string, 0, len(v))
-		for _, item := range v {
-			rendered, ok := renderPromptToolXMLNode(name, item, indent)
-			if !ok {
-				return "", false
+		decoder := json.NewDecoder(bytes.NewBufferString(s))
+		decoder.UseNumber()
+		if err := decoder.Decode(&parsed); err == nil {
+			var trailing any
+			if decoder.Decode(&trailing) == io.EOF {
+				return parsed
 			}
-			lines = append(lines, rendered)
 		}
-		return strings.Join(lines, "\n"), true
-	case string:
-		return indent + "<" + name + ">" + renderPromptXMLText(v) + "</" + name + ">", true
-	case bool, float32, float64, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return indent + "<" + name + ">" + escapeXMLText(fmt.Sprint(v)) + "</" + name + ">", true
+		return x
 	default:
-		return indent + "<" + name + ">" + renderPromptXMLText(fmt.Sprint(v)) + "</" + name + ">", true
+		return x
 	}
 }
 
 // renderPromptXMLText emits CDATA for every string so prompt-visible tool
 // history stays uniform and does not drift back toward ad-hoc escaping.
 func renderPromptXMLText(text string) string {
-	if text == "" {
-		return ""
-	}
 	if strings.Contains(text, "]]>") {
 		return "<![CDATA[" + strings.ReplaceAll(text, "]]>", "]]]]><![CDATA[>") + "]]>"
 	}
 	return "<![CDATA[" + text + "]]>"
-}
-
-func isValidPromptXMLName(name string) bool {
-	return promptXMLNamePattern.MatchString(strings.TrimSpace(name))
 }
 
 func escapeXMLAttribute(text string) string {

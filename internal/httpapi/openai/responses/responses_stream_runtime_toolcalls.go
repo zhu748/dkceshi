@@ -256,13 +256,9 @@ func (s *responsesStreamRuntime) ensureToolCallID(callIndex int) string {
 }
 
 func (s *responsesStreamRuntime) resetStreamToolCallState() {
-	s.streamToolCallIDs = map[int]string{}
-	s.functionItemIDs = map[int]string{}
-	s.functionOutputIDs = map[int]int{}
-	s.functionArgs = map[int]string{}
-	s.functionDone = map[int]bool{}
-	s.functionAdded = map[int]bool{}
-	s.functionNames = map[int]string{}
+	// Keep completed identities for response.completed and persisted history.
+	// Only advance the next wrapper's local index origin.
+	s.toolCallOffset = len(s.streamToolCallIDs)
 }
 
 func (s *responsesStreamRuntime) ensureFunctionOutputIndex(callIndex int) int {
@@ -322,9 +318,14 @@ func (s *responsesStreamRuntime) emitFunctionCallDeltaEvents(deltas []toolstream
 	}
 }
 
-func (s *responsesStreamRuntime) emitFunctionCallDoneEvents(calls []toolcall.ParsedToolCall) {
+func (s *responsesStreamRuntime) emitFunctionCallDoneEvents(calls []toolcall.ParsedToolCall, offsets ...int) {
+	offset := 0
+	if len(offsets) > 0 {
+		offset = offsets[0]
+	}
 	normalizedCalls := toolcall.NormalizeParsedToolCallsForSchemas(calls, s.toolsRaw)
 	for idx, tc := range normalizedCalls {
+		idx += offset
 		if strings.TrimSpace(tc.Name) == "" {
 			continue
 		}

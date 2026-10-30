@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"ds2api/internal/config"
+	"ds2api/internal/prompt"
 )
 
 // RequestContainsImageContent reports whether the current user turn carries any
@@ -126,7 +127,7 @@ func StripImageBlocksFromRequest(req map[string]any) {
 }
 
 // StripImageBlocksFromMessages removes image content blocks from an OpenAI-style
-// message array. Uploaded image-only inputs keep an empty user turn; raw image
+// message array. Uploaded image-only inputs keep their attachment reference; raw image
 // bytes are removed. Elements that look like messages have their content array
 // filtered. Document-style file references such as input_file are preserved.
 func StripImageBlocksFromMessages(messages []any) []any {
@@ -140,7 +141,7 @@ func StripImageBlocksFromMessages(messages []any) []any {
 		if isBareContentPart(msg) {
 			if isImageContentBlock(msg) {
 				if hasImageFileReference(msg) {
-					out = append(out, map[string]any{"role": "user", "content": ""})
+					out = append(out, map[string]any{"role": "user", "content": prompt.FileReferenceText(msg)})
 				}
 				continue
 			}
@@ -150,12 +151,14 @@ func StripImageBlocksFromMessages(messages []any) []any {
 		content := msg["content"]
 		stripped := stripImageContent(content)
 		keepImageTurn := hasImageFileReference(content)
+		role := normalizeOpenAIRoleForPrompt(asString(msg["role"]))
+		keepStructuredTurn := hasMessageToolCalls(msg) || msg["reasoning_content"] != nil || role == "tool" || role == "function"
 		if stripped == nil && keepImageTurn {
 			stripped = ""
-		} else if stripped == nil {
+		} else if stripped == nil && !keepStructuredTurn {
 			continue
 		}
-		if text, ok := stripped.(string); ok && strings.TrimSpace(text) == "" && !keepImageTurn {
+		if text, ok := stripped.(string); ok && strings.TrimSpace(text) == "" && !keepImageTurn && !keepStructuredTurn {
 			continue
 		}
 		copied := shallowCopyMap(msg)
@@ -191,6 +194,9 @@ func stripImageContent(v any) any {
 				continue
 			}
 			if isImageContentBlock(block) {
+				if ref := prompt.FileReferenceText(block); ref != "" {
+					out = append(out, map[string]any{"type": "text", "text": ref})
+				}
 				continue
 			}
 			out = append(out, block)
@@ -203,6 +209,9 @@ func stripImageContent(v any) any {
 		out := make([]map[string]any, 0, len(x))
 		for _, block := range x {
 			if isImageContentBlock(block) {
+				if ref := prompt.FileReferenceText(block); ref != "" {
+					out = append(out, map[string]any{"type": "text", "text": ref})
+				}
 				continue
 			}
 			out = append(out, block)

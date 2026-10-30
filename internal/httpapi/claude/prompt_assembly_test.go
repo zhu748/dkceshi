@@ -70,7 +70,7 @@ func TestClaudePromptRendersHistoryExactlyOnce(t *testing.T) {
 }
 
 // 并入共享路径后新落到 Claude 上的共享行为之一（有意保留，不是回归）：内容为空的
-// tool_result 现在渲染成 `[Tool]:null`，此前 Claude 自己的组装会把整条 tool 轮丢掉。
+// tool_result 现在渲染成 `[Tool]: followed by the message terminator`，此前 Claude 自己的组装会把整条 tool 轮丢掉。
 // 丢弃会让「工具已执行但没有正文」与「工具根本没执行」在 prompt 里无法区分。
 func TestClaudeEmptyToolResultRendersAsToolNull(t *testing.T) {
 	t.Setenv("DS2API_CONFIG_JSON", `{}`)
@@ -92,8 +92,8 @@ func TestClaudeEmptyToolResultRendersAsToolNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalize failed: %v", err)
 	}
-	if !containsStr(norm.Standard.FinalPrompt, "[Tool]:null") {
-		t.Fatalf("expected an empty tool_result to render as [Tool]:null, got=%q", norm.Standard.FinalPrompt)
+	if !containsStr(norm.Standard.FinalPrompt, "[Tool]:\n") {
+		t.Fatalf("expected an empty tool_result to render as [Tool]: followed by the message terminator, got=%q", norm.Standard.FinalPrompt)
 	}
 }
 

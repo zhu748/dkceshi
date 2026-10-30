@@ -1,7 +1,7 @@
 {
   "writes": [
-    "<|EPSE",
-    "|tool_calls>"
+    "<|",
+    "EPSE|tool_calls>"
   ],
   "flush": "",
   "output": "<|EPSE|tool_calls>"

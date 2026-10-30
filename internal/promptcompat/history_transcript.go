@@ -1,7 +1,7 @@
 package promptcompat
 
 import (
-	"fmt"
+	"ds2api/internal/prompt"
 	"strings"
 )
 
@@ -93,35 +93,11 @@ func countHistoryTranscriptEntries(messages []any) int {
 }
 
 func buildOpenAIHistoryTranscript(messages []any, marker string) string {
-	if len(messages) == 0 {
+	normalized := NormalizeOpenAIMessagesForPrompt(messages, "", marker)
+	if len(normalized) == 0 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString(historyTranscriptTitle)
-	b.WriteString("\n")
-	b.WriteString(historyTranscriptSummary)
-	b.WriteString("\n\n")
-
-	entry := 0
-	for _, raw := range messages {
-		msg, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		role := normalizeOpenAIRoleForPrompt(strings.ToLower(strings.TrimSpace(asString(msg["role"]))))
-		content := strings.TrimSpace(buildOpenAIHistoryEntry(role, msg, marker))
-		if content == "" {
-			continue
-		}
-		entry++
-		fmt.Fprintf(&b, "=== %d. %s ===\n%s\n\n", entry, strings.ToUpper(roleLabelForHistory(role)), content)
-	}
-
-	transcript := strings.TrimSpace(b.String())
-	if transcript == "" {
-		return ""
-	}
-	return transcript + "\n"
+	return historyTranscriptTitle + "\n" + historyTranscriptSummary + "\n\n" + prompt.MessagesTranscript(normalized)
 }
 
 func buildOpenAIHistoryEntry(role string, msg map[string]any, marker string) string {
@@ -157,17 +133,5 @@ func buildToolHistoryContent(msg map[string]any) string {
 		return header
 	default:
 		return content
-	}
-}
-
-func roleLabelForHistory(role string) string {
-	role = strings.ToLower(strings.TrimSpace(role))
-	switch role {
-	case "function":
-		return "tool"
-	case "":
-		return "unknown"
-	default:
-		return role
 	}
 }

@@ -22,7 +22,7 @@ func TestFormatToolCallsForPromptEPSE(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected non-empty formatted tool calls")
 	}
-	if got != "<|EPSE|tool_calls>\n  <|EPSE|invoke name=\"search_web\">\n    <|EPSE|parameter name=\"query\"><![CDATA[latest]]></|EPSE|parameter>\n  </|EPSE|invoke>\n</|EPSE|tool_calls>" {
+	if got != "<|EPSE|tool_calls>\n  <|EPSE|invoke name=\"search_web\" call_id=\"call_1\">\n    <|EPSE|parameter name=\"query\"><![CDATA[latest]]></|EPSE|parameter>\n  </|EPSE|invoke>\n</|EPSE|tool_calls>" {
 		t.Fatalf("unexpected formatted tool call EPSE: %q", got)
 	}
 }

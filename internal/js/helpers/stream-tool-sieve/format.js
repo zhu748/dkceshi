@@ -2,13 +2,13 @@
 
 const crypto = require('crypto');
 
-function formatOpenAIStreamToolCalls(calls, idStore, toolsRaw) {
+function formatOpenAIStreamToolCalls(calls, idStore, toolsRaw, offset = 0) {
   if (!Array.isArray(calls) || calls.length === 0) {
     return [];
   }
   const normalized = normalizeParsedToolCallsForSchemas(calls, toolsRaw);
   return normalized.map((c, idx) => ({
-    index: idx,
+    index: idx + offset,
     id: ensureStreamToolCallID(idStore, idx),
     type: 'function',
     function: {

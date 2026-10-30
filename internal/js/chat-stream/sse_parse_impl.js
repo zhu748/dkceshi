@@ -92,7 +92,8 @@ function finalizeThinkingParts(parts, thinkingEnabled, newType, bodyStarted) {
   if (!thinkingEnabled) {
     finalParts = dropThinkingParts(finalParts);
   }
-  return { parts: finalParts, newType: finalType };
+  const detectionThinking = splitResult.parts.filter(p => p.type === 'thinking').map(p => p.text).join('');
+  return { parts: finalParts, newType: finalType, detectionThinking };
 }
 
 function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenceMarkers = true) {
@@ -305,6 +306,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
     return {
       parsed: true,
       parts: finalized.parts,
+      detectionThinking: finalized.detectionThinking || '',
       finished: false,
       contentFilter: false,
       errorMessage: '',
@@ -337,6 +339,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
     return {
       parsed: true,
       parts: finalized.parts,
+      detectionThinking: finalized.detectionThinking || '',
       finished: false,
       contentFilter: false,
       errorMessage: '',
@@ -385,6 +388,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
   return {
     parsed: true,
     parts: finalized.parts,
+    detectionThinking: finalized.detectionThinking || '',
     finished: false,
     contentFilter: false,
     errorMessage: '',

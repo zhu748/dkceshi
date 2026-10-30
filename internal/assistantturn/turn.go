@@ -359,7 +359,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
 		turn.Error = ValidateTurn(turn, opts.ToolChoice)
 	}
-	if turn.Error != nil && len(calls) == 0 {
+	if turn.Error != nil {
 		turn.StopReason = StopReasonError
 	}
 	return turn
@@ -378,6 +378,25 @@ func BuildUsage(model, prompt, thinking, text string, refFileTokens int) Usage {
 }
 
 func ValidateTurn(turn Turn, policy promptcompat.ToolChoicePolicy) *OutputError {
+	// No answer is an upstream failure, even when a tool call was required.
+	// Preserve its classification so retry and content-filter handling still run.
+	if len(turn.ToolCalls) == 0 && strings.TrimSpace(turn.Text) == "" {
+		if strings.TrimSpace(turn.UpstreamError) != "" {
+			return &OutputError{Status: http.StatusBadRequest, Message: turn.UpstreamError, Code: "upstream_error"}
+		}
+		status, message, code := UpstreamEmptyOutputDetail(turn.ContentFilter, turn.Text, turn.Thinking)
+		return &OutputError{Status: status, Message: message, Code: code}
+	}
+	if policy.DisableParallel && len(turn.ToolCalls) > 1 {
+		return &OutputError{Status: http.StatusUnprocessableEntity, Message: "parallel_tool_calls=false permits at most one tool call per response.", Code: "tool_choice_violation"}
+	}
+	if policy.Constrained() {
+		for _, call := range turn.ToolCalls {
+			if policy.IsNone() || !policy.Allows(call.Name) || (policy.Mode == promptcompat.ToolChoiceForced && call.Name != policy.ForcedName) {
+				return &OutputError{Status: http.StatusUnprocessableEntity, Message: "tool_choice forbids this tool call: " + call.Name, Code: "tool_choice_violation"}
+			}
+		}
+	}
 	if policy.IsRequired() && len(turn.ToolCalls) == 0 {
 		return &OutputError{
 			Status:  http.StatusUnprocessableEntity,
@@ -385,21 +404,7 @@ func ValidateTurn(turn Turn, policy promptcompat.ToolChoicePolicy) *OutputError 
 			Code:    "tool_choice_violation",
 		}
 	}
-	if len(turn.ToolCalls) > 0 {
-		return nil
-	}
-	if strings.TrimSpace(turn.Text) != "" {
-		return nil
-	}
-	if strings.TrimSpace(turn.UpstreamError) != "" {
-		return &OutputError{
-			Status:  http.StatusBadRequest,
-			Message: turn.UpstreamError,
-			Code:    "upstream_error",
-		}
-	}
-	status, message, code := UpstreamEmptyOutputDetail(turn.ContentFilter, turn.Text, turn.Thinking)
-	return &OutputError{Status: status, Message: message, Code: code}
+	return nil
 }
 
 func UpstreamEmptyOutputDetail(contentFilter bool, text, thinking string) (int, string, string) {
@@ -432,7 +437,7 @@ func FinalizeTurn(turn Turn, opts FinalizeOptions) FinalOutcome {
 	hasVisibleText := strings.TrimSpace(turn.Text) != ""
 	hasVisibleThinking := strings.TrimSpace(turn.Thinking) != ""
 	err := turn.Error
-	if hasToolCalls {
+	if hasToolCalls && (err == nil || err.Code != "tool_choice_violation") {
 		err = nil
 	}
 	finishReason := FinishReason(turn)

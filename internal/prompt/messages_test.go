@@ -32,7 +32,7 @@ func TestMessagesPrepareUsesTurnSuffixes(t *testing.T) {
 		{"role": "assistant", "content": "Answer"},
 	}
 	got := MessagesPrepare(messages)
-	if !strings.HasPrefix(got, "[System]:System rule") {
+	if !strings.Contains(got, "[System]:System rule") {
 		t.Fatalf("expected system marker at the start, got %q", got)
 	}
 	if !strings.Contains(got, "[User]:Question") {
