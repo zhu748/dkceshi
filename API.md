@@ -34,7 +34,7 @@
 | 健康检查 | `GET /healthz`、`GET /readyz` |
 | CORS | 已启用（统一覆盖 `/v1/*`、`/anthropic/*`、`/v1beta/models/*`、`/api/*`、`/admin/*`；浏览器有 `Origin` 时回显该 Origin，否则为 `*`；默认允许 `Content-Type`, `Authorization`, `X-API-Key`, `X-Ds2-Target-Account`, `X-Ds2-Source`, `X-Vercel-Protection-Bypass`, `X-Goog-Api-Key`, `Anthropic-Version`, `Anthropic-Beta`，并会放行预检里声明的第三方请求头，如 `x-stainless-*`；Vercel 上 `/v1/chat/completions` 的 Node Runtime 也对齐相同行为；内部专用头 `X-Ds2-Internal-Token` 仍被拦截） |
 
-- 所有 JSON 请求体都必须是合法 UTF-8；非法字节序列会在入站阶段被拒绝为 `400 invalid json`。
+- JSON 请求体必须使用合法 UTF-8，且只包含一个完整 JSON 值；非法字节、尾随垃圾或拼接的多个 JSON 值会在解码前被拒绝。校验延迟到首次读取，鉴权/路由提前拒绝的请求不会先由校验层缓冲整个正文。
 
 ### 3.0 接口适配层说明
 

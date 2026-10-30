@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"ds2api/internal/auth"
@@ -14,6 +15,7 @@ type batchInlineUploader struct {
 	uploads int
 	waits   int
 	fail    bool
+	waitErr error
 }
 
 func (u *batchInlineUploader) UploadFile(context.Context, *auth.RequestAuth, dsclient.UploadFileRequest, int) (*dsclient.UploadFileResult, error) {
@@ -36,7 +38,7 @@ func (u *batchInlineUploader) WaitForUploadedFiles(_ context.Context, _ *auth.Re
 	if u.fail {
 		return errors.New("file processing rejected")
 	}
-	return nil
+	return u.waitErr
 }
 
 func TestSharedInlineFilesWaitAsOneBatchAndPropagateProcessingFailure(t *testing.T) {
@@ -50,6 +52,26 @@ func TestSharedInlineFilesWaitAsOneBatchAndPropagateProcessingFailure(t *testing
 		err := PreprocessInlineFiles(context.Background(), a, req, uploader, "deepseek-v4.1-flash", true)
 		if (err != nil) != fail || uploader.waits != 1 {
 			t.Fatalf("batch fail=%v err=%v waits=%d", fail, err, uploader.waits)
+		}
+	}
+}
+
+func TestBatchReadinessPreservesAuthenticationError(t *testing.T) {
+	for _, kind := range []dsclient.FailureKind{dsclient.FailureManagedUnauthorized, dsclient.FailureDirectUnauthorized, dsclient.FailureMuted} {
+		upstreamErr := &dsclient.RequestFailure{Kind: kind, Message: "upstream failure"}
+		uploader := &batchInlineUploader{waitErr: upstreamErr}
+		req := map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,QUJDRA=="}},
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,RUZHSA=="}},
+		}}}}
+		err := PreprocessInlineFiles(context.Background(), &auth.RequestAuth{AccountID: "account", UseConfigToken: true}, req, uploader, "deepseek-v4.1-flash", true)
+		status, _ := InlineFileErrorDetails(err)
+		want := http.StatusUnauthorized
+		if kind == dsclient.FailureMuted {
+			want = http.StatusForbidden
+		}
+		if status != want || !errors.Is(err, upstreamErr) {
+			t.Fatalf("kind=%s status=%d err=%v", kind, status, err)
 		}
 	}
 }

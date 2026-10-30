@@ -2,6 +2,7 @@ package requestbody
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime"
@@ -12,6 +13,7 @@ import (
 
 var (
 	ErrInvalidUTF8Body     = errors.New("invalid utf-8 request body")
+	ErrInvalidJSONBody     = errors.New("invalid json request body")
 	errRequestBodyTooLarge = errors.New("request body too large")
 )
 
@@ -27,17 +29,36 @@ const maxJSONUTF8ValidationSize = 100 << 20
 
 // ValidateJSONUTF8 validates complete JSON request bodies before downstream
 // decoders can silently replace malformed UTF-8 or stop before trailing bytes.
+// Validation starts on the first read so authentication/route rejection does
+// not first buffer an unused request body.
 func ValidateJSONUTF8(next http.Handler) http.Handler {
 	if next == nil {
 		return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if shouldValidateJSONBody(r) {
-			r.Body = validateAndReplayBody(r.Body)
+			r.Body = &lazyValidatedBody{closer: r.Body}
 		}
 		next.ServeHTTP(w, r)
 	})
 }
+
+type lazyValidatedBody struct {
+	closer io.ReadCloser
+	reader io.Reader
+}
+
+func (r *lazyValidatedBody) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if r.reader == nil {
+		r.reader = validateAndReplayBody(r.closer)
+	}
+	return r.reader.Read(p)
+}
+
+func (r *lazyValidatedBody) Close() error { return r.closer.Close() }
 
 func shouldValidateJSONBody(r *http.Request) bool {
 	if r == nil || r.Body == nil {
@@ -106,6 +127,9 @@ func validateAndReplayBody(body io.ReadCloser) io.ReadCloser {
 	}
 	if !utf8.Valid(raw) {
 		return &errorReadCloser{err: ErrInvalidUTF8Body, closer: body}
+	}
+	if !json.Valid(raw) {
+		return &errorReadCloser{err: ErrInvalidJSONBody, closer: body}
 	}
 	return &replayReadCloser{Reader: bytes.NewReader(raw), closer: body}
 }

@@ -36,6 +36,8 @@ type mainSettingsCache struct {
 	entries map[string]*mainSettingsEntry
 }
 
+const maxMainSettingsEntries = 128
+
 func (c *Client) uploadSettings(ctx context.Context, a *auth.RequestAuth) mainSettings {
 	if c.mainSettings == nil || a == nil || a.DeepSeekToken == "" {
 		return mainSettings{}
@@ -68,11 +70,28 @@ func (c *Client) uploadSettings(ctx context.Context, a *auth.RequestAuth) mainSe
 	if previous := cache.entries[key]; previous != nil {
 		entry.settings = previous.settings
 	}
-	if len(cache.entries) >= 128 {
+	if len(cache.entries) >= maxMainSettingsEntries {
+		now := time.Now()
 		for oldKey, old := range cache.entries {
-			if oldKey != key && old.ready == nil && !time.Now().Before(old.expiresAt) {
+			if oldKey != key && old.ready == nil && !now.Before(old.expiresAt) {
 				delete(cache.entries, oldKey)
 			}
+		}
+		if cache.entries[key] == nil && len(cache.entries) >= maxMainSettingsEntries {
+			oldestKey := ""
+			var expiry time.Time
+			for oldKey, old := range cache.entries {
+				if old.ready == nil && (oldestKey == "" || old.expiresAt.Before(expiry)) {
+					oldestKey, expiry = oldKey, old.expiresAt
+				}
+			}
+			if oldestKey == "" {
+				// All slots are fetching. Preserve in-flight coalescing and
+				// fall back to explicit/default settings rather than grow.
+				cache.mu.Unlock()
+				return mainSettings{}
+			}
+			delete(cache.entries, oldestKey)
 		}
 	}
 	cache.entries[key] = entry

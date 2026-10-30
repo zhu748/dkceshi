@@ -68,6 +68,7 @@ func (c *Client) WaitForUploadedFiles(ctx context.Context, a *auth.RequestAuth, 
 	}
 
 	var lastErr error
+	refreshed := false
 	for attempt := 0; attempt < fileReadyPollAttempts; attempt++ {
 		if err := pollCtx.Err(); err != nil {
 			return fmt.Errorf("waiting for file readiness: %w", err)
@@ -99,6 +100,16 @@ func (c *Client) WaitForUploadedFiles(ctx context.Context, a *auth.RequestAuth, 
 			}
 			lastErr = fmt.Errorf("%d files are still processing", len(pending))
 		} else {
+			if IsManagedUnauthorizedError(err) && !refreshed && c.Auth != nil {
+				refreshed = true
+				// Files remain bound to their owner; never switch accounts here.
+				if c.Auth.RefreshToken(pollCtx, a) {
+					continue
+				}
+			}
+			if isPermanentFileFetchError(err) {
+				return fmt.Errorf("waiting for file readiness: %w", err)
+			}
 			lastErr = err
 			config.Logger.Debug("[upload_file] waiting for file readiness", "count", len(pending), "attempt", attempt+1, "error", err)
 		}
@@ -161,7 +172,7 @@ func (c *Client) FetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fi
 		if msg == "" {
 			msg = http.StatusText(status)
 		}
-		return nil, fmt.Errorf("request failed: status=%d, code=%d, msg=%s", status, code, msg)
+		return nil, &fileFetchError{status: status, message: fmt.Sprintf("request failed: status=%d, code=%d, msg=%s", status, code, msg)}
 	}
 
 	files := make([]*UploadFileResult, 0, len(ids))
@@ -174,9 +185,43 @@ func (c *Client) FetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fi
 		files = append(files, result)
 	}
 	if len(files) == 0 {
+		if !hasFetchedFileList(resp) {
+			return nil, fmt.Errorf("%w: missing files list", ErrInvalidUpstreamResponse)
+		}
 		return nil, ErrUploadFileNotFound
 	}
 	return files, nil
+}
+
+type fileFetchError struct {
+	status  int
+	message string
+}
+
+func (e *fileFetchError) Error() string { return e.message }
+
+func isPermanentFileFetchError(err error) bool {
+	if IsManagedUnauthorizedError(err) || IsDirectUnauthorizedError(err) || IsMutedError(err) ||
+		errors.Is(err, ErrInvalidUpstreamResponse) || errors.Is(err, ErrUpstreamResponseTooLarge) {
+		return true
+	}
+	var failure *fileFetchError
+	return errors.As(err, &failure) && failure.status < 500 &&
+		failure.status != http.StatusRequestTimeout && failure.status != http.StatusTooManyRequests
+}
+
+// Only a recognized file-list envelope proves absence. An empty or changed
+// response schema is an error, not permission to upload the same bytes again.
+func hasFetchedFileList(resp map[string]any) bool {
+	if _, ok := resp["files"].([]any); ok {
+		return true
+	}
+	for _, key := range []string{"data", "biz_data"} {
+		if nested, ok := resp[key].(map[string]any); ok && hasFetchedFileList(nested) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractFetchedUploadFileResult(resp map[string]any, targetID string) *UploadFileResult {

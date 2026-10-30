@@ -34,7 +34,7 @@ Docs: [Overview](README.en.md) / [Architecture](docs/ARCHITECTURE.en.md) / [Depl
 | Health probes | `GET /healthz`, `GET /readyz` |
 | CORS | Enabled (uniformly covers `/v1/*`, `/anthropic/*`, `/v1beta/models/*`, `/api/*`, and `/admin/*`; echoes the browser `Origin` when present, otherwise `*`; default allow-list includes `Content-Type`, `Authorization`, `X-API-Key`, `X-Ds2-Target-Account`, `X-Ds2-Source`, `X-Vercel-Protection-Bypass`, `X-Goog-Api-Key`, `Anthropic-Version`, `Anthropic-Beta`, and also accepts third-party preflight-requested headers such as `x-stainless-*`; `/v1/chat/completions` on Vercel Node Runtime matches the same behavior; internal-only `X-Ds2-Internal-Token` remains blocked) |
 
-- All JSON request bodies must be valid UTF-8; malformed byte sequences are rejected on ingress with `400 invalid json`.
+- JSON request bodies must be valid UTF-8 and contain exactly one complete JSON value. Malformed bytes, trailing garbage, and concatenated JSON values are rejected before decoding. Validation starts on the first read, so requests rejected by authentication/routing do not first have their entire body buffered by the validation middleware.
 
 ### 3.0 Adapter-Layer Notes
 

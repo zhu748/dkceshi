@@ -97,7 +97,7 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		Data:            data,
 	}, 3)
 	if err != nil {
-		shared.WriteOpenAIError(w, http.StatusInternalServerError, "Failed to upload file.")
+		WriteInlineFileError(w, upstreamFileError(err, "Failed to upload file."))
 		return
 	}
 	if result != nil && result.AccountID == "" {
@@ -141,7 +141,7 @@ func (h *Handler) RetrieveFile(w http.ResponseWriter, r *http.Request) {
 			shared.WriteOpenAIError(w, http.StatusNotFound, "file not found")
 			return
 		}
-		shared.WriteOpenAIError(w, http.StatusInternalServerError, "Failed to retrieve file.")
+		WriteInlineFileError(w, upstreamFileError(err, "Failed to retrieve file."))
 		return
 	}
 	if result != nil && result.AccountID == "" {

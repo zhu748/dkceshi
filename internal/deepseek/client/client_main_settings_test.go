@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image/png"
 	"io"
 	"net/http"
@@ -17,6 +18,35 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
 )
+
+func TestUploadSettingsCacheHasHardCapacity(t *testing.T) {
+	client := &Client{mainSettings: &mainSettingsCache{}}
+	client.regular = alignmentDoer(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"code":0,"data":{"biz_code":0,"biz_data":{"settings":{}}}}`))}, nil
+	})
+	for i := range 150 {
+		client.uploadSettings(context.Background(), &auth.RequestAuth{AccountID: "owner", DeepSeekToken: fmt.Sprint(i)})
+	}
+	if len(client.mainSettings.entries) > 128 {
+		t.Fatalf("settings cache grew to %d entries", len(client.mainSettings.entries))
+	}
+}
+
+func TestUploadSettingsCacheKeepsInflightEntriesUnderPressure(t *testing.T) {
+	cache := &mainSettingsCache{entries: map[string]*mainSettingsEntry{}}
+	for i := range maxMainSettingsEntries {
+		cache.entries[fmt.Sprint(i)] = &mainSettingsEntry{ready: make(chan struct{})}
+	}
+	calls := 0
+	client := &Client{mainSettings: cache, regular: alignmentDoer(func(*http.Request) (*http.Response, error) {
+		calls++
+		return nil, fmt.Errorf("unexpected settings request")
+	})}
+	got := client.uploadSettings(context.Background(), &auth.RequestAuth{DeepSeekToken: "new-token"})
+	if calls != 0 || len(cache.entries) != maxMainSettingsEntries || got.photoRatio != nil {
+		t.Fatalf("in-flight capacity exceeded: calls=%d entries=%d", calls, len(cache.entries))
+	}
+}
 
 func TestCapturedUploadSettingsCacheAndImageOverrides(t *testing.T) {
 	t.Setenv("DS2API_DEEPSEEK_PHOTO_COMPRESS_RATIO", "")

@@ -1,10 +1,16 @@
 package files
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"sync"
 	"time"
+)
+
+const (
+	defaultContentStoreTotalBytes = 256 << 20
+	defaultContentStoreEntries    = 256
 )
 
 // ErrFileNotFound is returned when a file ID is not present in the store.
@@ -20,13 +26,16 @@ type ContentStore interface {
 	Read(id string) (filename, mimeType string, data []byte, err error)
 }
 
-// MemoryContentStore is an in-memory ContentStore with a TTL and a per-file
-// byte cap. It is safe for concurrent use.
+// MemoryContentStore owns its bytes and bounds both total bytes and entry count.
+// Expired entries are reclaimed on writes; reads do not extend the TTL.
 type MemoryContentStore struct {
-	mu       sync.RWMutex
-	entries  map[string]*memoryContentEntry
-	maxBytes int
-	ttl      time.Duration
+	mu            sync.RWMutex
+	entries       map[string]*memoryContentEntry
+	maxBytes      int
+	maxTotalBytes int
+	maxEntries    int
+	totalBytes    int
+	ttl           time.Duration
 }
 
 type memoryContentEntry struct {
@@ -37,12 +46,15 @@ type memoryContentEntry struct {
 }
 
 // NewMemoryContentStore creates a store that caps each stored file at maxBytes
-// and drops entries ttl after they are written.
+// and expires entries ttl after they are written. The whole cache is limited to
+// 256 MiB / 256 entries, evicting the entry nearest expiry when full.
 func NewMemoryContentStore(maxBytes int, ttl time.Duration) *MemoryContentStore {
 	return &MemoryContentStore{
-		entries:  make(map[string]*memoryContentEntry),
-		maxBytes: maxBytes,
-		ttl:      ttl,
+		entries:       make(map[string]*memoryContentEntry),
+		maxBytes:      maxBytes,
+		maxTotalBytes: defaultContentStoreTotalBytes,
+		maxEntries:    defaultContentStoreEntries,
+		ttl:           ttl,
 	}
 }
 
@@ -52,17 +64,30 @@ func (s *MemoryContentStore) Store(id string, filename, mimeType string, data []
 	if id = strings.TrimSpace(id); id == "" {
 		return errors.New("file id is required")
 	}
-	if s.maxBytes > 0 && len(data) > s.maxBytes {
+	if (s.maxBytes > 0 && len(data) > s.maxBytes) || len(data) > s.maxTotalBytes {
 		return ErrFileTooLarge
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupExpiredLocked(time.Now())
+	s.deleteLocked(id)
+	for len(s.entries) >= s.maxEntries || s.totalBytes+len(data) > s.maxTotalBytes {
+		oldest := ""
+		var expiry time.Time
+		for key, entry := range s.entries {
+			if oldest == "" || entry.expiresAt.Before(expiry) {
+				oldest, expiry = key, entry.expiresAt
+			}
+		}
+		s.deleteLocked(oldest)
+	}
 	s.entries[id] = &memoryContentEntry{
 		filename:  filename,
 		mimeType:  mimeType,
-		data:      data,
+		data:      bytes.Clone(data),
 		expiresAt: time.Now().Add(s.ttl),
 	}
+	s.totalBytes += len(data)
 	return nil
 }
 
@@ -78,16 +103,16 @@ func (s *MemoryContentStore) Read(id string) (filename, mimeType string, data []
 	if !ok || entry == nil {
 		return "", "", nil, ErrFileNotFound
 	}
-	if time.Now().After(entry.expiresAt) {
+	if !time.Now().Before(entry.expiresAt) {
 		s.mu.Lock()
 		// Re-check under write lock in case another goroutine refreshed it.
 		if e, stillThere := s.entries[id]; stillThere && e == entry {
-			delete(s.entries, id)
+			s.deleteLocked(id)
 		}
 		s.mu.Unlock()
 		return "", "", nil, ErrFileNotFound
 	}
-	return entry.filename, entry.mimeType, entry.data, nil
+	return entry.filename, entry.mimeType, bytes.Clone(entry.data), nil
 }
 
 // Delete removes a file from the store. It is safe to call for a missing id.
@@ -97,7 +122,7 @@ func (s *MemoryContentStore) Delete(id string) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.entries, id)
+	s.deleteLocked(id)
 }
 
 // CleanupExpired removes all entries past their TTL.
@@ -105,9 +130,20 @@ func (s *MemoryContentStore) CleanupExpired() {
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupExpiredLocked(now)
+}
+
+func (s *MemoryContentStore) deleteLocked(id string) {
+	if entry, ok := s.entries[id]; ok {
+		s.totalBytes -= len(entry.data)
+		delete(s.entries, id)
+	}
+}
+
+func (s *MemoryContentStore) cleanupExpiredLocked(now time.Time) {
 	for id, entry := range s.entries {
-		if now.After(entry.expiresAt) {
-			delete(s.entries, id)
+		if !now.Before(entry.expiresAt) {
+			s.deleteLocked(id)
 		}
 	}
 }

@@ -40,6 +40,21 @@ func (e *inlineFileUploadError) Error() string {
 	return "inline file processing failed"
 }
 
+func (e *inlineFileUploadError) Unwrap() error { return e.err }
+
+func upstreamFileError(err error, message string) *inlineFileUploadError {
+	status := http.StatusInternalServerError
+	switch {
+	case dsclient.IsMutedError(err):
+		status, message = http.StatusForbidden, "Account is muted by upstream."
+	case dsclient.IsManagedUnauthorizedError(err):
+		status, message = http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin."
+	case dsclient.IsDirectUnauthorizedError(err):
+		status, message = http.StatusUnauthorized, "Invalid token. If this should be a DS2API key, add it to config.keys first."
+	}
+	return &inlineFileUploadError{status: status, message: message, err: err}
+}
+
 type inlineUploadState struct {
 	ctx             context.Context
 	uploader        FileUploader
@@ -118,7 +133,7 @@ func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[str
 	}
 	if batch, ok := uploader.(pendingFileUploader); ok && len(state.pendingFiles) > 0 {
 		if err := batch.WaitForUploadedFiles(ctx, a, state.pendingFiles); err != nil {
-			return &inlineFileUploadError{status: http.StatusInternalServerError, message: "Failed to process inline files.", err: err}
+			return upstreamFileError(err, "Failed to process inline files.")
 		}
 	}
 	if refIDs := promptcompat.CollectOpenAIRefFileIDs(req); len(refIDs) > 0 {
@@ -180,19 +195,7 @@ func (s *inlineUploadState) tryUploadBlock(block map[string]any) (map[string]any
 	}
 	fileID, err := s.uploadInlineFile(decoded)
 	if err != nil {
-		status := http.StatusInternalServerError
-		message := "Failed to upload inline file."
-		if dsclient.IsMutedError(err) {
-			status = http.StatusForbidden
-			message = "Account is muted by upstream."
-		} else if dsclient.IsManagedUnauthorizedError(err) {
-			status = http.StatusUnauthorized
-			message = "Account token is invalid. Please re-login the account in admin."
-		} else if dsclient.IsDirectUnauthorizedError(err) {
-			status = http.StatusUnauthorized
-			message = "Invalid token. If this should be a DS2API key, add it to config.keys first."
-		}
-		return nil, true, &inlineFileUploadError{status: status, message: message, err: err}
+		return nil, true, upstreamFileError(err, "Failed to upload inline file.")
 	}
 	s.uploadCount++
 	s.inlineFileBytes += len(decoded.Data)

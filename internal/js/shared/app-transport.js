@@ -51,30 +51,51 @@ function fetchAppStream(url, init = {}) {
     const parsed = new URL(url);
     const session = http2.connect(parsed.origin);
     let stream;
+    let body;
     let resolved = false;
+    let failed = false;
+    let cleaned = false;
     const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
       init.signal?.removeEventListener('abort', abort);
+      if (stream && !stream.destroyed) stream.destroy();
       session.destroy();
     };
     const fail = (error) => {
+      if (failed || cleaned) return;
+      failed = true;
       if (!resolved) reject(error);
-      else stream?.destroy(error);
+      // pipe() does not forward source errors to the decompressor. Destroy
+      // the actual response body so a waiting web reader always settles.
+      if (body && !body.destroyed) body.destroy(error);
+      if (stream && stream !== body && !stream.destroyed) stream.destroy(error);
       cleanup();
     };
     const abort = () => fail(init.signal.reason || new DOMException('Aborted', 'AbortError'));
     init.signal?.addEventListener('abort', abort, { once: true });
     session.once('error', fail);
-    session.once('close', () => { if (!resolved) reject(new Error('HTTP/2 session closed before response headers')); });
+    session.once('close', () => {
+      if (!resolved || !stream?.readableEnded) fail(new Error('HTTP/2 session closed before response completed'));
+      else cleanup();
+    });
     session.once('connect', () => {
       try {
         stream = session.request(buildAppHeaders(url, init));
         stream.once('error', fail);
+        stream.once('aborted', () => fail(new Error('HTTP/2 response aborted')));
+        stream.once('end', () => {
+          if (stream.rstCode) fail(new Error(`HTTP/2 response reset (${stream.rstCode})`));
+        });
+        stream.once('close', () => {
+          if (!resolved || !stream.readableEnded) fail(new Error('HTTP/2 stream closed before response completed'));
+        });
         stream.once('response', (raw) => {
           const headers = new Headers();
           for (const [key, value] of Object.entries(raw)) {
             if (!key.startsWith(':') && value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : String(value));
           }
-          let body = stream;
+          body = stream;
           if (headers.get('content-encoding')?.toLowerCase() === 'gzip') {
             body = stream.pipe(zlib.createGunzip());
             headers.delete('content-encoding');

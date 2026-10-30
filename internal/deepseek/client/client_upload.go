@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	dsprotocol "ds2api/internal/deepseek/protocol"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -109,6 +108,9 @@ func (c *Client) uploadFilePendingUncached(ctx context.Context, a *auth.RequestA
 	lastFailureKind := FailureUnknown
 	lastFailureMessage := ""
 	for attempts < maxAttempts {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		clients := c.requestClientsForAuth(ctx, a)
 		if strings.TrimSpace(powHeader) == "" {
 			powHeader, err = c.GetPowForTarget(ctx, a, dsprotocol.DeepSeekUploadTargetPath, maxAttempts)
@@ -147,15 +149,18 @@ func (c *Client) uploadFilePendingUncached(ctx context.Context, a *auth.RequestA
 			config.Logger.Warn("[upload_file] close response", "error", closeErr)
 		}
 		if readErr != nil {
+			if errors.Is(readErr, ErrUpstreamResponseTooLarge) {
+				return nil, readErr
+			}
 			powHeader = ""
 			attempts++
 			continue
 		}
-		parsed := map[string]any{}
-		if len(payloadBytes) > 0 {
-			if err := json.Unmarshal(payloadBytes, &parsed); err != nil {
-				config.Logger.Warn("[upload_file] json parse failed", "status", resp.StatusCode, "preview", preview(payloadBytes))
-			}
+		parsed, err := decodeMetadataResponse(payloadBytes, resp.StatusCode)
+		if err != nil {
+			// An indeterminate upload response may already have stored the file.
+			// Do not blindly repeat a potentially successful upload.
+			return nil, err
 		}
 		code, bizCode, msg, bizMsg := extractResponseStatus(parsed)
 		if resp.StatusCode == http.StatusOK && code == 0 && bizCode == 0 {

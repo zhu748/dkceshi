@@ -151,6 +151,42 @@ func TestIsJSONContentType(t *testing.T) {
 	}
 }
 
+type observedBody struct {
+	io.Reader
+	reads, closes int
+}
+
+func (b *observedBody) Read(p []byte) (int, error) { b.reads++; return b.Reader.Read(p) }
+func (b *observedBody) Close() error               { b.closes++; return nil }
+
+func TestValidationDoesNotReadBodiesRejectedBeforeDecode(t *testing.T) {
+	body := &observedBody{Reader: strings.NewReader(`{"large":"payload"}`)}
+	handler := ValidateJSONUTF8(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Model an authorization middleware rejecting before it needs the body.
+		w.WriteHeader(http.StatusUnauthorized)
+		if err := r.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/admin/config", body)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	if body.reads != 0 || body.closes != 1 {
+		t.Fatalf("unused body was consumed or not closed: reads=%d closes=%d", body.reads, body.closes)
+	}
+}
+
+func TestValidationRejectsTrailingJSONAndGarbage(t *testing.T) {
+	for _, body := range []string{`{"ok":true}{"second":true}`, `{"ok":true} garbage`, `{"ok":true} null`} {
+		handler := ValidateJSONUTF8(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var out map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&out); err == nil {
+				t.Errorf("accepted trailing data: %s", body)
+			}
+		}))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+	}
+}
+
 func TestIsKnownJSONRequestPathIncludesGeminiStream(t *testing.T) {
 	if !isKnownJSONRequestPath(http.MethodPost, "/v1beta/models/gemini-pro:streamGenerateContent") {
 		t.Fatal("expected Gemini stream generate path to be recognized as json")

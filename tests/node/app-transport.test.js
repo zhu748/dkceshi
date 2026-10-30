@@ -30,3 +30,61 @@ test('cached HIF headers expire before each outgoing request',()=>{
  const h=buildAppHeaders('https://example.test/a',{headers:{'x-hif-dliq':'expired','x-hif-leim':'fresh'},headerExpirations:{'x-hif-dliq':1,'x-hif-leim':Math.floor(Date.now()/1000)+60},body:'{}'});
  assert.equal(h['x-hif-dliq'],undefined);assert.equal(h['x-hif-leim'],'fresh');
 });
+
+async function withH2Server(t, handler, run) {
+ const sessions = new Set();
+ const server = http2.createServer();
+ server.on('session', session => { sessions.add(session); session.on('close', () => sessions.delete(session)); });
+ server.on('stream', stream => { stream.on('error', () => {}); handler(stream); });
+ server.listen(0, '127.0.0.1');
+ await once(server, 'listening');
+ t.after(async () => { for (const session of sessions) session.destroy(); await new Promise(resolve => server.close(resolve)); });
+ return run(`http://127.0.0.1:${server.address().port}/stream`);
+}
+
+test('aborting a gzip response rejects the decoded body promptly', { timeout: 3000 }, async t => {
+ await withH2Server(t, stream => {
+  stream.respond({ ':status': 200, 'content-encoding': 'gzip' });
+  stream.write(zlib.gzipSync('partial data'));
+ }, async url => {
+  const controller = new AbortController();
+  const response = await fetchAppStream(url, { signal: controller.signal });
+  const pending = response.text();
+  controller.abort();
+  await assert.rejects(pending, { name: 'AbortError' });
+ });
+});
+
+test('reset during gzip response rejects instead of leaving a reader pending', { timeout: 3000 }, async t => {
+ let peer;
+ await withH2Server(t, stream => {
+  peer = stream;
+  stream.respond({ ':status': 200, 'content-encoding': 'gzip' });
+  stream.write(zlib.gzipSync('partial data'));
+ }, async url => {
+  const response = await fetchAppStream(url);
+  const pending = response.text();
+  // destroy sends RST_STREAM without first completing the response with END_STREAM.
+  peer.destroy(new Error('simulated upstream reset'));
+  await assert.rejects(pending);
+ });
+});
+
+test('reset before response headers rejects promptly', { timeout: 3000 }, async t => {
+ await withH2Server(t, stream => stream.close(http2.constants.NGHTTP2_NO_ERROR), async url => {
+  await assert.rejects(fetchAppStream(url));
+ });
+});
+
+test('cancelling a gzip reader closes the upstream stream', { timeout: 3000 }, async t => {
+ let closed;
+ await withH2Server(t, stream => {
+  closed = once(stream, 'close');
+  stream.respond({ ':status': 200, 'content-encoding': 'gzip' });
+  stream.write(zlib.gzipSync('partial data'));
+ }, async url => {
+  const response = await fetchAppStream(url);
+  await response.body.cancel();
+  await closed;
+ });
+});
