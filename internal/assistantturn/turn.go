@@ -96,11 +96,12 @@ type BuildOptions struct {
 	ToolMarker string
 }
 
-// maybeRepairToolCalls implements the phase-3 finalize-only LLM repair pass. It
+// maybeRepairToolCalls tries conservative native DSML recovery, followed by
+// the phase-3 finalize-only LLM repair pass when an invoker is available. It
 // returns repaired calls (branch ①) or nil for the fallback branches (② NO
-// TOOL, ③ unparseable/timeout/error), in which case the caller leaves the
-// residual bad code as visible text ("原样输出"). It is a no-op unless the parse
-// found a residual intent and a repair invoker is configured.
+// TOOL, ③ unparseable/timeout/error). The final validator rejects unresolved
+// named client calls before delivery; non-call prose keeps its legacy fallback.
+// It is a no-op unless the parse found residual intent or unparsed syntax.
 //
 // Per phase1 §5.1 / phase3, it fires whenever there is a residual tool-call
 // intent, INCLUDING the partial-success case where some calls parsed but a bad
@@ -115,9 +116,6 @@ type BuildOptions struct {
 // gap where any intent-detection false negative would emit bad tool-call code
 // as visible text.
 func maybeRepairToolCalls(parsed toolcall.ToolCallParseResult, rawText string, opts BuildOptions) ([]toolcall.ParsedToolCall, string) {
-	if opts.ToolCallRepair == nil {
-		return nil, ""
-	}
 	badCode := strings.TrimSpace(parsed.ResidualIntentText)
 	replaceable := parsed.SawToolCallIntent && badCode != ""
 	if !parsed.SawToolCallIntent {
@@ -254,9 +252,11 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 
 	parsed := shared.DetectAssistantToolCalls(result.Text, text, result.Thinking, result.ToolDetectionThinking, opts.ToolNames)
 	calls := toolcall.NormalizeParsedToolCallsForSchemas(parsed.Calls, opts.ToolsRaw)
+	repairCompleted := false
 	if repaired, replaced := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
 		calls = mergeRepairedToolCalls(calls, repaired)
 		text = deductRepairedSource(text, replaced)
+		repairCompleted = true
 	}
 	parsed.Calls = calls
 
@@ -286,12 +286,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 		StopReason:             stopReason,
 	}
 	turn.Usage = BuildUsage(opts.Model, opts.Prompt, thinking, text, opts.RefFileTokens)
-	turn.Error = ValidateTurn(turn, opts.ToolChoice)
-	if turn.Error == nil {
-		if err := toolcall.ValidateToolArguments(turn.ToolCalls, opts.ToolsRaw); err != nil {
-			turn.Error = &OutputError{Status: http.StatusUnprocessableEntity, Message: err.Error(), Code: "invalid_tool_arguments"}
-		}
-	}
+	turn.Error = validateToolOutput(turn, opts, repairCompleted)
 	if turn.Error != nil {
 		turn.StopReason = StopReasonError
 	}
@@ -322,6 +317,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		calls = snapshot.AdditionalToolCalls
 	}
 	calls = toolcall.NormalizeParsedToolCallsForSchemas(calls, opts.ToolsRaw)
+	repairCompleted := false
 	// M4/M3: run the finalize LLM repair before delivering the final frame,
 	// unless structured tool calls were already streamed to the client (we
 	// cannot retract emitted tool_calls). When only bad text was streamed, the
@@ -332,6 +328,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		if repaired, replaced := maybeRepairToolCalls(parsed, snapshot.RawText, opts); len(repaired) > 0 {
 			calls = mergeRepairedToolCalls(calls, repaired)
 			text = deductRepairedSource(text, replaced)
+			repairCompleted = true
 		}
 	}
 	parsed.Calls = calls
@@ -362,12 +359,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	}
 	turn.Usage = BuildUsage(opts.Model, opts.Prompt, thinking, text, opts.RefFileTokens)
 	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
-		turn.Error = ValidateTurn(turn, opts.ToolChoice)
-		if turn.Error == nil {
-			if err := toolcall.ValidateToolArguments(turn.ToolCalls, opts.ToolsRaw); err != nil {
-				turn.Error = &OutputError{Status: http.StatusUnprocessableEntity, Message: err.Error(), Code: "invalid_tool_arguments"}
-			}
-		}
+		turn.Error = validateToolOutput(turn, opts, repairCompleted)
 	}
 	if turn.Error != nil {
 		turn.StopReason = StopReasonError
@@ -435,6 +427,9 @@ func UpstreamEmptyOutputDetail(contentFilter bool, text, thinking string) (int, 
 // and has no tool calls or content filter. This includes thinking-only responses,
 // where the model returned reasoning but no answer — a retry may yield text.
 func ShouldRetryEmptyOutput(turn Turn, attempts, maxAttempts int) bool {
+	if turn.Error != nil && (turn.Error.Code == "invalid_tool_arguments" || turn.Error.Code == "tool_choice_violation") {
+		return false
+	}
 	return attempts < maxAttempts &&
 		!turn.ContentFilter &&
 		len(turn.ToolCalls) == 0 &&

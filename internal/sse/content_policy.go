@@ -16,6 +16,9 @@ const (
 	// marker; the marker and everything after it is fabricated dialogue (see
 	// ToolRoleMarkerGuard).
 	CutToolRoleMarker CutReason = "tool_role_marker"
+	// CutTranscriptBoundary ends the model's turn at the serialized terminator,
+	// before it can invent subsequent assistant, user or tool messages.
+	CutTranscriptBoundary CutReason = "transcript_boundary"
 )
 
 // LogMessage returns the sentence describing this cut in the "cutting stream"
@@ -26,6 +29,8 @@ func (r CutReason) LogMessage() string {
 		return "upstream repetition loop detected; cutting stream"
 	case CutToolRoleMarker:
 		return "hallucinated [Tool]: role marker detected; cutting stream"
+	case CutTranscriptBoundary:
+		return "serialized message boundary detected; cutting stream"
 	}
 	return ""
 }
@@ -67,7 +72,7 @@ func (p *ContentPolicy) Feed(text string) string {
 	case p.repeat.Tripped():
 		p.cut = CutRepeatLoop
 	case roleCut:
-		p.cut = CutToolRoleMarker
+		p.cut = p.toolRole.Reason()
 	}
 	return kept
 }

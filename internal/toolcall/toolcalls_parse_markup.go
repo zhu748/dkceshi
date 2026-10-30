@@ -2,6 +2,7 @@ package toolcall
 
 import (
 	"ds2api/internal/jsonvalue"
+	"encoding/json"
 	"encoding/xml"
 	"html"
 	"regexp"
@@ -145,27 +146,40 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 		var payload map[string]any
 		if err := jsonvalue.Unmarshal([]byte(inner), &payload); err == nil {
 			input := map[string]any{}
-			if params, ok := payload["input"].(map[string]any); ok {
-				input = params
+			var value any
+			var present bool
+			if value, present = payload["input"]; !present {
+				value, present = payload["parameters"]
 			}
-			if len(input) == 0 {
-				if params, ok := payload["parameters"].(map[string]any); ok {
-					input = params
+			if present {
+				var ok bool
+				if input, ok = value.(map[string]any); !ok {
+					return ParsedToolCall{}, false
 				}
+			} else if len(payload) != 0 {
+				return ParsedToolCall{}, false
 			}
 			return ParsedToolCall{Name: name, Input: input}, true
 		}
 	}
 
 	input := map[string]any{}
+	prev := 0
 	for _, paramMatch := range findXMLElementBlocks(inner, "parameter") {
+		if hasUnconsumedParameterMarkup(inner[prev:paramMatch.Start]) {
+			return ParsedToolCall{}, false
+		}
 		paramAttrs := parseXMLTagAttributes(paramMatch.Attrs)
 		paramName := strings.TrimSpace(html.UnescapeString(paramAttrs["name"]))
 		if paramName == "" {
-			continue
+			return ParsedToolCall{}, false
 		}
 		value := parseInvokeParameterValue(paramName, paramMatch.Body)
 		appendMarkupValue(input, paramName, value)
+		prev = paramMatch.End
+	}
+	if hasUnconsumedParameterMarkup(inner[prev:]) {
+		return ParsedToolCall{}, false
 	}
 
 	if len(input) == 0 {
@@ -175,6 +189,34 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 		return ParsedToolCall{Name: name, Input: map[string]any{}}, true
 	}
 	return ParsedToolCall{Name: name, Input: input}, true
+}
+
+// A sibling parameter may be optional in the schema and still carry essential
+// model intent. Never accept only the balanced siblings of a damaged node.
+func hasUnconsumedParameterMarkup(text string) bool {
+	for i := 0; i < len(text); {
+		next, advanced, blocked := skipXMLIgnoredSection(text, i)
+		if blocked {
+			return false
+		}
+		if advanced {
+			i = next
+			continue
+		}
+		if end, ok := markdownCodeSpanEnd(text, i); ok {
+			i = end
+			continue
+		}
+		if tag, ok := scanToolMarkupTagAt(text, i); ok && tag.Name == "parameter" && !tag.Closing {
+			return true
+		}
+		const prefix = "<parameter"
+		if n, ok := matchASCIIPrefixFoldAt(text, i, prefix); ok && hasXMLTagBoundary(text, i+n) {
+			return true
+		}
+		i++
+	}
+	return false
 }
 
 type xmlElementBlock struct {
@@ -278,6 +320,22 @@ func findMatchingXMLEndTagOutsideCDATA(text, tag string, from int) (closeStart, 
 func skipXMLIgnoredSection(text string, i int) (next int, advanced bool, blocked bool) {
 	if i < 0 || i >= len(text) {
 		return i, false, false
+	}
+	// JSON argument strings can contain literal tool markup. Skip only a
+	// complete, valid JSON string; a stray prose quote must not hide the tail.
+	if text[i] == '"' {
+		for end := i + 1; end < len(text); end++ {
+			if text[end] == '\\' {
+				end++
+			} else if text[end] == '"' {
+				if json.Valid([]byte(text[i : end+1])) {
+					return end + 1, true, false
+				}
+				break
+			} else if text[end] < ' ' {
+				break
+			}
+		}
 	}
 	if bodyStart, ok := matchToolCDATAOpenAt(text, i); ok {
 		end := findToolCDATAEnd(text, bodyStart)

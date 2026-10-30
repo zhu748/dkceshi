@@ -405,12 +405,9 @@ func TestBuildTurnFromStreamSnapshotSkipsRepairAfterEmittedCalls(t *testing.T) {
 	}
 }
 
-// TestBuildTurnFromCollectedDefensiveRepairOnSyntaxWithoutIntent covers
-// Direction 4: the residual intent probe can miss (SawToolCallIntent=false) even
-// though the deterministic parser saw tool-call syntax and produced zero calls.
-// Rather than leaking the bad tool-call code as visible text, the raw text is
-// handed to the repair layer as a defensive fallback.
-func TestBuildTurnFromCollectedDefensiveRepairOnSyntaxWithoutIntent(t *testing.T) {
+// The defensive syntax path still invokes repair when intent detection misses,
+// but the repair cannot invent a tool identity absent from the source.
+func TestBuildTurnFromCollectedDefensiveRepairCannotInventMissingToolName(t *testing.T) {
 	// A canonical (no EPSE prefix) wrapper whose invoke has no name: this
 	// parses to zero calls and, being canonical, produces no EPSE intent
 	// signal — exactly the silent-leak gap Direction 4 guards.
@@ -436,11 +433,8 @@ func TestBuildTurnFromCollectedDefensiveRepairOnSyntaxWithoutIntent(t *testing.T
 		ToolCallRepair:    invoke,
 		ToolCallRepairCtx: context.Background(),
 	})
-	if len(turn.ToolCalls) != 1 {
-		t.Fatalf("expected defensive repair to yield one tool call, got %d", len(turn.ToolCalls))
-	}
-	if turn.ToolCalls[0].Name != "Bash" {
-		t.Fatalf("expected Bash, got %q", turn.ToolCalls[0].Name)
+	if len(turn.ToolCalls) != 0 {
+		t.Fatalf("defensive repair invented a missing tool name: %#v", turn.ToolCalls)
 	}
 	if seen == "" {
 		t.Fatalf("expected repair invoker to receive the raw bad code")

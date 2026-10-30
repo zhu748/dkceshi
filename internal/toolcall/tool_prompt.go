@@ -49,7 +49,9 @@ func ToolCallFormatSpec() string {
 // structurally identical (only the tag keyword changes).
 func ToolCallFormatSpecForMarker(marker string) string {
 	marker = normalizeToolMarker(marker)
-	spec := `工具调用格式规范 — 请严格遵照执行：
+	spec := `Scope: The following tool-call format rules apply only to client-provided tools.
+
+工具调用格式规范 — 请严格遵照执行：
 
 <|EPSE|tool_calls>
   <|EPSE|invoke name="TOOL_NAME_HERE">
@@ -69,11 +71,13 @@ func ToolCallFormatSpecForMarker(marker string) string {
 8) 仅使用工具架构(schema)中定义的参数名称。请勿自行创建字段。
 9) 使用本次调用所需的实际值填充参数。请勿输出占位符或捏造参数；schema 和任务允许的空字符串、空对象、空数组和 null 都是有效值，应保留其类型。
 10) 如果必需参数值未知，请询问用户或正常回答；无参数工具可以使用没有 parameter 节点的 invoke。
+10a) 每一个 invoke 都必须逐项包含当前 schema 声明的全部必填参数；同一批次中的多个调用也各自填写完整，不得省略。
 11) 参数名称以当前工具 schema 为准；不同工具可能使用 command、cmd 或其他名称，不要根据工具名猜测字段。
 12) 请勿使用 Markdown 代码块标记包裹 XML。请勿输出解释、角色标识或内心独白。
 13) 如果调用工具，该工具代码块的第一个非空白字符必须严格为 <|EPSE|tool_calls>。
 14) 切勿省略起始标签 <|EPSE|tool_calls>，即使你打算随后使用 </|EPSE|tool_calls> 闭合标签。
 15) 工具标签只有上述带标识前缀的一种格式：<|EPSE|tool_calls> / <|EPSE|invoke> / <|EPSE|parameter>。请始终完整输出 <|EPSE| 前缀，不要省略前缀或使用无前缀的标签写法。
+15a) 对于客户端提供的工具，禁止输出 DSML 前缀的工具标签。
 
 调用决策：
 - 历史对话中的 <|EPSE|tool_calls> 是调用记录。使用 call_id 与 tool_call_id 关联结果；有匹配结果才表示已返回，is_error=true 表示失败。缺少结果不代表操作已完成，也不要盲目重复可能产生副作用的操作。
@@ -125,7 +129,9 @@ func ToolCallFormatReminder() string {
 // ToolCallFormatReminder.
 func ToolCallFormatReminderForMarker(marker string) string {
 	marker = normalizeToolMarker(marker)
-	reminder := `The only correct format for using tools is <|EPSE|tool_calls>
+	reminder := `For client-provided tools only:
+DSML-prefixed tags are strictly prohibited. Every invoke must include all required parameters from its declared schema.
+The only correct format for using tools is <|EPSE|tool_calls>
   <|EPSE|invoke name="TOOL_NAME_HERE">
     <|EPSE|parameter name="PARAMETER_NAME"><![CDATA[PARAMETER_VALUE]]></|EPSE|parameter>
   </|EPSE|invoke>

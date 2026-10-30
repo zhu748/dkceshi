@@ -2,7 +2,21 @@
 
 const TOOL_ROLE_MARKER = '[Tool]:';
 function createToolRoleMarkerGuard() {
-  return { pending: '', tripped: false, cdata: false, quote: false, escaped: false, code: '', ticks: 0, fence: false, fenceClosing: false, notLineStart: false };
+  return { pending: '', tripped: false, reason: '', cdata: false, quote: false, escaped: false, code: '', ticks: 0, fence: false, fenceClosing: false, notLineStart: false };
+}
+
+// Keep the serialized terminator grammar in sync with sse/transcript_boundary.go.
+function scanTranscriptBoundary(tail) {
+  const prefix = '[EndMessage:';
+  if (!tail.startsWith('[')) return {};
+  if (tail.length < prefix.length) return { partial: prefix.toLowerCase().startsWith(tail.toLowerCase()) };
+  if (tail.slice(0, prefix.length).toLowerCase() !== prefix.toLowerCase()) return {};
+  for (let i = prefix.length; i < prefix.length + 16; i++) {
+    if (i === tail.length) return { partial: true };
+    if (!/[0-9a-f]/i.test(tail[i])) return {};
+  }
+  const end = prefix.length + 16;
+  return tail.length === end ? { partial: true } : { matched: tail[end] === ']' };
 }
 function scan(guard, text, final = false) {
   if (!guard || guard.tripped) return '';
@@ -48,7 +62,10 @@ function scan(guard, text, final = false) {
       i += n; guard.notLineStart = true; continue;
     }
     if (data[i] === '"') { guard.quote = true; i++; continue; }
-    if (tail.slice(0, TOOL_ROLE_MARKER.length).toLowerCase() === TOOL_ROLE_MARKER.toLowerCase()) { guard.tripped = true; return data.slice(0, i); }
+    if (tail.slice(0, TOOL_ROLE_MARKER.length).toLowerCase() === TOOL_ROLE_MARKER.toLowerCase()) { guard.tripped = true; guard.reason = 'tool_role_marker'; return data.slice(0, i); }
+    const boundary = scanTranscriptBoundary(tail);
+    if (boundary.matched) { guard.tripped = true; guard.reason = 'transcript_boundary'; return data.slice(0, i); }
+    if (!final && boundary.partial) break;
     if (!final && tail.length < TOOL_ROLE_MARKER.length && TOOL_ROLE_MARKER.toLowerCase().startsWith(tail.toLowerCase())) break;
     if (data[i] === '\n' || data[i] === '\r') guard.notLineStart = false;
     else if (data[i] !== ' ' && data[i] !== '\t') guard.notLineStart = true;

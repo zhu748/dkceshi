@@ -456,10 +456,10 @@ func TestPickBetterRepairResultPrefersRicherParse(t *testing.T) {
 	}
 }
 
-// TestRepairToolCallsWithLLMAlternateInterpretationWins exercises the择优 path
-// end to end: the plan promotes bounded, but the model's output only restores
-// under the greedy slot table, and the greedy parse still yields a call.
-func TestRepairToolCallsWithLLMAlternateInterpretationWins(t *testing.T) {
+// An alternate slot table cannot legitimize a repair that drops a source
+// parameter. Recovery must keep the complete invocation, including optional
+// parameters absent from the greedy slot table.
+func TestRepairToolCallsWithLLMRejectsAlternateDroppingParameter(t *testing.T) {
 	// Bounded degradation trigger (unclosed CDATA that greedy skips) combined
 	// with a well-formed invoke greedy can slot.
 	bad := `<|EPSE|call name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter>` +
@@ -477,10 +477,7 @@ func TestRepairToolCallsWithLLMAlternateInterpretationWins(t *testing.T) {
 			`</|EPSE|invoke></|EPSE|tool_calls>`, nil
 	}
 	calls, ok := RepairToolCallsWithLLM(context.Background(), bad, invoke)
-	if !ok || len(calls) != 1 {
-		t.Fatalf("expected the greedy alternate to win, got ok=%v calls=%#v", ok, calls)
-	}
-	if got, _ := calls[0].Input["command"].(string); got != "pwd" {
-		t.Fatalf("command = %q, want pwd", got)
+	if ok || len(calls) != 0 {
+		t.Fatalf("alternate silently dropped the stray parameter: ok=%v calls=%#v", ok, calls)
 	}
 }

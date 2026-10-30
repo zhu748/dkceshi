@@ -78,6 +78,12 @@ func stripLeakedToolCallWrapperBlocks(text string) string {
 		if tag.Start > pos {
 			b.WriteString(text[pos:tag.Start])
 		}
+		if tag.Closing && tag.EPSELike {
+			// A complete wrapper was removed above; any prefixed closing shell
+			// left outside literal/code regions is protocol residue.
+			pos = tag.End + 1
+			continue
+		}
 		if tag.Closing || tag.Name != "tool_calls" {
 			b.WriteString(text[tag.Start : tag.End+1])
 			pos = tag.End + 1

@@ -245,6 +245,15 @@ function toStringSafe(v) {
   return String(v).trim();
 }
 
+// Scanners return offsets into the original input. Trimming before scanning
+// invalidates those offsets and can leak delimiters when the caller slices it.
+function toRawString(v) {
+  if (typeof v === 'string') return v;
+  if (Array.isArray(v)) return toRawString(v[0]);
+  if (v == null) return '';
+  return String(v);
+}
+
 module.exports = {
   createToolSieveState,
   resetIncrementalToolState,
@@ -257,4 +266,5 @@ module.exports = {
   updateMarkdownCodeSpanState,
   hasMeaningfulText,
   toStringSafe,
+  toRawString,
 };

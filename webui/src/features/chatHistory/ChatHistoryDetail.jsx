@@ -60,6 +60,8 @@ function RequestMessages({ item, t, messages }) {
                 const isUser = role === 'user'
                 const isAssistant = role === 'assistant'
                 const isTool = role === 'tool'
+                const metadata = Object.fromEntries(Object.entries(message).filter(([key]) => key !== 'role' && key !== 'content'))
+                const body = [message.content, Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : ''].filter(Boolean).join('\n\n')
                 const label = isUser
                     ? t('chatHistory.role.user')
                     : (isAssistant ? t('chatHistory.role.assistant') : (isTool ? t('chatHistory.role.tool') : t('chatHistory.role.system')))
@@ -82,7 +84,7 @@ function RequestMessages({ item, t, messages }) {
                                     : (isAssistant ? 'bg-secondary/60 text-foreground rounded-tl-sm border-border' : 'bg-background text-foreground rounded-tl-sm border-border')
                             )}>
                                 <div className="whitespace-pre-wrap break-words">
-                                    {message.content || t('chatHistory.emptyUserInput')}
+                                    {body || t('chatHistory.emptyUserInput')}
                                 </div>
                             </div>
                         </div>

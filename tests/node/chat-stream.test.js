@@ -1894,6 +1894,21 @@ test('vercel stream cuts hallucinated [Tool]: role marker and finishes with 200'
   assert.equal(fetchURLs.filter((url) => url.includes('/continue')).length, 0);
 });
 
+test('vercel stream stops at a split transcript boundary without resuming invented calls', async () => {
+  const { res, frames, fetchURLs } = await runMockVercelStream([
+    `data: ${JSON.stringify({ p: 'response/content', v: 'done\n</|EPSE|tool_calls>\n[EndMes' })}\n\n`,
+    `data: ${JSON.stringify({ p: 'response/content', v: 'sage:3237101fbf162c60]\n[Assistant]:invented' })}\n\n`,
+    'data: [DONE]\n\n',
+  ]);
+  const parsed = frames.filter(frame => frame !== '[DONE]').map(frame => JSON.parse(frame));
+  assert.equal(res.statusCode, 200);
+  assert.equal(frames.at(-1), '[DONE]');
+  assert.equal(parsed.at(-1).choices[0].finish_reason, 'stop');
+  assert.equal(parsed.map(item => item.choices?.[0]?.delta?.content || '').join(''), 'done\n\n');
+  assert.equal(parsed.some(item => item.choices?.[0]?.delta?.tool_calls || item.error), false);
+  assert.equal(fetchURLs.filter(url => url.includes('/continue')).length, 0);
+});
+
 // Regression: the end-of-stream flush fed the marker normalizer's withheld tail
 // back through the whole content policy, including the `[Tool]:` role guard. The
 // guard merged the tail with the fragment it was deliberately withholding and

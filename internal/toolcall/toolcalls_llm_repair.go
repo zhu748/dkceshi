@@ -2,6 +2,7 @@ package toolcall
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -31,7 +32,8 @@ const ToolCallRepairFixedPrompt = `请根据上述说明的工具调用说明，
 2) 未被替换为占位符的原始内容同样必须逐字节原样保留，不要重新缩进、转义、截断或"顺手整理"。
 3) 你只允许修改标签结构本身：标签名、<|EPSE| 前缀、闭合标签、CDATA 的 ]]> 结束符、以及标签的嵌套层级。
 4) 输入中出现的每一个 <|EPSE|parameter> 节点及其 name 属性都必须在输出中保留，禁止合并或丢弃任何参数节点。
-5) 若某个 <![CDATA[ 缺少配对的 ]]>，请补上 ]]> 再闭合其所属的 parameter 标签。`
+5) 若某个 <![CDATA[ 缺少配对的 ]]>，请补上 ]]> 再闭合其所属的 parameter 标签。
+6) 工具名、参数名、调用顺序和占位符所属参数必须保持不变；禁止增加调用、删除调用或只输出修复成功的一部分。`
 
 // ToolCallRepairFixedPromptForMarker is the marker-aware variant of
 // ToolCallRepairFixedPrompt: the canonical EPSE keyword is rendered as the
@@ -152,15 +154,15 @@ func firstRepairToolMarker(markers []string) string {
 	return strings.TrimSpace(markers[0])
 }
 
-// RepairToolCallsWithLLM attempts to repair badCode (the residual intent text
-// identified by phase 1) into valid tool calls using the provided LLM invoker.
+// RepairToolCallsWithLLM first recovers complete native DSML locally, then
+// attempts to repair remaining badCode using the provided LLM invoker.
 // It implements the three-way branch semantics from plan §4:
 //
 //	① valid format  → parse into tool calls, return (calls, true)
-//	② "NO TOOL"     → return (nil, false); caller emits the fallback verbatim
-//	③ unparseable / timeout / error / slot mismatch → (nil, false); fallback
+//	② "NO TOOL"     → return (nil, false); caller validates the fallback
+//	③ unparseable / timeout / integrity / slot mismatch → (nil, false)
 //
-// Any failure (invoker error, missing slot, byte mismatch, unparseable output)
+// Any failure (invoker error, changed identity/value, missing slot, partial parse)
 // degrades to (nil, false): the caller must never surface half-repaired content
 // or leaked DS_SLOT placeholders downstream (hard constraint 3).
 //
@@ -168,6 +170,9 @@ func firstRepairToolMarker(markers []string) string {
 // tool-call marker and normalizes the model's answer back to EPSE before
 // parsing; when omitted the canonical EPSE keyword is used (legacy behaviour).
 func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCallRepairInvoker, toolMarker ...string) ([]ParsedToolCall, bool) {
+	if calls, ok := RecoverDSMLToolCalls(badCode); ok {
+		return calls, true
+	}
 	if invoke == nil || strings.TrimSpace(badCode) == "" {
 		return nil, false
 	}
@@ -215,6 +220,11 @@ func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCall
 		} else if altErr != nil && plan.alternate.slotted {
 			errAttr = altErr
 		}
+		if errors.Is(errAttr, errRepairIntegrity) {
+			reason = "repair_integrity_failed"
+		} else if errors.Is(errAttr, errIncompleteRepair) {
+			reason = "incomplete_repair"
+		}
 		attrs := append([]any{"reason", reason}, logAttrs...)
 		if errAttr != nil {
 			attrs = append(attrs, "error", errAttr)
@@ -249,6 +259,9 @@ func restoreAndParseRepairOutput(out string, res cdataSlotResult, promptToken cd
 		return nil, nil
 	}
 	restored := NormalizeMarkerText(out, marker)
+	if err := validateRepairIntegrity(res, restored, marker); err != nil {
+		return nil, err
+	}
 	if len(res.slots) > 0 {
 		var err error
 		restored, err = restoreCDATASlotsFor(restored, res)
@@ -256,7 +269,20 @@ func restoreAndParseRepairOutput(out string, res cdataSlotResult, promptToken cd
 			return nil, err
 		}
 	}
-	calls := parseToolCallsDetailedXMLOnly(restored).Calls
+	parsed := parseToolCallsDetailedXMLOnly(restored)
+	if parsed.SawToolCallIntent {
+		return nil, fmt.Errorf("%w: unresolved tool-call intent", errIncompleteRepair)
+	}
+	calls := parsed.Calls
+	namedCalls := 0
+	for _, node := range repairIdentities(NormalizeMarkerText(out, marker)) {
+		if node.kind == "invoke" {
+			namedCalls++
+		}
+	}
+	if namedCalls != len(calls) {
+		return nil, fmt.Errorf("%w: not every named invocation parsed", errIncompleteRepair)
+	}
 	if guardLeaks && toolCallsContainPlaceholderLiteral(calls, promptToken) {
 		return nil, fmt.Errorf("cdata slot: placeholder literal survived into a parsed parameter")
 	}

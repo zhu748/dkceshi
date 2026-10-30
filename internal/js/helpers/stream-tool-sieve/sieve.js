@@ -238,7 +238,8 @@ function findToolSegmentStart(state, s) {
       offset = hit.end + 1;
       continue;
     }
-    if (markdown.fromPrior) {
+    const tag = findToolMarkupTagOutsideIgnored(s, hit.start);
+    if (markdown.fromPrior || (tag && tag.start === hit.start && tag.closing)) {
       return HOLD_TOOL_SEGMENT_START;
     }
     return hit.start;
@@ -344,6 +345,12 @@ function consumeToolCapture(state, toolNames, final) {
   if (!captured) {
     return { ready: false, prefix: '', calls: [], suffix: '' };
   }
+  // Real blocks consume their closes atomically. A fresh leading close is an
+  // orphan, not malformed invocation text awaiting the repair pass.
+  const first = findToolMarkupTagOutsideIgnored(captured, 0);
+  if (first && first.start === 0 && first.closing) return { ready: true, prefix: '', calls: [], suffix: captured.slice(first.end + 1) };
+  const firstDSML = findDSMLTagOutsideIgnored(captured, 0);
+  if (firstDSML && firstDSML.start === 0 && firstDSML.closing) return { ready: true, prefix: '', calls: [], suffix: captured.slice(firstDSML.end + 1) };
 
   // XML-only tool call extraction.
   const xmlResult = consumeXMLToolCaptureImpl(captured, toolNames, trimWrappingJSONFence);

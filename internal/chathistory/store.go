@@ -35,34 +35,45 @@ var allowedLimits = map[int]struct{}{
 var ErrDisabled = errors.New("chat history disabled")
 
 type Entry struct {
-	ID               string         `json:"id"`
-	Revision         int64          `json:"revision"`
-	CreatedAt        int64          `json:"created_at"`
-	UpdatedAt        int64          `json:"updated_at"`
-	CompletedAt      int64          `json:"completed_at,omitempty"`
-	Status           string         `json:"status"`
-	CallerID         string         `json:"caller_id,omitempty"`
-	UserAgent        string         `json:"user_agent,omitempty"`
-	AccountID        string         `json:"account_id,omitempty"`
-	Surface          string         `json:"surface,omitempty"`
-	Model            string         `json:"model,omitempty"`
-	Stream           bool           `json:"stream"`
-	UserInput        string         `json:"user_input,omitempty"`
-	Messages         []Message      `json:"messages,omitempty"`
-	HistoryText      string         `json:"history_text,omitempty"`
-	FinalPrompt      string         `json:"final_prompt,omitempty"`
-	ReasoningContent string         `json:"reasoning_content,omitempty"`
-	Content          string         `json:"content,omitempty"`
-	Error            string         `json:"error,omitempty"`
-	StatusCode       int            `json:"status_code,omitempty"`
-	ElapsedMs        int64          `json:"elapsed_ms,omitempty"`
-	FinishReason     string         `json:"finish_reason,omitempty"`
-	Usage            map[string]any `json:"usage,omitempty"`
+	ID               string          `json:"id"`
+	Revision         int64           `json:"revision"`
+	CreatedAt        int64           `json:"created_at"`
+	UpdatedAt        int64           `json:"updated_at"`
+	CompletedAt      int64           `json:"completed_at,omitempty"`
+	Status           string          `json:"status"`
+	CallerID         string          `json:"caller_id,omitempty"`
+	UserAgent        string          `json:"user_agent,omitempty"`
+	AccountID        string          `json:"account_id,omitempty"`
+	Surface          string          `json:"surface,omitempty"`
+	Model            string          `json:"model,omitempty"`
+	Stream           bool            `json:"stream"`
+	UserInput        string          `json:"user_input,omitempty"`
+	Messages         []Message       `json:"messages,omitempty"`
+	Tools            json.RawMessage `json:"tools,omitempty"`
+	ToolChoice       json.RawMessage `json:"tool_choice_policy,omitempty"`
+	ToolMarker       string          `json:"tool_marker,omitempty"`
+	HistoryText      string          `json:"history_text,omitempty"`
+	FinalPrompt      string          `json:"final_prompt,omitempty"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
+	Content          string          `json:"content,omitempty"`
+	Error            string          `json:"error,omitempty"`
+	StatusCode       int             `json:"status_code,omitempty"`
+	ElapsedMs        int64           `json:"elapsed_ms,omitempty"`
+	FinishReason     string          `json:"finish_reason,omitempty"`
+	Usage            map[string]any  `json:"usage,omitempty"`
 }
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role             string          `json:"role"`
+	Content          string          `json:"content"`
+	Name             string          `json:"name,omitempty"`
+	ID               string          `json:"id,omitempty"`
+	ToolCallID       string          `json:"tool_call_id,omitempty"`
+	ToolCalls        json.RawMessage `json:"tool_calls,omitempty"`
+	FunctionCall     json.RawMessage `json:"function_call,omitempty"`
+	ReasoningContent json.RawMessage `json:"reasoning_content,omitempty"`
+	IsError          *bool           `json:"is_error,omitempty"`
+	Prefix           *bool           `json:"prefix,omitempty"`
 }
 
 type SummaryEntry struct {
@@ -101,6 +112,9 @@ type StartParams struct {
 	Stream      bool
 	UserInput   string
 	Messages    []Message
+	Tools       json.RawMessage
+	ToolChoice  json.RawMessage
+	ToolMarker  string
 	HistoryText string
 	FinalPrompt string
 }
@@ -282,6 +296,9 @@ func (s *Store) Start(params StartParams) (Entry, error) {
 		Stream:      params.Stream,
 		UserInput:   strings.TrimSpace(params.UserInput),
 		Messages:    cloneMessages(params.Messages),
+		Tools:       append(json.RawMessage(nil), params.Tools...),
+		ToolChoice:  append(json.RawMessage(nil), params.ToolChoice...),
+		ToolMarker:  params.ToolMarker,
 		HistoryText: params.HistoryText,
 		FinalPrompt: strings.TrimSpace(params.FinalPrompt),
 	}
@@ -789,6 +806,8 @@ func cloneFile(in File) File {
 func cloneEntry(item Entry) Entry {
 	item.Usage = cloneMap(item.Usage)
 	item.Messages = cloneMessages(item.Messages)
+	item.Tools = append(json.RawMessage(nil), item.Tools...)
+	item.ToolChoice = append(json.RawMessage(nil), item.ToolChoice...)
 	return item
 }
 
@@ -809,5 +828,18 @@ func cloneMessages(messages []Message) []Message {
 	}
 	out := make([]Message, len(messages))
 	copy(out, messages)
+	for i := range out {
+		out[i].ToolCalls = append(json.RawMessage(nil), out[i].ToolCalls...)
+		out[i].FunctionCall = append(json.RawMessage(nil), out[i].FunctionCall...)
+		out[i].ReasoningContent = append(json.RawMessage(nil), out[i].ReasoningContent...)
+		if out[i].IsError != nil {
+			value := *out[i].IsError
+			out[i].IsError = &value
+		}
+		if out[i].Prefix != nil {
+			value := *out[i].Prefix
+			out[i].Prefix = &value
+		}
+	}
 	return out
 }

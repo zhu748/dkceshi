@@ -11,8 +11,11 @@ const TOOL_MARKUP_NAMES = [
 ];
 
 const {
-  toStringSafe,
+  toRawString,
 } = require('./state');
+
+// Keep the original coordinate system throughout scanning and repair. Only
+// semantic fields (tool names, attribute keys, JSON literals) trim explicitly.
 
 function stripFencedCodeBlocks(text) {
   const t = typeof text === 'string' ? text : '';
@@ -92,7 +95,7 @@ function stripFencedCodeBlocks(text) {
 // apparently-unclosed fence actually straddles a real tool call whose closing
 // tags must not be discarded.
 function textContainsToolMarkupCloseTag(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   for (let i = 0; i < raw.length; i += 1) {
     const tag = scanToolMarkupTagAt(raw, i);
     if (tag && tag.closing) {
@@ -103,7 +106,7 @@ function textContainsToolMarkupCloseTag(text) {
 }
 
 function stripMarkdownCodeSpans(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw) {
     return '';
   }
@@ -131,7 +134,7 @@ function stripMarkdownCodeSpans(text) {
 }
 
 function markdownCodeSpanEnd(text, start) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (start < 0 || start >= raw.length || raw[start] !== '`') {
     return { ok: false, end: start };
   }
@@ -219,7 +222,7 @@ function updateCDATAStateLine(inCDATA, line) {
 }
 
 function parseMarkupToolCalls(text) {
-  const normalized = normalizeEPSEToolCallMarkup(toStringSafe(text));
+  const normalized = normalizeEPSEToolCallMarkup(toRawString(text));
   if (!normalized.ok) {
     return [];
   }
@@ -237,7 +240,7 @@ function parseMarkupToolCalls(text) {
   }
   const out = [];
   for (const wrapper of wrappers) {
-    const body = toStringSafe(wrapper.body);
+    const body = toRawString(wrapper.body);
     for (const block of findXmlElementBlocks(body, 'invoke')) {
       const parsed = parseMarkupSingleToolCall(block);
       if (parsed) {
@@ -249,7 +252,7 @@ function parseMarkupToolCalls(text) {
 }
 
 function findToolCallElementBlocksOutsideIgnored(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const out = [];
   for (let searchFrom = 0; searchFrom < raw.length;) {
     const tag = findToolMarkupTagOutsideIgnored(raw, searchFrom);
@@ -279,7 +282,7 @@ function findToolCallElementBlocksOutsideIgnored(text) {
 }
 
 function normalizeEPSEToolCallMarkup(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw) {
     return { text: '', ok: true };
   }
@@ -303,7 +306,7 @@ function containsCanonicalToolMarkup(text) {
 }
 
 function containsToolCallWrapperSyntaxOutsideIgnored(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const styles = { epse: false, canonical: false };
   if (!raw) {
     return styles;
@@ -344,7 +347,7 @@ function containsToolCallWrapperSyntaxOutsideIgnored(text) {
   return styles;
 }
 function containsToolMarkupSyntaxOutsideIgnored(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const styles = { epse: false, canonical: false };
   if (!raw) {
     return styles;
@@ -382,7 +385,7 @@ function containsToolMarkupSyntaxOutsideIgnored(text) {
 }
 
 function replaceEPSEToolMarkupOutsideIgnored(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw) {
     return '';
   }
@@ -418,47 +421,64 @@ function replaceEPSEToolMarkupOutsideIgnored(text) {
 
 function parseMarkupSingleToolCall(block) {
   const attrs = parseTagAttributes(block.attrs);
-  const name = toStringSafe(attrs.name).trim();
+  const name = toRawString(attrs.name).trim();
   if (!name) {
     return null;
   }
-  const inner = toStringSafe(block.body).trim();
+  const inner = toRawString(block.body).trim();
 
   if (inner) {
     try {
       const decoded = JSON.parse(inner);
       if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) {
-        return {
-          name,
-          input: decoded.input && typeof decoded.input === 'object' && !Array.isArray(decoded.input)
-            ? decoded.input
-            : decoded.parameters && typeof decoded.parameters === 'object' && !Array.isArray(decoded.parameters)
-              ? decoded.parameters
-              : {},
-        };
+        const key = Object.hasOwn(decoded, 'input') ? 'input' : Object.hasOwn(decoded, 'parameters') ? 'parameters' : null;
+        if (!key) return Object.keys(decoded).length === 0 ? { name, input: {} } : null;
+        const input = decoded[key];
+        if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+        return { name, input };
       }
     } catch (_err) {
       // Not JSON, continue with markup parsing.
     }
   }
   const input = {};
+  let prev = 0;
   for (const match of findXmlElementBlocks(inner, 'parameter')) {
+    if (hasUnconsumedParameterMarkup(inner.slice(prev, match.start))) return null;
     const parameterAttrs = parseTagAttributes(match.attrs);
-    const paramName = toStringSafe(parameterAttrs.name).trim();
+    const paramName = toRawString(parameterAttrs.name).trim();
     if (!paramName) {
-      continue;
+      return null;
     }
     appendMarkupValue(input, paramName, parseMarkupValue(match.body, paramName));
+    prev = match.end;
   }
+  if (hasUnconsumedParameterMarkup(inner.slice(prev))) return null;
   if (Object.keys(input).length === 0 && inner.trim() !== '') {
     return null;
   }
   return { name, input };
 }
 
+function hasUnconsumedParameterMarkup(text) {
+  for (let i = 0; i < text.length;) {
+    const skipped = skipXmlIgnoredSection(text, i);
+    if (skipped.blocked) return false;
+    if (skipped.advanced) { i = skipped.next; continue; }
+    const span = markdownCodeSpanEnd(text, i);
+    if (span.ok) { i = span.end; continue; }
+    const tag = scanToolMarkupTagAt(text, i);
+    if (tag && tag.name === 'parameter' && !tag.closing) return true;
+    const prefix = '<parameter';
+    if (text.slice(i, i + prefix.length).toLowerCase() === prefix && hasXmlTagBoundary(text, i + prefix.length)) return true;
+    i += 1;
+  }
+  return false;
+}
+
 function findXmlElementBlocks(text, tag) {
-  const source = toStringSafe(text);
-  const name = toStringSafe(tag).toLowerCase();
+  const source = toRawString(text);
+  const name = toRawString(tag).trim().toLowerCase();
   if (!source || !name) {
     return [];
   }
@@ -556,7 +576,16 @@ function findMatchingXmlEndTagOutsideCDATA(text, tag, from) {
 }
 
 function skipXmlIgnoredSection(text, i) {
-  const raw = toStringSafe(text);
+  if (text[i] === '"') {
+    for (let end = i + 1; end < text.length; end += 1) {
+      if (text[end] === '\\') { end += 1; continue; }
+      if (text[end] === '"') {
+        try { JSON.parse(text.slice(i, end + 1)); return { next: end + 1, advanced: true, blocked: false }; } catch (_err) { break; }
+      }
+      if (text.charCodeAt(end) < 32) break;
+    }
+  }
+  const raw = toRawString(text);
   const openLen = toolCDATAOpenLenAt(raw, i);
   if (openLen > 0) {
     const end = findToolCDATAEnd(raw, i + openLen);
@@ -576,7 +605,7 @@ function skipXmlIgnoredSection(text, i) {
 }
 
 function findNextCDATAOpen(text, from) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const start = indexToolCDATAOpen(raw, from || 0);
   if (start < 0) {
     return { ok: false, start: -1, bodyStart: -1 };
@@ -585,7 +614,7 @@ function findNextCDATAOpen(text, from) {
 }
 
 function matchCDATAOpenAt(text, start) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const openLen = toolCDATAOpenLenAt(raw, start);
   return openLen > 0 ? { ok: true, bodyStart: start + openLen } : { ok: false, bodyStart: start };
 }
@@ -595,13 +624,13 @@ function isCDATAOpenSeparator(ch) {
 }
 
 function findCDATAEnd(text, from) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const index = findToolCDATAEnd(raw, from);
   return { index, len: index >= 0 ? toolCDATACloseLenAt(raw, index) : 0 };
 }
 
 function scanToolMarkupTagAt(text, start) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const startDelimLen = xmlTagStartDelimiterLenAt(raw, start);
   if (!raw || start < 0 || start >= raw.length || !startDelimLen) {
     return null;
@@ -687,7 +716,7 @@ function scanToolMarkupTagAt(text, start) {
 }
 
 function isEPSEShorthandParameter(text, i, closing) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (i < 0 || i >= raw.length) {
     return false;
   }
@@ -707,7 +736,7 @@ function isEPSEShorthandParameter(text, i, closing) {
 }
 
 function findToolMarkupTagOutsideIgnored(text, from) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   for (let i = Math.max(0, from || 0); i < raw.length;) {
     const skipped = skipXmlIgnoredSection(raw, i);
     if (skipped.blocked) {
@@ -732,7 +761,7 @@ function findToolMarkupTagOutsideIgnored(text, from) {
 }
 
 function findMatchingToolMarkupClose(text, openTag) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw || !openTag || !openTag.name || openTag.closing) {
     return null;
   }
@@ -760,7 +789,7 @@ function findMatchingToolMarkupClose(text, openTag) {
 }
 
 function findPartialToolMarkupStart(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const lastLT = lastIndexOfToolMarkupStartDelimiter(raw);
   if (lastLT < 0) {
     return -1;
@@ -804,7 +833,7 @@ function isToolMarkupWhitespaceLike(ch) {
 }
 
 function isPartialToolMarkupTagPrefix(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw || !isXmlTagStartDelimiter(raw[0]) || containsXmlTagTerminator(raw)) {
     return false;
   }
@@ -851,7 +880,7 @@ function isPartialToolMarkupTagPrefix(text) {
 // back instead of leaking as visible text. Mirrors the Go side
 // (internal/toolcall/toolcalls_scan.go) isPartialDSMLTagPrefix.
 function isPartialDSMLTagPrefix(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw || !isXmlTagStartDelimiter(raw[0]) || containsXmlTagTerminator(raw)) {
     return false;
   }
@@ -993,7 +1022,7 @@ function toolMarkupPrefixAllowsLocalNameAt(raw, start, localStart) {
 }
 
 function toolMarkupPrefixContainsSlash(prefix) {
-  for (const ch of toStringSafe(prefix)) {
+  for (const ch of toRawString(prefix)) {
     if (normalizeFullwidthASCIIChar(ch) === '/') {
       return true;
     }
@@ -1206,7 +1235,7 @@ function consumeToolMarkupLessThan(raw, idx) {
 }
 
 function canonicalizeToolCallCandidateSpans(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw) {
     return '';
   }
@@ -1241,7 +1270,7 @@ function canonicalizeToolCallCandidateSpans(text) {
 }
 
 function canonicalizeRecognizedToolMarkupTag(rawTag, tag) {
-  const raw = toStringSafe(rawTag);
+  const raw = toRawString(rawTag);
   if (!raw || !tag) {
     return raw;
   }
@@ -1293,7 +1322,7 @@ function canonicalizeRecognizedToolMarkupTag(rawTag, tag) {
 }
 
 function parseCanonicalToolMarkupAttrs(rawTag, startIdx) {
-  const raw = toStringSafe(rawTag);
+  const raw = toRawString(rawTag);
   let idx = Math.max(0, startIdx || 0);
   const out = [];
   while (idx < raw.length) {
@@ -1404,7 +1433,7 @@ function parseCanonicalToolMarkupAttrs(rawTag, startIdx) {
 }
 
 function normalizeCanonicalToolAttrKey(rawKey) {
-  const trimmed = toStringSafe(removeToolMarkupIgnorables(rawKey)).trim();
+  const trimmed = toRawString(removeToolMarkupIgnorables(rawKey)).trim();
   if (!trimmed) {
     return '';
   }
@@ -1413,11 +1442,11 @@ function normalizeCanonicalToolAttrKey(rawKey) {
 }
 
 function quoteCanonicalXMLAttrValue(rawValue) {
-  return toStringSafe(rawValue).replace(/"/g, '&quot;');
+  return toRawString(rawValue).replace(/"/g, '&quot;');
 }
 
 function removeToolMarkupIgnorables(rawValue) {
-  const raw = toStringSafe(rawValue);
+  const raw = toRawString(rawValue);
   let out = '';
   for (let i = 0; i < raw.length;) {
     const ignorableLen = toolMarkupIgnorableLenAt(raw, i);
@@ -1434,7 +1463,7 @@ function removeToolMarkupIgnorables(rawValue) {
 }
 
 function skipToolMarkupIgnorables(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   let pos = Math.max(0, idx || 0);
   while (pos < raw.length) {
     const next = toolMarkupIgnorableLenAt(raw, pos);
@@ -1447,7 +1476,7 @@ function skipToolMarkupIgnorables(text, idx) {
 }
 
 function toolMarkupIgnorableLenAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (idx < 0 || idx >= raw.length) {
     return 0;
   }
@@ -1462,7 +1491,7 @@ function toolMarkupIgnorableLenAt(text, idx) {
 }
 
 function toolMarkupEqualsLenAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const pos = skipToolMarkupIgnorables(raw, idx);
   for (const variant of ['=', '＝', '﹦', '꞊']) {
     if (raw.startsWith(variant, pos)) {
@@ -1473,7 +1502,7 @@ function toolMarkupEqualsLenAt(text, idx) {
 }
 
 function toolMarkupDashLenAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const pos = skipToolMarkupIgnorables(raw, idx);
   for (const variant of ['-', '‐', '‑', '‒', '–', '—', '―', '−', '﹣', '－']) {
     if (raw.startsWith(variant, pos)) {
@@ -1484,7 +1513,7 @@ function toolMarkupDashLenAt(text, idx) {
 }
 
 function toolMarkupUnderscoreLenAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const pos = skipToolMarkupIgnorables(raw, idx);
   for (const variant of ['_', '＿', '﹍', '﹎', '﹏']) {
     if (raw.startsWith(variant, pos)) {
@@ -1495,7 +1524,7 @@ function toolMarkupUnderscoreLenAt(text, idx) {
 }
 
 function consumeToolKeyword(text, idx, keyword) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   let next = idx;
   for (const ch of keyword.toLowerCase()) {
     next = skipToolMarkupIgnorables(raw, next);
@@ -1576,7 +1605,7 @@ function foldToolKeywordRune(ch) {
 }
 
 function toolMarkupWhitespaceLikeLenAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const pos = skipToolMarkupIgnorables(raw, idx);
   if (pos < 0 || pos >= raw.length) {
     return 0;
@@ -1619,7 +1648,7 @@ function consumeToolMarkupClosingSlash(raw, idx) {
 }
 
 function xmlTagStartDelimiterLenAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const pos = skipToolMarkupIgnorables(raw, idx);
   if (pos < 0 || pos >= raw.length) {
     return 0;
@@ -1633,7 +1662,7 @@ function xmlTagStartDelimiterLenAt(text, idx) {
 }
 
 function xmlTagEndDelimiterLenAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const pos = skipToolMarkupIgnorables(raw, idx);
   if (pos < 0 || pos >= raw.length) {
     return 0;
@@ -1647,7 +1676,7 @@ function xmlTagEndDelimiterLenAt(text, idx) {
 }
 
 function xmlTagEndDelimiterLenEndingAt(text, end) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (end < 0 || end >= raw.length) {
     return 0;
   }
@@ -1660,7 +1689,7 @@ function xmlTagEndDelimiterLenEndingAt(text, end) {
 }
 
 function xmlQuotePairAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const pos = skipToolMarkupIgnorables(raw, idx);
   if (pos < 0 || pos >= raw.length) {
     return { close: '', len: 0 };
@@ -1693,7 +1722,7 @@ function xmlQuotePairAt(text, idx) {
 }
 
 function xmlQuoteCloseDelimiterLenAt(text, idx, close) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!close) {
     return 0;
   }
@@ -1701,7 +1730,7 @@ function xmlQuoteCloseDelimiterLenAt(text, idx, close) {
 }
 
 function lastIndexOfToolMarkupStartDelimiter(raw) {
-  const text = toStringSafe(raw);
+  const text = toRawString(raw);
   let best = -1;
   for (const variant of ['<', '＜', '﹤', '〈']) {
     const idx = text.lastIndexOf(variant);
@@ -1713,12 +1742,12 @@ function lastIndexOfToolMarkupStartDelimiter(raw) {
 }
 
 function containsXmlTagTerminator(raw) {
-  const text = toStringSafe(raw);
+  const text = toRawString(raw);
   return text.includes('>') || text.includes('＞') || text.includes('﹥') || text.includes('〉');
 }
 
 function findXmlTagEnd(text, from) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   let quote = '';
   for (let i = Math.max(0, from || 0); i < raw.length;) {
     if (quote) {
@@ -1759,7 +1788,7 @@ function hasXmlTagBoundary(text, idx) {
 }
 
 function isSelfClosingXmlTag(startTag) {
-  const trimmed = toStringSafe(startTag).trim();
+  const trimmed = toRawString(startTag).trim();
   return trimmed.endsWith('/') || trimmed.endsWith('／');
 }
 
@@ -1846,7 +1875,7 @@ function normalizeToolMarkupTagTailForXML(tail) {
 }
 
 function parseMarkupInput(raw) {
-  const s = toStringSafe(raw).trim();
+  const s = toRawString(raw).trim();
   if (!s) {
     return {};
   }
@@ -1871,13 +1900,13 @@ function parseMarkupInput(raw) {
 }
 
 function parseMarkupKVObject(text) {
-  const raw = toStringSafe(text).trim();
+  const raw = toRawString(text).trim();
   if (!raw) {
     return {};
   }
   const out = {};
   for (const block of findGenericXmlElementBlocks(raw)) {
-    const key = toStringSafe(block.localName).trim();
+    const key = toRawString(block.localName).trim();
     if (!key) {
       continue;
     }
@@ -1891,7 +1920,7 @@ function parseMarkupKVObject(text) {
 }
 
 function findGenericXmlElementBlocks(text) {
-  const source = toStringSafe(text);
+  const source = toRawString(text);
   if (!source) {
     return [];
   }
@@ -1977,7 +2006,7 @@ function findGenericXmlStartTagOutsideCDATA(text, from) {
 
 function findMatchingGenericXmlEndTagOutsideCDATA(text, name, from) {
   const lower = text.toLowerCase();
-  const needle = toStringSafe(name).toLowerCase();
+  const needle = toRawString(name).trim().toLowerCase();
   if (!needle) {
     return null;
   }
@@ -2039,7 +2068,7 @@ function parseMarkupValue(raw, paramName = '') {
     const looseArray = parseLooseJSONArrayValue(cdata.value, paramName);
     return looseArray.ok ? looseArray.value : cdata.value;
   }
-  const s = toStringSafe(extractRawTagValue(raw)).trim();
+  const s = toRawString(extractRawTagValue(raw)).trim();
   if (!s) {
     return '';
   }
@@ -2055,7 +2084,7 @@ function parseMarkupValue(raw, paramName = '') {
         return nestedArray.value;
       }
       if (isOnlyRawValue(nested)) {
-        const rawValue = toStringSafe(nested._raw);
+        const rawValue = toRawString(nested._raw);
         const looseArray = parseLooseJSONArrayValue(rawValue, paramName);
         return looseArray.ok ? looseArray.value : rawValue;
       }
@@ -2100,7 +2129,7 @@ function parseStructuredCDATAParameterValue(paramName, raw) {
 }
 
 function normalizeCDATAForStructuredParse(raw) {
-  return unescapeHtml(toStringSafe(raw).replace(/<br\s*\/?>/gi, '\n').trim());
+  return unescapeHtml(toRawString(raw).replace(/<br\s*\/?>/gi, '\n').trim());
 }
 
 function cdataFragmentLooksExplicitlyStructured(raw) {
@@ -2112,7 +2141,7 @@ function cdataFragmentLooksExplicitlyStructured(raw) {
     return true;
   }
   const block = blocks[0];
-  if (toStringSafe(block.localName).trim().toLowerCase() === 'item') {
+  if (toRawString(block.localName).trim().toLowerCase() === 'item') {
     return true;
   }
   return findGenericXmlElementBlocks(block.body).length > 0;
@@ -2134,7 +2163,7 @@ function preservesCDATAStringParameter(name) {
     'pattern',
     'path',
     'file_path',
-  ]).has(toStringSafe(name).trim().toLowerCase());
+  ]).has(toRawString(name).trim().toLowerCase());
 }
 
 function unwrapItemOnlyMarkupValue(value) {
@@ -2157,7 +2186,7 @@ function unwrapItemOnlyMarkupValue(value) {
 }
 
 function extractRawTagValue(inner) {
-  const s = toStringSafe(inner).trim();
+  const s = toRawString(inner).trim();
   if (!s) {
     return '';
   }
@@ -2184,7 +2213,7 @@ function unescapeHtml(safe) {
 }
 
 function extractStandaloneCDATA(inner) {
-  const s = toStringSafe(inner).trim();
+  const s = toRawString(inner).trim();
   const openLen = toolCDATAOpenLenAt(s, 0);
   if (!openLen) {
     return { ok: false, value: '' };
@@ -2201,7 +2230,7 @@ function extractStandaloneCDATA(inner) {
 }
 
 function findStandaloneCDATAEnd(text, from) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   let best = { index: -1, len: 0 };
   for (let searchFrom = Math.max(0, from || 0); searchFrom < raw.length;) {
     const index = findToolCDATAEnd(raw, searchFrom);
@@ -2219,7 +2248,7 @@ function findStandaloneCDATAEnd(text, from) {
 }
 
 function parseJSONLiteralValue(raw) {
-  const s = toStringSafe(raw).trim();
+  const s = toRawString(raw).trim();
   if (!s) {
     return { ok: false, value: null };
   }
@@ -2237,7 +2266,7 @@ function parseLooseJSONArrayValue(raw, paramName = '') {
   if (preservesCDATAStringParameter(paramName)) {
     return { ok: false, value: null };
   }
-  const s = toStringSafe(raw).trim();
+  const s = toRawString(raw).trim();
   if (!s) {
     return { ok: false, value: null };
   }
@@ -2271,7 +2300,7 @@ function parseLooseJSONArrayCandidate(raw, paramName = '') {
 }
 
 function parseLooseArrayElementValue(raw) {
-  const s = toStringSafe(raw).trim();
+  const s = toRawString(raw).trim();
   if (!s) {
     return { ok: false, value: null };
   }
@@ -2344,7 +2373,7 @@ function coerceArrayValue(value, paramName = '') {
 }
 
 function splitTopLevelJSONValues(raw) {
-  const s = toStringSafe(raw).trim();
+  const s = toRawString(raw).trim();
   if (!s) {
     return [];
   }
@@ -2444,7 +2473,7 @@ function repairInvalidJSONBackslashes(s) {
 }
 
 function repairLooseJSON(s) {
-  const raw = toStringSafe(s).trim();
+  const raw = toRawString(s).trim();
   if (!raw) {
     return raw;
   }
@@ -2454,7 +2483,7 @@ function repairLooseJSON(s) {
 }
 
 function sanitizeLooseCDATA(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw) {
     return '';
   }
@@ -2515,7 +2544,7 @@ const TOOL_MARKUP_STRUCTURAL_TAG_PREFIXES = [
 // it is called from inside a CDATA body precisely to find where the enclosing
 // element ends when that body has no `]]>` of its own.
 function nextToolMarkupStructuralBoundary(text, from) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const lower = raw.toLowerCase();
   for (let i = Math.max(0, from || 0); i < raw.length; i += 1) {
     // Cheap guard: every candidate starts with a `<` (or a fullwidth/CJK
@@ -2540,7 +2569,7 @@ function nextToolMarkupStructuralBoundary(text, from) {
 // ignoring the local name, so `<|EPSE|parameter>`, `</|EPSE>` and `<EPSE ...>`
 // variants all match.
 function detectEPSETagAt(text, start) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const lt = consumeToolMarkupLessThan(raw, start);
   if (!lt.ok) {
     return false;
@@ -2576,7 +2605,7 @@ function detectEPSETagAt(text, start) {
 // lowercase ASCII; it may be empty (e.g. `<DSML>`). Mirrors the Go side
 // (internal/toolcall/toolcalls_intent.go) scanDSMLTagAt.
 function scanDSMLTagAt(text, start) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const lt = consumeToolMarkupLessThan(raw, start);
   if (!lt.ok) {
     return null;
@@ -2659,7 +2688,7 @@ function scanDSMLTagAt(text, start) {
 // findToolMarkupTagOutsideIgnored but matches the DSML prefix instead of the
 // tool markup name table.
 function findDSMLTagOutsideIgnored(text, from) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   for (let i = Math.max(0, from || 0); i < raw.length;) {
     const skipped = skipXmlIgnoredSection(raw, i);
     if (skipped.blocked) {
@@ -2687,7 +2716,7 @@ function findDSMLTagOutsideIgnored(text, from) {
 // tag for open. Empty local names pair with empty local names. Mirrors the Go
 // side (internal/toolcall/toolcalls_intent.go) FindMatchingDSMLClose.
 function findMatchingDSMLClose(text, open) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw || !open || open.closing || open.end >= raw.length) {
     return null;
   }
@@ -2718,7 +2747,7 @@ function findMatchingDSMLClose(text, open) {
 // unclosed opener and continuing instead of blocking the remainder the way
 // skipXmlIgnoredSection does.
 function scanClosedCDATARanges(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const ranges = [];
   let pos = 0;
   while (pos < raw.length) {
@@ -2743,7 +2772,7 @@ function scanClosedCDATARanges(text) {
 // and its close marker. A trailing `]]` (the `]]>` the model forgot the `>` on)
 // is kept out of the content so the restored value carries no stray suffix.
 function boundedCDATAContentEnd(text, contentStart, limit) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const endRel = findToolCDATAEnd(raw.slice(0, limit), contentStart);
   if (endRel >= 0) {
     return { contentEnd: endRel, closeLen: toolCDATACloseLenAt(raw, endRel) };
@@ -2775,7 +2804,7 @@ function boundedCDATAContentEnd(text, contentStart, limit) {
 // body holds the sample's opening parameter tag and an unbalanced opener — but
 // never a close tag preceding them, because the value never left its element.
 function cdataRangeSwallowedNextParameter(text, range) {
-  const body = toStringSafe(text).slice(range.contentStart, range.contentEnd);
+  const body = toRawString(text).slice(range.contentStart, range.contentEnd);
   let pos = 0;
   while (pos < body.length) {
     const open = indexToolCDATAOpen(body, pos);
@@ -2793,7 +2822,7 @@ function cdataRangeSwallowedNextParameter(text, range) {
 }
 
 function indexToolCDATAClose(text, from) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   for (let i = Math.max(0, from || 0); i < raw.length; i += 1) {
     if (toolCDATACloseLenAt(raw, i)) {
       return i;
@@ -2842,7 +2871,7 @@ function cdataOpenerEscapedOwnElement(body, open) {
 // range), so the pass repeats to a fixpoint, bounded by the number of CDATA
 // openers since every pass closes at least one.
 function repairSwallowedCDATARanges(text) {
-  let repaired = toStringSafe(text);
+  let repaired = toRawString(text);
   for (let budget = countToolCDATAOpeners(repaired); budget > 0; budget -= 1) {
     const next = repairSwallowedCDATARangesOnce(repaired);
     if (next === repaired) {
@@ -2854,7 +2883,7 @@ function repairSwallowedCDATARanges(text) {
 }
 
 function countToolCDATAOpeners(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   let count = 0;
   let pos = 0;
   while (pos < raw.length) {
@@ -2869,7 +2898,7 @@ function countToolCDATAOpeners(text) {
 }
 
 function repairSwallowedCDATARangesOnce(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (!raw) {
     return raw;
   }
@@ -2900,7 +2929,7 @@ function repairSwallowedCDATARangesOnce(text) {
 }
 
 function hasRepairableXMLToolCallsWrapper(text) {
-  const raw = toStringSafe(text).trim();
+  const raw = toRawString(text).trim();
   if (!raw || firstToolMarkupTagByName(raw, 'tool_calls', false)) {
     return false;
   }
@@ -2916,7 +2945,7 @@ function hasRepairableXMLToolCallsWrapper(text) {
 }
 
 function repairMissingXMLToolCallsOpeningWrapper(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (firstToolMarkupTagByName(raw, 'tool_calls', false)) {
     return raw;
   }
@@ -2929,7 +2958,7 @@ function repairMissingXMLToolCallsOpeningWrapper(text) {
 }
 
 function firstToolMarkupTagByName(text, name, closing) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   for (let searchFrom = 0; searchFrom < raw.length;) {
     const tag = findToolMarkupTagOutsideIgnored(raw, searchFrom);
     if (!tag) {
@@ -2944,7 +2973,7 @@ function firstToolMarkupTagByName(text, name, closing) {
 }
 
 function lastToolMarkupTagByName(text, name, closing) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   let last = null;
   for (let searchFrom = 0; searchFrom < raw.length;) {
     const tag = findToolMarkupTagOutsideIgnored(raw, searchFrom);
@@ -2969,7 +2998,7 @@ function rawNameForTag(tag) {
 }
 
 function toolCDATAOpenLenAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const start = skipToolMarkupIgnorables(raw, idx);
   const ltLen = xmlTagStartDelimiterLenAt(raw, start);
   if (!ltLen) {
@@ -3005,7 +3034,7 @@ function toolCDATAOpenLenAt(text, idx) {
 }
 
 function toolCDATACloseLenAt(text, idx) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   const start = skipToolMarkupIgnorables(raw, idx);
   if (raw[start] !== ']') {
     return 0;
@@ -3021,7 +3050,7 @@ function toolCDATACloseLenAt(text, idx) {
 }
 
 function findToolCDATAEnd(text, from) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   if (from < 0 || from >= raw.length) {
     return -1;
   }
@@ -3076,7 +3105,7 @@ function findToolCDATAEnd(text, from) {
 // carries an odd markdown fence (where the structural `]]>` really is the
 // close).
 function toolMarkupPresent(s) {
-  const raw = toStringSafe(s);
+  const raw = toRawString(s);
   const markers = ['<|EPSE|', '<tool_calls', '<invoke', '<parameter', '<epse-'];
   for (const marker of markers) {
     if (raw.includes(marker)) {
@@ -3087,7 +3116,7 @@ function toolMarkupPresent(s) {
 }
 
 function indexToolCDATAOpen(text, from = 0) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   for (let i = Math.max(0, from || 0); i < raw.length; i += 1) {
     if (toolCDATAOpenLenAt(raw, i)) {
       return i;
@@ -3097,7 +3126,7 @@ function indexToolCDATAOpen(text, from = 0) {
 }
 
 function findTrailingToolCDATACloseStart(text) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   for (let i = raw.length - 1; i >= 0; i -= 1) {
     const closeLen = toolCDATACloseLenAt(raw, i);
     if (closeLen && i + closeLen === raw.length) {
@@ -3108,7 +3137,7 @@ function findTrailingToolCDATACloseStart(text) {
 }
 
 function cdataOffsetIsInsideMarkdownFence(fragment) {
-  const lines = toStringSafe(fragment).split('\n');
+  const lines = toRawString(fragment).split('\n');
   let inFence = false;
   let fenceChar = '';
   let fenceLen = 0;
@@ -3133,7 +3162,7 @@ function cdataOffsetIsInsideMarkdownFence(fragment) {
 }
 
 function cdataEndLooksStructural(text, after) {
-  const raw = toStringSafe(text);
+  const raw = toRawString(text);
   let pos = after;
   while (pos < raw.length) {
     const ch = raw[pos];
@@ -3147,13 +3176,13 @@ function cdataEndLooksStructural(text, after) {
 }
 
 function parseTagAttributes(raw) {
-  const source = toStringSafe(raw);
+  const source = toRawString(raw);
   const out = {};
   if (!source) {
     return out;
   }
   for (const match of source.matchAll(XML_ATTR_PATTERN)) {
-    const key = toStringSafe(match[1]).trim().toLowerCase();
+    const key = toRawString(match[1]).trim().toLowerCase();
     if (!key) {
       continue;
     }
@@ -3167,7 +3196,7 @@ function parseToolCallInput(v) {
     return {};
   }
   if (typeof v === 'string') {
-    const raw = toStringSafe(v);
+    const raw = toRawString(v);
     if (!raw) {
       return {};
     }
@@ -3225,8 +3254,7 @@ function isOnlyRawValue(obj) {
 // preserved. Used by the sieve flush release paths
 // (internal/js/helpers/stream-tool-sieve/sieve.js flushToolSieve).
 function stripDSMLResidue(text) {
-  // Deliberately no toStringSafe here: it trims, and this net must be a no-op
-  // (byte-identical passthrough) on clean text so flush releases keep the
+  // Clean text is a byte-identical passthrough so flush releases keep the
   // verbatim-output contract, matching the Go side.
   if (typeof text !== 'string' || !text) {
     return text;

@@ -29,6 +29,7 @@ const {
 const CUT_NONE = '';
 const CUT_REPEAT_LOOP = 'repeat_loop';
 const CUT_TOOL_ROLE_MARKER = 'tool_role_marker';
+const CUT_TRANSCRIPT_BOUNDARY = 'transcript_boundary';
 
 function createContentPolicy() {
   return {
@@ -54,7 +55,7 @@ function feedContentPolicy(policy, text) {
     // The repetition rule wins when both fire, matching the Go side.
     policy.cut = CUT_REPEAT_LOOP;
   } else if (roleCut) {
-    policy.cut = CUT_TOOL_ROLE_MARKER;
+    policy.cut = policy.toolRoleGuard.reason;
   }
   return kept;
 }
@@ -95,6 +96,7 @@ module.exports = {
   CUT_NONE,
   CUT_REPEAT_LOOP,
   CUT_TOOL_ROLE_MARKER,
+  CUT_TRANSCRIPT_BOUNDARY,
   createContentPolicy,
   feedContentPolicy,
   feedContentPolicyTail,

@@ -4,12 +4,13 @@ import "strings"
 
 const ToolRoleMarker = "[Tool]:"
 
-// ToolRoleMarkerGuard cuts invented tool-result turns while preserving literal
-// markers in CDATA, quoted strings and Markdown code across arbitrary chunks.
+// ToolRoleMarkerGuard cuts invented tool-result turns and transcript boundaries
+// while preserving literal markers in CDATA, quoted strings and Markdown code.
 // Only a short unfinished delimiter is held; the complete response is not rescanned.
 type ToolRoleMarkerGuard struct {
 	pending      string
 	tripped      bool
+	reason       CutReason
 	inCDATA      bool
 	quote        bool
 	escaped      bool
@@ -22,6 +23,13 @@ type ToolRoleMarkerGuard struct {
 
 func (g *ToolRoleMarkerGuard) Tripped() bool           { return g != nil && g.tripped }
 func (g *ToolRoleMarkerGuard) Feed(text string) string { return g.feed(text, false) }
+
+func (g *ToolRoleMarkerGuard) Reason() CutReason {
+	if g == nil {
+		return CutNone
+	}
+	return g.reason
+}
 
 func (g *ToolRoleMarkerGuard) feed(text string, final bool) string {
 	if g == nil || g.tripped {
@@ -130,7 +138,15 @@ func (g *ToolRoleMarkerGuard) feed(text string, final bool) string {
 		}
 		if len(tail) >= len(ToolRoleMarker) && strings.EqualFold(tail[:len(ToolRoleMarker)], ToolRoleMarker) {
 			g.tripped = true
+			g.reason = CutToolRoleMarker
 			return data[:i]
+		}
+		if matched, partial := scanTranscriptBoundary(tail); matched {
+			g.tripped = true
+			g.reason = CutTranscriptBoundary
+			return data[:i]
+		} else if partial && !final {
+			break
 		}
 		if !final && len(tail) < len(ToolRoleMarker) && strings.EqualFold(tail, ToolRoleMarker[:len(tail)]) {
 			break

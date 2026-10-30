@@ -148,7 +148,9 @@ func TestBuildToolCallInstructions_UsesPositiveTagPunctuationAlphabet(t *testing
 
 func TestToolCallFormatReminder_RestatesSkeletonVerbatim(t *testing.T) {
 	out := ToolCallFormatReminder()
-	want := `The only correct format for using tools is <|EPSE|tool_calls>
+	want := `For client-provided tools only:
+DSML-prefixed tags are strictly prohibited. Every invoke must include all required parameters from its declared schema.
+The only correct format for using tools is <|EPSE|tool_calls>
   <|EPSE|invoke name="TOOL_NAME_HERE">
     <|EPSE|parameter name="PARAMETER_NAME"><![CDATA[PARAMETER_VALUE]]></|EPSE|parameter>
   </|EPSE|invoke>

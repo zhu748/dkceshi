@@ -54,6 +54,9 @@ func Start(params StartParams) *Session {
 		Stream:      params.Standard.Stream,
 		UserInput:   ExtractSingleUserInput(params.Standard.Messages),
 		Messages:    ExtractAllMessages(params.Standard.Messages),
+		Tools:       chathistory.SnapshotJSON(params.Standard.ToolsRaw),
+		ToolChoice:  chathistory.SnapshotJSON(params.Standard.ToolChoice),
+		ToolMarker:  params.Standard.ToolMarker,
 		HistoryText: params.Standard.HistoryText,
 		FinalPrompt: params.Standard.FinalPrompt,
 	}
@@ -138,23 +141,7 @@ func lastNonEmptyMessageContent(messages []any) string {
 }
 
 func ExtractAllMessages(messages []any) []chathistory.Message {
-	out := make([]chathistory.Message, 0, len(messages))
-	for _, raw := range messages {
-		msg, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		role := strings.ToLower(strings.TrimSpace(asString(msg["role"])))
-		content := strings.TrimSpace(prompt.NormalizeContent(msg["content"]))
-		if role == "" || content == "" {
-			continue
-		}
-		out = append(out, chathistory.Message{
-			Role:    role,
-			Content: content,
-		})
-	}
-	return out
+	return chathistory.CaptureMessages(messages)
 }
 
 func (s *Session) Progress(thinking, content string) {

@@ -152,11 +152,11 @@ go test -v -run 'TestParseToolCalls|TestProcessToolSieve' ./internal/toolcall ./
 - 当意图为真（`SawToolCallIntent=true`）且确定性规则修复（含 CDATA slot）后仍存在无法解析的坏残片时，finalize 路径追加一次 LLM 修复：把系统提示中的「工具调用格式规范」（`toolcall.ToolCallFormatSpec`，与注入模型的规则逐字一致）+ 固定提示词 + 占位符清单 + 坏工具调用代码拼成 prompt 交给 LLM。
 - 触发范围：非流式 finalize + 所有流式 finalize 定稿（chat / responses / claude / gemini，发送最终帧前触发；若结构化 tool_calls 已在增量阶段流式发出则不再触发）。
 - 部分成功也修复：`SawToolCallIntent=true` 且残余 `ResidualIntentText` 非空时，即使已解析出 ≥1 个成功 call，也会对坏残片修复并把修复出的 call 合并进已有 calls（已有在前，按 name+input 去重）。
-- LLM 输出三路分支：① 正确工具调用格式 → 解析为 tool_calls 替换到输出；② 字面量 `NO TOOL` → 该片段并非工具调用，原样输出；③ 无法解析 / 超时 → 原样输出兜底片段。
+- LLM 输出三路分支：① 完整且通过来源一致性校验的工具调用 → 解析为 tool_calls；② 字面量 `NO TOOL`；③ 无法解析 / 超时 / 一致性校验失败。后两路返回失败状态，由共享交付校验决定是否可作为普通文本保留；明确包含已声明客户端工具调用的坏码返回 invalid_tool_arguments，不能依赖模型自报 NO TOOL 绕过。
 - 修复调用使用 default 模式（`deepseek-v4.1-flash` → `model_type=default`；网页客户端 2.4.0 合并 fast/expert/vision 后已无独立 vision 模式），同账号、关闭思考、新建 session、10 秒超时。
-- 固定提示词里原本要求「如果你认为接下来的内容只是在正常聊天，直接返回 NO TOOL」的那句已暂时移除：实测该提示容易误导模型把坏格式工具调用判成普通聊天，导致该修的调用不修。分支 ② 的判定代码保持不变，模型自发返回 `NO TOOL` 时仍按非工具调用处理。
+- 固定提示词里原本要求「如果你认为接下来的内容只是在正常聊天，直接返回 NO TOOL」的那句已暂时移除：实测该提示容易误导模型把坏格式工具调用判成普通聊天，导致该修的调用不修。分支 ② 的判定代码保持不变，最终是否属于普通文本由共享校验判断。
 - 固定提示词的占位符措辞必须与模型实际所见一致。早期版本声称「实际参数已用变量代替」，但未闭合 CDATA 不参与 slot，模型会同时看到占位符和原始长内容，指令与输入自相矛盾，反而诱导模型改写未被替换的部分。现在改为「可能已被替换」，并列出硬性要求：占位符逐字符原样输出、未替换内容逐字节保留、只允许改标签结构、每个 `parameter` 节点及其 `name` 必须保留、缺 `]]>` 要补齐。prompt 末尾还会追加本次占位符清单（`DS_SLOT_0 … DS_SLOT_{N-1}`）作为模型自检锚点。
-- 降级日志（`[toolcall_repair] degraded`）带 `interpretation` / `slot_count` / `skeleton_len` / `slot_degrade_reason`，可直接定位失败发生在哪一环。
+- 降级日志（`[toolcall_repair] degraded`）带 `interpretation` / `slot_count` / `skeleton_len` / `slot_degrade_reason`。`repair_integrity_failed` 区分来源节点/值变化，`incomplete_repair` 区分结果仍含坏调用；新增检查的错误消息不记录参数正文。
 - 对应实现：`internal/toolcall/toolcalls_llm_repair.go`、`internal/completionruntime/toolcall_repair.go`（经 `NewToolCallRepairInvoker` 注入 chat/claude/gemini/responses 各 surface）。
 
 ### 7.4 防御触发路径
@@ -165,4 +165,24 @@ go test -v -run 'TestParseToolCalls|TestProcessToolSieve' ./internal/toolcall ./
 
 ## Agent 交付边界更新
 
-正式工具目录的名称和参数在共享 assistant turn 收尾阶段校验；默认 auto 也限制声明工具名。坏的候选代码在开启 DeferMalformed 的流式 sieve 中隔离，修复前不输出为正文；修复失败才释放原片段。角色截断守卫跳过 CDATA、引号字符串及 Markdown 代码，不能把参数正文中的 `[Tool]:` 当成工具结果角色。数字参数采用无损 JSON 解码，字符串 CDATA 不改变类型。Responses custom tools 的内部参数为单个 input 字符串，具体 wire 事件由 Responses renderer 负责。详见 prompt-compatibility.md。
+正式工具目录的名称和参数在共享 assistant turn 收尾阶段校验；默认 auto 也限制声明工具名。坏的候选代码在开启 DeferMalformed 的流式 sieve 中隔离，修复前不输出为正文；明确的客户端调用修复失败返回 invalid_tool_arguments，不释放坏码。角色截断守卫跳过 CDATA、引号字符串及 Markdown 代码，不能把参数正文中的 `[Tool]:` 当成工具结果角色。数字参数采用无损 JSON 解码，字符串 CDATA 不改变类型。Responses custom tools 的内部参数为单个 input 字符串，具体 wire 事件由 Responses renderer 负责。详见 prompt-compatibility.md。
+
+### 修复结果完整性
+
+`repair_integrity.go` 比较修复前后的有名节点顺序及可确定的参数值，CDATA 占位符不能换到其他参数。
+贪婪/边界受限两种解释都必须先通过此校验再参与择优；备选解释不能通过丢弃未闭合参数取得成功。
+缺少工具名的原始调用也不能由修复模型自行猜一个工具名。最终输出必须解析完所有有名调用，残余坏调用使修复整体失败。
+JSON 兼容参数包只接受对象 input/parameters；空 input 的优先级在 Go 和 Node 中一致，不再被 parameters 替换。
+未闭合或未命名的 parameter 会使所属 invoke 失败，避免 schema 中的可选参数被静默漏掉。
+孤立的 DSML 结束标签与 EPSE 结束标签均只删除自身，流式处理继续扫描其后的正文和调用。
+
+
+## 完整原生 DSML 的收尾恢复
+
+普通 parser/sieve 对 DSML 的识别和隐藏规则仍按上文执行。共享 finalize 在 LLM 修复之前，
+会先由 `RecoverDSMLToolCalls` 尝试恢复完整 `calls/invoke/parameter` 层级。每个参数必须有
+明确的 `string="true"` 或 `string="false"`：前者保留原始字节，后者按 JSON 解析并保留大整数。
+未知属性、重复参数、缺少标签、未闭合 CDATA 和未被覆盖的其他工具意图都会使本地恢复失败，
+继续使用原有修复路径。完整本地恢复不发起 LLM 请求，也不补造参数，并继续接受统一工具选择
+及正式 schema 校验。此规则位于共享收尾边界；Vercel 的正式 tools 路径通过现有 Go 校验端点复用。
+离线回放命令与样本结论见 [tool-call-history-audit.md](tool-call-history-audit.md)。

@@ -241,7 +241,8 @@ func findToolSegmentStart(state *State, s string) int {
 			offset = end + 1
 			continue
 		}
-		if markdown.fromPrior {
+		tag, isToolTag := toolcall.FindToolMarkupTagOutsideIgnored(s, start)
+		if markdown.fromPrior || (isToolTag && tag.Start == start && tag.Closing) {
 			return holdToolSegmentStart
 		}
 		return start
@@ -363,6 +364,14 @@ func consumeToolCapture(state *State, toolNames []string, final bool) (prefix st
 	captured := state.capture.String()
 	if captured == "" {
 		return "", nil, "", false
+	}
+	// Real blocks consume their closes atomically. A fresh leading close is
+	// an orphan, not malformed invocation text awaiting the repair pass.
+	if tag, ok := toolcall.FindToolMarkupTagOutsideIgnored(captured, 0); ok && tag.Start == 0 && tag.Closing {
+		return "", nil, captured[tag.End+1:], true
+	}
+	if tag, ok := toolcall.FindDSMLTagOutsideIgnored(captured, 0); ok && tag.Start == 0 && tag.Closing {
+		return "", nil, captured[tag.End+1:], true
 	}
 
 	// XML tool call extraction only.

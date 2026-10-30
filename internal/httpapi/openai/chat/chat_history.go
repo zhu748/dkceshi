@@ -44,6 +44,9 @@ func startChatHistoryWithUsage(store *chathistory.Store, usage *usagestats.Store
 		Stream:      stdReq.Stream,
 		UserInput:   extractSingleUserInput(stdReq.Messages),
 		Messages:    extractAllMessages(stdReq.Messages),
+		Tools:       chathistory.SnapshotJSON(stdReq.ToolsRaw),
+		ToolChoice:  chathistory.SnapshotJSON(stdReq.ToolChoice),
+		ToolMarker:  stdReq.ToolMarker,
 		HistoryText: stdReq.HistoryText,
 		FinalPrompt: stdReq.FinalPrompt,
 	}
@@ -139,23 +142,7 @@ func lastNonEmptyMessageContent(messages []any) string {
 }
 
 func extractAllMessages(messages []any) []chathistory.Message {
-	out := make([]chathistory.Message, 0, len(messages))
-	for _, raw := range messages {
-		msg, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		role := strings.ToLower(strings.TrimSpace(asString(msg["role"])))
-		content := strings.TrimSpace(prompt.NormalizeContent(msg["content"]))
-		if role == "" || content == "" {
-			continue
-		}
-		out = append(out, chathistory.Message{
-			Role:    role,
-			Content: content,
-		})
-	}
-	return out
+	return chathistory.CaptureMessages(messages)
 }
 
 func (s *chatHistorySession) progress(thinking, content string) {

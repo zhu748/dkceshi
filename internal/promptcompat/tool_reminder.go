@@ -32,7 +32,9 @@ func (c ToolReminderConfig) ReminderText() string {
 		return ""
 	}
 	if prompt := strings.TrimSpace(c.Prompt); prompt != "" {
-		return prompt
+		if !isLegacyBuiltinToolReminder(prompt) {
+			return prompt
+		}
 	}
 	return DefaultBottomFormatInjectionPrompt
 }
