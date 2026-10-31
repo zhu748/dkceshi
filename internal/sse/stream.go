@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -48,15 +47,7 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 		// cancelled so a scan goroutine blocked on a dead upstream connection
 		// (no data, no EOF) is unblocked instead of leaking forever while
 		// holding the connection and its buffers.
-		stopBodyClose := func() bool { return false }
-		if closer, ok := body.(io.Closer); ok {
-			stopBodyClose = context.AfterFunc(ctx, func() {
-				if err := closer.Close(); err != nil {
-					slog.Warn("[sse] close cancelled stream failed", "error", err)
-				}
-			})
-		}
-		defer stopBodyClose()
+		defer closeStreamBodyOnCancel(ctx, body)()
 
 		reader := bufio.NewReaderSize(body, lineReaderBufferSize)
 		currentType := initialType
