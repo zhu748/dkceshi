@@ -28,7 +28,7 @@
 
 对本解析语义的影响：
 
-- M **不属于**上面列出的可容忍噪声前缀：解析层不会把任意 6 位前缀当作协议壳噪声，因此未归一化的 M 形态标签会被当作普通文本整段透传（`internal/toolstream/marker_stream_test.go` 的 `TestProcessToolSieveNeedsMarkerNormalization` 固化了这一点）。注意这条只约束**流式 sieve 的分片持有判定**（`IsPartialToolMarkupTagPrefix` 只认 EPSE / 规范标签名）；最终解析（`ParseStandaloneToolCallsDetailed` → `canonicalizeToolCallCandidateSpans`）本身容忍任意前缀，所以流式阶段漏掉的拦截在收口重解析时仍能恢复成工具调用。
+- 动态标识先由归一化器折回 EPSE。作为格式漂移兜底，流式层也暂存不超过 128 UTF-8 字节的未知半截标签名，直到能识别固定本地名或确定为普通文本；该限制不作用于已识别的标签属性和参数值。`TestProcessToolSieveUnknownMarkerFallback` 和跨分片错误标识回归覆盖未归一化标识的安全捕获，避免先泄漏正文、收尾再解析成调用。
 - 所以模型输出在进入 sieve / parser / 意图识别 / 兜底修复之前，必须由**有状态**归一化器把 M 折回 `EPSE`。Go：`internal/toolcall/marker.go` 的 `MarkerNormalizer` + `toolstream.State.Marker`（`ProcessChunk` / `Flush` 内部自动执行）+ `assistantturn.BuildOptions.ToolMarker`（收口幂等兜底）；Node / Vercel：`internal/js/chat-stream/marker.js`。归一化跨分片安全：尾部若为 M 的真前缀会先 hold，下一片到达再替换，收尾 flush 释放，因此半截标识不会泄漏成可见正文。hold 的判定基准是**最后一个完整 M 出现之后的残余**，而不是整个缓冲区：完整出现的尾部本身就是 M，以整个缓冲区为基准时自重叠标识（`N3KZ5N`）会把「本次出现已完整」误判成「下一次出现刚开始」，把完整出现切成「已释放的半截 + 被 hold 的尾部」并泄漏成可见正文。派生阶段同时排除自重叠标识（`DeriveToolMarker` 的两条不变量），此处是有意保留的第二道防线。
 - 本文档其余所有语义（EPSE 外壳、噪声前缀容错、简写形态、CDATA 边界修复、`sawToolCallIntent` 的 `<|EPSE` 成对判定、slot 修复）都以**归一化之后**的 EPSE 形态文本为前提。
 - 兜底修复（LLM repair）的 prompt（格式规范 + 固定提示词）同样按 M 渲染，模型回答在解析前归一化回 EPSE；残余坏码本身来自已归一化的内部文本，slot / 结构判定不受影响。
@@ -96,7 +96,7 @@
 
 解析层不会因为参数值为空而丢弃工具调用。若模型输出了显式空字符串或纯空白参数，它们会按空字符串进入结构化 `tool_calls`；是否拒绝缺参或空命令应由后续工具执行侧 / 客户端 schema 校验决定。Prompt 层仍会要求模型不要主动输出空参数。
 
-完整的 EPSE / XML wrapper 只有在成功解析出有效 `invoke name`，并且参数节点（如存在）符合 `parameter` 语义后，才会变成结构化工具调用；真正的零参数工具调用仍然有效。如果 wrapper 完整但内部不是可执行工具调用形态（例如使用 `<param>`、缺少有效 `invoke name`、或其他 malformed XML 工具壳），流式 sieve 会把原始 wrapper 作为普通文本释放，不会吞掉内容，也不会生成空的工具调用。
+完整的 EPSE / XML wrapper 只有在成功解析出有效 `invoke name`，并且参数节点（如存在）符合 `parameter` 语义后，才会变成结构化工具调用；真正的零参数工具调用仍然有效。如果 wrapper 完整但内部不是可执行工具调用形态（例如使用 `<param>`、缺少有效 `invoke name`、或其他 malformed XML 工具壳），底层 sieve 默认模式仍可返回文本事件；生产路径开启 DeferMalformed，将其隔离到共享收尾。具名调用修复失败时报错，不能将坏块释放为成功正文或执行部分批次。
 
 ## 5) 落地建议
 
@@ -155,7 +155,7 @@ go test -v -run 'TestParseToolCalls|TestProcessToolSieve' ./internal/toolcall ./
 
 - 当意图为真（`SawToolCallIntent=true`）且确定性规则修复（含 CDATA slot）后仍存在无法解析的坏残片时，finalize 路径追加一次 LLM 修复：把系统提示中的「工具调用格式规范」（`toolcall.ToolCallFormatSpec`，与注入模型的规则逐字一致）+ 固定提示词 + 占位符清单 + 坏工具调用代码拼成 prompt 交给 LLM。
 - 触发范围：非流式 finalize + 所有流式 finalize 定稿（chat / responses / claude / gemini，发送最终帧前触发；若结构化 tool_calls 已在增量阶段流式发出则不再触发）。
-- 部分成功也修复：`SawToolCallIntent=true` 且残余 `ResidualIntentText` 非空时，即使已解析出 ≥1 个成功 call，也会对坏残片修复并把修复出的 call 合并进已有 calls（已有在前，按 name+input 去重）。
+- 部分成功也修复：`SawToolCallIntent=true` 且残余 `ResidualIntentText` 非空时，对去除 Markdown 示例后的完整来源批次进行一次修复。成功结果整批替换；完整性检查保留原调用顺序与每次独立出现，不按 name+input 去重。
 - LLM 输出三路分支：① 完整且通过来源一致性校验的工具调用 → 解析为 tool_calls；② 字面量 `NO TOOL`；③ 无法解析 / 超时 / 一致性校验失败。后两路返回失败状态，由共享交付校验决定是否可作为普通文本保留；明确包含已声明客户端工具调用的坏码返回 invalid_tool_arguments，不能依赖模型自报 NO TOOL 绕过。
 - 修复调用使用 default 模式（`deepseek-v4.1-flash` → `model_type=default`；网页客户端 2.4.0 合并 fast/expert/vision 后已无独立 vision 模式），同账号、关闭思考、新建 session、10 秒超时。
 - 固定提示词里原本要求「如果你认为接下来的内容只是在正常聊天，直接返回 NO TOOL」的那句已暂时移除：实测该提示容易误导模型把坏格式工具调用判成普通聊天，导致该修的调用不修。分支 ② 的判定代码保持不变，最终是否属于普通文本由共享校验判断。
@@ -192,5 +192,16 @@ JSON 兼容参数包只接受对象 input/parameters；空 input 的优先级在
 明确的 `string="true"` 或 `string="false"`：前者保留原始字节，后者按 JSON 解析并保留大整数。
 未知属性、重复参数、缺少标签、未闭合 CDATA 和未被覆盖的其他工具意图都会使本地恢复失败，
 继续使用原有修复路径。完整本地恢复不发起 LLM 请求，也不补造参数，并继续接受统一工具选择
-及正式 schema 校验。此规则位于共享收尾边界；Vercel 的正式 tools 路径通过现有 Go 校验端点复用。
+及正式 schema 校验。此规则位于共享收尾边界；Vercel 的全部候选工具调用通过现有 Go 校验端点复用，包括无正式目录的续聊。
 离线回放命令与样本结论见 [tool-call-history-audit.md](tool-call-history-audit.md)。
+
+
+### 完整性、交付和长参数
+
+- wrapper 只有在全部 invoke 有效且节点间内容完整消费时才会从残余检测中扣除。未知、残缺兄弟调用继续进入修复；parameter 节点间只允许空白及完整注释，可选参数也不能静默丢弃。
+- 完整 DSML 和完整 canonical 调用可在同批次交错恢复，按源顺序返回；混入无法解释的具名调用时拒绝局部恢复。修复存在孤立 CDATA 闭合符的歧义来源时也拒绝截断解释。
+- Chat、Responses、Claude、Gemini Go 流式路径对完整批次统一收尾，包括无正式目录的兼容调用。Node 对所有候选调用执行 Go 收尾，交付 Go 返回的完整参数 JSON 字符串；局部 Node 解析仅用于捕获与提示，不能提前执行或将大整数转为 JavaScript Number 后交付。
+- 捕获超过 4 KiB 后只增量检查新片段中的潜在闭合结构，未出现时不重跑完整解析器。EOF 始终完整解析。该优化不更改 CDATA、Markdown 和参数保真规则。
+- Claude 隐藏工具思考和被清理的原始工具片段均更新上游活动计时。
+
+Gemini 在无工具目录的 agent 续轮中同样执行增量筛分：普通正文实时发送，所有候选 functionCall 在共享收尾通过后整批发送；已经发送正文时禁止重新生成。永久上游错误、审核及输入错误沿用共享重试策略，不作为空输出重试。

@@ -173,7 +173,11 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
         const reply = replies[Math.min(validationCalls++, replies.length - 1)];
         return jsonResponse(reply.body, reply.status || 200);
       }
-      return jsonResponse(prepareOverrides.validation_result || { tool_calls: [] }, prepareOverrides.validation_status || 200);
+      const candidate = JSON.parse(String(init.body));
+      const parser = require('../../internal/js/helpers/stream-tool-sieve');
+      const calls = parser.parseStandaloneToolCalls(candidate.content || candidate.detection_thinking || candidate.thinking || '', prepareBody.tool_names);
+      const fallback = { tool_calls: parser.formatOpenAIStreamToolCalls(calls, new Map()) };
+      return jsonResponse(prepareOverrides.validation_result || fallback, prepareOverrides.validation_status || 200);
     }
     if (textURL.includes('__stream_switch=1')) {
       return jsonResponse(prepareOverrides.switch_result || { error: 'no alternate account' }, prepareOverrides.switch_result ? 200 : 429);
@@ -881,17 +885,17 @@ test('vercel stream keeps stop finish when content_filter arrives after visible 
   assert.equal(parsed[1].usage.completion_tokens, 1);
 });
 
-test('resolveToolcallPolicy defaults to feature-match + early emit when prepare flags missing', () => {
+test('resolveToolcallPolicy requires final validation when prepare flags missing', () => {
   const policy = resolveToolcallPolicy(
     {},
     [{ type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } }],
   );
   assert.deepEqual(policy.toolNames, ['read_file']);
   assert.equal(policy.toolSieveEnabled, true);
-  assert.equal(policy.emitEarlyToolDeltas, true);
+  assert.equal(policy.emitEarlyToolDeltas, false);
 });
 
-test('resolveToolcallPolicy ignores prepare flags and keeps early emit enabled', () => {
+test('resolveToolcallPolicy ignores obsolete early-emit flags', () => {
   const policy = resolveToolcallPolicy(
     {
       tool_names: [' prepped_tool ', '', null],
@@ -902,7 +906,7 @@ test('resolveToolcallPolicy ignores prepare flags and keeps early emit enabled',
   );
   assert.deepEqual(policy.toolNames, ['prepped_tool']);
   assert.equal(policy.toolSieveEnabled, true);
-  assert.equal(policy.emitEarlyToolDeltas, true);
+  assert.equal(policy.emitEarlyToolDeltas, false);
 });
 
 test('normalizePreparedToolNames filters empty values', () => {
@@ -2285,4 +2289,67 @@ test('vercel stream replays truncated JSON body without locking the reader', asy
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+
+test('canonical malformed prefix is deferred until Go rejects the entire batch', async () => {
+  const bad = '<tool_calls><invoke name="write"><param name="path">a.txt</param></invoke></tool_calls>';
+  const good = '<tool_calls><invoke name="read"></invoke></tool_calls>';
+  const result = await runMockVercelStream(['data: ' + JSON.stringify({ p: 'response/content', v: bad + good }) + '\n\n', 'data: [DONE]\n\n'], {
+    validate_tools: true, tool_names: ['read', 'write'],
+    validation_status: 422, validation_result: { error: { code: 'invalid_tool_arguments', message: 'incomplete write' } },
+  });
+  const frames = result.frames.filter(x => x !== '[DONE]').map(JSON.parse);
+  assert.ok(frames.some(x => x.error?.code === 'invalid_tool_arguments'));
+  assert.ok(result.fetchURLs.some(url => url.includes('__stream_validate=1')));
+  assert.ok(!frames.some(x => x.choices?.some(c => c.delta?.content || c.delta?.tool_calls)));
+});
+
+test('schema-less broken EPSE is validated and never flushed as successful text', async () => {
+  const raw = '<|EPSE|call name="write"><|EPSE|parameter name="path">a.txt</|EPSE|parameter></|EPSE|call>';
+  const result = await runMockVercelStream(['data: ' + JSON.stringify({ p: 'response/content', v: raw }) + '\n\n', 'data: [DONE]\n\n'], {
+    validate_tools: false, tool_names: [], validation_status: 422,
+    validation_result: { error: { code: 'invalid_tool_arguments', message: 'malformed call' } },
+  });
+  const frames = result.frames.filter(x => x !== '[DONE]').map(JSON.parse);
+  assert.ok(frames.some(x => x.error?.code === 'invalid_tool_arguments'));
+  assert.ok(!result.res.bodyText().includes('EPSE'));
+  assert.ok(!frames.some(x => x.choices?.some(c => c.delta?.tool_calls)));
+});
+
+test('schema-less continuation delivers exact Go-finalized large integer arguments', async () => {
+  const raw = '<tool_calls><invoke name="lookup"><parameter name="id">9007199254740993</parameter></invoke></tool_calls>';
+  const wire = [{ index: 0, id: 'call_exact', type: 'function', function: { name: 'lookup', arguments: '{"id":9007199254740993}' } }];
+  const result = await runMockVercelStream(['data: ' + JSON.stringify({ p: 'response/content', v: raw }) + '\n\n', 'data: [DONE]\n\n'], {
+    validate_tools: false, tool_names: [], validation_result: { tool_calls: wire },
+  });
+  assert.equal(result.fetchURLs.filter(url => url.includes('__stream_validate=1')).length, 1);
+  const calls = result.frames.filter(x => x !== '[DONE]').map(JSON.parse).flatMap(x => x.choices || []).flatMap(x => x.delta?.tool_calls || []);
+  assert.deepEqual(calls, wire);
+});
+
+test('drifted caller marker stays hidden across small fragments and finalizes once', async () => {
+  const raw = '<|Q7ZK3N|tool_calls><|Q7ZK3N|invoke name="read"><|Q7ZK3N|parameter name="path"><![CDATA[a.txt]]></|Q7ZK3N|parameter></|Q7ZK3N|invoke></|Q7ZK3N|tool_calls>';
+  const wire = [{ index: 0, id: 'call_drift', type: 'function', function: { name: 'read', arguments: '{"path":"a.txt"}' } }];
+  for (const size of [1, 2, 7, 16]) {
+    const lines = [];
+    for (let i = 0; i < raw.length; i += size) lines.push('data: ' + JSON.stringify({ p: 'response/content', v: raw.slice(i, i + size) }) + '\n\n');
+    lines.push('data: [DONE]\n\n');
+    const result = await runMockVercelStream(lines, { tool_marker: 'Q7ZK3M', validation_result: { tool_calls: wire } });
+    const frames = result.frames.filter(x => x !== '[DONE]').map(JSON.parse);
+    assert.ok(!frames.some(x => x.choices?.some(c => c.delta?.content)));
+    assert.deepEqual(frames.flatMap(x => x.choices || []).flatMap(x => x.delta?.tool_calls || []), wire);
+  }
+});
+
+test('native DSML with no formal tools still reaches Go recovery', async () => {
+  const raw = '<DSML calls><DSML invoke name="read"><DSML parameter name="path" string="true">a.txt</DSML parameter></DSML invoke></DSML calls>';
+  const wire = [{ index: 0, id: 'call_dsml', type: 'function', function: { name: 'read', arguments: '{"path":"a.txt"}' } }];
+  const result = await runMockVercelStream(['data: ' + JSON.stringify({ p: 'response/content', v: raw }) + '\n\n', 'data: [DONE]\n\n'], {
+    validate_tools: false, tool_names: [], validation_result: { tool_calls: wire },
+  });
+  assert.equal(result.fetchURLs.filter(url => url.includes('__stream_validate=1')).length, 1);
+  assert.ok(!result.res.bodyText().includes('DSML'));
+  const calls = result.frames.filter(x => x !== '[DONE]').map(JSON.parse).flatMap(x => x.choices || []).flatMap(x => x.delta?.tool_calls || []);
+  assert.deepEqual(calls, wire);
 });

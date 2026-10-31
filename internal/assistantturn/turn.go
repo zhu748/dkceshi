@@ -3,7 +3,6 @@ package assistantturn
 import (
 	"context"
 	"net/http"
-	"reflect"
 	"strings"
 
 	"ds2api/internal/promptcompat"
@@ -83,7 +82,7 @@ type BuildOptions struct {
 	ToolChoice            promptcompat.ToolChoicePolicy
 	// ToolCallRepair, when non-nil, enables the phase-3 LLM tool-call repair
 	// pass in the finalize path: if the parsed result found a residual tool
-	// call intent but zero calls, the residual bad code is handed to this
+	// call intent, the complete source batch is handed to this
 	// invoker for repair. It must never be wired into the per-chunk streaming
 	// sieve (plan/tool-call-fallback-design-phase3.md §5.1).
 	ToolCallRepair toolcall.ToolCallRepairInvoker
@@ -103,25 +102,10 @@ type BuildOptions struct {
 	PromptTokenCountFn func(prompt string) (count int, ok bool)
 }
 
-// maybeRepairToolCalls tries conservative native DSML recovery, followed by
-// the phase-3 finalize-only LLM repair pass when an invoker is available. It
-// returns repaired calls (branch ①) or nil for the fallback branches (② NO
-// TOOL, ③ unparseable/timeout/error). The final validator rejects unresolved
-// named client calls before delivery; non-call prose keeps its legacy fallback.
-// It is a no-op unless the parse found residual intent or unparsed syntax.
-//
-// Per phase1 §5.1 / phase3, it fires whenever there is a residual tool-call
-// intent, INCLUDING the partial-success case where some calls parsed but a bad
-// residual fragment remains (SawToolCallIntent && ResidualIntentText != ""):
-// the residual is repaired and the caller merges the repaired calls with the
-// already-parsed ones. The all-failed case (zero calls) is the classic branch.
-//
-// It also carries a defensive fallback (Direction 4): when the residual intent
-// probe missed a residual but the deterministic parser still saw tool-call
-// syntax and produced zero calls (SawToolCallSyntax && len(Calls)==0), the raw
-// un-stripped text is handed to the repair layer. This closes the silent-leak
-// gap where any intent-detection false negative would emit bad tool-call code
-// as visible text.
+// maybeRepairToolCalls runs only at finalization when syntax or residual intent
+// needs recovery. A successful repair replaces the whole ordered source batch;
+// format-only integrity checks preserve every named occurrence and argument.
+// The returned residual identifies visible bad markup that can be removed.
 func maybeRepairToolCalls(parsed toolcall.ToolCallParseResult, rawText string, opts BuildOptions) ([]toolcall.ParsedToolCall, string) {
 	badCode := strings.TrimSpace(parsed.ResidualIntentText)
 	replaceable := parsed.SawToolCallIntent && badCode != ""
@@ -142,6 +126,12 @@ func maybeRepairToolCalls(parsed toolcall.ToolCallParseResult, rawText string, o
 		// text.
 		replaceable = false
 	}
+	// Repair the whole source batch, including already parsed siblings. The
+	// repair integrity manifest binds every occurrence to its original order;
+	// appending residual calls or value-based deduplication cannot do that.
+	if parsed.SourceText != "" {
+		badCode = parsed.SourceText
+	}
 	if badCode == "" {
 		return nil, ""
 	}
@@ -157,7 +147,7 @@ func maybeRepairToolCalls(parsed toolcall.ToolCallParseResult, rawText string, o
 	if !replaceable {
 		return normalized, ""
 	}
-	return normalized, badCode
+	return normalized, parsed.ResidualIntentText
 }
 
 // deductRepairedSource removes the bad tool-markup regions that a successful
@@ -187,42 +177,6 @@ func deductRepairedSource(text, residual string) string {
 		return text
 	}
 	return strings.TrimSpace(text[:idx] + text[idx+len(replaced):])
-}
-
-// mergeRepairedToolCalls appends repaired residual calls to the already-parsed
-// calls, preserving parse order (existing calls first, repaired residual after)
-// and dropping repaired calls that duplicate an existing one. This implements
-// the phase1 §5.1 partial-success merge semantics: successful calls are kept,
-// the failed residual is repaired, and the two sets are combined.
-func mergeRepairedToolCalls(existing, repaired []toolcall.ParsedToolCall) []toolcall.ParsedToolCall {
-	if len(repaired) == 0 {
-		return existing
-	}
-	if len(existing) == 0 {
-		return repaired
-	}
-	merged := make([]toolcall.ParsedToolCall, 0, len(existing)+len(repaired))
-	merged = append(merged, existing...)
-	for _, rc := range repaired {
-		dup := false
-		for _, ec := range existing {
-			if toolCallsEqual(ec, rc) {
-				dup = true
-				break
-			}
-		}
-		if !dup {
-			merged = append(merged, rc)
-		}
-	}
-	return merged
-}
-
-func toolCallsEqual(a, b toolcall.ParsedToolCall) bool {
-	if a.Name != b.Name {
-		return false
-	}
-	return reflect.DeepEqual(a.Input, b.Input)
 }
 
 type StreamSnapshot struct {
@@ -262,7 +216,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	repairCompleted := false
 	if result.ReadError == nil {
 		if repaired, replaced := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
-			calls = mergeRepairedToolCalls(calls, repaired)
+			calls = repaired
 			text = deductRepairedSource(text, replaced)
 			repairCompleted = true
 		}
@@ -333,12 +287,11 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	// M4/M3: run the finalize LLM repair before delivering the final frame,
 	// unless structured tool calls were already streamed to the client (we
 	// cannot retract emitted tool_calls). When only bad text was streamed, the
-	// finalize replaces it with the repaired tool_calls (phase1 §5.3 / phase3
-	// §5.1): with tool_calls present, the caller emits no visible text. Partial
-	// success merges repaired residual calls into the parsed ones (phase1 §5.1).
+	// finalize replaces it with the repaired tool_calls. Partial success is
+	// repaired as one ordered batch without value-based deduplication.
 	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
 		if repaired, replaced := maybeRepairToolCalls(parsed, snapshot.RawText, opts); len(repaired) > 0 {
-			calls = mergeRepairedToolCalls(calls, repaired)
+			calls = repaired
 			text = deductRepairedSource(text, replaced)
 			repairCompleted = true
 		}

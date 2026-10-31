@@ -50,7 +50,6 @@ internal/mihomo/health.go	457
 internal/mihomo/manager.go	714
 internal/mihomo/sharelinks.go	444
 internal/promptcompat/image_route.go	310
-internal/promptcompat/request_normalize.go	455
 internal/responsehistory/session.go	380
 internal/server/router.go	503
 internal/sse/stream.go	380

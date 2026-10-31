@@ -13,7 +13,6 @@ import (
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/textclean"
-	"ds2api/internal/toolstream"
 	"ds2api/internal/usagestats"
 )
 
@@ -112,8 +111,4 @@ func emptyOutputRetryEnabled() bool {
 
 func emptyOutputRetryMaxAttempts() int {
 	return completionruntime.EmptyOutputRetryMaxAttempts()
-}
-
-func filterIncrementalToolCallDeltasByAllowed(deltas []toolstream.ToolCallDelta, seenNames map[int]string) []toolstream.ToolCallDelta {
-	return shared.FilterIncrementalToolCallDeltasByAllowed(deltas, seenNames)
 }

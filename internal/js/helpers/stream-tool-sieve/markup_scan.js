@@ -2,6 +2,7 @@
 
 // Tool/DSML tag scanning, nesting and incomplete-tag detection.
 const { toRawString } = require('./state');
+const { unfinishedToolTagName, includeDuplicateLeadingLessThan } = require('./body_integrity');
 const {
   skipXmlIgnoredSection,
 } = require('./cdata_scan');
@@ -228,14 +229,6 @@ function findPartialToolMarkupStart(text) {
   return isPartialToolMarkupTagPrefix(tail) ? start : -1;
 }
 
-function includeDuplicateLeadingLessThan(text, idx) {
-  let out = idx;
-  while (out > 0 && isXmlTagStartDelimiter(text[out - 1])) {
-    out -= 1;
-  }
-  return out;
-}
-
 function isPartialToolMarkupTagPrefix(text) {
   const raw = toRawString(text);
   if (!raw || !isXmlTagStartDelimiter(raw[0]) || containsXmlTagTerminator(raw)) {
@@ -244,6 +237,7 @@ function isPartialToolMarkupTagPrefix(text) {
   if (isPartialDSMLTagPrefix(raw)) {
     return true;
   }
+  if (unfinishedToolTagName(raw)) return true;
   const lower = raw.toLowerCase();
   let i = 1;
   while (i < raw.length && isXmlTagStartDelimiter(raw[i])) {

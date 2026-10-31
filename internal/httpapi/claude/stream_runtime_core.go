@@ -46,6 +46,7 @@ type claudeStreamRuntime struct {
 	rawThinking           strings.Builder
 	toolDetectionThinking strings.Builder
 	toolCallsDetected     bool
+	toolCallsPending      bool
 
 	// policy is the set of cut rules applied to the raw text channel — the
 	// upstream closing-tag repetition loop and the hallucinated `[Tool]:` role
@@ -142,6 +143,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		trimmed := sse.TrimContinuationOverlapFromBuilder(&s.toolDetectionThinking, p.Text)
 		if trimmed != "" {
 			s.toolDetectionThinking.WriteString(trimmed)
+			contentSeen = true
 		}
 	}
 	for _, p := range parsed.Parts {
@@ -166,15 +168,15 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 			}
 			s.rawText.WriteString(rawTrimmed)
 		}
+		// Raw tool markup and hidden reasoning reset the activity watchdog.
+		contentSeen = true
 		cleanedText := cleanVisibleOutput(rawTrimmed, s.stripReferenceMarkers)
-		if cleanedText == "" {
+		if cleanedText == "" && !s.bufferToolContent {
 			continue
 		}
 		if p.Type != "thinking" && s.searchEnabled && sse.IsCitation(cleanedText) {
 			continue
 		}
-		contentSeen = true
-
 		if p.Type == "thinking" {
 			if !s.thinkingEnabled {
 				continue
@@ -245,20 +247,10 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 				continue
 			}
 			if len(evt.ToolCalls) > 0 {
-				if s.toolChoice.Constrained() || s.toolsRaw != nil {
-					continue
-				}
-				s.closeTextBlock()
-				s.toolCallsDetected = true
-				normalized := toolcall.NormalizeParsedToolCallsForSchemas(evt.ToolCalls, s.toolsRaw)
-				for _, tc := range normalized {
-					idx := s.nextBlockIndex
-					s.nextBlockIndex++
-					s.sendToolUseBlock(idx, tc)
-				}
+				s.toolCallsPending = true
 				continue
 			}
-			if evt.Content == "" {
+			if evt.Content == "" || s.toolCallsPending {
 				continue
 			}
 			cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)

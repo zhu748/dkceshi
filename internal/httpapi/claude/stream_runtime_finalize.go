@@ -76,20 +76,10 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 				continue
 			}
 			if len(evt.ToolCalls) > 0 {
-				if s.toolChoice.Constrained() || s.toolsRaw != nil {
-					continue
-				}
-				s.closeTextBlock()
-				s.toolCallsDetected = true
-				normalized := toolcall.NormalizeParsedToolCallsForSchemas(evt.ToolCalls, s.toolsRaw)
-				for _, tc := range normalized {
-					idx := s.nextBlockIndex
-					s.nextBlockIndex++
-					s.sendToolUseBlock(idx, tc)
-				}
+				s.toolCallsPending = true
 				continue
 			}
-			if evt.Content != "" {
+			if evt.Content != "" && !s.toolCallsPending {
 				cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)
 				if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 					continue

@@ -41,13 +41,13 @@ func (s *responsesStreamRuntime) sendDone() {
 	}
 }
 
-func (s *responsesStreamRuntime) processToolStreamEvents(events []toolstream.Event, emitContent bool, resetAfterToolCalls bool) {
+func (s *responsesStreamRuntime) processToolStreamEvents(events []toolstream.Event, emitContent bool, _ bool) {
 	for _, evt := range events {
 		if evt.Deferred {
 			s.deferredText.WriteString(evt.Content)
 			continue
 		}
-		if emitContent && evt.Content != "" && !s.toolCallsEmitted {
+		if emitContent && evt.Content != "" && !s.toolCallsEmitted && !s.toolCallsPending {
 			// 已发出 tool_calls 后，工具调用块之后的尾巴正文不再透传，
 			// 避免工具调用最后几行结果泄漏到正文。
 			cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)
@@ -55,28 +55,8 @@ func (s *responsesStreamRuntime) processToolStreamEvents(events []toolstream.Eve
 				s.emitTextDelta(cleaned)
 			}
 		}
-		if len(evt.ToolCallDeltas) > 0 {
-			if !s.emitEarlyToolDeltas {
-				continue
-			}
-			deltas := append([]toolstream.ToolCallDelta(nil), evt.ToolCallDeltas...)
-			for i := range deltas {
-				deltas[i].Index += s.toolCallOffset
-			}
-			filtered := filterIncrementalToolCallDeltasByAllowed(deltas, s.functionNames)
-			if len(filtered) == 0 {
-				continue
-			}
-			s.emitFunctionCallDeltaEvents(filtered)
-		}
-		if len(evt.ToolCalls) > 0 {
-			if s.toolChoice.Constrained() || s.toolsRaw != nil {
-				continue
-			}
-			s.emitFunctionCallDoneEvents(evt.ToolCalls, s.toolCallOffset)
-			if resetAfterToolCalls {
-				s.resetStreamToolCallState()
-			}
+		if len(evt.ToolCallDeltas) > 0 || len(evt.ToolCalls) > 0 {
+			s.toolCallsPending = true
 		}
 	}
 }

@@ -288,7 +288,7 @@ func TestBuildTurnFromCollectedPartialSuccessMerges(t *testing.T) {
 	good := `<|EPSE|tool_calls><|EPSE|invoke name="Write"><|EPSE|parameter name="content"><![CDATA[hi]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
 	bad := `<|EPSE|call name="Bash"><|EPSE|parameter name="command"><![CDATA[pwd]]></|EPSE|parameter></|EPSE|call>`
 	invoke := func(_ context.Context, _ string) (string, error) {
-		return `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[DS_SLOT_0]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+		return `<|EPSE|tool_calls><|EPSE|invoke name="Write"><|EPSE|parameter name="content"><![CDATA[DS_SLOT_0]]></|EPSE|parameter></|EPSE|invoke><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[DS_SLOT_1]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
 	}
 	turn := BuildTurnFromCollected(sse.CollectResult{Text: good + bad}, BuildOptions{
 		ToolNames:         []string{"Write", "Bash"},
@@ -309,23 +309,6 @@ func TestBuildTurnFromCollectedPartialSuccessMerges(t *testing.T) {
 	}
 	if turn.StopReason != StopReasonToolCalls {
 		t.Fatalf("expected tool_calls stop reason, got %q", turn.StopReason)
-	}
-}
-
-// TestMergeRepairedToolCallsDeduplicates verifies the merge drops repaired
-// calls that duplicate an existing parsed call.
-func TestMergeRepairedToolCallsDeduplicates(t *testing.T) {
-	existing := []toolcall.ParsedToolCall{{Name: "Bash", Input: map[string]any{"command": "pwd"}}}
-	repaired := []toolcall.ParsedToolCall{
-		{Name: "Bash", Input: map[string]any{"command": "pwd"}}, // dup
-		{Name: "Write", Input: map[string]any{"content": "hi"}}, // new
-	}
-	merged := mergeRepairedToolCalls(existing, repaired)
-	if len(merged) != 2 {
-		t.Fatalf("expected 2 merged calls (dedup), got %d", len(merged))
-	}
-	if merged[0].Name != "Bash" || merged[1].Name != "Write" {
-		t.Fatalf("unexpected merge order: %+v", merged)
 	}
 }
 
@@ -497,7 +480,7 @@ func TestBuildTurnFromCollectedRepairDeductsDSMLPartialSuccess(t *testing.T) {
 	good := `<|EPSE|tool_calls><|EPSE|invoke name="Write"><|EPSE|parameter name="content">hi</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
 	bad := `<DSML calls><DSML invoke name="read"><DSML parameter name="path">/tmp/a.txt</DSML parameter></DSML invoke></DSML calls>`
 	invoke := func(_ context.Context, _ string) (string, error) {
-		return `<|EPSE|tool_calls><|EPSE|invoke name="read"><|EPSE|parameter name="path">/tmp/a.txt</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
+		return `<|EPSE|tool_calls><|EPSE|invoke name="Write"><|EPSE|parameter name="content">hi</|EPSE|parameter></|EPSE|invoke><|EPSE|invoke name="read"><|EPSE|parameter name="path">/tmp/a.txt</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`, nil
 	}
 	turn := BuildTurnFromCollected(sse.CollectResult{Text: "intro " + good + " tail " + bad}, BuildOptions{
 		ToolNames:         []string{"Write", "read"},

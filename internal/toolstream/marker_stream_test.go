@@ -119,11 +119,9 @@ func TestProcessToolSieveInterceptsSelfOverlappingMarkerWithoutLeak(t *testing.T
 	}
 }
 
-// TestProcessToolSieveNeedsMarkerNormalization pins why the normalizer exists:
-// the sieve/parser only recognizes the canonical EPSE shell (plus the legacy
-// canonical XML one), so a marker-form tool call would be released as visible
-// text unless the marker is normalized back to EPSE first.
-func TestProcessToolSieveNeedsMarkerNormalization(t *testing.T) {
+// TestProcessToolSieveUnknownMarkerFallback preserves caller normalization
+// while also preventing a drifted/unknown marker from escaping as raw text.
+func TestProcessToolSieveUnknownMarkerFallback(t *testing.T) {
 	run := func(marker string) (int, string) {
 		var state State
 		state.Marker = marker
@@ -142,11 +140,8 @@ func TestProcessToolSieveNeedsMarkerNormalization(t *testing.T) {
 	}
 
 	calls, leaked := run("")
-	if calls != 0 {
-		t.Fatalf("precondition: the marker-form call must not parse without normalization, got %d", calls)
-	}
-	if !strings.Contains(leaked, testMarker) {
-		t.Fatalf("precondition: expected the raw marker markup to leak as text, got %q", leaked)
+	if calls != 1 || leaked != "" {
+		t.Fatalf("unknown marker fallback: calls=%d leaked=%q", calls, leaked)
 	}
 
 	calls, leaked = run(testMarker)

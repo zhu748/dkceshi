@@ -23,6 +23,7 @@ function createToolSieveState() {
 }
 
 function resetIncrementalToolState(state) {
+  state.captureProgress = null;
   state.disableDeltas = false;
   state.toolNameSent = false;
   state.toolName = '';

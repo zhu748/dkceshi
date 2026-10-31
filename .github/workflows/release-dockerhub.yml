@@ -26,6 +26,9 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Require a branch for version updates
+        run: test "${GITHUB_REF_TYPE}" = "branch"
+
       - name: Get current version
         id: get_version
         run: |
@@ -94,7 +97,7 @@ jobs:
 
           NEW_TAG="${{ steps.next_version.outputs.new_tag }}"
           git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
-          git push origin HEAD:main "$NEW_TAG"
+          git push --atomic origin "HEAD:refs/heads/${GITHUB_REF_NAME}" "$NEW_TAG"
 
       # Docker 构建并推送到 Docker Hub
       - name: Set up QEMU

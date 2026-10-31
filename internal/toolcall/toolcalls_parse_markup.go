@@ -152,7 +152,7 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 	input := map[string]any{}
 	prev := 0
 	for _, paramMatch := range findXMLElementBlocks(inner, "parameter") {
-		if hasUnconsumedParameterMarkup(inner[prev:paramMatch.Start]) {
+		if !emptyToolMarkupGap(inner[prev:paramMatch.Start]) {
 			return ParsedToolCall{}, false
 		}
 		paramAttrs := parseXMLTagAttributes(paramMatch.Attrs)
@@ -164,7 +164,7 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 		appendMarkupValue(input, paramName, value)
 		prev = paramMatch.End
 	}
-	if hasUnconsumedParameterMarkup(inner[prev:]) {
+	if !emptyToolMarkupGap(inner[prev:]) {
 		return ParsedToolCall{}, false
 	}
 
@@ -175,34 +175,6 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 		return ParsedToolCall{Name: name, Input: map[string]any{}}, true
 	}
 	return ParsedToolCall{Name: name, Input: input}, true
-}
-
-// A sibling parameter may be optional in the schema and still carry essential
-// model intent. Never accept only the balanced siblings of a damaged node.
-func hasUnconsumedParameterMarkup(text string) bool {
-	for i := 0; i < len(text); {
-		next, advanced, blocked := skipXMLIgnoredSection(text, i)
-		if blocked {
-			return false
-		}
-		if advanced {
-			i = next
-			continue
-		}
-		if end, ok := markdownCodeSpanEnd(text, i); ok {
-			i = end
-			continue
-		}
-		if tag, ok := scanToolMarkupTagAt(text, i); ok && tag.Name == "parameter" && !tag.Closing {
-			return true
-		}
-		const prefix = "<parameter"
-		if n, ok := matchASCIIPrefixFoldAt(text, i, prefix); ok && hasXMLTagBoundary(text, i+n) {
-			return true
-		}
-		i++
-	}
-	return false
 }
 
 type xmlElementBlock struct {

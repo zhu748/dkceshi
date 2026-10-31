@@ -19,8 +19,11 @@ type ToolCallParseResult struct {
 	// (plan/tool-call-fallback-design-phase3.md) operates on. It is only
 	// populated when SawToolCallIntent is true.
 	ResidualIntentText string
-	RejectedByPolicy   bool
-	RejectedToolNames  []string
+	// SourceText is the fence-stripped source for an atomic, ordered repair.
+	// It is internal bookkeeping, not part of the public parse result.
+	SourceText        string `json:"-"`
+	RejectedByPolicy  bool
+	RejectedToolNames []string
 }
 
 func ParseToolCalls(text string, availableToolNames []string) []ParsedToolCall {
@@ -68,6 +71,7 @@ func parseToolCallsDetailedXMLOnly(text string) ToolCallParseResult {
 	if original == "" {
 		return result
 	}
+	result.SourceText = original
 
 	normalized, ok := normalizeEPSEToolCallMarkup(original)
 	if !ok {
@@ -130,11 +134,6 @@ func filterToolCallsDetailed(parsed []ParsedToolCall) ([]ParsedToolCall, []strin
 		out = append(out, tc)
 	}
 	return out, nil
-}
-
-func looksLikeToolCallSyntax(text string) bool {
-	hasEPSE, hasCanonical := ContainsToolCallWrapperSyntaxOutsideIgnored(text)
-	return hasEPSE || hasCanonical
 }
 
 func stripFencedCodeBlocks(text string) string {

@@ -2,7 +2,6 @@ package toolcall
 
 import (
 	"context"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -227,50 +226,20 @@ func TestBoundedScanKeepsGreedyForLegitimateMarkupInParameter(t *testing.T) {
 	}
 }
 
-// TestNestedCDATASampleResolvesToGreedyViaPickBetter covers the genuinely
-// ambiguous case the bounded scan cannot decide on its own: a parameter whose
-// value embeds a full tool-call sample, nested `<![CDATA[` included. That input
-// does match the swallow signature, so bounded becomes primary — but the greedy
-// alternate produces the richer parse and wins.
-//
-// The asserted invariant is parity with the deterministic parser: repair must
-// yield exactly what parsing the equivalent well-formed input yields. (That
-// baseline itself truncates at the inner `]]>`, which is pre-existing
-// findToolCDATAEnd behaviour and out of scope here; the point is that repair does
-// not do worse.)
-func TestNestedCDATASampleResolvesToGreedyViaPickBetter(t *testing.T) {
+// Ambiguous, unfenced nested CDATA used to produce a truncated parameter.
+// Both deterministic parsing and format repair now reject that interpretation.
+func TestAmbiguousNestedCDATAIsNotSilentlyTruncated(t *testing.T) {
 	sample := `docs say: <|EPSE|parameter name="x"><![CDATA[v]]></|EPSE|parameter> is the shape`
-	bad := `<|EPSE|call name="write">` +
-		`<|EPSE|parameter name="content"><![CDATA[` + sample + `]]></|EPSE|parameter>` +
-		`</|EPSE|call>`
-	wellFormed := `<|EPSE|tool_calls><|EPSE|invoke name="write">` +
-		`<|EPSE|parameter name="content"><![CDATA[` + sample + `]]></|EPSE|parameter>` +
-		`</|EPSE|invoke></|EPSE|tool_calls>`
-
-	plan := buildToolCallRepairPlan(bad, "")
-	if plan.interpretation != "bounded" || plan.degradeReason != "swallowed_structure" {
-		t.Fatalf("precondition: interpretation=%q reason=%q, want bounded/swallowed_structure",
-			plan.interpretation, plan.degradeReason)
+	bad := `<|EPSE|call name="write"><|EPSE|parameter name="content"><![CDATA[` + sample + `]]></|EPSE|parameter></|EPSE|call>`
+	wellFormed := `<|EPSE|tool_calls><|EPSE|invoke name="write"><|EPSE|parameter name="content"><![CDATA[` + sample + `]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
+	if calls := ParseToolCalls(wellFormed, nil); len(calls) != 0 {
+		t.Fatalf("ambiguous value truncated: %#v", calls)
 	}
-	// A model that fixes only the invoke local name, reproducing the greedy
-	// placeholder verbatim.
-	invoke := func(_ context.Context, _ string) (string, error) {
-		return `<|EPSE|tool_calls><|EPSE|invoke name="write">` +
-			`<|EPSE|parameter name="content"><![CDATA[` + plan.alternate.token.format(0) + `]]></|EPSE|parameter>` +
-			`</|EPSE|invoke></|EPSE|tool_calls>`, nil
-	}
-	calls, ok := RepairToolCallsWithLLM(context.Background(), bad, invoke)
-	if !ok || len(calls) != 1 {
-		t.Fatalf("expected the greedy alternate to win, got ok=%v calls=%#v", ok, calls)
-	}
-
-	baseline := parseToolCallsDetailedXMLOnly(wellFormed).Calls
-	if len(baseline) != 1 {
-		t.Fatalf("baseline parse should yield one call, got %d", len(baseline))
-	}
-	if !reflect.DeepEqual(calls[0].Input, baseline[0].Input) {
-		t.Fatalf("repair diverged from the deterministic parser:\n got: %#v\nwant: %#v",
-			calls[0].Input, baseline[0].Input)
+	if calls, ok := RepairToolCallsWithLLM(context.Background(), bad, func(context.Context, string) (string, error) {
+		t.Fatal("ambiguous source must not reach format-only repair")
+		return "", nil
+	}); ok || len(calls) != 0 {
+		t.Fatalf("ambiguous repair accepted: %#v", calls)
 	}
 }
 

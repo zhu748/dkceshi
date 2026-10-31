@@ -1563,3 +1563,42 @@ test('sieve hides lone complete fullwidth DSML tag in prose', () => {
     assert.equal(text.includes('DSML'), false);
   }
 });
+
+
+test('misspelled optional parameter nodes reject the whole invocation', () => {
+  const raw = '<tool_calls><invoke name="write"><parameter name="path">a.txt</parameter><param name="content">important</param></invoke></tool_calls>';
+  assert.deepEqual(parseToolCalls(raw, ['write']), []);
+});
+
+test('a damaged sibling cannot make a partially executable local batch', () => {
+  for (const bad of ['<invoke name="write"><parameter name="path">a.txt</parameter>', '<|EPSE|call name="write"><|EPSE|parameter name="path">a.txt</|EPSE|parameter></|EPSE|call>']) {
+    assert.deepEqual(parseToolCalls('<tool_calls><invoke name="read"></invoke>' + bad + '</tool_calls>', ['read', 'write']), []);
+  }
+});
+
+test('long capture scans fragments without repeatedly probing a CDATA body', () => {
+  const { appendCapture, captureReady } = require('../../internal/js/helpers/stream-tool-sieve/capture_progress');
+  const state = { capture: '' };
+  appendCapture(state, '<tool_calls><invoke name="write"><parameter name="content"><![CDATA[');
+  assert.equal(captureReady(state), true);
+  for (let i = 0; i < 2048; i++) {
+    appendCapture(state, 'x|'.repeat(64));
+    assert.equal(captureReady(state), false);
+    assert.ok(state.captureProgress.tag.length <= 256);
+  }
+  for (const ch of ']]></parameter></invoke></tool_calls>') appendCapture(state, ch);
+  assert.equal(captureReady(state), true);
+});
+
+test('long parameters survive streaming with a following independent call', () => {
+  const value = 'abc|def\n'.repeat(8192);
+  const raw = '<tool_calls><invoke name="write"><parameter name="content"><![CDATA[' + value + ']]></parameter></invoke></tool_calls><tool_calls><invoke name="next"></invoke></tool_calls>';
+  const state = createToolSieveState();
+  const events = [];
+  for (let i = 0; i < raw.length; i += 127) events.push(...processToolSieveChunk(state, raw.slice(i, i + 127), []));
+  events.push(...flushToolSieve(state, []));
+  assert.equal(events.filter(e => e.type === 'text').map(e => e.text).join(''), '');
+  const calls = events.filter(e => e.type === 'tool_calls').flatMap(e => e.calls);
+  assert.deepEqual(calls.map(c => c.name), ['write', 'next']);
+  assert.equal(calls[0].input.content, value);
+});

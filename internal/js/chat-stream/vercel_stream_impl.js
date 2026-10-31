@@ -1,4 +1,5 @@
 'use strict';
+const { needsToolFinalization } = require('./tool_output');
 
 // Coordinate one prepared stream; policy, continuation and probes live in dedicated modules.
 
@@ -7,7 +8,6 @@ const {
   processToolSieveChunk,
   flushToolSieve,
   parseStandaloneToolCalls,
-  formatOpenAIStreamToolCalls,
 } = require('../helpers/stream-tool-sieve');
 const { BASE_HEADERS } = require('../shared/deepseek-constants');
 const { serializeAppPayload } = require('../shared/deepseek-wire');
@@ -19,9 +19,6 @@ const { buildUsage } = require('./token_usage');
 const {
   resolveToolcallPolicy,
   toolChoiceViolation,
-  formatIncrementalToolCallDeltas,
-  filterIncrementalToolCallDeltasByAllowed,
-  resetStreamToolCallState,
 } = require('./toolcall_policy');
 const { createChatCompletionEmitter, createDeltaCoalescer } = require('./stream_emitter');
 const {
@@ -97,7 +94,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const searchEnabled = toBool(prep.body.search_enabled);
     const toolPolicy = resolveToolcallPolicy(prep.body, payload.tools);
     const toolNames = toolPolicy.toolNames;
-    const emitEarlyToolDeltas = toolPolicy.emitEarlyToolDeltas;
     const stripReferenceMarkers = true;
 
     if (!model || !leaseID || !deepseekToken || !initialPowHeader || !completionPayload) {
@@ -323,10 +319,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     // 暂存到下一片，避免半截标识泄漏成正文）。
     let markerNormalizer = createMarkerNormalizer(prep.body.tool_marker);
     let toolCallsEmitted = false;
+    let toolCallsDetected = false;
     let toolCallsDoneEmitted = false;
-    let toolCallOffset = 0;
-    const streamToolCallIDs = new Map();
-    const streamToolNames = new Map();
     const decoder = new TextDecoder();
     let buffered = '';
     let ended = false;
@@ -348,12 +342,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       outputText = '';
       hasVisibleOutput = false;
       deferredToolText = '';
+      toolCallsDetected = false;
       detectionThinkingText = '';
       lastEmptyDetail = null;
       toolSieveState = createToolSieveState();
       toolSieveState.deferMalformed = true;
       markerNormalizer = createMarkerNormalizer(prep.body.tool_marker);
-      resetStreamToolCallState(streamToolCallIDs, streamToolNames);
     };
 
     const finish = async (reason, options = {}) => {
@@ -394,7 +388,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         detected = parseStandaloneToolCalls(normalizer.write(detectionThinkingText) + normalizer.flush(), toolNames);
       }
       let validatedCalls = null;
-      if (prep.body.validate_tools === true && toolPolicy.constrained && (hasVisibleOutput || detected.length)) {
+      if ((detected.length || needsToolFinalization(outputText, detectionThinkingText, prep.body, toolSieveState)) && (hasVisibleOutput || detected.length || detectionThinkingText)) {
         try {
           const validation = await fetchStreamValidation(req, leaseID, outputText, thinkingText, detectionThinkingText, lifecycle.signal);
           if (!validation.ok) {
@@ -441,22 +435,13 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       if (detected.length > 0 && !toolCallsDoneEmitted) {
         toolCallsEmitted = true;
         toolCallsDoneEmitted = true;
-        sendDeltaFrame({ tool_calls: validatedCalls || formatOpenAIStreamToolCalls(detected, streamToolCallIDs, payload.tools) });
+        sendDeltaFrame({ tool_calls: validatedCalls });
       } else if (toolSieveEnabled) {
         const tailEvents = markerTail
           ? processToolSieveChunk(toolSieveState, markerTail, toolNames).concat(flushToolSieve(toolSieveState, toolNames))
           : flushToolSieve(toolSieveState, toolNames);
         for (const evt of tailEvents) {
-          if (evt.type === 'tool_calls' && Array.isArray(evt.calls) && evt.calls.length > 0) {
-            if (toolPolicy.constrained) continue;
-            deltaCoalescer.flush();
-            toolCallsEmitted = true;
-            toolCallsDoneEmitted = true;
-            sendDeltaFrame({ tool_calls: formatOpenAIStreamToolCalls(evt.calls, streamToolCallIDs, payload.tools, toolCallOffset) });
-            toolCallOffset += streamToolCallIDs.size;
-            resetStreamToolCallState(streamToolCallIDs, streamToolNames);
-            continue;
-          }
+          if (evt.type === 'tool_calls') continue;
           if (evt.text) {
             // 已发出 tool_calls 后，收尾阶段剩余的工具块后正文同样丢弃，与流式处理一致。
             if (toolCallsEmitted) {
@@ -646,33 +631,14 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                   const events = processToolSieveChunk(toolSieveState, safeText, toolNames);
                   for (const evt of events) {
                     if (evt.deferred) { deferredToolText += evt.text || ''; continue; }
-                    if (evt.type === 'tool_call_deltas') {
-                      if (!emitEarlyToolDeltas) {
-                        continue;
-                      }
-                      const filtered = filterIncrementalToolCallDeltasByAllowed(evt.deltas, toolNames, streamToolNames);
-                      const formatted = formatIncrementalToolCallDeltas(filtered, streamToolCallIDs, toolCallOffset);
-                      if (formatted.length > 0) {
-                        toolCallsEmitted = true;
-                        deltaCoalescer.flush();
-                        sendDeltaFrame({ tool_calls: formatted });
-                      }
-                      continue;
-                    }
-                    if (evt.type === 'tool_calls') {
-                      if (toolPolicy.constrained) continue;
-                      toolCallsEmitted = true;
-                      toolCallsDoneEmitted = true;
-                      deltaCoalescer.flush();
-                      sendDeltaFrame({ tool_calls: formatOpenAIStreamToolCalls(evt.calls, streamToolCallIDs, payload.tools, toolCallOffset) });
-                      toolCallOffset += streamToolCallIDs.size;
-                      resetStreamToolCallState(streamToolCallIDs, streamToolNames);
-                      continue;
-                    }
+                    if (evt.type === 'tool_call_deltas') continue;
+                    // Deliver only Go-finalized calls. This also covers
+                    // continuation requests without a formal tools catalog.
+                    if (evt.type === 'tool_calls') { toolCallsDetected = true; continue; }
                     if (evt.text) {
                       // 已发出 tool_calls 后，工具调用块之后追加的尾巴正文不再透传
                       // （OpenAI 规范中 tool_calls 回合的 content 应为空）。
-                      if (toolCallsEmitted) {
+                      if (toolCallsEmitted || toolCallsDetected) {
                         continue;
                       }
                       deltaCoalescer.append('content', evt.text);

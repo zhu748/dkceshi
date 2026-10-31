@@ -15,7 +15,6 @@ import (
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
-	"ds2api/internal/toolstream"
 	"ds2api/internal/usagestats"
 )
 
@@ -125,14 +124,6 @@ func emptyOutputRetryEnabled() bool {
 
 func emptyOutputRetryMaxAttempts() int {
 	return completionruntime.EmptyOutputRetryMaxAttempts()
-}
-
-func formatIncrementalStreamToolCallDeltas(deltas []toolstream.ToolCallDelta, ids map[int]string, offsets ...int) []map[string]any {
-	return shared.FormatIncrementalStreamToolCallDeltas(deltas, ids, offsets...)
-}
-
-func filterIncrementalToolCallDeltasByAllowed(deltas []toolstream.ToolCallDelta, seenNames map[int]string) []toolstream.ToolCallDelta {
-	return shared.FilterIncrementalToolCallDeltasByAllowed(deltas, seenNames)
 }
 
 func formatFinalStreamToolCallsWithStableIDs(calls []toolcall.ParsedToolCall, ids map[int]string, toolsRaw any, offsets ...int) []map[string]any {

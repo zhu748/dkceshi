@@ -22,7 +22,9 @@ function resolveToolcallPolicy(prepBody, payloadTools) {
     // 未传 tools（如"继续会话"请求）而拦截关闭，会导致 EPSE 原文作为正文透传，
     // 产生乱码。toolSieve 解析不依赖工具名过滤，空列表也能正常拦截。
     toolSieveEnabled: true,
-    emitEarlyToolDeltas: !constrained,
+    // Even schema-less continuation calls need Go finalization: JavaScript
+    // numbers and partial local parses cannot preserve the full call contract.
+    emitEarlyToolDeltas: false,
   };
 }
 

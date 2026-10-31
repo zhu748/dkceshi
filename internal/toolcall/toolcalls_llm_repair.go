@@ -173,7 +173,7 @@ func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCall
 	if calls, ok := RecoverDSMLToolCalls(badCode); ok {
 		return calls, true
 	}
-	if invoke == nil || strings.TrimSpace(badCode) == "" {
+	if invoke == nil || strings.TrimSpace(badCode) == "" || repairHasOrphanCDATA(badCode) {
 		return nil, false
 	}
 	marker := firstRepairToolMarker(toolMarker)

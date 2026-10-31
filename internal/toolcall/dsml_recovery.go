@@ -1,7 +1,9 @@
 package toolcall
 
 import (
+	"encoding/json"
 	"encoding/xml"
+	"html"
 	"strings"
 
 	"ds2api/internal/jsonvalue"
@@ -13,7 +15,8 @@ import (
 // Native string=true values are copied verbatim, never reparsed as JSON/XML.
 func RecoverDSMLToolCalls(text string) ([]ParsedToolCall, bool) {
 	var calls []ParsedToolCall
-	var spans []TextSpan
+	var recovered strings.Builder
+	prev := 0
 	for pos := 0; pos < len(text); {
 		open, ok := FindDSMLTagOutsideIgnored(text, pos)
 		if !ok {
@@ -37,6 +40,8 @@ func RecoverDSMLToolCalls(text string) ([]ParsedToolCall, bool) {
 		if body == "" {
 			return nil, false
 		}
+		recovered.WriteString(text[prev:open.Start])
+		recovered.WriteString("<tool_calls>")
 		for body != "" {
 			invoke, inner, rest, ok := takeDSMLRecoveryElement(body, "invoke")
 			if !ok {
@@ -47,15 +52,31 @@ func RecoverDSMLToolCalls(text string) ([]ParsedToolCall, bool) {
 				return nil, false
 			}
 			calls = append(calls, call)
+			payload, err := json.Marshal(map[string]any{"input": call.Input})
+			if err != nil {
+				return nil, false
+			}
+			recovered.WriteString(`<invoke name="` + html.EscapeString(call.Name) + `">`)
+			recovered.Write(payload)
+			recovered.WriteString("</invoke>")
 			body = strings.TrimSpace(rest)
 		}
 		pos = closeTag.End + 1
-		spans = append(spans, TextSpan{Start: open.Start, End: pos})
+		prev = pos
+		recovered.WriteString("</tool_calls>")
 	}
-	if DetectToolCallIntent(RemoveTextSpans(text, spans)) {
+	if len(calls) == 0 {
 		return nil, false
 	}
-	return calls, len(calls) > 0
+	// Parse the entire batch after replacing only complete DSML spans. This
+	// preserves interleaved canonical calls and their order and catches broken
+	// canonical siblings that the DSML-only intent probe cannot recognize.
+	recovered.WriteString(text[prev:])
+	parsed := ParseStandaloneToolCallsDetailed(recovered.String(), nil)
+	if parsed.SawToolCallIntent || len(parsed.Calls) < len(calls) {
+		return nil, false
+	}
+	return parsed.Calls, true
 }
 
 func recoverDSMLInvoke(attrs map[string]string, body string) (ParsedToolCall, bool) {

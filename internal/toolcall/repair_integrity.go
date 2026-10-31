@@ -44,18 +44,16 @@ func validateRepairIntegrity(source cdataSlotResult, output, marker string) erro
 }
 
 // HasNamedToolInvocation distinguishes broken client calls from orphan shells,
-// native upstream tools and ordinary prose. Literal code/CDATA is skipped by
-// the same scanner used to check format-repair integrity.
+// ordinary prose. Empty names accepts any named invocation, including a
+// schema-less continuation; otherwise names filters exact tool names. Literal
+// code/CDATA is skipped by the same scanner used for repair integrity.
 func HasNamedToolInvocation(text string, names []string) bool {
-	if len(names) == 0 {
-		return false
-	}
 	allowed := make(map[string]bool, len(names))
 	for _, name := range names {
 		allowed[name] = true
 	}
 	for _, node := range repairIdentities(stripFencedCodeBlocks(closeRepairManifestCDATA(text))) {
-		if node.kind == "invoke" && allowed[node.name] {
+		if node.kind == "invoke" && (len(names) == 0 || allowed[node.name]) {
 			return true
 		}
 	}

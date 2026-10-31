@@ -393,18 +393,7 @@ func deductSuccessfulByWrapper(original string, sourceWrappers []xmlElementBlock
 	b.Grow(len(original))
 	prev := 0
 	for idx := 0; idx < n; idx++ {
-		invokes := findXMLElementBlocks(sourceWrappers[idx].Body, "invoke")
-		if len(invokes) == 0 {
-			continue
-		}
-		allOK := true
-		for _, inv := range invokes {
-			if _, ok := parseSingleXMLToolCall(inv); !ok {
-				allOK = false
-				break
-			}
-		}
-		if !allOK {
+		if !completeToolCallWrapper(sourceWrappers[idx].Body) {
 			continue
 		}
 		ow := origWrappers[idx]

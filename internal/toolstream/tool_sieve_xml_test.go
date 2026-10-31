@@ -818,7 +818,7 @@ func TestFindPartialXMLToolTagStart(t *testing.T) {
 		{"partial_arbitrary_prefix_before_epse", "Hello <T|EP", 6},
 		{"partial_arbitrary_prefix_after_epse_pipe", "Hello <T|EPSE|", 6},
 		{"partial_invoke", "Hello <inv", 6},
-		{"bare_tool_call_not_held", "Hello <tool_name", -1},
+		{"unknown_tag_held_until_classified", "Hello <tool_name", 6},
 		{"partial_lt_only", "Text <", 5},
 		{"complete_tag", "Text <tool_calls>done", -1},
 		{"no_lt", "plain text", -1},

@@ -37,15 +37,13 @@ type chatStreamRuntime struct {
 	firstChunkSent       bool
 	visibleTextEmitted   bool
 	bufferToolContent    bool
-	emitEarlyToolDeltas  bool
 	toolCallsEmitted     bool
+	toolCallsPending     bool
 	toolCallsDoneEmitted bool
 
 	deferredText      strings.Builder
 	toolSieve         toolstream.State
 	streamToolCallIDs map[int]string
-	streamToolNames   map[int]string
-	toolCallOffset    int
 	accumulator       assistantturn.StreamAccumulator
 	responseMessageID int
 	upstreamErr       string
@@ -106,7 +104,7 @@ func newChatStreamRuntime(
 	toolsRaw any,
 	toolChoice promptcompat.ToolChoicePolicy,
 	bufferToolContent bool,
-	emitEarlyToolDeltas bool,
+	_ bool, // retained for callers; tool batches are validated before delivery
 ) *chatStreamRuntime {
 	return &chatStreamRuntime{
 		w:                     w,
@@ -123,10 +121,8 @@ func newChatStreamRuntime(
 		searchEnabled:         searchEnabled,
 		stripReferenceMarkers: stripReferenceMarkers,
 		bufferToolContent:     bufferToolContent,
-		emitEarlyToolDeltas:   emitEarlyToolDeltas,
 		toolSieve:             toolstream.State{DeferMalformed: true},
 		streamToolCallIDs:     map[int]string{},
-		streamToolNames:       map[int]string{},
 		accumulator: assistantturn.StreamAccumulator{
 			ThinkingEnabled:       thinkingEnabled,
 			SearchEnabled:         searchEnabled,
@@ -223,12 +219,6 @@ func (s *chatStreamRuntime) historyThinking() string {
 	)
 }
 
-func (s *chatStreamRuntime) resetStreamToolCallState() {
-	s.toolCallOffset += len(s.streamToolCallIDs)
-	s.streamToolCallIDs = map[int]string{}
-	s.streamToolNames = map[int]string{}
-}
-
 func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool) bool {
 	s.finalErrorStatus = 0
 	s.finalErrorMessage = ""
@@ -284,16 +274,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		batch := chatDeltaBatch{runtime: s}
 		for _, evt := range toolstream.Flush(&s.toolSieve, s.toolNames) {
 			if len(evt.ToolCalls) > 0 {
-				if s.toolChoice.Constrained() || s.toolsRaw != nil {
-					continue
-				}
-				batch.flush()
-				s.toolCallsEmitted = true
-				s.toolCallsDoneEmitted = true
-				s.sendDelta(map[string]any{
-					"tool_calls": formatFinalStreamToolCallsWithStableIDs(evt.ToolCalls, s.streamToolCallIDs, s.toolsRaw, s.toolCallOffset),
-				})
-				s.resetStreamToolCallState()
+				continue
 			}
 			if evt.Content == "" || s.toolCallsEmitted {
 				// 已发出 tool_calls 后，Flush 剩余的尾巴正文同样丢弃，
@@ -380,38 +361,8 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 					s.deferredText.WriteString(evt.Content)
 					continue
 				}
-				if len(evt.ToolCallDeltas) > 0 {
-					if !s.emitEarlyToolDeltas || (s.toolChoice.Constrained() || s.toolsRaw != nil) {
-						continue
-					}
-					filtered := filterIncrementalToolCallDeltasByAllowed(evt.ToolCallDeltas, s.streamToolNames)
-					if len(filtered) == 0 {
-						continue
-					}
-					formatted := formatIncrementalStreamToolCallDeltas(filtered, s.streamToolCallIDs, s.toolCallOffset)
-					if len(formatted) == 0 {
-						continue
-					}
-					batch.flush()
-					tcDelta := map[string]any{
-						"tool_calls": formatted,
-					}
-					s.toolCallsEmitted = true
-					s.sendDelta(tcDelta)
-					continue
-				}
-				if len(evt.ToolCalls) > 0 {
-					if s.toolChoice.Constrained() || s.toolsRaw != nil {
-						continue
-					}
-					batch.flush()
-					s.toolCallsEmitted = true
-					s.toolCallsDoneEmitted = true
-					tcDelta := map[string]any{
-						"tool_calls": formatFinalStreamToolCallsWithStableIDs(evt.ToolCalls, s.streamToolCallIDs, s.toolsRaw, s.toolCallOffset),
-					}
-					s.sendDelta(tcDelta)
-					s.resetStreamToolCallState()
+				if len(evt.ToolCalls) > 0 || len(evt.ToolCallDeltas) > 0 {
+					s.toolCallsPending = true
 					continue
 				}
 				if evt.Content != "" {
@@ -419,7 +370,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 					// 之后追加的尾巴文字）不再透传给客户端，避免工具调用
 					// 的最后几行结果泄漏到正文。OpenAI 规范中 tool_calls
 					// 回合的 content 本应为 null/空。
-					if s.toolCallsEmitted {
+					if s.toolCallsEmitted || s.toolCallsPending {
 						continue
 					}
 					cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)

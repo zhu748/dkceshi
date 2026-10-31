@@ -13,21 +13,16 @@ func validateToolOutput(turn Turn, opts BuildOptions, repaired bool) *OutputErro
 	parsed := turn.ParsedToolCalls
 	if !repaired && (parsed.SawToolCallIntent || parsed.SawToolCallSyntax && len(turn.ToolCalls) == 0) &&
 		!turn.ContentFilter && strings.TrimSpace(turn.UpstreamError) == "" {
-		names := opts.ToolNames
-		if len(names) == 0 {
-			tools, _ := opts.ToolsRaw.([]any)
-			for _, raw := range tools {
-				tool, _ := raw.(map[string]any)
-				if name, _, _ := toolcall.ExtractToolMeta(tool); name != "" {
-					names = append(names, name)
-				}
-			}
-		}
 		unresolved := parsed.ResidualIntentText
+		if strings.TrimSpace(unresolved) == "" {
+			unresolved = parsed.SourceText
+		}
 		if strings.TrimSpace(unresolved) == "" {
 			unresolved = turn.RawText
 		}
-		if toolcall.HasNamedToolInvocation(unresolved, names) {
+		// A damaged undeclared call must not disappear beside a valid call.
+		// Empty names also covers schema-less continuation requests.
+		if toolcall.HasNamedToolInvocation(unresolved, nil) {
 			return &OutputError{
 				Status: http.StatusUnprocessableEntity, Code: "invalid_tool_arguments",
 				Message: "Upstream returned an incomplete tool call that could not be safely repaired.",

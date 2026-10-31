@@ -45,7 +45,7 @@ func consumeXMLToolCapture(captured string, toolNames []string) (prefix string, 
 		prefixPart := captured[:tag.Start]
 		suffixPart := captured[closeTag.End+1:]
 		parsed := toolcall.ParseStandaloneToolCallsDetailed(xmlBlock, toolNames)
-		if len(parsed.Calls) > 0 {
+		if len(parsed.Calls) > 0 && !parsed.SawToolCallIntent {
 			prefixPart, suffixPart = trimWrappingJSONFence(prefixPart, suffixPart)
 			if best == nil || tag.Start < best.start {
 				best = &candidate{start: tag.Start, prefix: prefixPart, calls: parsed.Calls, suffix: suffixPart}
@@ -83,7 +83,7 @@ func consumeXMLToolCapture(captured string, toolNames []string) (prefix string, 
 				prefixPart := captured[:invokeTag.Start]
 				suffixPart := captured[closeTag.End+1:]
 				parsed := toolcall.ParseStandaloneToolCallsDetailed(xmlBlock, toolNames)
-				if len(parsed.Calls) > 0 {
+				if len(parsed.Calls) > 0 && !parsed.SawToolCallIntent {
 					prefixPart, suffixPart = trimWrappingJSONFence(prefixPart, suffixPart)
 					return prefixPart, parsed.Calls, suffixPart, true
 				}
@@ -159,7 +159,7 @@ func findPartialXMLToolTagStart(s string) int {
 	start := includeDuplicateLeadingLessThan(s, lastLT)
 	tail := s[start:]
 	// If there's a tag terminator in the tail, the tag is closed — not partial.
-	if strings.Contains(tail, ">") || strings.Contains(tail, "＞") {
+	if strings.ContainsAny(tail, ">＞﹥〉") {
 		return -1
 	}
 	if toolcall.IsPartialToolMarkupTagPrefix(tail) {
@@ -169,10 +169,5 @@ func findPartialXMLToolTagStart(s string) int {
 }
 
 func lastToolMarkupStartDelimiterIndex(s string) int {
-	asciiIdx := strings.LastIndex(s, "<")
-	fullwidthIdx := strings.LastIndex(s, "＜")
-	if asciiIdx > fullwidthIdx {
-		return asciiIdx
-	}
-	return fullwidthIdx
+	return strings.LastIndexAny(s, "<＜﹤〈")
 }

@@ -577,11 +577,10 @@ func xmlTagEndDelimiterLenEndingAt(text string, end int) int {
 	if end < 0 || end >= len(text) {
 		return 0
 	}
-	if text[end] == '>' {
-		return 1
-	}
-	if end+1 >= len("＞") && text[end+1-len("＞"):end+1] == "＞" {
-		return len("＞")
+	for _, delimiter := range []string{">", "＞", "﹥", "〉"} {
+		if end+1 >= len(delimiter) && text[end+1-len(delimiter):end+1] == delimiter {
+			return len(delimiter)
+		}
 	}
 	return 0
 }

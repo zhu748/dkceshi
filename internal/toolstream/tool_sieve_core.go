@@ -35,7 +35,7 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 			if len(calls) > 0 {
 				if prefix != "" {
 					state.noteText(prefix)
-					events = append(events, Event{Content: prefix, Deferred: state.DeferMalformed && toolcall.DetectToolCallIntent(prefix)})
+					events = append(events, Event{Content: prefix, Deferred: shouldDeferToolText(state, prefix)})
 				}
 				// Emit the completed tool call immediately so the runtime can mark
 				// the turn as tool-call emitting before the capture suffix (tail
@@ -51,7 +51,7 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 			}
 			if prefix != "" {
 				state.noteText(prefix)
-				events = append(events, Event{Content: prefix, Deferred: state.DeferMalformed && toolcall.DetectToolCallIntent(prefix)})
+				events = append(events, Event{Content: prefix, Deferred: shouldDeferToolText(state, prefix)})
 			}
 			if suffix != "" {
 				state.pending.WriteString(suffix)
@@ -75,7 +75,7 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 				if resetMarkdownSpan {
 					state.markdownCodeSpanTicks = 0
 				}
-				events = append(events, Event{Content: prefix, Deferred: state.DeferMalformed && toolcall.DetectToolCallIntent(prefix)})
+				events = append(events, Event{Content: prefix, Deferred: shouldDeferToolText(state, prefix)})
 			}
 			state.pending.Reset()
 			state.capture.WriteString(pending[start:])
@@ -145,7 +145,7 @@ func Flush(state *State, toolNames []string) []Event {
 					if prefix, calls, suffix, recoveredReady := consumeXMLToolCapture(recovered, toolNames); recoveredReady && len(calls) > 0 {
 						if prefix != "" {
 							state.noteText(prefix)
-							events = append(events, Event{Content: prefix, Deferred: state.DeferMalformed && toolcall.DetectToolCallIntent(prefix)})
+							events = append(events, Event{Content: prefix, Deferred: shouldDeferToolText(state, prefix)})
 						}
 						events = append(events, Event{ToolCalls: calls})
 						if suffix != "" {
@@ -348,21 +348,12 @@ func markdownCodeSpanCloses(text string, ticks int) bool {
 	return false
 }
 
-func shouldResetUnclosedMarkdownPrefix(state *State, prefix, suffix string) bool {
-	markdown := markdownCodeSpanStateAt(state, prefix)
-	return markdown.ticks > 0 && !markdown.fromPrior && !markdownCodeSpanCloses(suffix, markdown.ticks)
-}
-
-func includeDuplicateLeadingLessThan(s string, idx int) int {
-	for idx > 0 && s[idx-1] == '<' {
-		idx--
-	}
-	return idx
-}
-
 func consumeToolCapture(state *State, toolNames []string, final bool) (prefix string, calls []toolcall.ParsedToolCall, suffix string, ready bool) {
 	captured := state.capture.String()
 	if captured == "" {
+		return "", nil, "", false
+	}
+	if !final && len(captured) > 4096 && !state.captureProgress.ready(captured) {
 		return "", nil, "", false
 	}
 	// Real blocks consume their closes atomically. A fresh leading close is

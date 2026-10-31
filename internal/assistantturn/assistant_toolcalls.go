@@ -8,7 +8,7 @@ import (
 
 func DetectAssistantToolCalls(rawText, visibleText, exposedThinking, detectionThinking string, toolNames []string) toolcall.ToolCallParseResult {
 	textParsed := toolcall.ParseStandaloneToolCallsDetailed(rawText, toolNames)
-	if len(textParsed.Calls) > 0 {
+	if len(textParsed.Calls) > 0 || textParsed.SawToolCallIntent || textParsed.SawToolCallSyntax {
 		return textParsed
 	}
 	if strings.TrimSpace(visibleText) != "" {
@@ -19,7 +19,7 @@ func DetectAssistantToolCalls(rawText, visibleText, exposedThinking, detectionTh
 		thinking = exposedThinking
 	}
 	thinkingParsed := toolcall.ParseStandaloneToolCallsDetailed(thinking, toolNames)
-	if len(thinkingParsed.Calls) > 0 {
+	if len(thinkingParsed.Calls) > 0 || thinkingParsed.SawToolCallIntent || thinkingParsed.SawToolCallSyntax {
 		return thinkingParsed
 	}
 	return textParsed

@@ -3,6 +3,7 @@ package responses
 import "ds2api/internal/toolstream"
 
 func (s *responsesStreamRuntime) resetForRegeneration() {
+	s.toolCallsPending = false
 	s.accumulator.RawText.Reset()
 	s.accumulator.Text.Reset()
 	s.accumulator.RawThinking.Reset()

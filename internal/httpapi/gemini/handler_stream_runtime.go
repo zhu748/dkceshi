@@ -16,9 +16,9 @@ import (
 	dsprotocol "ds2api/internal/deepseek/protocol"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
-	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
 	"ds2api/internal/toolcall"
+	"ds2api/internal/toolstream"
 	"ds2api/internal/util"
 )
 
@@ -48,9 +48,8 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 
 	rc := http.NewResponseController(w)
 	_, canFlush := w.(http.Flusher)
-	// This entry point has no normalized request to ask about the system-text
-	// tool branch, so it keeps the tools-array gate; the production path is
-	// handleStreamGenerateContentWithRetry, which passes the real answer.
+	// Without a normalized request, catalog-backed turns use whole-turn
+	// buffering and all other turns use incremental tool interception.
 	runtime := newGeminiStreamRuntime(w, rc, canFlush, model, finalPrompt, thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw, false, historySession)
 
 	initialType := "text"
@@ -88,12 +87,13 @@ type geminiStreamRuntime struct {
 
 	thinkingEnabled bool
 	searchEnabled   bool
-	// bufferContent is the sieve gate: while it is set, per-chunk text is not
-	// forwarded and the whole answer is emitted once from the finalized turn, so
-	// tool-call markup is parsed into functionCall parts instead of leaking into
-	// the visible text. It follows the prompt — a request whose prompt may demand
-	// tool calls (a top-level tools array, or the system-text branch) is sieved;
-	// see newGeminiStreamRuntime.
+	// Catalog-backed requests retain whole-turn rendering. Other requests use
+	// the incremental sieve so ordinary prose streams while tool batches wait
+	// for shared final validation, including schema-less agent continuations.
+	toolSieve             toolstream.State
+	deferredText          strings.Builder
+	toolCallsPending      bool
+	answerDelivered       bool
 	bufferContent         bool
 	stripReferenceMarkers bool
 	toolNames             []string
@@ -137,14 +137,14 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 
 	rc := http.NewResponseController(w)
 	_, canFlush := w.(http.Flusher)
-	// The sieve gate follows the prompt: a request whose prompt may demand tool
-	// calls must have its tool-call markup sieved, whatever shape carried the
-	// catalog (see newGeminiStreamRuntime).
+	// Explicit or system-text catalogs retain whole-turn buffering. The
+	// remaining requests still intercept tool markup incrementally.
 	runtime := newGeminiStreamRuntime(w, rc, canFlush, model, finalPrompt, thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw, stdReq.SystemTextToolsApply(), historySession)
 	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
 	runtime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)
 	runtime.toolCallRepairCtx = r.Context()
 	runtime.toolMarker = a.ToolMarker
+	runtime.toolSieve.Marker = a.ToolMarker
 	runtime.toolChoice = stdReq.ToolChoice
 	runtime.bufferContent = runtime.bufferContent || stdReq.ToolChoice.Constrained()
 
@@ -272,6 +272,11 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 // one. Mirrors chat/claude stream_regenerate.go.
 func (s *geminiStreamRuntime) resetForRegeneration() {
 	s.accumulator.ResetForRegeneration()
+	s.toolSieve = toolstream.State{DeferMalformed: true, Marker: s.toolMarker}
+	s.deferredText.Reset()
+	s.toolCallsPending = false
+	s.answerDelivered = false
+	s.contentFilter = false
 	s.responseMessageID = 0
 	s.upstreamErr = ""
 	s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = 0, "", ""
@@ -301,6 +306,7 @@ func newGeminiStreamRuntime(
 		thinkingEnabled:       thinkingEnabled,
 		searchEnabled:         searchEnabled,
 		bufferContent:         len(toolNames) > 0 || systemTextTools,
+		toolSieve:             toolstream.State{DeferMalformed: true},
 		stripReferenceMarkers: stripReferenceMarkers,
 		toolNames:             toolNames,
 		toolsRaw:              toolsRaw,
@@ -380,76 +386,8 @@ func (s *geminiStreamRuntime) sendErrorChunk(status int, message string) {
 }
 
 //nolint:unused // retained for native Gemini stream handling path.
-func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedDecision {
-	if !parsed.Parsed {
-		return streamengine.ParsedDecision{}
-	}
-	if parsed.ResponseMessageID > 0 {
-		s.responseMessageID = parsed.ResponseMessageID
-	}
-	if parsed.ContentFilter || parsed.ErrorMessage != "" || parsed.Stop {
-		if parsed.ContentFilter {
-			s.contentFilter = true
-		}
-		if parsed.ErrorMessage != "" {
-			s.upstreamErr = parsed.ErrorMessage
-		}
-		return streamengine.ParsedDecision{Stop: true}
-	}
-
-	accumulated := s.accumulator.Apply(parsed)
-	for _, p := range accumulated.Parts {
-		if p.Type == "thinking" {
-			if p.VisibleText == "" || s.bufferContent {
-				continue
-			}
-			s.sendChunk(map[string]any{
-				"candidates": []map[string]any{
-					{
-						"index": 0,
-						"content": map[string]any{
-							"role":  "model",
-							"parts": []map[string]any{{"text": p.VisibleText, "thought": true}},
-						},
-					},
-				},
-				"modelVersion": s.model,
-			})
-			continue
-		}
-		if p.RawText == "" || p.CitationOnly || p.VisibleText == "" {
-			continue
-		}
-		if s.bufferContent {
-			continue
-		}
-		s.sendChunk(map[string]any{
-			"candidates": []map[string]any{
-				{
-					"index": 0,
-					"content": map[string]any{
-						"role":  "model",
-						"parts": []map[string]any{{"text": p.VisibleText}},
-					},
-				},
-			},
-			"modelVersion": s.model,
-		})
-	}
-	if s.history != nil {
-		rawText, text, rawThinking, thinking, detectionThinking := s.accumulator.Snapshot()
-		s.history.Progress(
-			responsehistory.ThinkingForArchive(rawThinking, detectionThinking, thinking),
-			responsehistory.TextForArchive(rawText, text),
-		)
-	}
-	// 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）在此统一收口：
-	// 结束读取，保留已生成内容走正常收尾。
-	return streamengine.StopForCut(accumulated.Cut, "gemini_stream", "gemini", accumulated.ContentSeen)
-}
-
-//nolint:unused // retained for native Gemini stream handling path.
 func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
+	s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = 0, "", ""
 	rawText, text, rawThinking, thinking, detectionThinking := s.accumulator.Snapshot()
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
 		RawText:           rawText,
@@ -475,7 +413,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	})
 	outcome := assistantturn.FinalizeTurn(turn, assistantturn.FinalizeOptions{})
 	if outcome.ShouldFail {
-		if deferEmptyOutput {
+		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.answerDelivered) {
 			s.finalErrorStatus = outcome.Error.Status
 			s.finalErrorMessage = outcome.Error.Message
 			s.finalErrorCode = outcome.Error.Code
@@ -498,19 +436,17 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	}
 
 	if s.bufferContent {
-		parts := buildGeminiPartsFromTurn(turn)
-		s.sendChunk(map[string]any{
-			"candidates": []map[string]any{
-				{
-					"index": 0,
-					"content": map[string]any{
-						"role":  "model",
-						"parts": parts,
-					},
-				},
-			},
-			"modelVersion": s.model,
-		})
+		s.sendParts(buildGeminiPartsFromTurn(turn))
+	} else if len(turn.ToolCalls) > 0 {
+		// Reasoning has already streamed on this path.
+		turn.Thinking = ""
+		s.sendParts(buildGeminiPartsFromTurn(turn))
+	} else {
+		s.emitStreamText(s.deferredText.String())
+		s.deferredText.Reset()
+		for _, event := range toolstream.Flush(&s.toolSieve, s.toolNames) {
+			s.emitStreamText(event.Content)
+		}
 	}
 
 	s.sendChunk(map[string]any{

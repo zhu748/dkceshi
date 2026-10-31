@@ -1,4 +1,6 @@
 'use strict';
+const { appendCapture, captureReady } = require('./capture_progress');
+const { shouldDeferText, consumeDSMLHiddenCapture } = require('./deferred_text');
 const {
   resetIncrementalToolState,
   noteText,
@@ -8,7 +10,6 @@ const { trimWrappingJSONFence } = require('./jsonscan');
 const {
   findToolMarkupTagOutsideIgnored,
   findDSMLTagOutsideIgnored,
-  findMatchingDSMLClose,
   sanitizeLooseCDATA,
   stripDSMLResidue,
 } = require('./parse_payload');
@@ -35,7 +36,7 @@ function processToolSieveChunk(state, chunk, toolNames) {
     }
     if (state.capturing) {
       if (state.pending) {
-        state.capture += state.pending;
+        appendCapture(state, state.pending);
         state.pending = '';
       }
       const consumed = consumeToolCapture(state, toolNames, false);
@@ -49,7 +50,7 @@ function processToolSieveChunk(state, chunk, toolNames) {
       if (Array.isArray(consumed.calls) && consumed.calls.length > 0) {
         if (consumed.prefix) {
           noteText(state, consumed.prefix);
-          events.push({ type: 'text', text: consumed.prefix, deferred: !!state.deferMalformed && consumed.prefix.includes('<|EPSE') });
+          events.push({ type: 'text', text: consumed.prefix, deferred: shouldDeferText(state, consumed.prefix) });
         }
         // Emit the completed tool call immediately so the runtime can mark the
         // turn as tool-call emitting before the capture suffix (tail prose after
@@ -65,7 +66,7 @@ function processToolSieveChunk(state, chunk, toolNames) {
       }
       if (consumed.prefix) {
         noteText(state, consumed.prefix);
-        events.push({ type: 'text', text: consumed.prefix, deferred: !!state.deferMalformed && consumed.prefix.includes('<|EPSE') });
+        events.push({ type: 'text', text: consumed.prefix, deferred: shouldDeferText(state, consumed.prefix) });
       }
       if (consumed.suffix) {
         state.pending += consumed.suffix;
@@ -88,12 +89,12 @@ function processToolSieveChunk(state, chunk, toolNames) {
         if (resetMarkdownSpan) {
           state.markdownCodeSpanTicks = 0;
         }
-        events.push({ type: 'text', text: prefix });
+        events.push({ type: 'text', text: prefix, deferred: shouldDeferText(state, prefix) });
       }
       state.pending = '';
-      state.capture += pending.slice(start);
-      state.capturing = true;
       resetIncrementalToolState(state);
+      appendCapture(state, pending.slice(start));
+      state.capturing = true;
       continue;
     }
     const [safe, hold] = splitSafeContentForToolDetection(state, pending);
@@ -126,7 +127,7 @@ function flushToolSieve(state, toolNames) {
     if (consumed.ready) {
       if (consumed.prefix) {
         noteText(state, consumed.prefix);
-        events.push({ type: 'text', text: consumed.prefix, deferred: !!state.deferMalformed && consumed.prefix.includes('<|EPSE') });
+        events.push({ type: 'text', text: consumed.prefix, deferred: shouldDeferText(state, consumed.prefix) });
       }
       if (Array.isArray(consumed.calls) && consumed.calls.length > 0) {
         events.push({ type: 'tool_calls', calls: consumed.calls });
@@ -149,7 +150,7 @@ function flushToolSieve(state, toolNames) {
         if (recoveredResult.ready && Array.isArray(recoveredResult.calls) && recoveredResult.calls.length > 0) {
           if (recoveredResult.prefix) {
             noteText(state, recoveredResult.prefix);
-            events.push({ type: 'text', text: recoveredResult.prefix });
+            events.push({ type: 'text', text: recoveredResult.prefix, deferred: shouldDeferText(state, recoveredResult.prefix) });
           }
           events.push({ type: 'tool_calls', calls: recoveredResult.calls });
           if (recoveredResult.suffix) {
@@ -158,11 +159,11 @@ function flushToolSieve(state, toolNames) {
           }
         } else {
           noteText(state, content);
-          events.push({ type: 'text', text: content });
+          events.push({ type: 'text', text: content, deferred: !!state.deferMalformed });
         }
       } else {
         noteText(state, content);
-        events.push({ type: 'text', text: content });
+        events.push({ type: 'text', text: content, deferred: !!state.deferMalformed });
       }
     }
     state.capture = '';
@@ -176,7 +177,7 @@ function flushToolSieve(state, toolNames) {
     const content = stripDSMLResidue(state.pending);
     // If pending never resolved into a real tool call, release it as text.
     noteText(state, content);
-    events.push({ type: 'text', text: content });
+    events.push({ type: 'text', text: content, deferred: !!state.deferMalformed });
     state.pending = '';
   }
   return events;
@@ -345,6 +346,10 @@ function consumeToolCapture(state, toolNames, final) {
   if (!captured) {
     return { ready: false, prefix: '', calls: [], suffix: '' };
   }
+  const progress = captureReady(state);
+  if (!final && captured.length > 4096 && !progress) {
+    return { ready: false, prefix: '', calls: [], suffix: '' };
+  }
   // Real blocks consume their closes atomically. A fresh leading close is an
   // orphan, not malformed invocation text awaiting the repair pass.
   const first = findToolMarkupTagOutsideIgnored(captured, 0);
@@ -383,28 +388,6 @@ function consumeToolCapture(state, toolNames, final) {
     calls: [],
     suffix: '',
   };
-}
-
-// consumeDSMLHiddenCapture hides a DSML block from visible output: prefix is
-// the text before the first DSML tag; suffix is the text after the matched
-// closing tag. handled=true means a DSML tag was found; hold=true means the
-// outer wrapper has not closed yet and the caller should keep buffering. When
-// final is true an unclosed tail is discarded as well. Mirrors the Go side
-// (internal/toolstream/tool_sieve_core.go) consumeDSMLHiddenCapture.
-function consumeDSMLHiddenCapture(captured, final) {
-  const open = findDSMLTagOutsideIgnored(captured, 0);
-  if (!open) {
-    return { prefix: '', suffix: '', handled: false, hold: false };
-  }
-  const prefix = captured.slice(0, open.start);
-  const closeTag = findMatchingDSMLClose(captured, open);
-  if (!closeTag) {
-    if (final) {
-      return { prefix, suffix: '', handled: true, hold: false };
-    }
-    return { prefix: '', suffix: '', handled: true, hold: true };
-  }
-  return { prefix, suffix: captured.slice(closeTag.end + 1), handled: true, hold: false };
 }
 
 module.exports = {

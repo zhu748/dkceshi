@@ -32,3 +32,26 @@ func TestStreamRejectsUnrepairableClientCallWithoutLeakingMarkupOrPartialCalls(t
 		}
 	}
 }
+
+func TestSchemaLessStreamWaitsForTheWholeBatchBeforeDelivery(t *testing.T) {
+	good := `<tool_calls><invoke name="read"></invoke></tool_calls>`
+	bad := `<tool_calls><invoke name="write"><param name="path">a.txt</param></invoke></tool_calls>`
+	rec := httptest.NewRecorder()
+	rt := newChatStreamRuntime(rec, http.NewResponseController(rec), true, "id", 1, "model", "prompt", false, false, true, nil, nil, promptcompat.DefaultToolChoicePolicy(), true, true)
+	for _, text := range []string{good, bad} {
+		rt.onParsed(sse.LineResult{Parsed: true, Parts: []sse.ContentPart{{Type: "text", Text: text}}})
+		if rec.Body.Len() != 0 {
+			t.Fatalf("partial batch delivered: %s", rec.Body.String())
+		}
+	}
+	if rt.finalize("stop", true) || rt.finalErrorCode != "invalid_tool_arguments" {
+		t.Fatalf("broken schema-less batch was accepted: code=%s body=%s", rt.finalErrorCode, rec.Body.String())
+	}
+	rt.resetForRegeneration()
+	rt.onParsed(sse.LineResult{Parsed: true, Parts: []sse.ContentPart{{Type: "text", Text: "corrected answer"}}})
+	rt.finalize("stop", false)
+	frames, _ := parseSSEDataFrames(t, rec.Body.String())
+	if streamHasToolCallsDelta(frames) || collectStreamContent(frames) != "corrected answer" {
+		t.Fatalf("retry polluted by old batch: %s", rec.Body.String())
+	}
+}

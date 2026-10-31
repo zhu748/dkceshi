@@ -10,6 +10,7 @@ type State struct {
 	pending                strings.Builder
 	capture                strings.Builder
 	capturing              bool
+	captureProgress        captureProgress
 	codeFenceStack         []int
 	codeFencePendingTicks  int
 	codeFencePendingTildes int
@@ -73,6 +74,7 @@ type ToolCallDelta struct {
 }
 
 func (s *State) resetIncrementalToolState() {
+	s.captureProgress = captureProgress{}
 	s.disableDeltas = false
 	s.toolNameSent = false
 	s.toolName = ""
@@ -290,4 +292,9 @@ func applyFenceMarker(stack *[]int, marker int) {
 		return
 	}
 	*stack = append(*stack, marker)
+}
+
+func shouldResetUnclosedMarkdownPrefix(state *State, prefix, suffix string) bool {
+	markdown := markdownCodeSpanStateAt(state, prefix)
+	return markdown.ticks > 0 && !markdown.fromPrior && !markdownCodeSpanCloses(suffix, markdown.ticks)
 }

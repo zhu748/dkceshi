@@ -261,21 +261,18 @@ func isEPSEShorthandParameter(text string, i int, closing bool) bool {
 }
 
 func IsPartialToolMarkupTagPrefix(text string) bool {
-	if text == "" || text[0] != '<' || strings.Contains(text, ">") || strings.Contains(text, "＞") {
+	if text == "" || xmlTagStartDelimiterLenAt(text, 0) == 0 || strings.ContainsAny(text, ">＞﹥〉") {
 		return false
 	}
 	if isPartialDSMLTagPrefix(text) {
 		return true
 	}
-	i := 1
-	for i < len(text) && text[i] == '<' {
-		i++
-	}
-	if i >= len(text) {
+	if unfinishedToolTagName(text) {
 		return true
 	}
-	if text[i] == '/' {
-		i++
+	i, _ := partialToolTagNameStart(text)
+	if i >= len(text) {
+		return true
 	}
 	for i <= len(text) {
 		if i == len(text) {
@@ -304,18 +301,12 @@ func IsPartialToolMarkupTagPrefix(text string) bool {
 // half-arrived `<DSML ...` (with or without a local-name suffix) must be held
 // back instead of leaking as visible text.
 func isPartialDSMLTagPrefix(text string) bool {
-	if text == "" || text[0] != '<' || strings.Contains(text, ">") || strings.Contains(text, "＞") {
+	if text == "" || xmlTagStartDelimiterLenAt(text, 0) == 0 || strings.ContainsAny(text, ">＞﹥〉") {
 		return false
 	}
-	i := 1
-	for i < len(text) && text[i] == '<' {
-		i++
-	}
+	i, _ := partialToolTagNameStart(text)
 	if i >= len(text) {
 		return true
-	}
-	if text[i] == '/' {
-		i++
 	}
 	for {
 		next, ok := consumeToolMarkupSeparator(text, i)
@@ -613,8 +604,8 @@ func isToolMarkupSeparator(r rune) bool {
 
 func consumeToolMarkupLessThan(text string, idx int) (int, bool) {
 	idx = skipToolMarkupIgnorables(text, idx)
-	ch, size := normalizedASCIIAt(text, idx)
-	if size <= 0 || ch != '<' {
+	size := xmlTagStartDelimiterLenAt(text, idx)
+	if size <= 0 {
 		return idx, false
 	}
 	return idx + size, true
@@ -651,9 +642,9 @@ func normalizedASCIIAt(text string, idx int) (byte, int) {
 
 func normalizeFullwidthASCII(r rune) rune {
 	switch r {
-	case '〈':
+	case '〈', '﹤':
 		return '<'
-	case '〉':
+	case '〉', '﹥':
 		return '>'
 	case '“', '”':
 		return '"'
@@ -664,13 +655,4 @@ func normalizeFullwidthASCII(r rune) rune {
 		return r - 0xFEE0
 	}
 	return r
-}
-
-func toolMarkupPrefixContainsSlash(prefix string) bool {
-	for _, r := range prefix {
-		if normalizeFullwidthASCII(r) == '/' {
-			return true
-		}
-	}
-	return false
 }

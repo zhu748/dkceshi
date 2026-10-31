@@ -6,6 +6,7 @@ import (
 )
 
 func (s *claudeStreamRuntime) resetForRegeneration() {
+	s.toolCallsPending = false
 	s.rawText.Reset()
 	s.text.Reset()
 	s.rawThinking.Reset()

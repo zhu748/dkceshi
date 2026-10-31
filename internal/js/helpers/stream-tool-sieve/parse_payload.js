@@ -2,6 +2,7 @@
 
 // Public payload parser facade and tool-call assembly.
 const { toRawString } = require('./state');
+const { emptyToolMarkupGap } = require('./body_integrity');
 const {
   repairSwallowedCDATARanges,
   sanitizeLooseCDATA,
@@ -66,12 +67,16 @@ function parseMarkupToolCalls(text) {
   const out = [];
   for (const wrapper of wrappers) {
     const body = toRawString(wrapper.body);
+    const calls = [];
+    let prev = 0;
+    let complete = true;
     for (const block of findXmlElementBlocks(body, 'invoke')) {
       const parsed = parseMarkupSingleToolCall(block);
-      if (parsed) {
-        out.push(parsed);
-      }
+      if (!parsed || !emptyToolMarkupGap(body.slice(prev, block.start))) { complete = false; break; }
+      calls.push(parsed);
+      prev = block.end;
     }
+    if (complete && emptyToolMarkupGap(body.slice(prev))) out.push(...calls);
   }
   return out;
 }
@@ -132,7 +137,7 @@ function parseMarkupSingleToolCall(block) {
   const input = {};
   let prev = 0;
   for (const match of findXmlElementBlocks(inner, 'parameter')) {
-    if (hasUnconsumedParameterMarkup(inner.slice(prev, match.start))) return null;
+    if (!emptyToolMarkupGap(inner.slice(prev, match.start))) return null;
     const parameterAttrs = parseTagAttributes(match.attrs);
     const paramName = toRawString(parameterAttrs.name).trim();
     if (!paramName) {
@@ -141,27 +146,11 @@ function parseMarkupSingleToolCall(block) {
     appendMarkupValue(input, paramName, parseMarkupValue(match.body, paramName));
     prev = match.end;
   }
-  if (hasUnconsumedParameterMarkup(inner.slice(prev))) return null;
+  if (!emptyToolMarkupGap(inner.slice(prev))) return null;
   if (Object.keys(input).length === 0 && inner.trim() !== '') {
     return null;
   }
   return { name, input };
-}
-
-function hasUnconsumedParameterMarkup(text) {
-  for (let i = 0; i < text.length;) {
-    const skipped = skipXmlIgnoredSection(text, i);
-    if (skipped.blocked) return false;
-    if (skipped.advanced) { i = skipped.next; continue; }
-    const span = markdownCodeSpanEnd(text, i);
-    if (span.ok) { i = span.end; continue; }
-    const tag = scanToolMarkupTagAt(text, i);
-    if (tag && tag.name === 'parameter' && !tag.closing) return true;
-    const prefix = '<parameter';
-    if (text.slice(i, i + prefix.length).toLowerCase() === prefix && hasXmlTagBoundary(text, i + prefix.length)) return true;
-    i += 1;
-  }
-  return false;
 }
 
 function hasRepairableXMLToolCallsWrapper(text) {

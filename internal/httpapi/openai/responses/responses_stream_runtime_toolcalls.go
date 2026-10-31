@@ -258,12 +258,6 @@ func (s *responsesStreamRuntime) ensureToolCallID(callIndex int) string {
 	return id
 }
 
-func (s *responsesStreamRuntime) resetStreamToolCallState() {
-	// Keep completed identities for response.completed and persisted history.
-	// Only advance the next wrapper's local index origin.
-	s.toolCallOffset = len(s.streamToolCallIDs)
-}
-
 func (s *responsesStreamRuntime) ensureFunctionOutputIndex(callIndex int) int {
 	if idx, ok := s.functionOutputIDs[callIndex]; ok {
 		return idx

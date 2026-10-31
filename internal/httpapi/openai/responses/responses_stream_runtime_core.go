@@ -36,8 +36,8 @@ type responsesStreamRuntime struct {
 	stripReferenceMarkers bool
 
 	bufferToolContent    bool
-	emitEarlyToolDeltas  bool
 	toolCallsEmitted     bool
+	toolCallsPending     bool
 	toolCallsDoneEmitted bool
 
 	deferredText         strings.Builder
@@ -48,7 +48,6 @@ type responsesStreamRuntime struct {
 	responseMessageID    int
 	upstreamErr          string
 	streamToolCallIDs    map[int]string
-	toolCallOffset       int
 	functionItemIDs      map[int]string
 	functionOutputIDs    map[int]int
 	functionArgs         map[int]string
@@ -94,7 +93,7 @@ func newResponsesStreamRuntime(
 	toolNames []string,
 	toolsRaw any,
 	bufferToolContent bool,
-	emitEarlyToolDeltas bool,
+	_ bool, // retained for callers; tool batches are validated before delivery
 	toolChoice promptcompat.ToolChoicePolicy,
 	traceID string,
 	persistResponse func(obj map[string]any),
@@ -113,7 +112,6 @@ func newResponsesStreamRuntime(
 		toolNames:             toolNames,
 		toolsRaw:              toolsRaw,
 		bufferToolContent:     bufferToolContent,
-		emitEarlyToolDeltas:   emitEarlyToolDeltas && !toolChoice.Constrained() && toolsRaw == nil,
 		sieve:                 toolstream.State{DeferMalformed: true},
 		streamToolCallIDs:     map[int]string{},
 		functionItemIDs:       map[int]string{},
