@@ -59,29 +59,59 @@ func maxQueueFromEnv(defaultSize int) int {
 	return defaultSize
 }
 
-func (p *Pool) canAcquireIDLocked(accountID string) bool {
+// acquireChecks carries the per-attempt loop-invariant facts of the acquire
+// path. Computing them once per attempt (instead of per candidate) removes
+// 4-5 store RLocks, one time.Now and one date Format per candidate from the
+// schedulable-account scan, which previously made a 5000-account pool pay
+// milliseconds of serialized work under the pool lock per acquire.
+type acquireChecks struct {
+	rateEnabled bool
+	dailyActive bool
+	dailyMax    int
+	globalFull  bool
+}
+
+func (p *Pool) acquireChecksLocked() acquireChecks {
+	checks := acquireChecks{
+		rateEnabled: p.rateLimitEnabledLocked(),
+		dailyActive: p.dailyLimitActiveLocked(),
+		globalFull:  p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight,
+	}
+	if checks.dailyActive {
+		checks.dailyMax = p.dailyLimitMaxPerDayLocked()
+		// Roll the day once per attempt instead of once per candidate; the date
+		// cannot meaningfully change between two candidates of one scan.
+		p.rollDailyLimitDateLocked()
+	}
+	return checks
+}
+
+func (p *Pool) canAcquireIDCheckedLocked(accountID string, checks acquireChecks) bool {
 	if accountID == "" {
 		return false
 	}
-	if p.isRateLimitedLocked(accountID) {
+	if checks.rateEnabled && p.isRateLimitedNoEnableCheckLocked(accountID) {
 		return false
 	}
-	if p.isDailyLimitedLocked(accountID) {
+	if checks.dailyActive && p.dailyCounts[accountID] >= checks.dailyMax {
 		return false
 	}
 	if p.inUse[accountID] >= p.maxInflightPerAccount {
 		return false
 	}
-	if p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight {
+	if checks.globalFull {
 		return false
 	}
 	return true
 }
 
+func (p *Pool) canAcquireIDLocked(accountID string) bool {
+	return p.canAcquireIDCheckedLocked(accountID, p.acquireChecksLocked())
+}
+
+// currentInUseLocked returns the total number of in-flight acquisitions. It is
+// maintained incrementally (see inUseTotal) so the global-limit check on the
+// hot path stays O(1) instead of walking the whole inUse map per candidate.
 func (p *Pool) currentInUseLocked() int {
-	total := 0
-	for _, n := range p.inUse {
-		total += n
-	}
-	return total
+	return p.inUseTotal
 }

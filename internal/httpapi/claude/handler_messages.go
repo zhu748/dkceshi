@@ -61,20 +61,19 @@ func isClaudeVercelProxyRequest(r *http.Request) bool {
 
 func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
-	raw, err := io.ReadAll(r.Body)
-	if err != nil {
-		if requestbody.IsTooLarge(err) {
+	// Decode straight from the replay body: the UTF-8/JSON validator already
+	// buffers the payload once, and io.ReadAll here made multimodal requests
+	// hold two full copies (plus the decoded map).
+	var req map[string]any
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
+		switch {
+		case requestbody.IsTooLarge(err):
 			writeClaudeError(w, http.StatusRequestEntityTooLarge, "request body too large")
-		} else if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
+		case errors.Is(err, requestbody.ErrInvalidUTF8Body), errors.Is(err, requestbody.ErrInvalidJSONBody):
 			writeClaudeError(w, http.StatusBadRequest, "invalid json")
-		} else {
+		default:
 			writeClaudeError(w, http.StatusBadRequest, "invalid body")
 		}
-		return true
-	}
-	var req map[string]any
-	if err := jsonvalue.Unmarshal(raw, &req); err != nil {
-		writeClaudeError(w, http.StatusBadRequest, "invalid json")
 		return true
 	}
 	// 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。

@@ -54,6 +54,13 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"detail": "Invalid admin key"})
 		return
 	}
+	// Bound the caller-requested lifetime. Without a cap a single login could
+	// mint a decades-long admin JWT; 30 days is far beyond any "remember me"
+	// need while keeping a leaked token revocable on a sane schedule.
+	const maxExpireHours = 24 * 30
+	if expireHours > maxExpireHours {
+		expireHours = maxExpireHours
+	}
 	token, err := authn.CreateJWTWithStore(expireHours, h.Store)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})

@@ -30,6 +30,10 @@ const (
 	// marker and everything after it is dropped, and the caller runs its normal
 	// finish path (HTTP 200) rather than reporting an interruption.
 	StopReasonToolRoleMarker StopReason = "tool_role_marker"
+	// StopReasonTranscriptBoundary marks a stream cut short because the
+	// upstream emitted a serialized conversation terminator (history transcript
+	// boundary) mid-answer; everything after it was fabricated dialogue.
+	StopReasonTranscriptBoundary StopReason = "transcript_boundary"
 )
 
 type ConsumeConfig struct {

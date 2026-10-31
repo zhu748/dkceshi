@@ -1,5 +1,5 @@
 import { ArrowDown, Bot, ChevronDown, Clock3, Copy, Download, Sparkles, UserRound } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 
 import {
@@ -235,8 +235,14 @@ function MetaGrid({ selectedItem, t }) {
 }
 
 export default function DetailConversation({ selectedItem, t, viewMode, detailScrollRef, assistantStartRef, bottomButtonClassName, onMessage }) {
+    // 记忆化：列表视图的大文本解析（regex matchAll 等）只在选中项/语言变化时重算，
+    // 避免流式轮询（每 750ms 一次的重渲染）反复全量解析 history_text。
+    const listModeMessages = useMemo(
+        () => (viewMode === 'list' && selectedItem ? buildListModeMessages(selectedItem, t) : null),
+        [viewMode, selectedItem, t],
+    )
     if (!selectedItem) return null
-    const listModeState = viewMode === 'list' ? buildListModeMessages(selectedItem, t) : null
+    const listModeState = listModeMessages
     const showHistoryAtTop = viewMode !== 'list' || !listModeState?.historyMerged
 
     return (

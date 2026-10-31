@@ -73,9 +73,70 @@ func repairPathLikeControlChars(m map[string]any) {
 	}
 }
 
+// isPathLikeKey reports whether a parameter key names a filesystem path or
+// file. The match is word-based: plain substring matching also caught keys
+// like "profile" (contains "file") or "xpath" / "critical_path" (contain
+// "path") and silently rewrote their values by escaping real control runes.
 func isPathLikeKey(key string) bool {
-	k := strings.ToLower(strings.TrimSpace(key))
-	return strings.Contains(k, "path") || strings.Contains(k, "file")
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	// Whole compounds that never split into a standalone "path"/"file" word
+	// but still name a file location.
+	switch lower {
+	case "filename", "filenames", "pathname", "filepath", "filepaths":
+		return true
+	}
+	// Split on non-alphanumerics (file_path, "file name") and on camelCase
+	// humps (filePath -> file|Path, from the original key). The path/file word
+	// must be the FINAL word: in key naming it is the head noun ("file_path",
+	// "output_file"), while a leading occurrence is usually descriptive
+	// ("path_analysis", "file_hash", "critical_path_study").
+	words := splitKeyWords(trimmed)
+	if len(words) == 0 {
+		return false
+	}
+	switch words[len(words)-1] {
+	case "path", "paths", "file", "files":
+		return true
+	}
+	// Separated compounds whose head noun is not path/file itself
+	// (file-name, file_name) collapse back to the explicit list.
+	switch strings.Join(words, "") {
+	case "filename", "filenames", "pathname", "filepath", "filepaths":
+		return true
+	}
+	return false
+}
+
+// splitKeyWords splits a parameter key into lowercase words on
+// non-alphanumeric separators and camelCase humps. Keys are short, so the
+// double pass is negligible.
+func splitKeyWords(key string) []string {
+	var out []string
+	start := 0
+	flush := func(end int) {
+		if end > start {
+			out = append(out, strings.ToLower(key[start:end]))
+		}
+	}
+	for i, r := range key {
+		isUpper := r >= 'A' && r <= 'Z'
+		isAlnum := isUpper || r >= 'a' && r <= 'z' || r >= '0' && r <= '9'
+		if !isAlnum {
+			flush(i)
+			start = i + 1
+			continue
+		}
+		if isUpper && i > start {
+			flush(i)
+			start = i
+		}
+	}
+	flush(len(key))
+	return out
 }
 
 func containsControlRune(s string) bool {

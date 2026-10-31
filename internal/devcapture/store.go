@@ -72,8 +72,13 @@ func Global() *Store {
 	return globalInst
 }
 
+// NewFromEnv builds the capture store. Capture is strictly opt-in
+// (DS2API_DEV_PACKET_CAPTURE=true): entries keep plaintext user prompts and
+// model answers in memory, so a default-on store would silently retain
+// conversation content on every non-Vercel deployment — the opposite of what
+// the README documents.
 func NewFromEnv() *Store {
-	enabled := !isVercelRuntime()
+	enabled := false
 	if raw, ok := os.LookupEnv("DS2API_DEV_PACKET_CAPTURE"); ok {
 		enabled = parseBool(raw)
 	}
@@ -94,10 +99,6 @@ func NewFromEnv() *Store {
 		maxBodyBytes: maxBodyBytes,
 		items:        make([]Entry, 0, limit),
 	}
-}
-
-func isVercelRuntime() bool {
-	return strings.TrimSpace(os.Getenv("VERCEL")) != "" || strings.TrimSpace(os.Getenv("NOW_REGION")) != ""
 }
 
 func (s *Store) Enabled() bool {

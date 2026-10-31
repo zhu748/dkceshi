@@ -315,8 +315,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const created = Math.floor(Date.now() / 1000);
     let currentType = thinkingEnabled ? 'thinking' : 'text';
     let thinkingText = '';
+    // Monotonic "has any non-whitespace char" flags: replaces per-line
+    // outputText.trim() scans, which are O(total) per SSE line (O(n^2) per stream).
+    let hasVisibleThinking = false;
     let detectionThinkingText = '';
     let outputText = '';
+    let hasVisibleOutput = false;
     let deferredToolText = '';
     // 上游正文通道的内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）统一由
     // 该策略持有，与 Go 侧 sse.ContentPolicy 语义一致；新增规则只需改策略本身。
@@ -356,6 +360,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
     const resetForRegeneration = () => {
       outputText = '';
+      hasVisibleOutput = false;
       deferredToolText = '';
       detectionThinkingText = '';
       lastEmptyDetail = null;
@@ -390,17 +395,20 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       const markerTail = markerNormalizer.flush();
       if (markerTail) {
         outputText += markerTail;
+        if (markerTail.trim() !== '') {
+          hasVisibleOutput = true;
+        }
         feedContentPolicyTail(contentPolicy, markerTail);
       }
       let detected = parseStandaloneToolCalls(outputText, toolNames);
       // Match the Go fallback: only use reasoning-channel calls when no body
       // answer exists. Hidden reasoning remains internal and is never emitted.
-      if (detected.length === 0 && outputText.trim() === '' && detectionThinkingText) {
+      if (detected.length === 0 && !hasVisibleOutput && detectionThinkingText) {
         const normalizer = createMarkerNormalizer(prep.body.tool_marker);
         detected = parseStandaloneToolCalls(normalizer.write(detectionThinkingText) + normalizer.flush(), toolNames);
       }
       let validatedCalls = null;
-      if (prep.body.validate_tools === true && toolPolicy.constrained && (outputText.trim() || detected.length)) {
+      if (prep.body.validate_tools === true && toolPolicy.constrained && (hasVisibleOutput || detected.length)) {
         try {
           const validation = await fetchStreamValidation(req, leaseID, outputText, thinkingText, detectionThinkingText, upstreamController.signal);
           if (!validation.ok) {
@@ -429,7 +437,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       }
       // An empty upstream result must retain its retry/error path. Required
       // tool policy applies to actual answers, not a missing response.
-      const violation = (detected.length > 0 || toolCallsEmitted || outputText.trim() !== '')
+      const violation = (detected.length > 0 || toolCallsEmitted || hasVisibleOutput)
         ? toolChoiceViolation(detected, toolPolicy.choice) : '';
       if (violation) {
         if (options.deferEmpty && !answerDelivered) {
@@ -476,7 +484,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       if (detected.length > 0 || toolCallsEmitted) {
         reason = 'tool_calls';
       }
-      if (detected.length === 0 && !toolCallsEmitted && outputText.trim() === '') {
+      if (detected.length === 0 && !toolCallsEmitted && !hasVisibleOutput) {
         if (options.deferEmpty && reason !== 'content_filter') {
           lastEmptyDetail = upstreamEmptyOutputDetail(reason === 'content_filter', outputText, thinkingText);
           return false;
@@ -592,14 +600,14 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                 return { terminal: true, retryable: false };
               }
               if (parsed.contentFilter) {
-                return { terminal: await finish(outputText.trim() === '' ? 'content_filter' : 'stop'), retryable: false };
+                return { terminal: await finish(!hasVisibleOutput ? 'content_filter' : 'stop'), retryable: false };
               }
               if (parsed.finished) {
                 streamEnded = true;
                 break;
               }
 
-              if (parsed.detectionThinking && outputText.trim() === '') {
+              if (parsed.detectionThinking && !hasVisibleOutput) {
                 detectionThinkingText += trimContinuationOverlap(detectionThinkingText, parsed.detectionThinking);
               }
               for (const p of parsed.parts) {
@@ -613,6 +621,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                       continue;
                     }
                     thinkingText += trimmed;
+                    if (!hasVisibleThinking) {
+                      hasVisibleThinking = trimmed.trim() !== '';
+                    }
                     deltaCoalescer.append('reasoning_content', trimmed);
                   }
                 } else {
@@ -639,6 +650,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                     continue;
                   }
                   outputText += safeText;
+                  if (!hasVisibleOutput) {
+                    hasVisibleOutput = safeText.trim() !== '';
+                  }
                   if (!toolSieveEnabled) {
                     deltaCoalescer.append('content', safeText);
                     continue;
@@ -706,7 +720,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           // upstream had not signalled completion with [DONE], try to resume
           // the same message via the continue endpoint instead of silently
           // delivering a truncated response.
-          if ((outputText.trim() !== '' || thinkingText.trim() !== '') && !continueState.sawDone && shouldAutoContinue(continueState) && continueRounds < AUTO_CONTINUE_MAX_ROUNDS) {
+          if ((hasVisibleOutput || hasVisibleThinking) && !continueState.sawDone && shouldAutoContinue(continueState) && continueRounds < AUTO_CONTINUE_MAX_ROUNDS) {
             continueRounds += 1;
             const nextRes = await fetchContinue(continueState.responseMessageID);
             if (nextRes !== null && nextRes.ok && nextRes.body) {
@@ -715,7 +729,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
               continue;
             }
           }
-          if (outputText.trim() !== '' || thinkingText.trim() !== '') {
+          if (hasVisibleOutput || hasVisibleThinking) {
             return { terminal: false, retryable: false, interrupted: true, responseMessageID: continueState.responseMessageID };
           }
           // No partial output: fall through to the normal empty-output path.
@@ -1203,6 +1217,9 @@ function upstreamEmptyOutputDetail(contentFilter, _text, thinking) {
 }
 
 function sendFailedChunk(res, status, message, code) {
+  if (res.writableEnded || res.destroyed) {
+    return;
+  }
   res.write(`data: ${JSON.stringify({
     status_code: status,
     error: {
@@ -1269,18 +1286,57 @@ async function detectMutedOrBannedResponse(res) {
     });
     return { mutedUntil: 0, banned: false, response: new Response(newBody, res) };
   }
+  // JSON body: read it in full (bounded), then either report the mute/ban
+  // verdict or hand back a replayable response. Returning response:null with
+  // the original res — whose body reader is now locked and never released —
+  // made the downstream getReader() call throw "ReadableStream is locked"
+  // after headers were already flushed, silently truncating the client stream.
   const chunks = [firstChunk];
+  let total = firstChunk.length;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    if (value) {
+      chunks.push(value);
+      total += value.length;
+    }
+    if (total > MAX_MUTED_DETECT_JSON_BYTES) {
+      // Mirror the Go cap (client_completion_inspect.go reads at most 1 MiB+1
+      // and falls back to SSE replay beyond it): an oversized JSON body is not
+      // a mute/ban notice, so replay the buffered prefix as a normal response.
+      // Cancel the remainder so the underlying connection is released instead
+      // of staying locked until GC.
+      try { await reader.cancel(); } catch (_e) {}
+      return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
+    }
   }
   try {
     const data = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
-    return { mutedUntil: extractMuteUntil(data), banned: isBannedJSONResponse(data), response: null };
+    const mutedUntil = extractMuteUntil(data);
+    const banned = isBannedJSONResponse(data);
+    if (mutedUntil > 0 || banned) {
+      // Caller switches accounts and fetches a fresh response.
+      return { mutedUntil, banned, response: null };
+    }
+    // JSON body but neither muted nor banned (e.g. a business error payload):
+    // replay the buffered bytes so the empty-output path can inspect them.
+    return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
   } catch (_err) {
-    return { mutedUntil: 0, banned: false, response: null };
+    // Truncated/invalid JSON: replay what we have, same as the Go path.
+    return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
   }
+}
+
+// MAX_MUTED_DETECT_JSON_BYTES matches the Go-side mute-detection read cap
+// (1 MiB) in internal/deepseek/client/client_completion_inspect.go.
+const MAX_MUTED_DETECT_JSON_BYTES = 1 << 20;
+
+// replayJSONBodyResponse rebuilds a Response whose body replays the buffered
+// chunks; the original res body is fully consumed by now, so the replacement
+// is what downstream consumers read from.
+function replayJSONBodyResponse(res, chunks) {
+  const body = Buffer.concat(chunks);
+  return new Response(body, res);
 }
 
 // 判断 DeepSeek JSON 响应是否表示 USER_IS_BANNED。

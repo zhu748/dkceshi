@@ -17,13 +17,16 @@ export function useDeviceIdPool({ apiFetch, t, onMessage, onRefresh, fetchAccoun
             if (res.ok) {
                 const data = await res.json()
                 setDeviceIdItems(Array.isArray(data.items) ? data.items : [])
+            } else {
+                // 非 200 静默失败会让弹窗一直停留在旧数据上；至少给出提示。
+                onMessage('error', t('messages.requestFailed'))
             }
         } catch (e) {
             console.error('Failed to fetch device ids:', e)
         } finally {
             setLoadingDeviceIds(false)
         }
-    }, [apiFetch])
+    }, [apiFetch, onMessage, t])
 
     const openDeviceIds = useCallback(() => {
         setShowDeviceIds(true)

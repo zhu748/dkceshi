@@ -109,7 +109,24 @@ function createMarkerNormalizer(marker) {
     // complete occurrence intact for the context-aware rewriter, which checks
     // the tag prefix and waits for the following boundary if needed.
     write(chunk) {
-      const data = buf + (typeof chunk === 'string' ? chunk : '');
+      const incoming = typeof chunk === 'string' ? chunk : '';
+      // Fast path mirroring the Go MarkerNormalizer: with an empty hold, no
+      // open CDATA, no pending tag prefix and no partial CDATA opener, plain
+      // ASCII without '<' cannot change state, cannot be rewritten, and (when
+      // it does not end on a proper marker prefix) leaves nothing to withhold.
+      // This skips the occurrence scan and per-codepoint rewrite that
+      // otherwise dominate the normalization cost on streaming deltas.
+      if (
+        buf === ''
+        && !inCDATA
+        && !tagPrefix
+        && cdataOpen === 0
+        && plainASCIIWithoutLessThan(incoming)
+        && trailingMarkerPrefixLen(incoming, active) === 0
+      ) {
+        return incoming;
+      }
+      const data = buf + incoming;
       buf = '';
       const hold = trailingMarkerPrefixLen(data.slice(lastMarkerOccurrenceEnd(data, active)), active);
       buf = data.slice(data.length - hold);
@@ -169,6 +186,20 @@ function trailingMarkerPrefixLen(data, marker) {
 function replaceMarkerKeyword(text, marker) {
   const normalizer = createMarkerNormalizer(marker);
   return normalizer.write(text) + normalizer.flush();
+}
+
+// plainASCIIWithoutLessThan reports whether s is pure ASCII with no '<'.
+// Such a chunk cannot advance any normalizer state: the '<', ']', '>' and
+// slash transitions all need their ASCII form (full-width variants are
+// non-ASCII), and separators never set state on their own.
+function plainASCIIWithoutLessThan(s) {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0x80 || c === 0x3c) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function equalsFold(a, b) {

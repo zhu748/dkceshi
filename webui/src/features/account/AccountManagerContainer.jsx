@@ -40,7 +40,7 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
         filterStatus,
         handleFilterChange,
         accountCounts,
-    } = useAccountsData({ apiFetch, onConfigRefresh: onRefresh })
+    } = useAccountsData({ apiFetch, t, onConfigRefresh: onRefresh, onMessage })
 
     // 代理桥节点清单：账号的代理下拉要列出全部可用节点（不只是已绑定的），
     // 节点健康与延迟随时在变，所以下拉打开时会按需刷新。

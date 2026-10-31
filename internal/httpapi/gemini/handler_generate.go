@@ -59,23 +59,21 @@ func isGeminiVercelProxyRequest(r *http.Request) bool {
 
 func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, stream bool) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
-	raw, err := io.ReadAll(r.Body)
-	if err != nil {
-		if requestbody.IsTooLarge(err) {
+	// See handleClaudeDirect: decode from the replay body instead of double
+	// buffering the payload.
+	var req map[string]any
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
+		switch {
+		case requestbody.IsTooLarge(err):
 			writeGeminiError(w, http.StatusRequestEntityTooLarge, "request body too large")
-		} else if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
+		case errors.Is(err, requestbody.ErrInvalidUTF8Body), errors.Is(err, requestbody.ErrInvalidJSONBody):
 			writeGeminiError(w, http.StatusBadRequest, "invalid json")
-		} else {
+		default:
 			writeGeminiError(w, http.StatusBadRequest, "invalid body")
 		}
 		return true
 	}
 	routeModel := strings.TrimSpace(chi.URLParam(r, "model"))
-	var req map[string]any
-	if err := jsonvalue.Unmarshal(raw, &req); err != nil {
-		writeGeminiError(w, http.StatusBadRequest, "invalid json")
-		return true
-	}
 	// 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。
 	// 按 Key 的开关由 promptcompat.ApplyCallerFlags 在判定之前应用。
 	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))

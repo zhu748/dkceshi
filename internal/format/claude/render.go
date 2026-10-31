@@ -28,7 +28,11 @@ func BuildMessageResponseFromTurn(messageID, model string, turn assistantturn.Tu
 		}
 	} else {
 		text := turn.Text
-		if text == "" && exposeThinking {
+		// Only fall back to thinking text when the client did not ask for a
+		// thinking block. With exposeThinking set, the thinking was already
+		// appended as a thinking block above; repeating it as the text block
+		// duplicated the same content in one message.
+		if text == "" && !exposeThinking {
 			text = turn.Thinking
 		}
 		if text == "" {

@@ -94,6 +94,13 @@ type BuildOptions struct {
 	// Raw model output is normalized from ToolMarker back to EPSE before
 	// parsing/repair so the internal tool-call model only ever sees EPSE.
 	ToolMarker string
+	// PromptTokenCountFn, when non-nil, supplies the prompt-side token count
+	// for BuildUsage. Streaming runtimes already count the same prompt text for
+	// their first frame (e.g. Claude's message_start); reusing that count here
+	// avoids a second full BPE encode of a potentially hundreds-of-KB prompt.
+	// ok=false falls back to counting from Prompt. RefFileTokens is still added
+	// on top of whatever this returns.
+	PromptTokenCountFn func(prompt string) (count int, ok bool)
 }
 
 // maybeRepairToolCalls tries conservative native DSML recovery, followed by
@@ -287,7 +294,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 		FirstResponseMessageID: result.FirstResponseMessageID,
 		StopReason:             stopReason,
 	}
-	turn.Usage = BuildUsage(opts.Model, opts.Prompt, thinking, text, opts.RefFileTokens)
+	turn.Usage = buildUsageWithPrefill(opts, thinking, text)
 	turn.Error = validateToolOutput(turn, opts, repairCompleted)
 	if result.ReadError != nil {
 		turn.Error = &OutputError{Status: http.StatusBadGateway, Code: "upstream_read_error", Message: "Upstream stream read failed: " + result.ReadError.Error()}
@@ -362,7 +369,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		ResponseMessageID: snapshot.ResponseMessageID,
 		StopReason:        stopReason,
 	}
-	turn.Usage = BuildUsage(opts.Model, opts.Prompt, thinking, text, opts.RefFileTokens)
+	turn.Usage = buildUsageWithPrefill(opts, thinking, text)
 	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
 		turn.Error = validateToolOutput(turn, opts, repairCompleted)
 	}
@@ -370,6 +377,31 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		turn.StopReason = StopReasonError
 	}
 	return turn
+}
+
+// buildUsageWithPrefill is BuildUsage with the BuildOptions prompt-count
+// prefill channel (see BuildOptions.PromptTokenCountFn).
+func buildUsageWithPrefill(opts BuildOptions, thinking, text string) Usage {
+	inputTokens := 0
+	prefilled := false
+	if opts.PromptTokenCountFn != nil {
+		if count, ok := opts.PromptTokenCountFn(opts.Prompt); ok {
+			inputTokens = count
+			prefilled = true
+		}
+	}
+	if !prefilled {
+		inputTokens = util.CountPromptTokens(opts.Prompt, opts.Model)
+	}
+	inputTokens += opts.RefFileTokens
+	reasoningTokens := util.CountOutputTokens(thinking, opts.Model)
+	outputTokens := reasoningTokens + util.CountOutputTokens(text, opts.Model)
+	return Usage{
+		InputTokens:     inputTokens,
+		OutputTokens:    outputTokens,
+		ReasoningTokens: reasoningTokens,
+		TotalTokens:     inputTokens + outputTokens,
+	}
 }
 
 func BuildUsage(model, prompt, thinking, text string, refFileTokens int) Usage {

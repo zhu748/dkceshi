@@ -9,10 +9,13 @@ import (
 )
 
 type Pool struct {
-	store                  *config.Store
-	mu                     sync.Mutex
-	queue                  []string
-	inUse                  map[string]int
+	store *config.Store
+	mu    sync.Mutex
+	queue []string
+	inUse map[string]int
+	// inUseTotal mirrors sum(inUse.values()) and is maintained on every
+	// acquire/release so the global-limit check stays O(1) on the hot path.
+	inUseTotal             int
 	waiters                []*poolWaiter
 	maxInflightPerAccount  int
 	recommendedConcurrency int
@@ -105,9 +108,10 @@ func (p *Pool) Reset() {
 	for _, acc := range accounts {
 		configured[acc.Identifier()] = true
 	}
-	for id := range p.inUse {
+	for id, count := range p.inUse {
 		if !configured[id] {
 			delete(p.inUse, id)
+			p.inUseTotal -= count
 		}
 	}
 	for id, entry := range p.rateLimits {
@@ -143,6 +147,7 @@ func (p *Pool) Release(accountID string) {
 	if count <= 0 {
 		return
 	}
+	p.inUseTotal--
 	if count == 1 {
 		delete(p.inUse, accountID)
 		p.notifyWaiterLocked()

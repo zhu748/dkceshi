@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"strings"
+	"sync"
 )
 
 // EPSEKeyword is the canonical, internal tool-call tag prefix. All prompt
@@ -157,6 +158,19 @@ func (n *MarkerNormalizer) Write(chunk string) string {
 	if !n.Active() {
 		return chunk
 	}
+	// Fast path: with an empty hold buffer, no CDATA section open, no pending
+	// tag prefix and no partial CDATA opener, a plain-ASCII chunk without '<'
+	// cannot change the state machine (tag prefixes, CDATA openers and the
+	// full-width variants observeRune normalizes all involve either '<' or a
+	// non-ASCII byte), cannot contain a rewritable occurrence, and — when it
+	// also does not end on a proper prefix of the marker — leaves nothing to
+	// withhold. Ordinary prose therefore skips the occurrence scan and the
+	// per-rune rewrite, which otherwise dominate the marker-normalization cost
+	// on streaming deltas.
+	if n.buf == "" && !n.inCDATA && !n.tagPrefix && n.cdataOpen == 0 &&
+		plainASCIIWithoutLessThan(chunk) && trailingMarkerPrefixLen(chunk, n.marker) == 0 {
+		return chunk
+	}
 	data := n.buf + chunk
 	n.buf = ""
 	hold := trailingMarkerPrefixLen(data[lastMarkerOccurrenceEnd(data, n.marker):], n.marker)
@@ -207,11 +221,29 @@ func NormalizeToolMarkupMarker(text, marker string) string {
 	return replaceToolMarkupMarker(text, marker, EPSEKeyword)
 }
 
+// replacerCache memoizes the marker Replacers: ApplyToolMarker and
+// NormalizeToolMarkupMarker run over every history message of every request,
+// and strings.NewReplacer construction is pure overhead on that path. The
+// cache is keyed by the (from,to) marker pair; distinct per-caller markers
+// make the entry set small (one per active API key) and unbounded growth is
+// capped by key count.
+var replacerCache sync.Map // string -> *strings.Replacer
+
+func markerReplacer(from, to string) *strings.Replacer {
+	key := from + "\x00" + to
+	if cached, ok := replacerCache.Load(key); ok {
+		return cached.(*strings.Replacer)
+	}
+	replacer := strings.NewReplacer("<|"+from+"|", "<|"+to+"|", "</|"+from+"|", "</|"+to+"|")
+	replacerCache.Store(key, replacer)
+	return replacer
+}
+
 func replaceToolMarkupMarker(text, from, to string) string {
 	if !strings.Contains(text, from) {
 		return text
 	}
-	replacer := strings.NewReplacer("<|"+from+"|", "<|"+to+"|", "</|"+from+"|", "</|"+to+"|")
+	replacer := markerReplacer(from, to)
 	// CDATA is literal tool argument content. Never rewrite user strings in it.
 	var out strings.Builder
 	for len(text) > 0 {
@@ -281,6 +313,19 @@ func asciiEqualFold(a, b string) bool {
 	}
 	for i := 0; i < len(a); i++ {
 		if asciiLower(a[i]) != asciiLower(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// plainASCIIWithoutLessThan reports whether s is pure ASCII and contains no
+// '<'. Such a chunk cannot advance any MarkerNormalizer state: the '<', ']',
+// '>' and slash transitions all need their ASCII form (full-width variants
+// are non-ASCII), and separators/identifiers never set state on their own.
+func plainASCIIWithoutLessThan(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 || s[i] == '<' {
 			return false
 		}
 	}

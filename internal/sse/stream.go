@@ -215,7 +215,10 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 					for _, p := range result.ToolDetectionThinkingParts {
 						toolDetectionThinkingBuffer.WriteString(p.Text)
 					}
-					if textBuffer.Len() > 0 || len(result.Parts) > 0 || toolDetectionThinkingBuffer.Len() > 0 {
+					// hasBufferedData covers text/thinking/tool-detection buffers.
+					// A thinking-only tail (text empty, Stop carries no parts) would
+					// otherwise never flush and the reasoning tail would be dropped.
+					if hasBufferedData() || len(result.Parts) > 0 {
 						for _, p := range result.Parts {
 							if p.Type == "thinking" {
 								thinkingBuffer.WriteString(p.Text)

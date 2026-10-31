@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
 	"ds2api/internal/toolcall"
+	"ds2api/internal/util"
 )
 
 //nolint:unused // retained for native Gemini stream handling path.
@@ -79,6 +81,10 @@ type geminiStreamRuntime struct {
 
 	model       string
 	finalPrompt string
+	// inputTokenCounts memoizes the prompt-side BPE count per prompt text so
+	// finalize (and each retry attempt's finalize) does not re-encode the same
+	// hundreds-of-KB prompt.
+	inputTokenCounts map[string]int
 
 	thinkingEnabled bool
 	searchEnabled   bool
@@ -153,8 +159,7 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
 		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
-			terminalWritten, retryable := h.consumeGeminiStreamAttempt(r.Context(), currentResp, runtime, thinkingEnabled, allowDeferEmpty)
-			return completionruntime.ConsumeAttemptResult{Terminal: terminalWritten, Retryable: retryable}
+			return h.consumeGeminiStreamAttempt(r.Context(), currentResp, runtime, thinkingEnabled, allowDeferEmpty)
 		},
 		Finalize: func(_ int) {
 			runtime.finalize(false)
@@ -177,7 +182,7 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 	})
 }
 
-func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Response, runtime *geminiStreamRuntime, thinkingEnabled bool, allowDeferEmpty bool) (bool, bool) {
+func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Response, runtime *geminiStreamRuntime, thinkingEnabled bool, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 	defer func() { _ = resp.Body.Close() }()
 	// A new attempt reads a new upstream response, so the content rules start
 	// over: a cut that ended the previous attempt (an empty-output retry, or a
@@ -187,6 +192,8 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 	if thinkingEnabled {
 		initialType = "thinking"
 	}
+	var scannerErr error
+	var stopReason streamengine.StopReason
 	streamengine.ConsumeSSE(streamengine.ConsumeConfig{
 		Context:             ctx,
 		Body:                resp.Body,
@@ -197,14 +204,40 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 		MaxKeepAliveNoInput: dsprotocol.MaxKeepaliveCount,
 	}, streamengine.ConsumeHooks{
 		OnParsed: runtime.onParsed,
-		OnFinalize: func(_ streamengine.StopReason, _ error) {
+		OnFinalize: func(reason streamengine.StopReason, err error) {
+			stopReason = reason
+			scannerErr = err
 		},
 	})
+	// An upstream stream that died mid-body (read error) or stalled past the
+	// idle / no-content window after producing partial output must not be
+	// silently finalized as a normal finish frame: schedule a continue-resume so
+	// the same message is completed, or surface an explicit interruption error.
+	// Mirrors the chat.completions surface (openai/chat/empty_retry_runtime.go).
+	interrupted := scannerErr != nil || stopReason == streamengine.StopReasonIdleTimeout || stopReason == streamengine.StopReasonNoContentTimeout
+	if interrupted && runtime.responseMessageID > 0 && runtime.accumulator.HasPartialOutput() {
+		config.Logger.Warn("[gemini_stream] upstream stream interrupted; scheduling continue-resume",
+			"surface", "gemini.generate_content", "stream", true, "reason", stopReason, "error", fmt.Sprint(scannerErr), "response_message_id", runtime.responseMessageID)
+		return completionruntime.ConsumeAttemptResult{Retryable: true, ResumeContinue: true}
+	}
+	if interrupted && runtime.accumulator.HasPartialOutput() {
+		// Partial output but no resumable message id: surface the truncation and
+		// close the history entry like the chat surface does, so it does not stay
+		// in "streaming" forever.
+		runtime.sendErrorChunk(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.")
+		if runtime.history != nil {
+			rawText, text, rawThinking, thinking, detectionThinking := runtime.accumulator.Snapshot()
+			runtime.history.Error(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.", "upstream_interrupted",
+				responsehistory.ThinkingForArchive(rawThinking, detectionThinking, thinking),
+				responsehistory.TextForArchive(rawText, text))
+		}
+		return completionruntime.ConsumeAttemptResult{Terminal: true}
+	}
 	terminalWritten := runtime.finalize(allowDeferEmpty)
 	if terminalWritten {
-		return true, false
+		return completionruntime.ConsumeAttemptResult{Terminal: true}
 	}
-	return false, true
+	return completionruntime.ConsumeAttemptResult{Retryable: true}
 }
 
 //nolint:unused // retained for native Gemini stream handling path.
@@ -252,6 +285,32 @@ func (s *geminiStreamRuntime) sendChunk(payload map[string]any) {
 	if s.canFlush {
 		_ = s.rc.Flush()
 	}
+}
+
+// countInputTokens memoizes util.CountPromptTokens per prompt text within
+// one request.
+func (s *geminiStreamRuntime) countInputTokens(prompt string) int {
+	if s == nil || prompt == "" {
+		return 0
+	}
+	if s.inputTokenCounts == nil {
+		s.inputTokenCounts = make(map[string]int, 2)
+	}
+	if v, ok := s.inputTokenCounts[prompt]; ok {
+		return v
+	}
+	v := util.CountPromptTokens(prompt, s.model)
+	s.inputTokenCounts[prompt] = v
+	return v
+}
+
+// promptTokenCountFor is the assistantturn.BuildOptions.PromptTokenCountFn
+// adapter around countInputTokens.
+func (s *geminiStreamRuntime) promptTokenCountFor(prompt string) (int, bool) {
+	if s == nil || prompt == "" {
+		return 0, false
+	}
+	return s.countInputTokens(prompt), true
 }
 
 func (s *geminiStreamRuntime) sendErrorChunk(status int, message string) {
@@ -367,6 +426,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	}, assistantturn.BuildOptions{
 		Model:                 s.model,
 		Prompt:                s.finalPrompt,
+		PromptTokenCountFn:    s.promptTokenCountFor,
 		SearchEnabled:         s.searchEnabled,
 		StripReferenceMarkers: s.stripReferenceMarkers,
 		ToolNames:             s.toolNames,

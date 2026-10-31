@@ -395,6 +395,8 @@ DS2API_DEV_PACKET_CAPTURE_LIMIT=20 \
 go run ./cmd/ds2api
 ```
 
+> 抓包默认关闭（不设置该变量时不记录任何内容）；抓包内容为明文请求/响应，仅建议排查问题时临时开启。
+
 查询/清空（需 Admin JWT）：
 
 - `GET /admin/dev/captures`：查看抓包列表（最新在前）

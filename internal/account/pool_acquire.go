@@ -41,6 +41,7 @@ func (p *Pool) AcquireKeepAlive(target string) (config.Account, bool) {
 		return config.Account{}, false
 	}
 	p.inUse[target]++
+	p.inUseTotal++
 	return acc, true
 }
 
@@ -107,6 +108,7 @@ func (p *Pool) acquireLocked(target string, exclude map[string]bool, filter Acco
 			return config.Account{}, false
 		}
 		p.inUse[target]++
+		p.inUseTotal++
 		p.recordAccountRequestLocked(target)
 		p.bumpQueue(target)
 		return acc, true
@@ -116,9 +118,12 @@ func (p *Pool) acquireLocked(target string, exclude map[string]bool, filter Acco
 }
 
 func (p *Pool) tryAcquire(exclude map[string]bool, filter AccountFilter) (config.Account, bool) {
+	// Per-attempt invariants (store locks, date roll, global saturation) are
+	// computed once; the candidate scan below only does map lookups.
+	checks := p.acquireChecksLocked()
 	for i := 0; i < len(p.queue); i++ {
 		id := p.queue[i]
-		if exclude[id] || !p.canAcquireIDLocked(id) {
+		if exclude[id] || !p.canAcquireIDCheckedLocked(id, checks) {
 			continue
 		}
 		acc, ok := p.store.FindAccount(id)
@@ -132,6 +137,7 @@ func (p *Pool) tryAcquire(exclude map[string]bool, filter AccountFilter) (config
 			continue
 		}
 		p.inUse[id]++
+		p.inUseTotal++
 		p.recordAccountRequestLocked(id)
 		p.bumpQueue(id)
 		return acc, true

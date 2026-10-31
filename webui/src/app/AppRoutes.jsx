@@ -69,7 +69,8 @@ export default function AppRoutes() {
                             <div className={clsx(
                                 "fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg border animate-in slide-in-from-top-2 fade-in",
                                 message.type === 'error' ? "bg-destructive/10 border-destructive/20 text-destructive" :
-                                    "bg-primary/10 border-primary/20 text-primary"
+                                    message.type === 'warning' ? "bg-amber-500/10 border-amber-500/25 text-amber-600 dark:text-amber-400" :
+                                        "bg-primary/10 border-primary/20 text-primary"
                             )}>
                                 {message.text}
                             </div>

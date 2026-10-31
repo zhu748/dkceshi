@@ -199,6 +199,7 @@
     "manageDeviceId": "Login device IDs",
     "manageAndroidProfile": "Android device profiles",
     "deviceIdRemaining": "Available device_id: {count}",
+    "deviceIdRemainingUnknown": "Counting…",
     "deviceIdModalTitle": "Manage device_id",
     "deviceIdModalDesc": "Paste device_id values captured from the web. Logins are assigned to the least-bound id first.",
     "deviceIdPlaceholder": "Paste device_id values, one per line (with or without the B prefix)",

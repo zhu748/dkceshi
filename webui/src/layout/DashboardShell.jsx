@@ -314,11 +314,15 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
                                 "px-4 py-3 rounded-lg border flex items-center gap-3 text-sm animate-in fade-in slide-in-from-top-2",
                                 message.type === 'error'
                                     ? "bg-destructive/10 border-destructive/25 text-destructive"
-                                    : "bg-emerald-500/10 border-emerald-500/25 text-emerald-500"
+                                    : message.type === 'warning'
+                                        ? "bg-amber-500/10 border-amber-500/25 text-amber-600 dark:text-amber-400"
+                                        : "bg-emerald-500/10 border-emerald-500/25 text-emerald-500"
                             )}>
                                 {message.type === 'error'
                                     ? <X className="w-4 h-4 shrink-0" />
-                                    : <div className="w-4 h-4 rounded-full border-2 border-emerald-500 flex items-center justify-center text-[9px] shrink-0">✓</div>}
+                                    : message.type === 'warning'
+                                        ? <div className="w-4 h-4 shrink-0 flex items-center justify-center text-[11px] font-bold">!</div>
+                                        : <div className="w-4 h-4 rounded-full border-2 border-emerald-500 flex items-center justify-center text-[9px] shrink-0">✓</div>}
                                 <span>{message.text}</span>
                             </div>
                         )}

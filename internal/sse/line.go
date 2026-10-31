@@ -27,6 +27,21 @@ func ParseDeepSeekContentLine(raw []byte, thinkingEnabled bool, currentType stri
 	if done {
 		return LineResult{Parsed: true, Stop: true, NextType: currentType}
 	}
+	return parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType)
+}
+
+// ParseDeepSeekContentChunk is ParseDeepSeekContentLine for a chunk that the
+// caller already decoded from the data payload (ParseDeepSeekSSELine). The
+// non-streaming collector parses every line once and reuses the result here
+// instead of unmarshalling the same JSON a second time.
+func ParseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, currentType string) LineResult {
+	if chunk == nil {
+		return LineResult{NextType: currentType}
+	}
+	return parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType)
+}
+
+func parseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, currentType string) LineResult {
 	if errObj, hasErr := chunk["error"]; hasErr {
 		return LineResult{
 			Parsed:       true,

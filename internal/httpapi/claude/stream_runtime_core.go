@@ -26,6 +26,11 @@ type claudeStreamRuntime struct {
 	toolsRaw        any
 	toolChoice      promptcompat.ToolChoicePolicy
 	promptTokenText string
+	// inputTokenCounts memoizes prompt-side token counts by prompt text within
+	// one request: message_start and every attempt's finalize count the same
+	// (or retry-mutated) text, and each distinct text only needs one full BPE
+	// encode.
+	inputTokenCounts map[string]int
 
 	thinkingEnabled       bool
 	searchEnabled         bool

@@ -79,7 +79,10 @@ function createDeltaCoalescer({ sendDeltaFrame, minFlushChars = MIN_DELTA_FLUSH_
     }
     pendingField = field;
     pendingText += text;
-    if ([...pendingText].length >= minFlushChars) {
+    // Spreading the whole pending string per append allocated an array on
+    // every delta; count code points with an early exit at the threshold
+    // instead (surrogate pairs are folded into a single point).
+    if (codePointCountAtLeast(pendingText, minFlushChars)) {
       flush();
       return;
     }
@@ -90,6 +93,30 @@ function createDeltaCoalescer({ sendDeltaFrame, minFlushChars = MIN_DELTA_FLUSH_
     append,
     flush,
   };
+}
+
+// codePointCountAtLeast reports whether str contains at least min code points.
+// It stops as soon as the threshold is reached, so the coalescer's 16-char
+// check costs at most ~17 iterations instead of a full array spread.
+function codePointCountAtLeast(str, min) {
+  if (!str || min <= 0) {
+    return !str ? false : true;
+  }
+  let count = 0;
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < str.length) {
+      const lo = str.charCodeAt(i + 1);
+      if (lo >= 0xdc00 && lo <= 0xdfff) {
+        i++;
+      }
+    }
+    count++;
+    if (count >= min) {
+      return true;
+    }
+  }
+  return false;
 }
 
 module.exports = {

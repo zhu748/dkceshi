@@ -15,6 +15,8 @@ func stopReasonForCut(cut sse.CutReason) StopReason {
 		return StopReasonRepeatLoop
 	case sse.CutToolRoleMarker:
 		return StopReasonToolRoleMarker
+	case sse.CutTranscriptBoundary:
+		return StopReasonTranscriptBoundary
 	}
 	return StopReasonHandlerRequested
 }

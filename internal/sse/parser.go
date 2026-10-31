@@ -14,17 +14,26 @@ type ContentPart struct {
 	Type string
 }
 
+var (
+	dataPrefix  = []byte("data:")
+	donePayload = []byte("[DONE]")
+)
+
+// ParseDeepSeekSSELine stays on []byte end to end: the previous
+// string(raw) -> []byte(dataStr) round trip copied every SSE line twice on the
+// hottest path in the process (once per line in both the pump and collect
+// consumers).
 func ParseDeepSeekSSELine(raw []byte) (map[string]any, bool, bool) {
-	line := strings.TrimSpace(string(raw))
-	if line == "" || !strings.HasPrefix(line, "data:") {
+	line := bytes.TrimSpace(raw)
+	if len(line) == 0 || !bytes.HasPrefix(line, dataPrefix) {
 		return nil, false, false
 	}
-	dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-	if dataStr == "[DONE]" {
+	dataBytes := bytes.TrimSpace(bytes.TrimPrefix(line, dataPrefix))
+	if bytes.Equal(dataBytes, donePayload) {
 		return nil, true, true
 	}
 	chunk := map[string]any{}
-	if err := json.Unmarshal([]byte(dataStr), &chunk); err != nil {
+	if err := json.Unmarshal(dataBytes, &chunk); err != nil {
 		return nil, false, false
 	}
 	return chunk, false, true
@@ -631,7 +640,7 @@ func extractContentRecursiveFrom(items []any, defaultType string, thinkingEnable
 }
 
 func IsCitation(text string) bool {
-	return bytes.HasPrefix([]byte(strings.TrimSpace(text)), []byte("[citation:"))
+	return strings.HasPrefix(strings.TrimSpace(text), "[citation:")
 }
 
 func hasContentFilterStatus(chunk map[string]any) bool {

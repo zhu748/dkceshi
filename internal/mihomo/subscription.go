@@ -140,18 +140,20 @@ func parseClashYAML(body []byte) ([]config.MihomoNode, error) {
 func decodeBase64Loose(raw string) ([]byte, bool) {
 	var b strings.Builder
 	b.Grow(len(raw))
-	plausible := true
 	for _, r := range raw {
 		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
 			continue
 		}
 		if !isBase64AlphabetChar(r) {
-			plausible = false
+			// Share-link style payloads (contain ':' or '/'-prefixed paths) are
+			// not Base64; stop on the first disqualifying rune instead of copying
+			// the remaining megabytes into a builder we are about to discard.
+			return nil, false
 		}
 		b.WriteRune(r)
 	}
 	compact := b.String()
-	if compact == "" || !plausible {
+	if compact == "" {
 		return nil, false
 	}
 	encodings := []*base64.Encoding{

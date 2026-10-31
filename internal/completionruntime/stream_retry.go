@@ -11,6 +11,8 @@ import (
 	"ds2api/internal/httpapi/openai/history"
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
+
+	dsclient "ds2api/internal/deepseek/client"
 )
 
 type StreamRetryOptions struct {
@@ -59,6 +61,12 @@ type StreamRetryHooks struct {
 type continueResumer interface {
 	ContinueCompletion(ctx context.Context, a *auth.RequestAuth, sessionID string, messageID int, powResp string) (*http.Response, error)
 }
+
+// Compile-time guarantee that the production DeepSeek client satisfies the
+// resume contract; without it, a caller wrapping DS in a type that loses the
+// method would silently degrade interrupted streams to a 500 "not supported"
+// error instead of resuming them.
+var _ continueResumer = (*dsclient.Client)(nil)
 
 func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, initialResp *http.Response, payload map[string]any, pow string, opts StreamRetryOptions, hooks StreamRetryHooks) {
 	if hooks.ConsumeAttempt == nil {

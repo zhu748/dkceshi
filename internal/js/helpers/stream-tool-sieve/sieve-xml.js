@@ -144,7 +144,12 @@ function shouldKeepBareInvokeCapture(captured) {
   if (paramTag && body.slice(0, paramTag.start).trim() === '') {
     return true;
   }
-  return trimmedBody.startsWith('{') || trimmedBody.startsWith('[');
+  // Parity with Go (tool_sieve_xml.go): a body that starts with a literal
+  // "<parameter" but was not recognized as a well-formed parameter tag (a
+  // malformed EPSE parameter) must stay buffered instead of being released
+  // as visible text.
+  const trimmedLower = trimmedBody.toLowerCase();
+  return trimmedLower.startsWith('<parameter') || trimmedBody.startsWith('{') || trimmedBody.startsWith('[');
 }
 
 function findFirstToolTag(text, from, name, closing) {

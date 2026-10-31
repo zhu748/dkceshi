@@ -22,7 +22,8 @@ func geminiToolPolicy(req map[string]any, tools []any) (promptcompat.ToolChoiceP
 	mode := strings.ToUpper(asString(choice["mode"]))
 	policy := map[string]any{"type": "auto"}
 	switch mode {
-	case "", "AUTO", "VALIDATED":
+	// MODE_UNSPECIFIED is part of the Gemini enum and behaves as AUTO.
+	case "", "AUTO", "MODE_UNSPECIFIED", "VALIDATED":
 	case "NONE":
 		policy["type"] = "none"
 	case "ANY":

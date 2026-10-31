@@ -268,6 +268,12 @@ func (p *Pool) persistDailyLimitsThrottledLocked() {
 	p.dailyFlushTimer = time.AfterFunc(delay, func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
+		// Close() already drained and persisted the final state; a callback
+		// that raced with it must not write to disk again afterwards.
+		if p.closed {
+			p.dailyFlushTimer = nil
+			return
+		}
 		p.dailyFlushTimer = nil
 		p.dailyLastPersist = time.Now()
 		p.persistDailyLimitsLocked()

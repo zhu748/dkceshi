@@ -183,6 +183,15 @@ func (c *Client) RefreshRealDeviceID(ctx context.Context, identifier string, res
 	if err != nil {
 		return "", err
 	}
+	// The anchor is an input artifact for this one generation run; never leave
+	// it behind under data/devid/anchors/ after the account is deleted.
+	if anchorPath != "" {
+		defer func() {
+			if err := os.Remove(anchorPath); err != nil && !os.IsNotExist(err) {
+				config.Logger.Warn("[real_device_id] remove anchor failed", "path", anchorPath, "error", err)
+			}
+		}()
+	}
 
 	genCtx, cancel := context.WithTimeout(ctx, devidGenTimeout)
 	defer cancel()

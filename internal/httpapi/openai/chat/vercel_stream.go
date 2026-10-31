@@ -403,14 +403,18 @@ func isVercelStreamSwitchRequest(r *http.Request) bool {
 	return strings.TrimSpace(r.URL.Query().Get("__stream_switch")) == "1"
 }
 
+// vercelInternalSecret returns the shared secret guarding the Vercel Node
+// bridge's internal endpoints (__stream_prepare/switch/release/pow). It must
+// be fail-closed: with neither DS2API_VERCEL_INTERNAL_SECRET nor
+// DS2API_ADMIN_KEY configured the internal endpoints are disabled (the empty
+// secret never matches any token) instead of falling back to a publicly known
+// constant. The Node side (internal/js/chat-stream/http_internal.js) resolves
+// the same chain, so both runtimes agree on the same deployment env.
 func vercelInternalSecret() string {
 	if v := strings.TrimSpace(os.Getenv("DS2API_VERCEL_INTERNAL_SECRET")); v != "" {
 		return v
 	}
-	if v := strings.TrimSpace(os.Getenv("DS2API_ADMIN_KEY")); v != "" {
-		return v
-	}
-	return "admin"
+	return strings.TrimSpace(os.Getenv("DS2API_ADMIN_KEY"))
 }
 
 func (h *Handler) holdStreamLease(a *auth.RequestAuth, stdReq promptcompat.StandardRequest, sessionID string) string {

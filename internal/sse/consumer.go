@@ -72,7 +72,13 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 		if stopped {
 			return true
 		}
-		result := ParseDeepSeekContentLine(line, thinkingEnabled, currentType)
+		if !parsed {
+			// Not a data:/JSON line at all; skip the second parse entirely.
+			return true
+		}
+		// The line was already decoded above; reuse the chunk instead of
+		// unmarshalling the same payload a second time per line.
+		result := ParseDeepSeekContentChunk(chunk, thinkingEnabled, currentType)
 		currentType = result.NextType
 		if !result.Parsed {
 			return true

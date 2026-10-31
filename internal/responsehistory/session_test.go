@@ -14,11 +14,11 @@ import (
 
 func TestProgressPersistDueCoalescesFrequentUpdates(t *testing.T) {
 	base := time.Unix(100, 0)
-	if progressPersistDue(base.Add(500*time.Millisecond), base) {
+	if progressPersistDue(base.Add(2*time.Second), base) {
 		t.Fatal("expected frequent progress update to be coalesced")
 	}
-	if !progressPersistDue(base.Add(time.Second), base) {
-		t.Fatal("expected progress update after one second")
+	if !progressPersistDue(base.Add(progressPersistInterval), base) {
+		t.Fatal("expected progress update after the persist interval")
 	}
 }
 

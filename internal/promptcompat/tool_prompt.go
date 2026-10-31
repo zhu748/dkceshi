@@ -37,10 +37,12 @@ func injectToolPromptWithDescriptions(messages []map[string]any, tools []any, po
 		return messages, parts.Names
 	}
 	toolPrompt := toolcall.ApplyToolMarker(parts.Instructions, firstToolMarker(markers))
+	// Descriptions are only folded into the live prompt when the caller asked
+	// for them; the externalized path must not prepend a stray separator
+	// either (it used to add a leading "\n\n" that stacked with the join
+	// below into four consecutive newlines).
 	if includeDescriptions && parts.Descriptions != "" {
 		toolPrompt = parts.Descriptions + "\n\n" + toolPrompt
-	} else if !includeDescriptions && parts.Descriptions != "" {
-		toolPrompt = "\n\n" + toolPrompt
 	}
 
 	for i := range messages {

@@ -54,9 +54,11 @@ function LatencyBadge({ t, latency, node }) {
     return null
 }
 
-const NodeRow = memo(function NodeRow({ t, node, latency, busy, onOpenBind, onUnbind }) {
+const NodeRow = memo(function NodeRow({ t, node, latency, binding, unbindingIds, onOpenBind, onUnbind }) {
     const bound = Array.isArray(node.accounts) ? node.accounts : []
-    const binding = Boolean(busy?.[`bind:${node.node_key}`])
+    // unbindingIds is a stable primitive (comma-joined identifiers) so the
+    // memo comparison holds: one busy toggle no longer re-renders every row.
+    const unbinding = new Set(unbindingIds ? unbindingIds.split(',') : null)
 
     return (
         <div className="p-4 md:p-5 space-y-3 hover:bg-muted/40 transition-colors">
@@ -100,23 +102,23 @@ const NodeRow = memo(function NodeRow({ t, node, latency, busy, onOpenBind, onUn
                         {t('mihomoBridge.boundAccounts')}
                     </span>
                     {bound.map(acc => {
-                        const unbinding = Boolean(busy?.[`bind:${acc.identifier}`])
+                        const rowUnbinding = unbinding.has(acc.identifier)
                         return (
                             <span
                                 key={acc.identifier}
                                 className={clsx(
                                     'inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 pl-3 pr-1.5 py-1 text-[11px] font-medium text-emerald-500',
-                                    unbinding && 'opacity-60'
+                                    rowUnbinding && 'opacity-60'
                                 )}
                             >
                                 {acc.label}
                                 <button
                                     onClick={() => onUnbind(acc.identifier)}
-                                    disabled={unbinding}
+                                    disabled={rowUnbinding}
                                     className="rounded-full p-0.5 hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
                                     title={t('mihomoBridge.unbindAction')}
                                 >
-                                    {unbinding ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                                    {rowUnbinding ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
                                 </button>
                             </span>
                         )
@@ -375,17 +377,25 @@ export default function MihomoNodesTable({
                 <div className="p-10 text-center text-muted-foreground">{t('mihomoBridge.noNodesFound')}</div>
             ) : (
                 <div className="divide-y divide-border">
-                    {displayedNodes.map(node => (
-                        <NodeRow
-                            key={node.node_key}
-                            t={t}
-                            node={node}
-                            latency={latency?.[node.node_key]}
-                            busy={busy}
-                            onOpenBind={setBindingTarget}
-                            onUnbind={onUnbind}
-                        />
-                    ))}
+                    {displayedNodes.map(node => {
+                        const boundAccounts = Array.isArray(node.accounts) ? node.accounts : []
+                        const unbindingIds = boundAccounts
+                            .filter(acc => busy?.[`bind:${acc.identifier}`])
+                            .map(acc => acc.identifier)
+                            .join(',')
+                        return (
+                            <NodeRow
+                                key={node.node_key}
+                                t={t}
+                                node={node}
+                                latency={latency?.[node.node_key]}
+                                binding={Boolean(busy?.[`bind:${node.node_key}`])}
+                                unbindingIds={unbindingIds}
+                                onOpenBind={setBindingTarget}
+                                onUnbind={onUnbind}
+                            />
+                        )
+                    })}
                 </div>
             )}
 

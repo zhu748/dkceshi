@@ -2104,3 +2104,102 @@ test('retry cancels an open failed upstream reader before starting the next atte
   const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
   assert.equal(events.some(event => event.error), false);
 });
+
+// ─── muted/banned JSON detection: non-mute JSON must replay, not lock the body ───
+
+test('vercel stream replays business-error JSON instead of locking the body', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url, init = {}) => {
+    const textURL = String(url);
+    if (textURL.includes('__stream_prepare=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-test',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'token-1',
+        pow_header: 'pow-1',
+        payload: { prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_switch=1')) {
+      // No alternate account available: the transient-switch attempts end here.
+      return jsonResponse({ detail: 'no idle account' }, 429);
+    }
+    if (textURL.includes('__stream_release=1')) {
+      return jsonResponse({ success: true });
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/completion') {
+      // 200 + JSON that is neither a mute nor a ban notice: the old code
+      // returned response:null with the body reader locked, so the downstream
+      // getReader() threw "ReadableStream is locked" after headers were sent.
+      return jsonResponse({ code: 40001, msg: 'business error' });
+    }
+    throw new Error(`unexpected fetch url: ${textURL}`);
+  };
+  try {
+    const req = new MockStreamRequest();
+    const res = new MockStreamResponse();
+    const payload = { model: 'gpt-test', stream: true };
+    await handleVercelStream(req, res, Buffer.from(JSON.stringify(payload)), payload);
+    const frames = parseSSEDataFrames(res.bodyText());
+    const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
+    // The replayed JSON body parses as no SSE content, so the stream must end
+    // through the normal empty-output error path — no thrown TypeError.
+    assert.ok(parsed.length > 0);
+    assert.ok(parsed[parsed.length - 1].error || parsed[parsed.length - 1].choices?.[0]?.finish_reason);
+    assert.ok(res.bodyText().includes('[DONE]'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('vercel stream replays truncated JSON body without locking the reader', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url, init = {}) => {
+    const textURL = String(url);
+    if (textURL.includes('__stream_prepare=1')) {
+      return jsonResponse({
+        session_id: 'chatcmpl-test',
+        lease_id: 'lease-test',
+        model: 'gpt-test',
+        final_prompt: 'hello',
+        thinking_enabled: false,
+        search_enabled: false,
+        tool_names: [],
+        deepseek_token: 'token-1',
+        pow_header: 'pow-1',
+        payload: { prompt: 'hello' },
+      });
+    }
+    if (textURL.includes('__stream_switch=1')) {
+      return jsonResponse({ detail: 'no idle account' }, 429);
+    }
+    if (textURL.includes('__stream_release=1')) {
+      return jsonResponse({ success: true });
+    }
+    if (textURL === 'https://chat.deepseek.com/api/v0/chat/completion') {
+      // 200 + invalid (truncated) JSON: JSON.parse fails, the buffered bytes
+      // must be replayed rather than dropped with a locked body.
+      return new Response('{"code": 40001, "msg": "trunc', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error(`unexpected fetch url: ${textURL}`);
+  };
+  try {
+    const req = new MockStreamRequest();
+    const res = new MockStreamResponse();
+    const payload = { model: 'gpt-test', stream: true };
+    await handleVercelStream(req, res, Buffer.from(JSON.stringify(payload)), payload);
+    const frames = parseSSEDataFrames(res.bodyText());
+    assert.ok(frames.length > 0);
+    assert.ok(res.bodyText().includes('[DONE]'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

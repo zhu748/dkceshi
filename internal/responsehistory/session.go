@@ -26,7 +26,11 @@ type Session struct {
 	disabled    bool
 }
 
-const progressPersistInterval = time.Second
+// progressPersistInterval bounds how often a streaming session's intermediate
+// progress hits disk. Terminal states persist immediately; the intermediate
+// write rewrites the whole detail file under a global lock, so a short window
+// only trades at most a few seconds of audit progress for far less I/O.
+const progressPersistInterval = 5 * time.Second
 
 func progressPersistDue(now, last time.Time) bool {
 	return last.IsZero() || now.Sub(last) >= progressPersistInterval

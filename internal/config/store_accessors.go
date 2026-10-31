@@ -351,3 +351,39 @@ func (s *Store) ExpertTextFileInlineMaxFileBytes() int {
 func (s *Store) AutoRouteVisionEnabled() bool {
 	return s.SettingBool("auto_route_vision", "enabled")
 }
+
+// KeyCount returns the number of configured API keys without cloning the
+// whole configuration. Admin key CRUD only needs the count for response
+// metadata; Snapshot() there deep-copied accounts, proxies and mihomo state
+// on every create/update/delete.
+func (s *Store) KeyCount() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.cfg.Keys)
+}
+
+// ProxyByID returns the normalized proxy with the given ID. The upstream
+// client resolves the account's proxy on every request; a full Snapshot()
+// there deep-copied accounts, subscriptions and settings just to scan a
+// typically short proxy list.
+func (s *Store) ProxyByID(id string) (Proxy, bool) {
+	if s == nil {
+		return Proxy{}, false
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Proxy{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, p := range s.cfg.Proxies {
+		normalized := NormalizeProxy(p)
+		if normalized.ID == id {
+			return normalized, true
+		}
+	}
+	return Proxy{}, false
+}

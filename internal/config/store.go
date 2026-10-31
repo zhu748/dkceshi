@@ -184,7 +184,9 @@ func loadConfigFromFile(path string) (Config, error) {
 	cfg.DropInvalidAccounts()
 	if strings.Contains(string(content), `"test_status"`) && !IsVercel() {
 		if b, err := json.MarshalIndent(cfg, "", "  "); err == nil {
-			_ = os.WriteFile(path, b, 0o644)
+			if writeErr := writeConfigBytes(path, b); writeErr != nil {
+				Logger.Warn("[config] legacy field strip writeback failed", "path", path, "error", writeErr)
+			}
 		}
 	}
 	return cfg, nil

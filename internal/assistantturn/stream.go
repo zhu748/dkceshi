@@ -61,6 +61,17 @@ func (a *Accumulator) ResetContentPolicy() {
 	a.inner.ResetContentPolicy()
 }
 
+// HasPartialOutput reports whether the accumulated stream contains any raw
+// text, thinking or tool-detection content — i.e. the upstream produced
+// something before the stream ended. Used to distinguish an interrupted stream
+// worth resuming from a cleanly empty one.
+func (a *Accumulator) HasPartialOutput() bool {
+	if a == nil {
+		return false
+	}
+	return a.inner.HasPartialOutput()
+}
+
 func (a *Accumulator) Snapshot() (rawText, text, rawThinking, thinking, detectionThinking string) {
 	if a == nil {
 		return "", "", "", "", ""

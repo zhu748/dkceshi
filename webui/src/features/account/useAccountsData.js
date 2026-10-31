@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createLatestRequest } from '../../utils/latestRequest.js'
 
-export function useAccountsData({ apiFetch, onConfigRefresh }) {
+export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
     const [queueStatus, setQueueStatus] = useState(null)
     const [keysExpanded, setKeysExpanded] = useState(false)
     const accountRequests = useRef(createLatestRequest()).current
@@ -72,6 +72,9 @@ export function useAccountsData({ apiFetch, onConfigRefresh }) {
                 // 同步刷新 config 让 proxies（含托管代理名）不过期，
                 // 避免账号显示成 mihomo-<hash> 的原始代理 ID。
                 onConfigRefresh?.()
+            } else if (request.isCurrent()) {
+                // 非 200 静默失败会让列表停留在旧数据上；至少给出提示。
+                onMessage?.('error', t('messages.requestFailed'))
             }
         } catch (e) {
             if (!request.isCurrent()) return

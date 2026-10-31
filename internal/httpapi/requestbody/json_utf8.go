@@ -27,6 +27,13 @@ func IsTooLarge(err error) bool {
 
 const maxJSONUTF8ValidationSize = 100 << 20
 
+// maxAdminJSONUTF8ValidationSize bounds the pre-auth buffering on /admin/*
+// paths. Admin requests never carry inline multimodal payloads; the only
+// pre-auth endpoint (POST /admin/login) reads a tiny JSON body, so an
+// unauthenticated caller must not be able to make the validator buffer a
+// 100MB body per request.
+const maxAdminJSONUTF8ValidationSize = 16 << 20
+
 // ValidateJSONUTF8 validates complete JSON request bodies before downstream
 // decoders can silently replace malformed UTF-8 or stop before trailing bytes.
 // Validation starts on the first read so authentication/route rejection does
@@ -37,15 +44,16 @@ func ValidateJSONUTF8(next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if shouldValidateJSONBody(r) {
-			r.Body = &lazyValidatedBody{closer: r.Body}
+			r.Body = &lazyValidatedBody{closer: r.Body, maxSize: validationSizeLimit(r)}
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
 type lazyValidatedBody struct {
-	closer io.ReadCloser
-	reader io.Reader
+	closer  io.ReadCloser
+	reader  io.Reader
+	maxSize int64
 }
 
 func (r *lazyValidatedBody) Read(p []byte) (int, error) {
@@ -53,9 +61,22 @@ func (r *lazyValidatedBody) Read(p []byte) (int, error) {
 		return 0, nil
 	}
 	if r.reader == nil {
-		r.reader = validateAndReplayBody(r.closer)
+		r.reader = validateAndReplayBody(r.closer, r.maxSize)
 	}
 	return r.reader.Read(p)
+}
+
+// validationSizeLimit picks the buffering cap for the request: admin paths get
+// a tight bound (they are reachable before authentication), everything else
+// keeps the large multimodal allowance.
+func validationSizeLimit(r *http.Request) int64 {
+	if r == nil || r.URL == nil {
+		return maxJSONUTF8ValidationSize
+	}
+	if strings.HasPrefix(strings.TrimSpace(r.URL.Path), "/admin/") {
+		return maxAdminJSONUTF8ValidationSize
+	}
+	return maxJSONUTF8ValidationSize
 }
 
 func (r *lazyValidatedBody) Close() error { return r.closer.Close() }
@@ -114,15 +135,18 @@ func isKnownJSONRequestPath(method, path string) bool {
 	}
 }
 
-func validateAndReplayBody(body io.ReadCloser) io.ReadCloser {
+func validateAndReplayBody(body io.ReadCloser, maxSize int64) io.ReadCloser {
 	if body == nil {
 		return body
 	}
-	raw, err := io.ReadAll(io.LimitReader(body, maxJSONUTF8ValidationSize+1))
+	if maxSize <= 0 {
+		maxSize = maxJSONUTF8ValidationSize
+	}
+	raw, err := io.ReadAll(io.LimitReader(body, maxSize+1))
 	if err != nil {
 		return &errorReadCloser{err: err, closer: body}
 	}
-	if len(raw) > maxJSONUTF8ValidationSize {
+	if int64(len(raw)) > maxSize {
 		return &errorReadCloser{err: errRequestBodyTooLarge, closer: body}
 	}
 	if !utf8.Valid(raw) {

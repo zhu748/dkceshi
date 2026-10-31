@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
+import { createLatestRequest } from '../../utils/latestRequest.js'
 
 // useRealDeviceIds 管理 real 模式下绑定真实设备 id 的账号：拉取清单、按账号刷新、
 // 批量刷新。两个动作的区别只在设备档案：
@@ -23,10 +24,14 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
     const [bulkRefreshing, setBulkRefreshing] = useState('')
     // bulkErrors 保存批量刷新的逐账号失败原因，就地显示在对应行下方。
     const [bulkErrors, setBulkErrors] = useState({})
+    // 搜索/翻页会并发发出请求；只有最新一次请求才允许提交状态，慢的旧响应
+    // 后到时会覆盖新数据（与 useAccountsData 同一防护）。
+    const realDeviceRequests = useRef(createLatestRequest()).current
 
     // fetchRealDeviceIds 按页拉取。请求页超出范围时（清单被重置/解绑变短、
     // 搜索把结果筛少）自动回落到最后一页，避免停在空页上。
     const fetchRealDeviceIds = useCallback(async (targetPage, targetPageSize = realDevicePageSize, targetQuery = realDeviceQuery) => {
+        const request = realDeviceRequests.start()
         setLoadingRealDeviceIds(true)
         try {
             const load = async (page) => {
@@ -34,7 +39,13 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
                 const q = String(targetQuery || '').trim()
                 if (q) url += `&q=${encodeURIComponent(q)}`
                 const res = await apiFetch(url)
-                if (!res.ok) return null
+                if (!res.ok) {
+                    // 5xx 静默失败会让列表一直停留在旧数据上；至少给出提示。
+                    if (request.isCurrent()) {
+                        onMessage?.('error', t('messages.requestFailed'))
+                    }
+                    return null
+                }
                 return await res.json()
             }
             let data = await load(targetPage)
@@ -46,6 +57,7 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
                 data = await load(page)
                 if (!data) return
             }
+            if (!request.isCurrent()) return
             setRealDeviceIdItems(Array.isArray(data.items) ? data.items : [])
             setRealDevicePage(page)
             setRealDevicePageSize(targetPageSize)
@@ -58,7 +70,7 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
         } finally {
             setLoadingRealDeviceIds(false)
         }
-    }, [apiFetch, realDevicePageSize, realDeviceQuery])
+    }, [apiFetch, onMessage, t, realDevicePageSize, realDeviceQuery])
 
     const openRealDeviceIds = useCallback(() => {
         setBulkErrors({})

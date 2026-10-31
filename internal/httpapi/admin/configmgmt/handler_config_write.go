@@ -106,7 +106,7 @@ func (h *Handler) addKey(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_keys": len(h.Store.Snapshot().Keys)})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_keys": h.Store.KeyCount()})
 }
 
 func (h *Handler) updateKey(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +150,7 @@ func (h *Handler) updateKey(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"detail": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_keys": len(h.Store.Snapshot().Keys)})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_keys": h.Store.KeyCount()})
 }
 
 func (h *Handler) deleteKey(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +173,7 @@ func (h *Handler) deleteKey(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"detail": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_keys": len(h.Store.Snapshot().Keys)})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_keys": h.Store.KeyCount()})
 }
 
 func (h *Handler) batchImport(w http.ResponseWriter, r *http.Request) {

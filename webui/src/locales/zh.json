@@ -199,6 +199,7 @@
     "manageDeviceId": "登录设备 ID",
     "manageAndroidProfile": "Android 设备资料",
     "deviceIdRemaining": "剩余可用device_id数量：{count}",
+    "deviceIdRemainingUnknown": "统计中…",
     "deviceIdModalTitle": "管理 device_id",
     "deviceIdModalDesc": "粘贴从网页获取的 device_id，登录时会优先分配给已绑定账号数最少的 id。",
     "deviceIdPlaceholder": "粘贴 device_id，支持批量：每行一个（带不带 B 前缀都可以）",

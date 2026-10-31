@@ -53,7 +53,7 @@ func (s *claudeStreamRuntime) sendPing() {
 }
 
 func (s *claudeStreamRuntime) sendMessageStart() {
-	inputTokens := countClaudeInputTokensFromText(s.promptTokenText, s.model)
+	inputTokens := s.countInputTokens(s.promptTokenText)
 	if inputTokens == 0 {
 		inputTokens = util.CountPromptTokens(fmt.Sprintf("%v", s.messages), s.model)
 	}
@@ -85,4 +85,31 @@ func (s *claudeStreamRuntime) emitDeferredText() {
 	s.send("content_block_delta", map[string]any{"type": "content_block_delta", "index": idx, "delta": map[string]any{"type": "text_delta", "text": text}})
 	s.send("content_block_stop", map[string]any{"type": "content_block_stop", "index": idx})
 	s.textEmitted = true
+}
+
+// countInputTokens memoizes countClaudeInputTokensFromText per prompt text.
+// message_start and finalize (and each retry attempt's finalize) count the
+// same text; the memo keeps one full BPE encode per distinct prompt.
+func (s *claudeStreamRuntime) countInputTokens(prompt string) int {
+	if s == nil || prompt == "" {
+		return 0
+	}
+	if s.inputTokenCounts == nil {
+		s.inputTokenCounts = make(map[string]int, 2)
+	}
+	if v, ok := s.inputTokenCounts[prompt]; ok {
+		return v
+	}
+	v := countClaudeInputTokensFromText(prompt, s.model)
+	s.inputTokenCounts[prompt] = v
+	return v
+}
+
+// promptTokenCountFor is the assistantturn.BuildOptions.PromptTokenCountFn
+// adapter around countInputTokens.
+func (s *claudeStreamRuntime) promptTokenCountFor(prompt string) (int, bool) {
+	if s == nil || prompt == "" {
+		return 0, false
+	}
+	return s.countInputTokens(prompt), true
 }

@@ -13,6 +13,7 @@ import (
 type ConfigStore interface {
 	Snapshot() config.Config
 	Keys() []string
+	KeyCount() int
 	HasAPIKey(k string) bool
 	APIKeyFlag(k, flag string) bool
 	Accounts() []config.Account

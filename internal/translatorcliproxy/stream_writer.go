@@ -80,7 +80,14 @@ func (w *OpenAIStreamTranslatorWriter) Write(p []byte) (int, error) {
 		if !bytes.HasPrefix(trimmed, []byte("data:")) {
 			continue
 		}
-		usage, hasUsage := extractOpenAIUsage(trimmed)
+		// Only the Gemini target consumes the injected usage metadata; skipping
+		// the per-chunk JSON unmarshal for Claude saves a full decode per SSE
+		// line on the proxied Claude stream path.
+		var usage openAIUsage
+		hasUsage := false
+		if w.target == sdktranslator.FormatGemini {
+			usage, hasUsage = extractOpenAIUsage(trimmed)
+		}
 		chunks := sdktranslator.TranslateStream(context.Background(), sdktranslator.FormatOpenAI, w.target, w.model, w.originalReq, w.translatedReq, trimmed, &w.param)
 		if hasUsage {
 			for i := range chunks {

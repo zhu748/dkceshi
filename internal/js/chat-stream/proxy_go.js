@@ -78,7 +78,22 @@ async function proxyToGo(req, res, rawBody) {
           break;
         }
         if (value && value.length > 0) {
-          res.write(Buffer.from(value));
+          // res.write accepts the Uint8Array view directly; Buffer.from would
+          // copy the whole chunk. When the socket buffers (slow client), wait
+          // for drain — or close — instead of queueing unbounded chunks.
+          if (!res.write(value)) {
+            await new Promise((resolve) => {
+              const done = () => {
+                res.removeListener('drain', onDrain);
+                res.removeListener('close', onClose);
+                resolve();
+              };
+              const onDrain = () => done();
+              const onClose = () => done();
+              res.once('drain', onDrain);
+              res.once('close', onClose);
+            });
+          }
           if (typeof res.flush === 'function') {
             res.flush();
           }

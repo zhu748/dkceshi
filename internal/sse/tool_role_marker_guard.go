@@ -21,7 +21,17 @@ type ToolRoleMarkerGuard struct {
 	notLineStart bool
 }
 
-func (g *ToolRoleMarkerGuard) Tripped() bool           { return g != nil && g.tripped }
+func (g *ToolRoleMarkerGuard) Tripped() bool { return g != nil && g.tripped }
+
+// maxGuardPendingRunLen bounds how long a withheld backtick/tilde run may be.
+// The only unbounded withhold in this guard is a run of fence characters that
+// reaches the end of the chunk: without a cap, a degenerate upstream streaming
+// megabytes of backticks would grow g.pending without limit and re-concatenate
+// it on every Feed. Real Markdown fences are a handful of ticks, so a run
+// beyond this cap is treated as already-complete input to the run handlers
+// below instead of being withheld.
+const maxGuardPendingRunLen = 512
+
 func (g *ToolRoleMarkerGuard) Feed(text string) string { return g.feed(text, false) }
 
 func (g *ToolRoleMarkerGuard) Reason() CutReason {
@@ -72,7 +82,7 @@ func (g *ToolRoleMarkerGuard) feed(text string, final bool) string {
 				for i+n < len(data) && data[i+n] == g.code {
 					n++
 				}
-				if !final && i+n == len(data) {
+				if !final && i+n == len(data) && n <= maxGuardPendingRunLen {
 					break
 				}
 				if !g.fence && n == g.ticks {
@@ -119,7 +129,7 @@ func (g *ToolRoleMarkerGuard) feed(text string, final bool) string {
 			for i+n < len(data) && data[i+n] == ch {
 				n++
 			}
-			if !final && i+n == len(data) {
+			if !final && i+n == len(data) && n <= maxGuardPendingRunLen {
 				break
 			}
 			if ch == '`' || n >= 3 {

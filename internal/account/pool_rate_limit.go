@@ -110,6 +110,13 @@ func (p *Pool) isRateLimitedLocked(accountID string) bool {
 	if accountID == "" || !p.rateLimitEnabledLocked() {
 		return false
 	}
+	return p.isRateLimitedNoEnableCheckLocked(accountID)
+}
+
+// isRateLimitedNoEnableCheckLocked is isRateLimitedLocked for callers that
+// already hoisted the (store-lock backed) enabled check out of their
+// per-candidate loop.
+func (p *Pool) isRateLimitedNoEnableCheckLocked(accountID string) bool {
 	if p.rateLimits == nil {
 		return false
 	}

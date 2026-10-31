@@ -59,11 +59,13 @@ func TestVercelInternalSecret(t *testing.T) {
 		}
 	})
 
-	t.Run("default admin when env missing", func(t *testing.T) {
+	t.Run("fail closed when env missing", func(t *testing.T) {
 		t.Setenv("DS2API_VERCEL_INTERNAL_SECRET", "")
 		t.Setenv("DS2API_ADMIN_KEY", "")
-		if got := vercelInternalSecret(); got != "admin" {
-			t.Fatalf("expected default admin fallback, got %q", got)
+		// No hardcoded fallback: with no secret configured the internal
+		// endpoints must be disabled, not guarded by a publicly known constant.
+		if got := vercelInternalSecret(); got != "" {
+			t.Fatalf("expected empty fail-closed secret, got %q", got)
 		}
 	})
 }

@@ -56,6 +56,15 @@ func (c *Client) wrapCompletionWithAutoContinue(ctx context.Context, a *auth.Req
 	return resp
 }
 
+// ContinueCompletion resumes an interrupted upstream stream on the same
+// message. It adapts the unexported callContinue for the completionruntime
+// resume path (StreamRetryHooks -> resumeStream); without it, an interrupted
+// stream with partial output degrades to a 500 "not supported" error instead
+// of completing the answer.
+func (c *Client) ContinueCompletion(ctx context.Context, a *auth.RequestAuth, sessionID string, responseMessageID int, powResp string) (*http.Response, error) {
+	return c.callContinue(ctx, a, sessionID, responseMessageID, powResp)
+}
+
 // callContinue sends a continue request to DeepSeek to resume generation.
 func (c *Client) callContinue(ctx context.Context, a *auth.RequestAuth, sessionID string, responseMessageID int, powResp string) (*http.Response, error) {
 	if strings.TrimSpace(sessionID) == "" || responseMessageID <= 0 {

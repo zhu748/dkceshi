@@ -10,11 +10,11 @@ export default function ElasticPoolModal({
     onClose,
     onSave,
 }) {
+    const [error, setError] = useState(null)
+
     if (!show) {
         return null
     }
-
-    const [error, setError] = useState(null)
     const perPool = elasticPool.per_pool ? 'per_pool' : 'global'
     const enabledCount = perPool === 'global' ? (Number(elasticPool.global_count) || 0) : 'X'
 

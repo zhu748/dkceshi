@@ -109,14 +109,9 @@ func (c *Client) resolveProxyForAccount(acc config.Account) (config.Proxy, bool)
 	if proxyID == "" {
 		return config.Proxy{}, false
 	}
-	snap := c.Store.Snapshot()
-	for _, proxyCfg := range snap.Proxies {
-		proxyCfg = config.NormalizeProxy(proxyCfg)
-		if proxyCfg.ID == proxyID {
-			return proxyCfg, true
-		}
-	}
-	return config.Proxy{}, false
+	// Direct lookup instead of a full-config Snapshot deep copy; this runs on
+	// every upstream request (session, PoW, completion, upload...).
+	return c.Store.ProxyByID(proxyID)
 }
 
 func (c *Client) requestClientsFromContext(ctx context.Context) requestClients {

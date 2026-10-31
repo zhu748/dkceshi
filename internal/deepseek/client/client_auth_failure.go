@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"ds2api/internal/auth"
 )
@@ -34,6 +36,13 @@ func (c *Client) recoverManagedAuth(ctx context.Context, a *auth.RequestAuth, at
 		// 非鉴权失败：本账号这次不可用，换到下一个可调度账号。共享步骤只处理
 		// 鉴权失败，这里不能走 RecoverAuthFailure，否则一次普通 5xx 会先白白刷新
 		// 一次 Token。
+		//
+		// 瞬时过载类失败（429/5xx）先退避再换号：零退避的立即重试会把一次上游
+		// 过载放大成「N 个账号 × 立即重发（可能还各带一次全新登录）」的风暴，
+		// 进一步加剧限流。鉴权失败路径不受影响——原地刷新讲究响应性。
+		if isTransientHTTPStatus(status) && !backoffBeforeTransientRetry(ctx, *attempts) {
+			return false
+		}
 		if c.Auth.SwitchAccount(ctx, a) {
 			*attempts++
 			return true
@@ -76,4 +85,40 @@ func loginRejectedError(format string, args ...any) error {
 		return auth.ErrLoginRejected
 	}
 	return fmt.Errorf("%s: %w", msg, auth.ErrLoginRejected)
+}
+
+// transientFailureBackoffs is the exponential backoff applied before retrying
+// a transient upstream failure (429/5xx) on another account. Index 0 applies
+// before the first retry.
+var transientFailureBackoffs = [...]time.Duration{
+	250 * time.Millisecond,
+	500 * time.Millisecond,
+	1 * time.Second,
+}
+
+// isTransientHTTPStatus reports whether the status represents upstream
+// overload rather than an account-level problem.
+func isTransientHTTPStatus(status int) bool {
+	return status == http.StatusTooManyRequests || status >= 500
+}
+
+// backoffBeforeTransientRetry sleeps before a transient-failure retry.
+// attemptsDone is the number of retries already consumed. It returns false
+// when ctx was cancelled, letting the caller take the original failure path.
+func backoffBeforeTransientRetry(ctx context.Context, attemptsDone int) bool {
+	if attemptsDone <= 0 {
+		return true
+	}
+	idx := attemptsDone - 1
+	if idx >= len(transientFailureBackoffs) {
+		idx = len(transientFailureBackoffs) - 1
+	}
+	timer := time.NewTimer(transientFailureBackoffs[idx])
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }

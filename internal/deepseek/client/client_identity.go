@@ -14,6 +14,10 @@ import (
 	dsprotocol "ds2api/internal/deepseek/protocol"
 )
 
+// androidAPILevelPattern is package-level because BaseHeadersForAuth runs on
+// every upstream request; compiling it per call was pure overhead.
+var androidAPILevelPattern = regexp.MustCompile(`Android/[0-9]+`)
+
 // BaseHeadersForAuth is shared with Vercel prepare so upload, completion and
 // continuation requests retain one account's configured installation identity.
 // Captured identity values are deliberately not embedded in the program.
@@ -53,7 +57,7 @@ func BaseHeadersForAuth(a *auth.RequestAuth) map[string]string {
 		headers["x-hif-leim"] = a.Account.HIFLeim
 	}
 	if profile.AndroidAPILevel != "" {
-		headers["User-Agent"] = regexp.MustCompile(`Android/[0-9]+`).ReplaceAllString(headers["User-Agent"], "Android/"+profile.AndroidAPILevel)
+		headers["User-Agent"] = androidAPILevelPattern.ReplaceAllString(headers["User-Agent"], "Android/"+profile.AndroidAPILevel)
 	}
 	if a.Account.Locale != "" {
 		headers["x-client-locale"] = a.Account.Locale

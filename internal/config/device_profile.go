@@ -127,13 +127,32 @@ func StableAndroidProfile(acc Account) Account {
 }
 
 func (s *Store) EnsureAccountDeviceProfile(identifier string) (Account, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Every managed request passes through here and the overwhelmingly common
+	// case is an already-complete profile; take the read lock for that path so
+	// concurrent requests do not serialize on the store's write lock.
+	s.mu.RLock()
 	idx, ok := s.accMap[identifier]
 	if !ok {
+		s.mu.RUnlock()
 		return Account{}, false
 	}
 	before := s.cfg.Accounts[idx]
+	if before.DeviceModel != "" && before.AndroidAPILevel != "" && before.InstallationID != "" && before.AndroidID != "" && before.DeviceBrand != "" {
+		acc := before.clone()
+		s.mu.RUnlock()
+		return acc, true
+	}
+	s.mu.RUnlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Re-resolve under the write lock: the index may have moved between the
+	// two acquisitions.
+	idx, ok = s.accMap[identifier]
+	if !ok {
+		return Account{}, false
+	}
+	before = s.cfg.Accounts[idx]
 	if before.DeviceModel != "" && before.AndroidAPILevel != "" && before.InstallationID != "" && before.AndroidID != "" && before.DeviceBrand != "" {
 		return before.clone(), true
 	}

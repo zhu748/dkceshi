@@ -27,7 +27,7 @@ func (h *Handler) Embeddings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status := http.StatusUnauthorized
 		detail := err.Error()
-		if err == auth.ErrNoAccount {
+		if auth.IsNoIdleAccountError(err) {
 			status = http.StatusTooManyRequests
 		}
 		shared.WriteOpenAIError(w, status, detail)

@@ -150,7 +150,11 @@ func (s *chatHistorySession) progress(thinking, content string) {
 		return
 	}
 	now := time.Now()
-	if now.Sub(s.lastPersist) < 250*time.Millisecond {
+	// Streaming progress is an audit view, not a durability requirement: the
+	// terminal write (success/error) still persists immediately. 5s keeps the
+	// admin UI responsive while cutting the full-detail rewrite + fsync storm
+	// that used to run 4x/second per active stream under a global lock.
+	if now.Sub(s.lastPersist) < 5*time.Second {
 		return
 	}
 	s.lastPersist = now

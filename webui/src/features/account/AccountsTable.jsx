@@ -202,7 +202,9 @@ export default function AccountsTable({
                                     : "bg-transparent text-muted-foreground border-transparent"
                             )}
                         >
-                            {t('accountManager.deviceIdRemaining', { count: deviceIdRemainingKnown ? Number(deviceIdRemaining) : 0 })}
+                            {deviceIdRemainingKnown
+                                ? t('accountManager.deviceIdRemaining', { count: Number(deviceIdRemaining) })
+                                : t('accountManager.deviceIdRemainingUnknown')}
                         </span>
                     )}
                     <button

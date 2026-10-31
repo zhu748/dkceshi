@@ -85,7 +85,9 @@ func (c *Client) GetSessionCount(ctx context.Context, a *auth.RequestAuth, maxAt
 		stats.ErrorMessage = fmt.Sprintf("status=%d, code=%d, msg=%s", status, code, msg)
 		config.Logger.Warn("[get_session_count] failed", "status", status, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "account", a.AccountID)
 
-		if a.UseConfigToken {
+		// c.Auth may be nil for clients constructed without a resolver (tests,
+		// embedded setups); every sibling call site guards it the same way.
+		if a.UseConfigToken && c.Auth != nil {
 			if isTokenInvalid(status, code, bizCode, msg, bizMsg) && !refreshed {
 				if c.Auth.RefreshToken(ctx, a) {
 					refreshed = true

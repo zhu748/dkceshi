@@ -172,8 +172,11 @@ async function safeReadText(resp) {
   }
 }
 
+// Fail-closed: with neither DS2API_VERCEL_INTERNAL_SECRET nor DS2API_ADMIN_KEY
+// configured the Go internal endpoints are disabled, so the bridge must not
+// send a publicly known constant either (it would 401 regardless).
 function internalSecret() {
-  return asString(process.env.DS2API_VERCEL_INTERNAL_SECRET) || asString(process.env.DS2API_ADMIN_KEY) || 'admin';
+  return asString(process.env.DS2API_VERCEL_INTERNAL_SECRET) || asString(process.env.DS2API_ADMIN_KEY);
 }
 
 function buildInternalGoURL(req) {

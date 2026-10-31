@@ -43,6 +43,16 @@ export default function MihomoStatusCard({ status, busy, onSaveSettings, onApply
     const { t } = useI18n()
     const [form, setForm] = useState({ enabled: false, binary_path: '', base_port: 0, api_port: 0, auto_bind: false })
 
+    // Only re-seed the form when the settings fields themselves change. The
+    // status object gets a new identity on every binary-download progress poll
+    // (every 2s), which used to wipe the user's in-progress edits mid-download.
+    // Deps are the raw field values (no string join, which could collide when
+    // a path contains the separator).
+    const enabled = status?.enabled
+    const binaryPath = status?.binary_path
+    const basePort = status?.base_port
+    const apiPort = status?.api_port
+    const autoBind = status?.auto_bind
     useEffect(() => {
         if (!status) return
         setForm({
@@ -52,7 +62,8 @@ export default function MihomoStatusCard({ status, busy, onSaveSettings, onApply
             api_port: status.api_port || 0,
             auto_bind: Boolean(status.auto_bind),
         })
-    }, [status])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enabled, binaryPath, basePort, apiPort, autoBind])
 
     const saving = Boolean(busy?.settings)
     const applying = Boolean(busy?.apply)
