@@ -36,7 +36,7 @@ func injectToolPromptWithDescriptions(messages []map[string]any, tools []any, po
 	if parts.Instructions == "" {
 		return messages, parts.Names
 	}
-	toolPrompt := toolcall.ApplyToolMarker(parts.Instructions, firstToolMarker(markers))
+	toolPrompt := applyGeneratedToolMarker(parts.Instructions, firstToolMarker(markers))
 	// Descriptions are only folded into the live prompt when the caller asked
 	// for them; the externalized path must not prepend a stray separator
 	// either (it used to add a leading "\n\n" that stacked with the join
@@ -90,7 +90,7 @@ func injectToolCallFormatSpecOnly(messages []map[string]any, policy ToolChoicePo
 // setting is off the reminder is not injected at all, and a non-empty custom
 // prompt replaces the built-in text.
 func appendToolCallFormatReminder(messages []map[string]any, reminder ToolReminderConfig, markers ...string) []map[string]any {
-	return appendToolCallFormatSpec(messages, toolcall.ApplyToolMarker(reminder.ReminderText(), firstToolMarker(markers)))
+	return appendToolCallFormatSpec(messages, applyGeneratedToolMarker(reminder.ReminderText(), firstToolMarker(markers)))
 }
 
 // appendToolCallFormatSpec appends the tool-call format spec as a system-role

@@ -11,7 +11,7 @@ func TestSavedBuiltinToolReminderUpgradesWithoutOverwritingCustomText(t *testing
 		"The only valid label is EPSE; the use of any label prefixed with DSML is **strictly prohibited**.", 1)
 	for _, saved := range []string{legacyBuiltinToolReminder, upstream, "For client-provided tools only:\n" + upstream, strings.ReplaceAll(legacyBuiltinToolReminder, "\n", "\r\n")} {
 		got := (ToolReminderConfig{Enabled: true, Prompt: saved}).ReminderText()
-		if got != DefaultBottomFormatInjectionPrompt || !strings.Contains(got, "Every invoke must include all required parameters") {
+		if got != DefaultBottomFormatInjectionPrompt || !strings.Contains(got, "The only valid label is") {
 			t.Fatalf("saved default did not upgrade: %q", got)
 		}
 		if got := (ToolReminderConfig{Enabled: false, Prompt: saved}).ReminderText(); got != "" {
@@ -35,7 +35,7 @@ func TestDefaultReminderScopeAndPlacementKeepCompletedAndPrefilledTurnsDistinct(
 		if reminder < 0 || (prefix && reminder > history) || (!prefix && reminder < history) {
 			t.Fatalf("prefix=%v wrong reminder placement: %q", prefix, final)
 		}
-		if !strings.Contains(final, "DSML-prefixed tags are strictly prohibited") || strings.Contains(final, "<|EPSE|") || strings.Contains(final, `parameter name="path"`) {
+		if !strings.Contains(final, "The only valid label is") || strings.Contains(final, "<|EPSE|") || strings.Contains(final, `parameter name="path"`) {
 			t.Fatalf("marker/scope/schema contract changed: %q", final)
 		}
 		if prefix && !strings.HasSuffix(final, "PAST_OR_PREFIX") {

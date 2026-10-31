@@ -149,12 +149,11 @@ func TestBuildToolCallInstructions_UsesPositiveTagPunctuationAlphabet(t *testing
 func TestToolCallFormatReminder_RestatesSkeletonVerbatim(t *testing.T) {
 	out := ToolCallFormatReminder()
 	want := `For client-provided tools only:
-DSML-prefixed tags are strictly prohibited. Every invoke must include all required parameters from its declared schema.
 The only correct format for using tools is <|EPSE|tool_calls>
   <|EPSE|invoke name="TOOL_NAME_HERE">
     <|EPSE|parameter name="PARAMETER_NAME"><![CDATA[PARAMETER_VALUE]]></|EPSE|parameter>
   </|EPSE|invoke>
-</|EPSE|tool_calls> .Please do not simplify or modify this framework in any way.Use exactly the tag prefix shown above; do not substitute another tool format.`
+</|EPSE|tool_calls> .Please do not simplify or modify this framework in any way.The only valid label is EPSE; the use of any label prefixed with DSML is **strictly prohibited**.`
 	if out != want {
 		t.Fatalf("reminder must stay byte-identical, got: %q", out)
 	}
@@ -169,7 +168,7 @@ func TestToolCallFormatReminderForMarker(t *testing.T) {
 	if !strings.Contains(out, "<|"+marker+"|tool_calls>") {
 		t.Fatalf("expected marker in skeleton, got %q", out)
 	}
-	if !strings.Contains(out, "Use exactly the tag prefix shown above") {
+	if !strings.Contains(out, "The only valid label is "+marker) {
 		t.Fatalf("expected label name to be replaced with marker, got %q", out)
 	}
 }

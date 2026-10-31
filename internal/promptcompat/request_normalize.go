@@ -18,6 +18,20 @@ func firstToolMarker(markers []string) string {
 	return strings.TrimSpace(markers[0])
 }
 
+// applyGeneratedToolMarker rewrites the canonical EPSE keyword inside GENERATED
+// prompt blocks (format spec, tool instructions, bottom reminder) with the
+// caller-specific marker. This mirrors the upstream ds2api whole-string
+// rewrite: the aligned wording names the keyword in prose, so the
+// delimiter-only toolcall.ApplyToolMarker would leak the canonical keyword for
+// per-key callers. History and user content keep using toolcall.ApplyToolMarker.
+func applyGeneratedToolMarker(text, marker string) string {
+	marker = strings.TrimSpace(marker)
+	if marker == "" || marker == toolcall.EPSEKeyword || text == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, toolcall.EPSEKeyword, marker)
+}
+
 func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]any, traceID string, toolMarker ...string) (StandardRequest, error) {
 	marker := firstToolMarker(toolMarker)
 	model, _ := req["model"].(string)

@@ -77,8 +77,7 @@ func ToolCallFormatSpecForMarker(marker string) string {
 12) 请勿使用 Markdown 代码块标记包裹 XML。请勿输出解释、角色标识或内心独白。
 13) 如果调用工具，该工具代码块的第一个非空白字符必须严格为 <|EPSE|tool_calls>。
 14) 切勿省略起始标签 <|EPSE|tool_calls>，即使你打算随后使用 </|EPSE|tool_calls> 闭合标签。
-15) 工具标签只有上述带标识前缀的一种格式：<|EPSE|tool_calls> / <|EPSE|invoke> / <|EPSE|parameter>。请始终完整输出 <|EPSE| 前缀，不要省略前缀或使用无前缀的标签写法。
-15a) 对于客户端提供的工具，禁止输出 DSML 前缀的工具标签。
+15) 工具标签只有上述带 EPSE 前缀的一种格式：<|EPSE|tool_calls> / <|EPSE|invoke> / <|EPSE|parameter>。请始终完整输出 <|EPSE| 前缀，不要省略前缀或使用无前缀的标签写法。
 
 调用决策：
 - 历史对话中的 <|EPSE|tool_calls> 是调用记录。使用 call_id 与 tool_call_id 关联结果；有匹配结果才表示已返回，is_error=true 表示失败。缺少结果不代表操作已完成，也不要盲目重复可能产生副作用的操作。
@@ -113,7 +112,8 @@ Wrong 4 — 必需的命令内容缺失:
 
 请记住：使用工具的唯一正确方式是在回复末尾使用 <|EPSE|tool_calls>...</|EPSE|tool_calls> 代码块。
 `
-	return ApplyToolMarker(spec, marker)
+	// ds2api 对齐：规范正文中出现裸 EPSE 关键字，必须整串替换，否则按 key 自定义标记时会泄漏。
+	return strings.ReplaceAll(spec, EPSEKeyword, marker)
 }
 
 // ToolCallFormatReminder returns the short final reminder block that restates
@@ -131,13 +131,13 @@ func ToolCallFormatReminder() string {
 func ToolCallFormatReminderForMarker(marker string) string {
 	marker = normalizeToolMarker(marker)
 	reminder := `For client-provided tools only:
-DSML-prefixed tags are strictly prohibited. Every invoke must include all required parameters from its declared schema.
 The only correct format for using tools is <|EPSE|tool_calls>
   <|EPSE|invoke name="TOOL_NAME_HERE">
     <|EPSE|parameter name="PARAMETER_NAME"><![CDATA[PARAMETER_VALUE]]></|EPSE|parameter>
   </|EPSE|invoke>
-</|EPSE|tool_calls> .Please do not simplify or modify this framework in any way.Use exactly the tag prefix shown above; do not substitute another tool format.`
-	return ApplyToolMarker(reminder, marker)
+</|EPSE|tool_calls> .Please do not simplify or modify this framework in any way.The only valid label is EPSE; the use of any label prefixed with DSML is **strictly prohibited**.`
+	// ds2api 对齐：提醒词结尾句含裸 EPSE 关键字，同样整串替换。
+	return strings.ReplaceAll(reminder, EPSEKeyword, marker)
 }
 
 type promptToolExample struct {

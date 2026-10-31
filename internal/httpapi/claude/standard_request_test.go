@@ -122,7 +122,7 @@ func TestNormalizeClaudeRequestInjectsToolsIntoTopLevelSystem(t *testing.T) {
 }
 
 const claudeReminderHead = "The only correct format for using tools is <|EPSE|tool_calls>"
-const claudeReminderTail = ".Please do not simplify or modify this framework in any way.Use exactly the tag prefix shown above; do not substitute another tool format."
+const claudeReminderTail = ".Please do not simplify or modify this framework in any way.The only valid label is EPSE; the use of any label prefixed with DSML is **strictly prohibited**."
 
 func TestNormalizeClaudeRequestAppendsToolCallReminderBeforeAssistantMarker(t *testing.T) {
 	t.Setenv("DS2API_CONFIG_JSON", `{}`)

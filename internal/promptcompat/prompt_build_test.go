@@ -505,7 +505,7 @@ func TestBuildOpenAIFinalPromptTopLevelToolsStillGetDescriptions(t *testing.T) {
 }
 
 const toolCallReminderHead = "The only correct format for using tools is <|EPSE|tool_calls>"
-const toolCallReminderTail = ".Please do not simplify or modify this framework in any way.Use exactly the tag prefix shown above; do not substitute another tool format."
+const toolCallReminderTail = ".Please do not simplify or modify this framework in any way.The only valid label is EPSE; the use of any label prefixed with DSML is **strictly prohibited**."
 
 func assertReminderImmediatelyBeforeAssistantMarker(t *testing.T, finalPrompt string) {
 	t.Helper()
