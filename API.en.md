@@ -1209,7 +1209,7 @@ Checks the current build version and the latest GitHub Release:
 }
 ```
 
-If GitHub API access fails, the response includes `check_error` while still returning HTTP 200.
+The local build version returns immediately, without waiting for GitHub. `update_check_pending=true` indicates a background check; `latest_*` fields may be absent on a cold cache and appear on a later read. Successful checks are cached for 15 minutes, failures back off for one minute, and concurrent requests share one check bounded to four seconds. `latest_checked_at` records the last check. GitHub errors add `check_error` while retaining the last successful release and HTTP 200.
 
 ### `GET /admin/dev/captures`
 

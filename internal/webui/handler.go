@@ -415,8 +415,7 @@ func (h *Handler) serveFromDisk(w http.ResponseWriter, r *http.Request, staticDi
 			} else {
 				w.Header().Set("Cache-Control", "no-store, must-revalidate")
 			}
-			setStaticContentType(w, full)
-			http.ServeFile(w, r, full)
+			serveAdminFile(w, r, full)
 			return
 		}
 		http.NotFound(w, r)
@@ -428,8 +427,7 @@ func (h *Handler) serveFromDisk(w http.ResponseWriter, r *http.Request, staticDi
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store, must-revalidate")
-	setStaticContentType(w, index)
-	http.ServeFile(w, r, index)
+	serveAdminFile(w, r, index)
 }
 
 func isPathInsideRoot(path, root string) bool {

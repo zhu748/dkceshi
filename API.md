@@ -1220,7 +1220,7 @@ data: {"type":"message_stop"}
 }
 ```
 
-如果 GitHub API 不可用，响应里会额外包含 `check_error`，但 HTTP 状态仍为 200。
+当前构建版本立即返回，不等待 GitHub。`update_check_pending=true` 表示后台检查进行中；冷缓存时 `latest_*` 可以暂缺，稍后读取可获取结果。成功检查缓存 15 分钟，失败退避 1 分钟，同一进程的并发请求合并为一次最长 4 秒的联网检查。`latest_checked_at` 是最近检查时间。如果 GitHub API 不可用，响应里会额外包含 `check_error`，保留上次成功的 Release 信息，HTTP 状态仍为 200。
 
 ### `GET /admin/dev/captures`
 

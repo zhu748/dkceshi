@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
     LayoutDashboard,
@@ -23,6 +23,7 @@ import clsx from 'clsx'
 import LanguageToggle from '../components/LanguageToggle'
 import ThemeToggle from '../components/ThemeToggle'
 import { useI18n } from '../i18n'
+import { useVersionInfo } from '../app/useVersionInfo'
 
 const AccountManagerContainer = lazy(() => import('../features/account/AccountManagerContainer'))
 const ApiTesterContainer = lazy(() => import('../features/apiTester/ApiTesterContainer'))
@@ -114,28 +115,7 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
     }, [onLogout, t, token])
 
 
-    const [versionInfo, setVersionInfo] = useState(null)
-
-    useEffect(() => {
-        let disposed = false
-        async function loadVersion() {
-            try {
-                const res = await authFetch('/admin/version')
-                const data = await res.json()
-                if (!disposed) {
-                    setVersionInfo(data)
-                }
-            } catch (_err) {
-                if (!disposed) {
-                    setVersionInfo(null)
-                }
-            }
-        }
-        loadVersion()
-        return () => {
-            disposed = true
-        }
-    }, [authFetch])
+    const versionInfo = useVersionInfo(authFetch)
 
     const renderTab = () => {
         switch (activeTab) {

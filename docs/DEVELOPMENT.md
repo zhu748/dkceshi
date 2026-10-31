@@ -181,3 +181,11 @@ Node `stream_lifecycle.js` 在 prepare 前监听断开；拿到租约 ID 后立�
 `http_internal.js` 共用一条 prepare / PoW / switch 请求编解码路径。401 必须显式传 `auth_failed: true`，让 Go 按共享规则先恢复凭据，避免退化为普通换号。JSON 探测器拥有源 reader，完整 JSON、读取失败和首块超限时均须取消 / 解锁；非 JSON 则把 reader 的所有权交给重放流。
 
 账号批量测试由 `batchAccountTests.js` 管理一个批次及其 AbortSignal；`useAccountTesting` 负责 React 接线和文案，`AccountTestControls` 负责操作按钮与进度。批次开始时固定账号标识；重复启动复用在途批次，取消 / 卸载后不提交迟到结果、不启动下一个账号。主动取消保留已完成结果；卸载清理保持静默，不能写 React 状态。已经由服务端完成的 Token 刷新不会因取消撤回。
+
+## 面板首屏性能
+
+首页使用系统字体，不依赖 Google Fonts 等外部样式表。不要在 `webui/index.html` 加入联网字体 CSS，否则字体 CDN 的慢响应会阻塞首屏。
+
+Vite 构建通过 `webui/build/precompress.mjs` 为可压缩文本资源生成 `.gz` 副本。Go 根据 Accept-Encoding 选择副本，保持原始 MIME、长期静态缓存和 Vary 头；不支持 gzip、范围请求、缺少或过期副本时使用原文件。压缩在构建阶段完成，不增加每次请求的压缩 CPU 开销。
+
+`/admin/version` 的本地版本立即返回；联网更新检查异步执行并在进程内缓存，首次响应可带 `update_check_pending`。侧栏以有限次数的后台读取接收更新结果，不阻塞面板。
