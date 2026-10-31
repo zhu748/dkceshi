@@ -139,8 +139,8 @@ func TestThinkingInjectionLeadsOpenAINormalizedRequests(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out := ApplySearchPrompt(ApplyThinkingInjection(thinkingInjectionStoreStub{enabled: true}, std))
-		if !strings.HasPrefix(out.FinalPrompt, "<｜System｜>"+DefaultThinkingInjectionPrompt+"\n\n[System]:Built-in web search protocol") || !strings.Contains(out.FinalPrompt, "SYSTEM-RULE") || !strings.Contains(out.FinalPrompt, "[User]:hello") {
+		out := ApplyThinkingInjection(thinkingInjectionStoreStub{enabled: true}, std)
+		if !strings.HasPrefix(out.FinalPrompt, thinkingSystemPrefix(DefaultThinkingInjectionPrompt)) || !strings.Contains(out.FinalPrompt, "SYSTEM-RULE") || !strings.Contains(out.FinalPrompt, "[User]:hello") || strings.Contains(out.FinalPrompt, "Built-in web search protocol") {
 			t.Fatalf("responses=%v: normalized request lost leading injection or client messages: %q", responses, out.FinalPrompt)
 		}
 	}

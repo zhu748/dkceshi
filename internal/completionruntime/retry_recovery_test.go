@@ -23,7 +23,7 @@ func TestNonStreamRegeneratesInvalidToolArguments(t *testing.T) {
 	if outErr != nil || len(result.Turn.ToolCalls) != 1 {
 		t.Fatalf("tool output not recovered: err=%+v turn=%+v", outErr, result.Turn)
 	}
-	if len(ds.payloads) != 1 || !strings.Contains(ds.payloads[0]["prompt"].(string), ToolOutputRetrySuffix) {
+	if len(ds.payloads) != 1 || !strings.Contains(ds.payloads[0]["prompt"].(string), ToolOutputRetrySuffix) || !strings.Contains(ds.payloads[0]["prompt"].(string), `"code":"invalid_tool_arguments"`) || !strings.Contains(ds.payloads[0]["prompt"].(string), "query") {
 		t.Fatal("missing corrective tool retry prompt")
 	}
 }

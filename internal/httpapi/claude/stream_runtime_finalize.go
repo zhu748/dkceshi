@@ -150,7 +150,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		AlreadyEmittedToolCalls: s.toolCallsDetected,
 	})
 	if outcome.ShouldFail {
-		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.textEmitted || s.toolCallsDetected) {
+		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsDetected) {
 			s.finalErrorStatus = outcome.Error.Status
 			s.finalErrorMessage = outcome.Error.Message
 			s.finalErrorCode = outcome.Error.Code

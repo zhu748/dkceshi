@@ -145,21 +145,7 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 	if strings.HasPrefix(inner, "{") {
 		var payload map[string]any
 		if err := jsonvalue.Unmarshal([]byte(inner), &payload); err == nil {
-			input := map[string]any{}
-			var value any
-			var present bool
-			if value, present = payload["input"]; !present {
-				value, present = payload["parameters"]
-			}
-			if present {
-				var ok bool
-				if input, ok = value.(map[string]any); !ok {
-					return ParsedToolCall{}, false
-				}
-			} else if len(payload) != 0 {
-				return ParsedToolCall{}, false
-			}
-			return ParsedToolCall{Name: name, Input: input}, true
+			return parseJSONToolCallEnvelope(name, payload)
 		}
 	}
 

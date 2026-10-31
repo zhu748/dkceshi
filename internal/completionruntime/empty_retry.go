@@ -1,15 +1,19 @@
 package completionruntime
 
-import "strings"
+import (
+	"strings"
+
+	"ds2api/internal/assistantturn"
+)
 
 const EmptyOutputRetrySuffix = "Previous reply had no visible output. Please regenerate the visible final answer or tool call now."
 
 const ToolOutputRetrySuffix = "Previous reply contained an invalid tool call. Regenerate the answer using only the declared tools, valid complete JSON arguments matching their schemas, and the requested tool_choice and parallel_tool_calls policy."
 
-func ClonePayloadForToolOutputRetry(payload map[string]any, parentMessageID int) map[string]any {
+func ClonePayloadForToolOutputRetry(payload map[string]any, parentMessageID int, failure *assistantturn.OutputError) map[string]any {
 	clone := ClonePayloadForEmptyOutputRetry(payload, parentMessageID)
 	original, _ := payload["prompt"].(string)
-	clone["prompt"] = strings.TrimRight(original, "\r\n\t ") + "\n\n" + ToolOutputRetrySuffix
+	clone["prompt"] = strings.TrimRight(original, "\r\n\t ") + "\n\n" + toolOutputRetryInstruction(failure)
 	return clone
 }
 
@@ -50,29 +54,10 @@ func AppendEmptyOutputRetrySuffix(prompt string) string {
 	return prompt + "\n\n" + EmptyOutputRetrySuffix
 }
 
-func UsagePromptWithEmptyOutputRetry(originalPrompt string, retryAttempts int) string {
-	return usagePromptWithRetrySuffix(originalPrompt, retryAttempts, EmptyOutputRetrySuffix)
-}
-
-func UsagePromptWithToolOutputRetry(originalPrompt string, retryAttempts int) string {
-	return usagePromptWithRetrySuffix(originalPrompt, retryAttempts, ToolOutputRetrySuffix)
-}
-
-func usagePromptWithRetrySuffix(originalPrompt string, retryAttempts int, suffix string) string {
-	if retryAttempts <= 0 {
-		return originalPrompt
-	}
-	parts := make([]string, 0, retryAttempts+1)
-	parts = append(parts, originalPrompt)
-	next := originalPrompt
-	for i := 0; i < retryAttempts; i++ {
-		next = strings.TrimRight(next, "\r\n\t ")
-		if next == "" {
-			next = suffix
-		} else {
-			next += "\n\n" + suffix
-		}
-		parts = append(parts, next)
-	}
-	return strings.Join(parts, "\n")
+// UsagePromptWithRetryPayload counts the exact follow-up prompt sent upstream,
+// once per attempt. Rebuilding earlier attempts with the newest validation
+// error would miscount them and recursively duplicate context on later retries.
+func UsagePromptWithRetryPayload(previous string, payload map[string]any) string {
+	prompt, _ := payload["prompt"].(string)
+	return previous + "\n" + prompt
 }

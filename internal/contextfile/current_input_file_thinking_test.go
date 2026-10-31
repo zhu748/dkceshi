@@ -76,7 +76,7 @@ func TestHistoryThinkingPrefixSurvivesReuploadWithoutDuplication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := out.WithHistoryThinkingInstruction(out.HistoryText); got != out.HistoryText {
+	if got := out.WithThinkingInstruction(out.HistoryText); got != out.HistoryText {
 		t.Fatal("reapplying the prefix duplicated it")
 	}
 	second := &recordingUploader{}

@@ -83,6 +83,10 @@ OpenAI Chat/Responses 的 `parallel_tool_calls: false` 会转换为共享单调�
 提供正式工具目录时，auto 模式也检查工具名，名称区分大小写；没有正式目录的 system 文本工具仍保留兼容检测。JSON Schema 在共享层编译和校验（含本地 $ref、required、enum、额外字段和嵌套结构），不符合参数约束返回 invalid_tool_arguments。外部 $ref 不读取网络或文件。受约束调用在完整校验前不会交付。
 参数解析不再静默丢弃未闭合或未命名的兄弟 parameter 节点，即使它们不是 schema 必填项；
 invoke 内的 JSON 兼容包必须使用对象类型的 input 或 parameters，不能把错误类型或未知包结构变成空参数。
+兼容包只允许一个 input 或 parameters 字段；同时提供两个参数包或夹带其他字段时拒绝解析，
+避免静默丢掉模型生成的参数。空包 `{}` 继续表示无参数调用。Go 和 Node 使用相同规则。
+旧 canonical XML 的未解析具名 invoke 与 EPSE 残片一样进入修复和校验，
+不能因同一批次已解析出其他调用就将其忽略；代码示例和孤立闭标签继续排除。
 完整 JSON 字符串内的工具标签作为字面值保留，不参与标签匹配和格式归一化。
 LLM 格式修复在占位符还原前检查工具名、参数名及节点顺序，并绑定原始参数值与占位符所属参数；
 修复结果还必须全部解析成功。修复不能通过改路径、删参数、增加调用或只保留部分调用来“成功”。
@@ -90,8 +94,14 @@ LLM 格式修复在占位符还原前检查工具名、参数名及节点顺序�
 不交付残缺调用或作为正常正文释放。共享 completion runtime 会使用独立的工具纠正提示词，在同一账号补偿生成一次；
 仍然失败时，托管账号可使用原始请求在另一个匹配账号的新会话重新生成一次，最终耗尽恢复机会后返回 HTTP 422 / 对应流式错误帧。
 生成重试与格式修复分别计数，结束时复用已得到的错误，不重复发起同一轮格式修复。
+纠正生成会收到本次校验的错误码和具体原因（如参数路径、缺参或类型不匹配），以 JSON 数据附加，
+错误消息最多 2048 个 Unicode 字符；不代替模型猜测参数，也不放宽 schema 校验。
+重试用量逐次累计实际发送的 follow-up prompt，包含本次诊断，避免多次重试递归重复计入旧上下文。
 流式补偿仅允许在未交付正文或工具调用时进行；正式 tools 的调用在完整参数和策略校验后才交付，不能通过提前发出参数片段绕过校验。
 每次补偿清除未交付的正文、工具片段、工具检测思考、上游消息 ID 及错误状态，已流出的可见思考保留。
+流式交付判断只认非空白正文或结构化工具调用；单独发出的空格、换行及 Unicode 空白
+不会阻断参数校验失败后的纠正重试。Chat、Responses、Claude 和 Vercel Node 使用相同边界，
+已经交付实际正文或工具调用时仍结束并报错，防止重复执行。
 Claude、Chat、Responses 和 Gemini 的非流式调用复用共享错误分类；Claude、Chat 和 Responses 的 Go 流式路径与 Vercel Node 路径保持同一恢复边界。
 临时服务故障可重试或换号，审核、超长输入、无效输入请求和客户端取消不会被当作生成失败反复提交。
 换号与首次取号共用有容量限制的等待队列，单次换号等待最多 30 秒，且服从请求取消；唤醒按账号和工具池匹配。
@@ -315,29 +325,36 @@ HISTORY/TOOLS 与其他上传均使用
 旧 DeepSeek flash/pro/vision 名称及内置 OpenAI、Claude、Gemini alias 按基准规则解析。
 自定义 alias 支持最多八跳。仅保留 -nothinking 行为后缀；旧的 -autodelete、-forcehistory、
 -thinkinginject、-v4f 不再暴露或解析。思考注入、上下文文件和自动删除由各自配置控制。
-搜索通过 search_enabled 传给上游，并为启用搜索的模型注入上游内置联网提示词。
+搜索仅通过 search_enabled 传给上游，不再额外注入搜索提示词。
 
-### 搜索模型的内置联网提示词
+### 搜索模型的 App 原生能力
 
-移植自 `ouqiting20/ds2api` 的 `a2c51de`，提示词原文统一保存在
-`internal/promptcompat/search_prompt.go` 的 `BuiltinSearchPrompt`。
-按别名解析后的 `StandardRequest.Search` 开关生效，包括 `deepseek-v4.1-flash-search`、
-`deepseek-v4.1-flash-search-nothinking` 和映射到它们的别名；普通模型不注入。
+原生搜索按别名解析后的 `StandardRequest.Search` 开关生效，包括 `deepseek-v4.1-flash-search`、
+`deepseek-v4.1-flash-search-nothinking` 和映射到它们的别名；普通模型保持关闭。
+此前移植及精简过的内置搜索提示词已删除，包括各协议入口、提示词重建、历史文件续写和 Vercel prepare 路径。
 
-提示词说明原生 `search({"queries":"...||..."})`、每次最多 5 条短关键词查询、
-每条中文查询最多 30 个中文字符，以及 `open({"open_list":[{"cursor":0,"id":0}]})`。
-搜索轮次和结果编号从 0 开始，只能引用实际返回的条目；独立查询可并行，依赖查询根据前一轮结果调整，
-最终按实际来源整合答案。参数示例不代表已经执行的搜索结果。
+原生搜索和网页读取由上游 App 在推理过程中内部执行并回填结果，
+不需要模型在回复正文输出客户端工具调用。SSE 中的 `TOOL_SEARCH`、`TOOL_OPEN`
+进度归入思考通道，最终答案归入正文；关闭思考展示不会将搜索进度改为正文或关闭原生搜索。
+服务端不再手写原生调用接口、参数 schema、`||` 查询示例、轮次编号协议或搜索能力提醒。
+调用者自己的 system/developer/user 指令保持原文，不通过字符串过滤删除其中的搜索要求。
 
-`ApplySearchPrompt` 在各协议的思考注入之后、历史文件处理之前加入独立 system 搜索说明，
-并在历史外置重建后复用。启用思考注入时，其 `<｜System｜>` 前缀始终位于搜索说明之前。
-OpenAI Chat、Responses、Claude、Gemini 共用这一份文本；Vercel Node 使用 Go prepare / switch
-生成的提示词。消息重建和历史文件续写保留说明，计入 PromptTokenText，重复应用不叠加。
+OpenAI Chat、Responses、Claude、Gemini 和 Vercel Node 共用模型能力开关；搜索开关不改变提示词内容。
+思考注入仍由独立配置控制，通过 `WithThinkingInstruction` 复用于 live prompt 和上传历史，
+保留前置位置、幂等性及 PromptTokenText 统计，移除搜索注入不会移除已配置的思考注入。
 
 内置 search/open 由上游原生执行，不加入客户端 ToolsRaw / ToolNames，也不改写原始 Messages 或号池路由。
 客户端即使声明同名工具，其 schema、工具选择策略和调用格式仍只约束该客户端工具。
+历史外置时，TOOLS.txt 的权威目录与允许列表明确只约束客户端工具，不覆盖上游原生能力。
 EPSE-only 与 DSML 禁用规则继续限定在客户端工具范围，生成说明中的协议名称沿用调用者标识，
 不改写用户正文。`force_disable_tools` 控制客户端工具，内置搜索仍由模型能力开关决定。
+
+2026-10-31 的导出记录中，两次 `web_search.queries` 被生成为 `||` 拼接字符串，
+但客户端 schema 要求字符串数组；另一次将上游 `search` 输出成了客户端调用，触发工具允许列表校验。
+三次失败的正文都以两个换行开头。离线流式回归复现了这些换行被误计为已交付正文、
+导致直接输出 422 错误帧并跳过纠正重试的问题；修复后仅输出空白的失败尝试也可进入原有有界补偿流程。
+面板 `content` 保存上游原始标签，成功记录需结合 `finish_reason` 和下一轮回填的结构化调用判断，
+不能仅凭原始标签认定发生正文透传。离线验证不代表已完成真实上游原生搜索联调。
 
 实现及回归：`internal/config/models.go`、`internal/config/model_alias_test.go`，
 API 测试页面的默认模型和说明同步更新。

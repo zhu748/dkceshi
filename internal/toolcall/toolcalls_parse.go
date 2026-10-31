@@ -97,11 +97,11 @@ func parseToolCallsDetailedXMLOnly(text string) ToolCallParseResult {
 	}
 
 	// Residual intent detection: deduct the source regions of fully-successful
-	// wrappers from the original, then probe the remainder for a paired EPSE
-	// shell. This must run before any len(parsed)==0 early return — the
+	// wrappers from the original, then probe the remainder for EPSE/DSML intent
+	// or a named canonical invocation. This must run before any len(parsed)==0 early return — the
 	// all-failed (0 calls) case is exactly the fallback-critical scenario.
 	residual := deductSuccessfulToolCallWrappers(original, parseSource)
-	result.SawToolCallIntent = DetectToolCallIntent(residual)
+	result.SawToolCallIntent = DetectToolCallIntent(residual) || hasCanonicalToolInvocation(residual)
 	if result.SawToolCallIntent {
 		result.ResidualIntentText = residual
 	}

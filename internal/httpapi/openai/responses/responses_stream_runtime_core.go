@@ -215,7 +215,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	detected := turn.ToolCalls
 	s.logToolPolicyRejections(textParsed)
 	if turn.Error != nil {
-		if completionruntime.CanDeferOutputError(turn.Error, deferEmptyOutput, s.visibleText.Len() > 0 || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
+		if completionruntime.CanDeferOutputError(turn.Error, deferEmptyOutput, strings.TrimSpace(s.visibleText.String()) != "" || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
 			s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = turn.Error.Status, turn.Error.Message, turn.Error.Code
 			return false
 		}
@@ -244,7 +244,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	})
 	if outcome.ShouldFail {
 		status, message, code := outcome.Error.Status, outcome.Error.Message, outcome.Error.Code
-		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.visibleText.Len() > 0 || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
+		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, strings.TrimSpace(s.visibleText.String()) != "" || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
 			s.finalErrorStatus = status
 			s.finalErrorMessage = message
 			s.finalErrorCode = code

@@ -120,6 +120,7 @@ function parseMarkupSingleToolCall(block) {
       if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) {
         const key = Object.hasOwn(decoded, 'input') ? 'input' : Object.hasOwn(decoded, 'parameters') ? 'parameters' : null;
         if (!key) return Object.keys(decoded).length === 0 ? { name, input: {} } : null;
+        if (Object.keys(decoded).length !== 1) return null;
         const input = decoded[key];
         if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
         return { name, input };

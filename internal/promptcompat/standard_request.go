@@ -17,7 +17,7 @@ type StandardRequest struct {
 	// 它同时是历史归档与 HISTORY.txt 转录的输入（internal/responsehistory、
 	// internal/promptcompat/history_transcript.go），因此这条不变量也决定
 	// 「本地记录 / 上传上下文」与「实际发给上游的 prompt」是否一致。服务端生成的
-	// 工具规则、搜索说明及 ThinkingInjectionPrompt 另行组装，不写入客户端消息正文。
+	// 工具规则及 ThinkingInjectionPrompt 另行组装，不写入客户端消息正文。
 	Messages                []any
 	HistoryText             string
 	PromptTokenText         string
@@ -79,7 +79,7 @@ func (r StandardRequest) BuildPromptFromMessages(messages []any) (string, []stri
 	} else {
 		finalPrompt, toolNames = BuildOpenAIPrompt(messages, r.ToolsRaw, "", r.ToolChoice, r.Thinking, r.ToolReminderConfig(), r.ToolMarker)
 	}
-	finalPrompt = r.withPromptInstructions(finalPrompt)
+	finalPrompt = r.WithThinkingInstruction(finalPrompt)
 	return finalPrompt, toolNames
 }
 

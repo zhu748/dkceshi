@@ -64,32 +64,14 @@ func ApplyThinkingInjection(store any, stdReq StandardRequest) StandardRequest {
 	return stdReq
 }
 
-// withPromptInstructions composes generated instructions in one order on normal
-// requests and file continuations: thinking first, search next, then the client
-// conversation. Strip only our exact leading prefix, never text inside a message.
-func (r StandardRequest) withPromptInstructions(text string) string {
-	prefix := ""
-	if r.ThinkingInjectionPrompt != "" {
-		prefix = thinkingSystemPrefix(r.ThinkingInjectionPrompt)
-		text = strings.TrimPrefix(text, prefix)
-	}
-	if r.Search {
-		text = prependBuiltinSearchPrompt(text, r.ToolMarker)
-	}
-	if text == "" {
-		return ""
-	}
-	return prefix + text
-}
-
 func thinkingSystemPrefix(injectionPrompt string) string {
 	return "<｜System｜>" + injectionPrompt + "\n\n"
 }
 
-// WithHistoryThinkingInstruction makes the uploaded history self-contained:
-// the effective thinking instruction precedes the filename and history summary.
-// Client messages stay unchanged, and the live prompt retains its own prefix.
-func (r StandardRequest) WithHistoryThinkingInstruction(transcript string) string {
+// WithThinkingInstruction prepends the configured thinking instruction to live
+// prompts and uploaded history. Only our exact leading prefix is deduplicated;
+// client messages and literal instructions inside them stay unchanged.
+func (r StandardRequest) WithThinkingInstruction(transcript string) string {
 	if !r.Thinking || r.ThinkingInjectionPrompt == "" || strings.TrimSpace(transcript) == "" {
 		return transcript
 	}

@@ -89,6 +89,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 	accountSwitchAttempted := false
 	currentResp := initialResp
 	currentPayload := clonePayload(payload)
+	usagePrompt := opts.UsagePrompt
 	failed := false
 	fail := func(err *assistantturn.OutputError) {
 		if failed {
@@ -106,6 +107,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 	}
 	adopt := func(start StartResult) {
 		currentResp, currentPayload, pow = start.Response, start.Payload, start.Pow
+		usagePrompt = opts.UsagePrompt
 		reset()
 		if hooks.OnAccountSwitch != nil {
 			hooks.OnAccountSwitch(start.SessionID)
@@ -203,7 +205,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 		config.Logger.Info("[completion_runtime_output_retry] regenerating undelivered output", "surface", surface, "retry_attempt", attempts, "error_code", pendingErr.Code)
 		retryPayload := ClonePayloadForEmptyOutputRetry(currentPayload, parentMessageID)
 		if IsToolOutputError(pendingErr) {
-			retryPayload = ClonePayloadForToolOutputRetry(currentPayload, parentMessageID)
+			retryPayload = ClonePayloadForToolOutputRetry(currentPayload, parentMessageID, pendingErr)
 		}
 		next, callErr := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		var outErr *assistantturn.OutputError
@@ -223,11 +225,8 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 		if hooks.OnRetry != nil {
 			hooks.OnRetry(attempts)
 		}
+		usagePrompt = UsagePromptWithRetryPayload(usagePrompt, retryPayload)
 		if hooks.OnRetryPrompt != nil {
-			usagePrompt := UsagePromptWithEmptyOutputRetry(opts.UsagePrompt, attempts)
-			if IsToolOutputError(pendingErr) {
-				usagePrompt = UsagePromptWithToolOutputRetry(opts.UsagePrompt, attempts)
-			}
 			hooks.OnRetryPrompt(usagePrompt)
 		}
 		currentResp, currentPayload = next, retryPayload

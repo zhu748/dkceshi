@@ -54,8 +54,8 @@ const {
   switchOptionsForStatus,
   isTransientUpstreamMessage,
   EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS,
-  TOOL_OUTPUT_RETRY_SUFFIX,
-  usagePromptWithEmptyOutputRetry,
+  clonePayloadForToolOutputRetry,
+  usagePromptWithRetryPayload,
   clonePayloadForEmptyOutputRetry,
 } = require('./stream_retry_policy');
 const {
@@ -340,7 +340,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       isClosed: () => lifecycle.closed,
     });
     const sendDeltaFrame = (delta) => {
-      if (delta.content || delta.tool_calls) answerDelivered = true;
+      if (asString(delta.content).trim() || delta.tool_calls?.length) answerDelivered = true;
       emitDeltaFrame(delta);
     };
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
@@ -856,18 +856,17 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         retry_attempt: retryAttempts,
         parent_message_id: processed.responseMessageID || 0,
       });
-      usagePrompt = isToolOutputError
-        ? `${finalPrompt}\n${asString(completionPayload.prompt)}\n\n${TOOL_OUTPUT_RETRY_SUFFIX}`
-        : usagePromptWithEmptyOutputRetry(finalPrompt, retryAttempts);
+      const retryPayload = isToolOutputError
+        ? clonePayloadForToolOutputRetry(completionPayload, processed.responseMessageID, lastEmptyDetail)
+        : clonePayloadForEmptyOutputRetry(completionPayload, processed.responseMessageID);
+      usagePrompt = usagePromptWithRetryPayload(usagePrompt, retryPayload);
       const retryPowHeader = await refreshPowHeader('retry');
       if (!retryPowHeader) {
         return;
       }
       completionRes = await fetchDeepSeekStream(
         DEEPSEEK_COMPLETION_URL,
-        isToolOutputError
-          ? { ...clonePayloadForEmptyOutputRetry(completionPayload, processed.responseMessageID), prompt: `${asString(completionPayload.prompt)}\n\n${TOOL_OUTPUT_RETRY_SUFFIX}` }
-          : clonePayloadForEmptyOutputRetry(completionPayload, processed.responseMessageID),
+        retryPayload,
         retryPowHeader,
       );
       if (completionRes === null) {

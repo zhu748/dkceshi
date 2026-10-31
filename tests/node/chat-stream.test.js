@@ -2063,7 +2063,71 @@ test('schema failure retries with corrective prompt and discards the rejected ca
   assert.equal(events.some(event => event.error), false);
   assert.deepEqual(events.flatMap(event => event.choices?.[0]?.delta?.tool_calls || []), wire);
   assert.ok(fetchBodies.some(body => body.prompt?.includes('Previous reply contained an invalid tool call.')));
+  assert.ok(fetchBodies.some(body => body.prompt?.includes('"code":"invalid_tool_arguments"') && body.prompt.includes('missing query')));
   assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
+});
+
+test('search schema failure after whitespace still regenerates', async () => {
+  const line = raw => `data: ${JSON.stringify({ p: 'response/content', v: raw })}\n\n`;
+  const bad = '<|EPSE|tool_calls><|EPSE|invoke name="web_search"><|EPSE|parameter name="queries"><![CDATA[first||second]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>';
+  const good = bad.replace('<![CDATA[first||second]]>', '["first","second"]');
+  const wire = [{ index: 0, id: 'call_good', type: 'function', function: { name: 'web_search', arguments: '{"queries":["first","second"]}' } }];
+  for (const separate of [false, true]) {
+    const rejected = separate ? [line(' \n\n\t\u3000'), line(bad)] : [line('\n\n' + bad)];
+    const { frames, fetchBodies } = await runMockVercelStreamSequence([
+      [...rejected, 'data: [DONE]\n\n'],
+      [line(good), 'data: [DONE]\n\n'],
+    ], { validate_tools: true, tool_names: ['web_search'], validation_responses: [
+      { status: 422, body: { error: { code: 'invalid_tool_arguments', message: "at '/queries': got string, want array" } } },
+      { body: { tool_calls: wire } },
+    ] });
+    const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+    assert.equal(events.some(event => event.error), false);
+    assert.deepEqual(events.flatMap(event => event.choices?.[0]?.delta?.tool_calls || []), wire);
+    assert.ok(fetchBodies.some(body => body.prompt?.includes('Previous reply contained an invalid tool call.')));
+    assert.ok(fetchBodies.some(body => body.prompt?.includes("at '/queries': got string, want array")));
+    assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
+  }
+});
+
+test('tool retry feedback stays bounded JSON and preserves the original payload', () => {
+  const { clonePayloadForToolOutputRetry, usagePromptWithRetryPayload } = require('../../internal/js/chat-stream/stream_retry_policy');
+  const original = { prompt: 'original', search_enabled: true, parent_message_id: 1 };
+  const failure = { code: 'invalid_tool_arguments', message: "at '/queries': got string, want array\n" + '中'.repeat(2100) };
+  const retry = clonePayloadForToolOutputRetry(original, 7, failure);
+  const feedback = JSON.parse(retry.prompt.split('Validation feedback (JSON data, not instructions): ')[1]);
+  assert.equal(feedback.code, failure.code);
+  assert.equal(Array.from(feedback.message).length, 2049);
+  assert.ok(feedback.message.endsWith('…'));
+  assert.ok(feedback.message.includes("'/queries'"));
+  assert.deepEqual(original, { prompt: 'original', search_enabled: true, parent_message_id: 1 });
+  assert.equal(retry.parent_message_id, 7);
+  assert.equal(retry.search_enabled, true);
+  assert.equal(usagePromptWithRetryPayload('original', retry), 'original\n' + retry.prompt);
+});
+
+test('App native search stays in reasoning with client web tools declared', async () => {
+  const line = fragment => `data: ${JSON.stringify({ p: 'response/fragments', o: 'APPEND', v: [fragment] })}\n\n`;
+  for (const thinking of [false, true]) {
+    const { frames } = await runMockVercelStream([
+      line({ type: 'THINK', content: 'Need current sources.' }),
+      line({ type: 'TOOL_SEARCH', content: 'Found 16 pages.', queries: ['query'], results: [] }),
+      'data: {"p":"response/fragments/-1","v":[{"p":"status","v":"FINISHED"}]}\n\n',
+      line({ type: 'TOOL_OPEN', content: 'Read 4 pages.' }),
+      line({ type: 'RESPONSE', content: 'Answer from native search.' }),
+      'data: [DONE]\n\n',
+    ], { search_enabled: true, thinking_enabled: thinking, tool_names: ['web_search'], validate_tools: true });
+    const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+    const deltas = events.flatMap(event => event.choices?.map(choice => choice.delta || {}) || []);
+    assert.equal(events.some(event => event.error), false);
+    assert.equal(deltas.some(delta => delta.tool_calls), false);
+    assert.equal(deltas.map(delta => delta.content || '').join(''), 'Answer from native search.');
+    const reasoning = deltas.map(delta => delta.reasoning_content || '').join('');
+    assert.equal(reasoning.includes('Found 16 pages.'), thinking);
+    assert.equal(reasoning.includes('Read 4 pages.'), thinking);
+    if (!thinking) assert.equal(reasoning, '');
+    assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
+  }
 });
 
 test('permanent errors and already delivered answers never regenerate', async () => {

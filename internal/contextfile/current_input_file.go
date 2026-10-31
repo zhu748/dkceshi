@@ -98,7 +98,7 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 	// the exit does not sieve.
 	systemDeclaredTools := stdReq.SystemTextToolsApply()
 	fileText = injectCurrentInputFileContinuation(fileText)
-	fileText = stdReq.WithHistoryThinkingInstruction(fileText)
+	fileText = stdReq.WithThinkingInstruction(fileText)
 	toolsText, _ := promptcompat.BuildOpenAIToolsContextTranscript(stdReq.ToolsRaw, stdReq.ToolChoice)
 	modelType := "default"
 	if resolvedType, ok := config.GetModelType(stdReq.ResolvedModel); ok {
@@ -173,7 +173,7 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 	}
 	// Token accounting must reflect the actual downstream context:
 	// uploaded context files + the continuation live prompt.
-	stdReq = promptcompat.ApplySearchPrompt(stdReq)
+	stdReq.FinalPrompt = stdReq.WithThinkingInstruction(stdReq.FinalPrompt)
 	tokenParts := []string{fileText}
 	if strings.TrimSpace(toolsText) != "" {
 		tokenParts = append(tokenParts, toolsText)
@@ -254,7 +254,7 @@ func injectCurrentInputFileContinuation(transcript string) string {
 func currentInputFilePrompt(hasToolsFile bool) string {
 	prompt := "继续会话。HISTORY.txt contains earlier conversation context in chronological order. Follow the current system/developer instructions and continue the active user task and tool results below. If no user task follows here, the current user input is in HISTORY.txt. Match tool results by tool_call_id; a call without a matching result is not known to have completed. Do not repeat completed operations or mention the context filenames in your answer."
 	if hasToolsFile {
-		prompt += " TOOLS.txt is the authoritative tool catalog and JSON Schemas for this request. Use only those tools and follow the live tool-choice and output-format rules."
+		prompt += " TOOLS.txt is the authoritative catalog and JSON Schemas for client-provided tools in this request. Emit client tool calls only for those tools, using their declared argument types and the live tool-choice and output-format rules. Upstream native capabilities, when enabled, are separate and do not use the client tool-call format."
 	}
 	return prompt
 }

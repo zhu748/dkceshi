@@ -21,7 +21,7 @@ func TestParserRejectsSilentlyDroppedParameter(t *testing.T) {
 }
 
 func TestJSONInvokeCannotDiscardNonObjectArguments(t *testing.T) {
-	for _, body := range []string{`{"path":"a.txt"}`, `{"input":"a.txt"}`, `{"input":null}`, `{"parameters":[]}`} {
+	for _, body := range []string{`{"path":"a.txt"}`, `{"input":"a.txt"}`, `{"input":null}`, `{"parameters":[]}`, `{"input":{},"parameters":{"path":"lost.txt"}}`, `{"input":{"path":"a.txt"},"content":"lost"}`, `{"parameters":{},"optional":true}`} {
 		if calls := ParseToolCalls(`<tool_calls><invoke name="read">`+body+`</invoke></tool_calls>`, nil); len(calls) != 0 {
 			t.Fatalf("JSON arguments silently became an empty call: %s => %#v", body, calls)
 		}

@@ -317,7 +317,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		}
 		retryPayload := ClonePayloadForEmptyOutputRetry(payload, parentMessageID)
 		if toolRetry {
-			retryPayload = ClonePayloadForToolOutputRetry(payload, parentMessageID)
+			retryPayload = ClonePayloadForToolOutputRetry(payload, parentMessageID, turn.Error)
 		}
 		nextResp, err := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		if err != nil {
@@ -343,9 +343,8 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, callErr
 		}
 		payload = retryPayload
-		usagePrompt = UsagePromptWithEmptyOutputRetry(usagePrompt, attempts)
+		usagePrompt = UsagePromptWithRetryPayload(usagePrompt, retryPayload)
 		if toolRetry {
-			usagePrompt = UsagePromptWithToolOutputRetry(stdReq.PromptTokenText, attempts)
 			accumulatedRawThinking, accumulatedToolDetectionThinking = "", ""
 		}
 		currentResp = nextResp

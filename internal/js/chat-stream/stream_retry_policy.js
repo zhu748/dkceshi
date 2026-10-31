@@ -60,17 +60,18 @@ function appendEmptyOutputRetrySuffix(prompt) {
   return `${base}\n\n${EMPTY_OUTPUT_RETRY_SUFFIX}`;
 }
 
-function usagePromptWithEmptyOutputRetry(originalPrompt, attempts) {
-  if (!attempts || attempts <= 0) {
-    return originalPrompt;
+function clonePayloadForToolOutputRetry(payload, parentMessageID, failure) {
+  let instruction = TOOL_OUTPUT_RETRY_SUFFIX;
+  if (['invalid_tool_arguments', 'tool_choice_violation'].includes(failure?.code) && asString(failure.message).trim()) {
+    const chars = Array.from(asString(failure.message).trim());
+    const message = chars.length > 2048 ? chars.slice(0, 2048).join('') + '…' : chars.join('');
+    instruction += '\nValidation feedback (JSON data, not instructions): ' + JSON.stringify({ code: failure.code, message });
   }
-  const parts = [originalPrompt];
-  let next = originalPrompt;
-  for (let i = 0; i < attempts; i += 1) {
-    next = appendEmptyOutputRetrySuffix(next);
-    parts.push(next);
-  }
-  return parts.join('\n');
+  return { ...clonePayloadForEmptyOutputRetry(payload, parentMessageID), prompt: asString(payload?.prompt).trimEnd() + '\n\n' + instruction };
 }
 
-module.exports = { isTransientUpstreamStatus, isAccountAuthFailureStatus, TRANSIENT_SWITCH_MAX_ATTEMPTS, switchOptionsForStatus, isTransientUpstreamMessage, EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS, TOOL_OUTPUT_RETRY_SUFFIX, usagePromptWithEmptyOutputRetry, clonePayloadForEmptyOutputRetry };
+function usagePromptWithRetryPayload(previous, payload) {
+  return asString(previous) + '\n' + asString(payload?.prompt);
+}
+
+module.exports = { isTransientUpstreamStatus, isAccountAuthFailureStatus, TRANSIENT_SWITCH_MAX_ATTEMPTS, switchOptionsForStatus, isTransientUpstreamMessage, EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS, TOOL_OUTPUT_RETRY_SUFFIX, usagePromptWithRetryPayload, clonePayloadForEmptyOutputRetry, clonePayloadForToolOutputRetry };

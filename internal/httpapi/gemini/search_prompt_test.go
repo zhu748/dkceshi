@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestGeminiSearchPromptUsesModelCapabilityAndPreservesSystem(t *testing.T) {
+func TestGeminiSearchFlagUsesModelCapabilityWithoutPromptInjection(t *testing.T) {
 	for _, model := range []string{"deepseek-v4.1-flash", "deepseek-v4.1-flash-search", "deepseek-v4.1-flash-search-nothinking"} {
 		t.Run(model, func(t *testing.T) {
 			store := testGeminiThinkingConfig{enabled: true}
@@ -22,11 +22,7 @@ func TestGeminiSearchPromptUsesModelCapabilityAndPreservesSystem(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			count := 0
-			if out.Search {
-				count = 1
-			}
-			if strings.Count(out.FinalPrompt, "Built-in web search protocol") != count || !strings.Contains(out.FinalPrompt, "CALLER-SYSTEM-RULE") {
+			if out.Search != strings.Contains(model, "-search") || strings.Contains(out.FinalPrompt, "Built-in web search protocol") || !strings.Contains(out.FinalPrompt, "CALLER-SYSTEM-RULE") {
 				t.Fatal("native search gating or caller system instruction was lost")
 			}
 			if out.PromptTokenText != out.FinalPrompt || len(out.ToolNames) != 0 || out.SystemTextToolsApply() {

@@ -116,10 +116,12 @@ test('a damaged optional parameter cannot silently disappear from an executable 
 });
 
 test('invalid JSON argument envelopes cannot silently become empty calls', () => {
-  for (const body of ['{"path":"a.txt"}', '{"input":"a.txt"}', '{"input":null}', '{"parameters":[]}']) {
+  for (const body of ['{"path":"a.txt"}', '{"input":"a.txt"}', '{"input":null}', '{"parameters":[]}', '{"input":{},"parameters":{"ignored":true}}', '{"input":{"path":"a.txt"},"content":"lost"}', '{"parameters":{},"optional":true}']) {
     assert.deepEqual(parseToolCalls('<tool_calls><invoke name="read">' + body + '</invoke></tool_calls>', ['read']), []);
   }
-  assert.deepEqual(parseToolCalls('<tool_calls><invoke name="read">{"input":{},"parameters":{"ignored":true}}</invoke></tool_calls>', ['read']), [{ name: 'read', input: {} }]);
+  for (const key of ['input', 'parameters']) {
+    assert.deepEqual(parseToolCalls(`<tool_calls><invoke name="read">{"${key}":{"path":"a.txt"}}</invoke></tool_calls>`, ['read']), [{ name: 'read', input: { path: 'a.txt' } }]);
+  }
 });
 
 test('tool markup within a JSON string remains a literal argument across chunks', () => {

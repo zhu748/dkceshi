@@ -157,7 +157,7 @@ func (s *chatStreamRuntime) sendDelta(delta map[string]any) {
 	if len(delta) == 0 {
 		return
 	}
-	if content, _ := delta["content"].(string); content != "" {
+	if content, _ := delta["content"].(string); strings.TrimSpace(content) != "" {
 		s.visibleTextEmitted = true
 	}
 	if !s.firstChunkSent {

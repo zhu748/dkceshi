@@ -27,7 +27,8 @@ func IsRetryableOutputError(err *assistantturn.OutputError) bool {
 }
 
 // CanDeferOutputError only allows regeneration before text or a tool call has
-// been delivered. Reasoning alone is not a completed answer.
+// been delivered. Reasoning and whitespace alone are not a completed answer;
+// adapters must not mark them as outputDelivered.
 func CanDeferOutputError(err *assistantturn.OutputError, retryEnabled, outputDelivered bool) bool {
 	return retryEnabled && !outputDelivered && IsRetryableOutputError(err)
 }

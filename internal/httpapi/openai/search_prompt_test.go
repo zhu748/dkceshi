@@ -10,7 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func TestVercelPrepareIncludesSearchPromptOnlyForSearchModels(t *testing.T) {
+func TestVercelPrepareUsesSearchFlagWithoutPromptInjection(t *testing.T) {
 	t.Setenv("VERCEL", "1")
 	t.Setenv("DS2API_VERCEL_INTERNAL_SECRET", "stream-secret")
 	for _, model := range []string{"deepseek-v4.1-flash", "deepseek-v4.1-flash-search", "deepseek-v4.1-flash-search-nothinking"} {
@@ -38,7 +38,7 @@ func TestVercelPrepareIncludesSearchPromptOnlyForSearchModels(t *testing.T) {
 				t.Fatal(err)
 			}
 			search := strings.Contains(model, "-search")
-			if strings.Contains(out.FinalPrompt, "Built-in web search protocol") != search || out.Search != search || out.Payload["search_enabled"] != search {
+			if strings.Contains(out.FinalPrompt, "Built-in web search protocol") || out.Search != search || out.Payload["search_enabled"] != search {
 				t.Fatal("Node prepare lost model-based search gating")
 			}
 			if out.Payload["prompt"] != out.FinalPrompt || len(out.ToolNames) != 0 {

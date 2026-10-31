@@ -9,6 +9,14 @@ import (
 )
 
 func (s *claudeStreamRuntime) send(event string, v any) {
+	// textEmitted also tracks whitespace-only blocks for rendering. Recovery
+	// must instead know whether a visible answer has reached the client.
+	if event == "content_block_delta" && !s.visibleTextEmitted {
+		payload, _ := v.(map[string]any)
+		delta, _ := payload["delta"].(map[string]any)
+		text, _ := delta["text"].(string)
+		s.visibleTextEmitted = strings.TrimSpace(text) != ""
+	}
 	b, _ := json.Marshal(v)
 	_, _ = s.w.Write([]byte("event: "))
 	_, _ = s.w.Write([]byte(event))
