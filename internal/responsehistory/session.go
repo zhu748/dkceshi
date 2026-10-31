@@ -10,6 +10,7 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
 	"ds2api/internal/config"
+	openaifmt "ds2api/internal/format/openai"
 	"ds2api/internal/prompt"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/usagestats"
@@ -218,6 +219,30 @@ func (s *Session) Error(statusCode int, message, finishReason, thinking, content
 		StatusCode:       statusCode,
 		ElapsedMs:        time.Since(s.startedAt).Milliseconds(),
 		FinishReason:     finishReason,
+		Completed:        true,
+	})
+}
+
+// Stopped 关闭一个被客户端取消的流式会话：把条目落为 "stopped" 终态，并按已
+// 生成的部分内容估算 token 用量入账，避免条目永久停留在 "streaming" 且账本
+// 漏记已消耗的请求（对齐 openai/chat 表面的 stopped 语义）。
+func (s *Session) Stopped(thinking, content, finishReason string) {
+	if s == nil {
+		return
+	}
+	usage := openaifmt.BuildChatUsageForModel(s.recordModel, s.startParams.FinalPrompt, thinking, content, 0)
+	s.recordUsage(usage)
+	if s.store == nil || s.disabled {
+		return
+	}
+	s.persistUpdate(chathistory.UpdateParams{
+		Status:           "stopped",
+		ReasoningContent: thinking,
+		Content:          content,
+		StatusCode:       http.StatusOK,
+		ElapsedMs:        time.Since(s.startedAt).Milliseconds(),
+		FinishReason:     finishReason,
+		Usage:            usage,
 		Completed:        true,
 	})
 }

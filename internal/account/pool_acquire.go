@@ -93,8 +93,12 @@ func (p *Pool) acquireLocked(target string, exclude map[string]bool, filter Acco
 	if p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight {
 		return config.Account{}, false
 	}
+	// One checks snapshot serves the target probe, the rotation scan and the
+	// post-acquire bookkeeping; recomputing them per step re-took the store
+	// read lock several times per acquire.
+	checks := p.acquireChecksLocked()
 	if target != "" {
-		if exclude[target] || !p.canAcquireIDLocked(target) {
+		if exclude[target] || !p.canAcquireIDCheckedLocked(target, checks) {
 			return config.Account{}, false
 		}
 		acc, ok := p.store.FindAccount(target)
@@ -109,51 +113,86 @@ func (p *Pool) acquireLocked(target string, exclude map[string]bool, filter Acco
 		}
 		p.inUse[target]++
 		p.inUseTotal++
-		p.recordAccountRequestLocked(target)
+		p.recordAccountRequestCheckedLocked(target, checks)
 		p.bumpQueue(target)
 		return acc, true
 	}
 
-	return p.tryAcquire(exclude, filter)
+	return p.tryAcquire(exclude, filter, checks)
 }
 
-func (p *Pool) tryAcquire(exclude map[string]bool, filter AccountFilter) (config.Account, bool) {
+func (p *Pool) tryAcquire(exclude map[string]bool, filter AccountFilter, checks acquireChecks) (config.Account, bool) {
 	// Per-attempt invariants (store locks, date roll, global saturation) are
-	// computed once; the candidate scan below only does map lookups.
-	checks := p.acquireChecksLocked()
-	for i := 0; i < len(p.queue); i++ {
-		id := p.queue[i]
+	// computed once by the caller; the candidate scan below only does map
+	// lookups.
+	var acquired config.Account
+	var found bool
+	p.forEachQueueAccount(func(id string) bool {
 		if exclude[id] || !p.canAcquireIDCheckedLocked(id, checks) {
-			continue
+			return true
 		}
 		acc, ok := p.store.FindAccount(id)
 		if !ok {
-			continue
+			return true
 		}
 		if !acc.IsSchedulable() {
-			continue
+			return true
 		}
 		if filter != nil && !filter(acc) {
-			continue
+			return true
 		}
 		p.inUse[id]++
 		p.inUseTotal++
-		p.recordAccountRequestLocked(id)
+		p.recordAccountRequestCheckedLocked(id, checks)
 		p.bumpQueue(id)
-		return acc, true
-	}
-	return config.Account{}, false
+		acquired, found = acc, true
+		return false
+	})
+	return acquired, found
 }
 
+// bumpQueue moves accountID to the logical tail of the rotation ring.
+// The common case — the account at the logical head, which is what tryAcquire
+// picks first — is an O(1) head advance. It replaces the old
+// append(queue[:i], queue[i+1:]...) + append which memmoved the whole slice
+// (80KB on a 5000-account pool) on every single acquire.
 func (p *Pool) bumpQueue(accountID string) {
-	for i, id := range p.queue {
-		if id != accountID {
-			continue
-		}
-		p.queue = append(p.queue[:i], p.queue[i+1:]...)
-		p.queue = append(p.queue, accountID)
+	n := len(p.queue)
+	if n == 0 {
 		return
 	}
+	head := p.queueHead
+	if p.queue[head] == accountID {
+		p.queueHead = (head + 1) % n
+		return
+	}
+	// General case (targeted acquire, waiters): find the account in
+	// logical order and shift the accounts after it one slot earlier,
+	// wrapping around the ring until the logical tail.
+	phys := -1
+	for k := 1; k < n; k++ {
+		idx := (head + k) % n
+		if p.queue[idx] == accountID {
+			phys = idx
+			break
+		}
+	}
+	if phys < 0 {
+		return
+	}
+	for {
+		next := phys + 1
+		if next == n {
+			next = 0
+		}
+		if next == head {
+			// phys is already the logical tail.
+			break
+		}
+		p.queue[phys] = p.queue[next]
+		phys = next
+	}
+	p.queue[phys] = accountID
 }
 
 func normalizeExclude(exclude map[string]bool) map[string]bool {

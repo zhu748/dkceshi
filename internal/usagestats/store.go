@@ -105,6 +105,15 @@ func New(path string) *Store {
 	s.mu.Lock()
 	if err := s.loadLocked(); err != nil {
 		config.Logger.Warn("[usage_stats] unavailable at startup", "path", s.path, "error", err)
+		// Quarantine the unreadable ledger instead of silently starting over:
+		// with an empty in-memory ledger, the first Record would flush and
+		// atomically overwrite the original file — losing the whole history
+		// with no backup. Renaming preserves the data for manual recovery.
+		if quarantined, qErr := quarantineUnreadableLedger(s.path); qErr != nil {
+			config.Logger.Warn("[usage_stats] could not quarantine unreadable ledger", "path", s.path, "error", qErr)
+		} else if quarantined != "" {
+			config.Logger.Warn("[usage_stats] quarantined unreadable ledger, starting a new one", "original", s.path, "quarantined_as", quarantined)
+		}
 		s.entries = map[string]*Entry{}
 	}
 	s.mu.Unlock()
@@ -434,6 +443,23 @@ func (s *Store) snapshotLocked() fileData {
 		payload.Entries = append(payload.Entries, *entry)
 	}
 	return payload
+}
+
+// quarantineUnreadableLedger renames an undecodable ledger file aside so a
+// later flush cannot overwrite it. Returns the quarantine path, or "" when
+// there is nothing to preserve (the file does not exist).
+func quarantineUnreadableLedger(path string) (string, error) {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	quarantined := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+	if err := os.Rename(path, quarantined); err != nil {
+		return "", err
+	}
+	return quarantined, nil
 }
 
 func (s *Store) loadLocked() error {

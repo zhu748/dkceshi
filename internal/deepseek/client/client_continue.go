@@ -152,6 +152,15 @@ func pumpAutoContinue(ctx context.Context, pw *io.PipeWriter, initial io.ReadClo
 // line through to pw while observing state signals. Intermediate [DONE]
 // sentinels are consumed (not forwarded) so that the downstream only sees
 // one final [DONE] at the very end.
+//
+// The scan stays on []byte end to end: the previous version converted every
+// line to string twice (TrimSpace + HasSuffix), copying the whole stream an
+// extra two times on the continue hot path.
+var (
+	streamDataPrefix = []byte("data:")
+	streamDoneMarker = []byte("[DONE]")
+)
+
 func streamBodyWithContinueState(ctx context.Context, pw *io.PipeWriter, body io.Reader, state *continueState) (bool, error) {
 	reader := bufio.NewReaderSize(body, 64*1024)
 	hadDone := false
@@ -168,11 +177,11 @@ func streamBodyWithContinueState(ctx context.Context, pw *io.PipeWriter, body io
 			}
 			return hadDone, err
 		}
-		trimmed := strings.TrimSpace(string(line))
-		if trimmed != "" {
-			if strings.HasPrefix(trimmed, "data:") {
-				data := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
-				if data == "[DONE]" {
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) != 0 {
+			if bytes.HasPrefix(trimmed, streamDataPrefix) {
+				data := bytes.TrimSpace(bytes.TrimPrefix(trimmed, streamDataPrefix))
+				if bytes.Equal(data, streamDoneMarker) {
 					hadDone = true
 					if err != nil && err != io.EOF {
 						return hadDone, err
@@ -184,7 +193,7 @@ func streamBodyWithContinueState(ctx context.Context, pw *io.PipeWriter, body io
 				}
 				state.observe(data)
 			}
-			if !strings.HasSuffix(string(line), "\n") {
+			if line[len(line)-1] != '\n' {
 				line = append(line, '\n')
 			}
 			if _, copyErr := io.Copy(pw, bytes.NewReader(line)); copyErr != nil {
@@ -201,12 +210,14 @@ func streamBodyWithContinueState(ctx context.Context, pw *io.PipeWriter, body io
 }
 
 // observe extracts continue-relevant signals from an SSE JSON chunk.
-func (s *continueState) observe(data string) {
-	if s == nil || strings.TrimSpace(data) == "" {
+// It takes []byte so the line scan can hand it the already-buffered bytes
+// without a per-line string conversion.
+func (s *continueState) observe(data []byte) {
+	if s == nil || len(bytes.TrimSpace(data)) == 0 {
 		return
 	}
 	var chunk map[string]any
-	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+	if err := json.Unmarshal(data, &chunk); err != nil {
 		return
 	}
 	// Top-level response_message_id

@@ -16,6 +16,11 @@ import (
 
 type androidProfile struct{ model, api string }
 
+// androidProfilePresets is package-level: fillAndroidProfile runs on every
+// upstream request via StableAndroidProfile (BaseHeadersForAuth) and used to
+// rebuild this ~63-element slice on each call.
+var androidProfilePresets = androidProfiles()
+
 func androidProfiles() []androidProfile {
 	out := []androidProfile{{"V2507A", "36"}, {"Pixel 6a", "36"}, {"Pixel 9a", "36"}}
 	// Manufacturer model codes, with conservative Android API presets. See
@@ -51,8 +56,16 @@ func androidProfiles() []androidProfile {
 }
 
 func fillAndroidProfile(acc Account, stable bool) Account {
+	// Fast path: an already-complete profile is returned unchanged. Every
+	// assignment below is guarded by "if <field> == empty", so for a complete
+	// profile the seed hash, candidate scan and env lookups are pure overhead
+	// on the per-request hot path (managed accounts are typically complete
+	// because EnsureAccountDeviceProfile persists the fields once).
+	if acc.DeviceModel != "" && acc.AndroidAPILevel != "" && acc.AndroidID != "" && acc.InstallationID != "" && acc.DeviceBrand != "" {
+		return acc
+	}
 	seed := sha256.Sum256([]byte("ds2api/android/v1/" + acc.Identifier()))
-	profiles := androidProfiles()
+	profiles := androidProfilePresets
 	candidates := make([]androidProfile, 0, len(profiles))
 	model := strings.TrimSpace(acc.DeviceModel)
 	if model == "" {

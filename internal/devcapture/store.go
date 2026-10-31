@@ -139,7 +139,14 @@ func (s *Store) Clear() {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.items = s.items[:0]
+	// Allocate a fresh slice instead of reslicing to zero length: the old
+	// backing array keeps every Entry (with multi-MB request/response bodies)
+	// reachable for the GC until later pushes overwrite the slots one by one.
+	limit := s.limit
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	s.items = make([]Entry, 0, limit)
 }
 
 func (s *Store) Start(label, url, accountID string, requestPayload any) *Session {

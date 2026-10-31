@@ -4,6 +4,7 @@ import (
 	"context"
 	dsprotocol "ds2api/internal/deepseek/protocol"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -106,6 +107,9 @@ func (c *Client) CreateSession(ctx context.Context, a *auth.RequestAuth, maxAtte
 		if err != nil {
 			config.Logger.Warn("[create_session] request error", "error", err, "account", a.AccountID)
 			attempts++
+			if !retryAfterNetworkError(ctx, attempts, err) {
+				return "", fmt.Errorf("create session failed: %w", err)
+			}
 			continue
 		}
 		code, bizCode, msg, bizMsg := extractResponseStatus(resp)
@@ -191,6 +195,9 @@ func (c *Client) fetchPowSolution(ctx context.Context, a *auth.RequestAuth, targ
 			lastFailureKind = FailureUnknown
 			lastFailureMessage = err.Error()
 			attempts++
+			if !retryAfterNetworkError(ctx, attempts, err) {
+				return powSolution{}, fmt.Errorf("get pow failed: %w", err)
+			}
 			continue
 		}
 		code, bizCode, msg, bizMsg := extractResponseStatus(resp)

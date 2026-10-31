@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (p *Pool) ApplyRuntimeLimits(maxInflightPerAccount, maxQueueSize, globalMaxInflight int) {
@@ -69,6 +70,10 @@ type acquireChecks struct {
 	dailyActive bool
 	dailyMax    int
 	globalFull  bool
+	// now is read once per attempt and shared by every per-candidate clock
+	// consult (rate-window expiry); the scan used to call time.Now() once
+	// per skipped candidate.
+	now time.Time
 }
 
 func (p *Pool) acquireChecksLocked() acquireChecks {
@@ -76,6 +81,7 @@ func (p *Pool) acquireChecksLocked() acquireChecks {
 		rateEnabled: p.rateLimitEnabledLocked(),
 		dailyActive: p.dailyLimitActiveLocked(),
 		globalFull:  p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight,
+		now:         time.Now(),
 	}
 	if checks.dailyActive {
 		checks.dailyMax = p.dailyLimitMaxPerDayLocked()
@@ -90,7 +96,7 @@ func (p *Pool) canAcquireIDCheckedLocked(accountID string, checks acquireChecks)
 	if accountID == "" {
 		return false
 	}
-	if checks.rateEnabled && p.isRateLimitedNoEnableCheckLocked(accountID) {
+	if checks.rateEnabled && p.isRateLimitedAtLocked(accountID, checks.now) {
 		return false
 	}
 	if checks.dailyActive && p.dailyCounts[accountID] >= checks.dailyMax {

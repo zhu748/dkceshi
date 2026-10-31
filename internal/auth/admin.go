@@ -25,14 +25,28 @@ const adminPasswordCharset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23
 // 返回的密码仅含 adminPasswordCharset 中的字符，长度固定为 20。
 func GenerateAdminPassword() (string, error) {
 	const n = 20
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
+	// Rejection sampling keeps the character distribution uniform: 256 is not
+	// a multiple of len(adminPasswordCharset) (57), so a plain byte%len mapping
+	// would make the first 256%57 characters ~25% more likely than the rest.
+	// Discarding bytes >= 228 (57*4) costs at most one extra rand.Read round.
+	acceptMax := byte(256 - 256%len(adminPasswordCharset))
+	out := make([]byte, 0, n)
+	buf := make([]byte, n)
+	for len(out) < n {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		for _, b := range buf {
+			if b >= acceptMax {
+				continue
+			}
+			out = append(out, adminPasswordCharset[int(b)%len(adminPasswordCharset)])
+			if len(out) == n {
+				break
+			}
+		}
 	}
-	for i := range b {
-		b[i] = adminPasswordCharset[int(b[i])%len(adminPasswordCharset)]
-	}
-	return string(b), nil
+	return string(out), nil
 }
 
 var warnOnce sync.Once

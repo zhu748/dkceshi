@@ -139,6 +139,9 @@ func (c *Client) uploadFilePendingUncached(ctx context.Context, a *auth.RequestA
 			lastFailureKind = FailureUnknown
 			lastFailureMessage = err.Error()
 			attempts++
+			if !retryAfterNetworkError(ctx, attempts, err) {
+				break
+			}
 			continue
 		}
 		if captureSession != nil {
@@ -206,6 +209,11 @@ func (c *Client) uploadFilePendingUncached(ctx context.Context, a *auth.RequestA
 	}
 	if lastFailureKind != FailureUnknown {
 		return nil, &RequestFailure{Op: "upload file", Kind: lastFailureKind, Message: lastFailureMessage}
+	}
+	// Transport-level failures (context cancelled, connection reset) record
+	// the underlying error text; surface it instead of a generic message.
+	if lastFailureMessage != "" {
+		return nil, errors.New(lastFailureMessage)
 	}
 	return nil, errors.New("upload file failed")
 }

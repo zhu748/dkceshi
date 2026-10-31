@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -121,4 +122,23 @@ func backoffBeforeTransientRetry(ctx context.Context, attemptsDone int) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+// retryAfterNetworkError applies the same transient-failure backoff to
+// transport-level failures (connection reset, timeout, handshake failure) that
+// recoverManagedAuth applies to 429/5xx responses. Upstream overload often
+// surfaces without any status code, and a zero-backoff immediate resend used
+// to amplify the storm the same way — especially with outer retry layers
+// (completionruntime, uploads) multiplying the attempt count.
+// It returns false when retrying is pointless (the context was cancelled or
+// the error itself is a cancellation), letting the caller stop instead of
+// burning the remaining attempts.
+func retryAfterNetworkError(ctx context.Context, attemptsDone int, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return false
+	}
+	return backoffBeforeTransientRetry(ctx, attemptsDone)
 }

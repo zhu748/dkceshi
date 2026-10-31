@@ -12,7 +12,13 @@ type Pool struct {
 	store *config.Store
 	mu    sync.Mutex
 	queue []string
-	inUse map[string]int
+	// queueHead is the logical start of the rotation ring stored in queue.
+	// bumpQueue used to memmove the whole slice (O(N) per acquire on a
+	// 5000-account pool) just to move the acquired account to the tail;
+	// with a ring that move is an O(1) head advance. Invariant: 0 <= queueHead < len(queue)
+	// whenever len(queue) > 0.
+	queueHead int
+	inUse     map[string]int
 	// inUseTotal mirrors sum(inUse.values()) and is maintained on every
 	// acquire/release so the global-limit check stays O(1) on the hot path.
 	inUseTotal             int
@@ -102,6 +108,7 @@ func (p *Pool) Reset() {
 	p.maxInflightPerAccount = maxPer
 	p.drainWaitersLocked()
 	p.queue = ids
+	p.queueHead = 0
 	// Keep accounting for every configured account, including sleeping accounts
 	// and requests still running while an administrator disables an account.
 	configured := make(map[string]bool, len(accounts))
@@ -162,20 +169,51 @@ func (p *Pool) SchedulableCount() int {
 	return p.SchedulableCountMatching(nil)
 }
 
+// forEachQueueAccount visits the rotation ring in logical order (queueHead
+// first). Returning false from visit stops the walk. Callers must hold p.mu.
+func (p *Pool) forEachQueueAccount(visit func(id string) bool) {
+	n := len(p.queue)
+	for k := 0; k < n; k++ {
+		if !visit(p.queue[(p.queueHead+k)%n]) {
+			return
+		}
+	}
+}
+
+// queueRingIDs snapshots the rotation ring in logical order. Prefer
+// forEachQueueAccount for new code; this exists for the few loops that early
+// return out of several levels and read clearer as a plain range.
+func (p *Pool) queueRingIDs() []string {
+	n := len(p.queue)
+	if n == 0 {
+		return nil
+	}
+	if p.queueHead == 0 {
+		return p.queue
+	}
+	out := make([]string, 0, n)
+	p.forEachQueueAccount(func(id string) bool {
+		out = append(out, id)
+		return true
+	})
+	return out
+}
+
 // SchedulableCountMatching 返回满足 filter 的可调度账号数。
 func (p *Pool) SchedulableCountMatching(filter AccountFilter) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	count := 0
-	for _, id := range p.queue {
+	p.forEachQueueAccount(func(id string) bool {
 		acc, ok := p.store.FindAccount(id)
 		if !ok || !acc.IsSchedulable() {
-			continue
+			return true
 		}
 		if filter == nil || filter(acc) {
 			count++
 		}
-	}
+		return true
+	})
 	return count
 }
 
@@ -194,23 +232,24 @@ func (p *Pool) Status() map[string]any {
 	rateLimited := make([]string, 0)
 	dailyLimited := make([]string, 0)
 	inUseSlots := 0
-	for _, id := range p.queue {
+	p.forEachQueueAccount(func(id string) bool {
 		acc, ok := p.store.FindAccount(id)
 		if !ok || !acc.IsSchedulable() {
-			continue
+			return true
 		}
 		if p.isRateLimitedLocked(id) {
 			rateLimited = append(rateLimited, id)
-			continue
+			return true
 		}
 		if p.isDailyLimitedLocked(id) {
 			dailyLimited = append(dailyLimited, id)
-			continue
+			return true
 		}
 		if p.inUse[id] < p.maxInflightPerAccount {
 			available = append(available, id)
 		}
-	}
+		return true
+	})
 	for id, count := range p.inUse {
 		if count > 0 {
 			inUseAccounts = append(inUseAccounts, id)

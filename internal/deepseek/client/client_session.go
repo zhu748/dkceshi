@@ -56,6 +56,9 @@ func (c *Client) GetSessionCount(ctx context.Context, a *auth.RequestAuth, maxAt
 		if err != nil {
 			config.Logger.Warn("[get_session_count] request error", "error", err, "account", a.AccountID)
 			attempts++
+			if !retryAfterNetworkError(ctx, attempts, err) {
+				break
+			}
 			continue
 		}
 

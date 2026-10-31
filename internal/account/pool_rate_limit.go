@@ -41,6 +41,19 @@ func (p *Pool) recordAccountRequestLocked(accountID string) {
 	p.recordAccountDailyRequestLocked(accountID)
 }
 
+// recordAccountRequestCheckedLocked is recordAccountRequestLocked for callers
+// that already hold this attempt's acquireChecks: the disabled limits are
+// skipped without re-reading their (store-lock backed) enable flags on every
+// successful acquire.
+func (p *Pool) recordAccountRequestCheckedLocked(accountID string, checks acquireChecks) {
+	if checks.rateEnabled {
+		p.recordAccountRateRequestLocked(accountID)
+	}
+	if checks.dailyActive {
+		p.recordAccountDailyRequestLocked(accountID)
+	}
+}
+
 func (p *Pool) recordAccountRateRequestLocked(accountID string) {
 	if accountID == "" || !p.rateLimitEnabledLocked() {
 		return
@@ -110,13 +123,14 @@ func (p *Pool) isRateLimitedLocked(accountID string) bool {
 	if accountID == "" || !p.rateLimitEnabledLocked() {
 		return false
 	}
-	return p.isRateLimitedNoEnableCheckLocked(accountID)
+	return p.isRateLimitedAtLocked(accountID, time.Now())
 }
 
-// isRateLimitedNoEnableCheckLocked is isRateLimitedLocked for callers that
+// isRateLimitedAtLocked is isRateLimitedNoEnableCheckLocked for callers that
 // already hoisted the (store-lock backed) enabled check out of their
-// per-candidate loop.
-func (p *Pool) isRateLimitedNoEnableCheckLocked(accountID string) bool {
+// per-candidate loop. The clock reading is supplied by the caller so a
+// per-attempt scan consults it once instead of once per candidate.
+func (p *Pool) isRateLimitedAtLocked(accountID string, now time.Time) bool {
 	if p.rateLimits == nil {
 		return false
 	}
@@ -126,7 +140,6 @@ func (p *Pool) isRateLimitedNoEnableCheckLocked(accountID string) bool {
 	}
 
 	window := p.rateLimitWindowLocked()
-	now := time.Now()
 	if !entry.windowStart.IsZero() && now.Sub(entry.windowStart) >= window {
 		if entry.timer != nil {
 			entry.timer.Stop()

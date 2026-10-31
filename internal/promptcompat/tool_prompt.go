@@ -164,11 +164,15 @@ func buildToolPromptParts(tools []any, policy ToolChoicePolicy, includeReadCache
 		instructions += "\n\nRead-tool cache guard: If a Read/read_file-style tool result says the file is unchanged, already available in history, should be referenced from previous context, or otherwise provides no file body, treat that result as missing content. Do not repeatedly call the same read request for that missing body. Request a full-content read if the tool supports it, or tell the user that the file contents need to be provided again."
 	}
 	if policy.Mode == ToolChoiceRequired {
-		instructions += "\n7) For this response, you MUST call at least one tool from the allowed list."
+		// "R" numbering keeps the policy addenda distinct from the format
+		// spec's numbered rules 1-15 (a bare "7)"/"8)" used to collide with
+		// "numbers stay plain text" and "only schema-defined parameter
+		// names", handing the model two contradictory rules with one label.
+		instructions += "\nR1) For this response, you MUST call at least one tool from the allowed list."
 	}
 	if policy.Mode == ToolChoiceForced && strings.TrimSpace(policy.ForcedName) != "" {
-		instructions += "\n7) For this response, you MUST call exactly this tool name: " + strings.TrimSpace(policy.ForcedName)
-		instructions += "\n8) Do not call any other tool."
+		instructions += "\nR1) For this response, you MUST call exactly this tool name: " + strings.TrimSpace(policy.ForcedName)
+		instructions += "\nR2) Do not call any other tool."
 	}
 	return toolPromptParts{
 		Descriptions: descriptions,

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ds2api/internal/auth"
@@ -17,6 +18,27 @@ import (
 // androidAPILevelPattern is package-level because BaseHeadersForAuth runs on
 // every upstream request; compiling it per call was pure overhead.
 var androidAPILevelPattern = regexp.MustCompile(`Android/[0-9]+`)
+
+// locationCache memoizes time.LoadLocation results per IANA name. The Go
+// stdlib re-reads and re-parses the zoneinfo file on every call, and
+// BaseHeadersForAuth (5-8 calls per completion chain) used to hit the disk
+// each time an account had a timezone configured. *time.Location values are
+// immutable, so sharing them is safe.
+var locationCache sync.Map // string -> *time.Location
+
+func loadCachedLocation(name string) (*time.Location, error) {
+	if v, ok := locationCache.Load(name); ok {
+		if loc, ok := v.(*time.Location); ok {
+			return loc, nil
+		}
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, err
+	}
+	locationCache.Store(name, loc)
+	return loc, nil
+}
 
 // BaseHeadersForAuth is shared with Vercel prepare so upload, completion and
 // continuation requests retain one account's configured installation identity.
@@ -63,7 +85,7 @@ func BaseHeadersForAuth(a *auth.RequestAuth) map[string]string {
 		headers["x-client-locale"] = a.Account.Locale
 	}
 	if a.Account.Timezone != "" {
-		if loc, err := time.LoadLocation(a.Account.Timezone); err == nil {
+		if loc, err := loadCachedLocation(a.Account.Timezone); err == nil {
 			_, offset := time.Now().In(loc).Zone()
 			headers["x-client-timezone-offset"] = strconv.Itoa(offset)
 		}

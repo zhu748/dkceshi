@@ -48,7 +48,7 @@ func (p *Pool) canQueueLocked(target string, exclude map[string]bool, filter Acc
 	// 否则即使唤醒也无法获取，排队无意义。并发槽位是否已满不影响判断，
 	// 因为排队的请求等待的是账号被释放后腾出的槽位。
 	dailyChecks := p.acquireChecksLocked()
-	for _, id := range p.queue {
+	for _, id := range p.queueRingIDs() {
 		if exclude[id] || (dailyChecks.dailyActive && p.dailyCounts[id] >= dailyChecks.dailyMax) {
 			continue
 		}
@@ -98,7 +98,7 @@ func (p *Pool) waiterCanAcquireLocked(waiter *poolWaiter) bool {
 		return ok && acc.IsSchedulable() && (waiter.filter == nil || waiter.filter(acc))
 	}
 	checks := p.acquireChecksLocked()
-	for _, id := range p.queue {
+	for _, id := range p.queueRingIDs() {
 		if waiter.exclude[id] || !p.canAcquireIDCheckedLocked(id, checks) {
 			continue
 		}

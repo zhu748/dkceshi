@@ -151,6 +151,16 @@ func (h *Handler) consumeResponsesStreamAttempt(r *http.Request, resp *http.Resp
 		},
 		OnContextDone: func() {
 			streamRuntime.markContextCancelled()
+			// Close the history entry as "stopped" (with estimated
+			// usage) instead of leaving it "streaming" forever — the
+			// same handling the chat surface does on cancellation.
+			if streamRuntime.history != nil {
+				streamRuntime.history.Stopped(
+					responsehistory.ThinkingForArchive(streamRuntime.accumulator.RawThinking.String(), streamRuntime.accumulator.ToolDetectionThinking.String(), streamRuntime.accumulator.Thinking.String()),
+					responsehistory.TextForArchive(streamRuntime.accumulator.RawText.String(), streamRuntime.accumulator.Text.String()),
+					string(streamengine.StopReasonContextCancelled),
+				)
+			}
 		},
 	})
 	if streamRuntime.finalErrorCode == string(streamengine.StopReasonContextCancelled) {

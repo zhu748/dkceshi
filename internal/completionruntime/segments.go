@@ -29,7 +29,12 @@ func StartCompletionWithSegments(ctx context.Context, ds DeepSeekCaller, a *auth
 
 	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
 	if err != nil {
-		return StartResult{Request: stdReq}, authOutputError(a)
+		// Mirror the single-shot path (nonstream.go): only a definite upstream
+		// auth rejection is an account_unauthorized; a network hiccup while
+		// creating the session is upstream_unavailable so the shared retry
+		// logic switches accounts instead of forcing a re-login and mislabeling
+		// direct-token clients with a misleading 401.
+		return StartResult{Request: stdReq}, sessionOutputError(a, err)
 	}
 
 	finalPow, finalPayload, outErr := fireSegmentPayloads(ctx, ds, a, stdReq, sessionID, segments, maxAttempts)

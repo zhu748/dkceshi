@@ -103,7 +103,11 @@ func (c *Client) GetTTSTicket(ctx context.Context, a *auth.RequestAuth, maxAttem
 		resp, status, err := c.postJSONWithStatus(ctx, clients.regular, clients.fallback, dsprotocol.DeepSeekAuthTicketURL, headers, map[string]any{"scope": "tts"})
 		if err != nil {
 			config.Logger.Warn("[tts_ticket] request error", "error", err, "account", a.AccountID)
+			lastMessage = err.Error()
 			attempts++
+			if !retryAfterNetworkError(ctx, attempts, err) {
+				break
+			}
 			continue
 		}
 		code, bizCode, msg, bizMsg := extractResponseStatus(resp)
@@ -122,7 +126,7 @@ func (c *Client) GetTTSTicket(ctx context.Context, a *auth.RequestAuth, maxAttem
 		if ch := DetectCaptchaChallenge(resp); ch != nil {
 			config.Logger.Warn("[tts_ticket] captcha challenge detected", "account", a.AccountID, "instruction", ch.Instruction)
 			c.coolDownAfterCaptcha(a, "tts_ticket")
-			if a.UseConfigToken && c.Auth.SwitchAccount(ctx, a) {
+			if a.UseConfigToken && c.Auth != nil && c.Auth.SwitchAccount(ctx, a) {
 				attempts++
 				continue
 			}
@@ -160,6 +164,9 @@ func (c *Client) SetTTSVoice(ctx context.Context, a *auth.RequestAuth, voiceID s
 		if err != nil {
 			config.Logger.Warn("[tts_voice] request error", "error", err, "account", a.AccountID, "voice", voiceID)
 			attempts++
+			if !retryAfterNetworkError(ctx, attempts, err) {
+				break
+			}
 			continue
 		}
 		code, bizCode, msg, bizMsg := extractResponseStatus(resp)
@@ -171,7 +178,7 @@ func (c *Client) SetTTSVoice(ctx context.Context, a *auth.RequestAuth, voiceID s
 		if ch := DetectCaptchaChallenge(resp); ch != nil {
 			config.Logger.Warn("[tts_voice] captcha challenge detected", "account", a.AccountID, "instruction", ch.Instruction)
 			c.coolDownAfterCaptcha(a, "tts_voice")
-			if a.UseConfigToken && c.Auth.SwitchAccount(ctx, a) {
+			if a.UseConfigToken && c.Auth != nil && c.Auth.SwitchAccount(ctx, a) {
 				attempts++
 				continue
 			}

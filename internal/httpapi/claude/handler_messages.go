@@ -358,7 +358,12 @@ func (h *Handler) handleClaudeStreamRealtime(w http.ResponseWriter, r *http.Requ
 		if historySession != nil {
 			historySession.Error(resp.StatusCode, strings.TrimSpace(string(body)), "error", "", "")
 		}
-		writeClaudeError(w, http.StatusInternalServerError, string(body))
+		// Preserve the upstream status: writeClaudeError already maps it to the
+		// Anthropic error type (429 -> rate_limit_error, 5xx -> api_error, ...).
+		// Rewriting everything to 500 made clients treat upstream 429 as a
+		// permanent server error instead of retryable rate limiting, and
+		// diverged from the status recorded in history above.
+		writeClaudeError(w, resp.StatusCode, strings.TrimSpace(string(body)))
 		return
 	}
 
@@ -419,7 +424,9 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		if historySession != nil {
 			historySession.Error(resp.StatusCode, strings.TrimSpace(string(body)), "error", "", "")
 		}
-		writeClaudeError(w, http.StatusInternalServerError, string(body))
+		// Preserve the upstream status (see handleClaudeStreamRealtime for the
+		// rationale): writeClaudeError maps 429 -> rate_limit_error etc.
+		writeClaudeError(w, resp.StatusCode, strings.TrimSpace(string(body)))
 		return
 	}
 
@@ -523,6 +530,16 @@ func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Respons
 		},
 	})
 	if r.Context().Err() != nil {
+		// The client disconnected: close the history entry as "stopped" (with
+		// estimated usage) instead of leaving it "streaming" forever — the same
+		// handling the chat surface does on cancellation.
+		if streamRuntime.history != nil {
+			streamRuntime.history.Stopped(
+				responsehistory.ThinkingForArchive(streamRuntime.rawThinking.String(), streamRuntime.toolDetectionThinking.String(), streamRuntime.thinking.String()),
+				responsehistory.TextForArchive(streamRuntime.rawText.String(), streamRuntime.text.String()),
+				string(streamengine.StopReasonContextCancelled),
+			)
+		}
 		return true, false
 	}
 	if scannerErr != nil || finalReason == streamengine.StopReasonIdleTimeout || finalReason == streamengine.StopReasonNoContentTimeout {

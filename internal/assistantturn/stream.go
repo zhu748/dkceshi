@@ -61,6 +61,24 @@ func (a *Accumulator) ResetContentPolicy() {
 	a.inner.ResetContentPolicy()
 }
 
+// ResetForRegeneration discards accumulated output before a replacement
+// generation starts (an empty-output retry or a switch to another account):
+// the previous attempt produced no usable answer, so its partial raw text,
+// thinking and tool-detection buffers must not leak into the new one. The
+// content policy is reset as well because the new attempt reads a fresh
+// upstream response. Mirrors the per-surface resetForRegeneration helpers.
+func (a *Accumulator) ResetForRegeneration() {
+	if a == nil {
+		return
+	}
+	a.inner.RawText.Reset()
+	a.inner.Text.Reset()
+	a.inner.RawThinking.Reset()
+	a.inner.Thinking.Reset()
+	a.inner.ToolDetectionThinking.Reset()
+	a.inner.ResetContentPolicy()
+}
+
 // HasPartialOutput reports whether the accumulated stream contains any raw
 // text, thinking or tool-detection content — i.e. the upstream produced
 // something before the stream ended. Used to distinguish an interrupted stream

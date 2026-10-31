@@ -167,6 +167,11 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 		ParentMessageID: func() int {
 			return runtime.responseMessageID
 		},
+		// Without this hook an empty-output retry would append the new
+		// answer to the previous attempt's raw buffers, and tool-call
+		// detection would run over the concatenated text of both rounds
+		// (chat and claude already reset; see their resetForRegeneration).
+		OnRegenerate: runtime.resetForRegeneration,
 		OnRetryPrompt: func(prompt string) {
 			runtime.finalPrompt = prompt
 		},
@@ -208,7 +213,27 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 			stopReason = reason
 			scannerErr = err
 		},
+		OnContextDone: func() {
+			// The client disconnected: close the history entry as "stopped"
+			// (with estimated usage) instead of leaving it "streaming" forever.
+			// Mirrors the chat surface's OnContextDone handling.
+			if runtime.history != nil {
+				rawText, text, rawThinking, thinking, detectionThinking := runtime.accumulator.Snapshot()
+				runtime.history.Stopped(
+					responsehistory.ThinkingForArchive(rawThinking, detectionThinking, thinking),
+					responsehistory.TextForArchive(rawText, text),
+					string(streamengine.StopReasonContextCancelled),
+				)
+			}
+		},
 	})
+	if ctx.Err() != nil {
+		// ConsumeSSE does not run OnFinalize when the context is done; without
+		// this early return the code below would finalize normally — writing
+		// terminal frames to a dead connection and recording the truncated
+		// content as a successful 200 in history (chat/claude already bail out).
+		return completionruntime.ConsumeAttemptResult{Terminal: true}
+	}
 	// An upstream stream that died mid-body (read error) or stalled past the
 	// idle / no-content window after producing partial output must not be
 	// silently finalized as a normal finish frame: schedule a continue-resume so
@@ -238,6 +263,18 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 		return completionruntime.ConsumeAttemptResult{Terminal: true}
 	}
 	return completionruntime.ConsumeAttemptResult{Retryable: true}
+}
+
+// resetForRegeneration discards the previous attempt's accumulated output
+// before a replacement generation starts (empty-output retry or account
+// switch). Only called after the runtime deferred an error with no delivered
+// answer; keep the buffers clean so the new answer is not appended to the old
+// one. Mirrors chat/claude stream_regenerate.go.
+func (s *geminiStreamRuntime) resetForRegeneration() {
+	s.accumulator.ResetForRegeneration()
+	s.responseMessageID = 0
+	s.upstreamErr = ""
+	s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = 0, "", ""
 }
 
 //nolint:unused // retained for native Gemini stream handling path.

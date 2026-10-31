@@ -202,7 +202,7 @@ func (p *Pool) DailyLimitExhausted(target string, filter AccountFilter) bool {
 		return p.isDailyLimitedLocked(target)
 	}
 	candidates := 0
-	for _, id := range p.queue {
+	for _, id := range p.queueRingIDs() {
 		acc, ok := p.store.FindAccount(id)
 		if !ok || !acc.IsSchedulable() {
 			continue

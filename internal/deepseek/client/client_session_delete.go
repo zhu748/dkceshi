@@ -48,6 +48,9 @@ func (c *Client) DeleteSession(ctx context.Context, a *auth.RequestAuth, session
 		if err != nil {
 			config.Logger.Warn("[delete_session] request error", "error", err, "session_id", sessionID)
 			attempts++
+			if !retryAfterNetworkError(ctx, attempts, err) {
+				break
+			}
 			continue
 		}
 

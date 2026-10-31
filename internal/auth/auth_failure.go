@@ -209,8 +209,10 @@ func (r *Resolver) noteAuthFailure(accountID string) int {
 	return r.authFailures[accountID]
 }
 
-// ForgetAccount 清理已删除账号的连续鉴权失败计数，避免内存中残留无主条目。
-// 由账号删除链路通过 client 的可选接口调用。
+// ForgetAccount 清理已删除账号的连续鉴权失败计数与 token 强制刷新标记，
+// 避免内存中残留无主条目（tokenRefreshedAt 与 authFailures 一样只增不减，
+// 不清理会让频繁增删账号的部署缓慢积累泄漏）。由账号删除链路通过 client
+// 的可选接口调用。
 func (r *Resolver) ForgetAccount(identifier string) {
 	if r == nil {
 		return
@@ -221,6 +223,7 @@ func (r *Resolver) ForgetAccount(identifier string) {
 	}
 	r.mu.Lock()
 	delete(r.authFailures, identifier)
+	delete(r.tokenRefreshedAt, identifier)
 	r.mu.Unlock()
 }
 

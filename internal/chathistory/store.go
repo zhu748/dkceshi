@@ -528,6 +528,12 @@ func (s *Store) markInterruptedStreamingLocked() {
 			item.CompletedAt = nowMillis
 		}
 		item.UpdatedAt = nowMillis
+		// Bump the per-entry (and through nextRevisionLocked the global)
+		// revision: the admin UI polls list/detail with If-None-Match, so
+		// without this the interrupted rewrite stays invisible to already
+		// open pages until a manual refresh — the ETag would keep matching
+		// the pre-restart revision forever.
+		item.Revision = s.nextRevisionLocked()
 		s.details[id] = item
 		s.markDetailDirtyLocked(id)
 	}
