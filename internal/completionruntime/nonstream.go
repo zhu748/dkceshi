@@ -270,6 +270,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		turn.RawThinking = accumulatedRawThinking
 		turn.DetectionThinking = accumulatedToolDetectionThinking
 		turn = assistantturn.BuildTurnFromCollected(sse.CollectResult{
+			Cut:                    turn.ContentCut,
 			Text:                   turn.RawText,
 			Thinking:               turn.RawThinking,
 			ToolDetectionThinking:  turn.DetectionThinking,
@@ -315,10 +316,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			config.Logger.Warn("[completion_runtime_empty_retry] retry PoW fetch failed, falling back to original PoW", "surface", stdReq.Surface, "retry_attempt", attempts, "error", powErr)
 			retryPow = pow
 		}
-		retryPayload := ClonePayloadForEmptyOutputRetry(payload, parentMessageID)
-		if toolRetry {
-			retryPayload = ClonePayloadForToolOutputRetry(payload, parentMessageID, turn.Error)
-		}
+		retryPayload := ClonePayloadForOutputRetry(payload, parentMessageID, turn.Error)
 		nextResp, err := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		if err != nil {
 			callErr := completionCallOutputError(ctx, err)
@@ -344,7 +342,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		}
 		payload = retryPayload
 		usagePrompt = UsagePromptWithRetryPayload(usagePrompt, retryPayload)
-		if toolRetry {
+		if toolRetry || isPromptEchoError(turn.Error) {
 			accumulatedRawThinking, accumulatedToolDetectionThinking = "", ""
 		}
 		currentResp = nextResp
@@ -469,7 +467,7 @@ func collectAttempt(resp *http.Response, a *auth.RequestAuth, stdReq promptcompa
 			config.Logger.Warn("[completion_runtime] response body close failed", "surface", stdReq.Surface, "error", err)
 		}
 	}()
-	result := sse.CollectStream(resp, stdReq.Thinking, false)
+	result := sse.CollectStream(resp, stdReq.Thinking, false, stdReq.FinalPrompt)
 	// collectAttempt only accumulates raw text/thinking across retries; the
 	// terminal turn is rebuilt once from turn.RawText by the retry loop (see
 	// ExecuteNonStreamStartedWithRetry). Running LLM repair here would repair

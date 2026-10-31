@@ -30,9 +30,12 @@ const CUT_NONE = '';
 const CUT_REPEAT_LOOP = 'repeat_loop';
 const CUT_TOOL_ROLE_MARKER = 'tool_role_marker';
 const CUT_TRANSCRIPT_BOUNDARY = 'transcript_boundary';
+const CUT_PROMPT_ECHO = 'prompt_echo';
+const { createPromptEchoGuard, feedPromptEchoGuard, flushPromptEchoGuard } = require('./prompt_echo');
 
-function createContentPolicy() {
+function createContentPolicy(prompt = '') {
   return {
+    echoGuard: createPromptEchoGuard(prompt),
     repeatGuard: createRepeatLoopGuard(),
     toolRoleGuard: createToolRoleMarkerGuard(),
     cut: CUT_NONE,
@@ -46,6 +49,8 @@ function feedContentPolicy(policy, text) {
   if (!policy || policy.cut !== CUT_NONE) {
     return '';
   }
+  text = feedPromptEchoGuard(policy.echoGuard, text);
+  if (policy.echoGuard.tripped) { policy.cut = CUT_PROMPT_ECHO; return ''; }
   const kept = feedToolRoleMarkerGuard(policy.toolRoleGuard, text);
   const roleCut = policy.toolRoleGuard.tripped === true;
   if (kept) {
@@ -92,13 +97,22 @@ function contentPolicyCut(policy) {
   return policy ? policy.cut : CUT_NONE;
 }
 
+function flushContentPolicy(policy) {
+  if (!policy || policy.cut !== CUT_NONE) return '';
+  const tail = flushPromptEchoGuard(policy.echoGuard);
+  const guard = policy.toolRoleGuard;
+  return tail || guard.code || guard.cdata || guard.quote ? feedToolRoleMarkerGuard(guard, tail, true) : '';
+}
+
 module.exports = {
   CUT_NONE,
   CUT_REPEAT_LOOP,
   CUT_TOOL_ROLE_MARKER,
   CUT_TRANSCRIPT_BOUNDARY,
+  CUT_PROMPT_ECHO,
   createContentPolicy,
   feedContentPolicy,
   feedContentPolicyTail,
   contentPolicyCut,
+  flushContentPolicy,
 };

@@ -203,10 +203,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			continue
 		}
 		config.Logger.Info("[completion_runtime_output_retry] regenerating undelivered output", "surface", surface, "retry_attempt", attempts, "error_code", pendingErr.Code)
-		retryPayload := ClonePayloadForEmptyOutputRetry(currentPayload, parentMessageID)
-		if IsToolOutputError(pendingErr) {
-			retryPayload = ClonePayloadForToolOutputRetry(currentPayload, parentMessageID, pendingErr)
-		}
+		retryPayload := ClonePayloadForOutputRetry(currentPayload, parentMessageID, pendingErr)
 		next, callErr := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		var outErr *assistantturn.OutputError
 		if callErr != nil {

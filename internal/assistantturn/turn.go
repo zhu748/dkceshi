@@ -53,6 +53,7 @@ type Turn struct {
 	// the original assistant message and must use this one.
 	FirstResponseMessageID int
 	StopReason             StopReason
+	ContentCut             sse.CutReason
 	Usage                  Usage
 	Error                  *OutputError
 }
@@ -180,6 +181,7 @@ func deductRepairedSource(text, residual string) string {
 }
 
 type StreamSnapshot struct {
+	ContentCut            sse.CutReason
 	RawText               string
 	VisibleText           string
 	RawThinking           string
@@ -195,6 +197,7 @@ type StreamSnapshot struct {
 }
 
 func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
+	result.Text, result.Cut = rejectPromptEcho(result.Text, opts.Prompt, result.Cut)
 	result.Text = toolcall.NormalizeMarkerText(result.Text, opts.ToolMarker)
 	result.Thinking = toolcall.NormalizeMarkerText(result.Thinking, opts.ToolMarker)
 	result.ToolDetectionThinking = toolcall.NormalizeMarkerText(result.ToolDetectionThinking, opts.ToolMarker)
@@ -214,7 +217,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	parsed := DetectAssistantToolCalls(result.Text, text, result.Thinking, result.ToolDetectionThinking, opts.ToolNames)
 	calls := toolcall.NormalizeParsedToolCallsForSchemas(parsed.Calls, opts.ToolsRaw)
 	repairCompleted := false
-	if result.ReadError == nil {
+	if result.ReadError == nil && result.Cut != sse.CutPromptEcho {
 		if repaired, replaced := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
 			calls = repaired
 			text = deductRepairedSource(text, replaced)
@@ -247,7 +250,9 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 		ResponseMessageID:      result.ResponseMessageID,
 		FirstResponseMessageID: result.FirstResponseMessageID,
 		StopReason:             stopReason,
+		ContentCut:             result.Cut,
 	}
+	discardEchoTools(&turn)
 	turn.Usage = buildUsageWithPrefill(opts, thinking, text)
 	turn.Error = validateToolOutput(turn, opts, repairCompleted)
 	if result.ReadError != nil {
@@ -260,6 +265,8 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 }
 
 func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Turn {
+	snapshot.RawText, snapshot.ContentCut = rejectPromptEcho(snapshot.RawText, opts.Prompt, snapshot.ContentCut)
+	snapshot.VisibleText, snapshot.ContentCut = rejectPromptEcho(snapshot.VisibleText, opts.Prompt, snapshot.ContentCut)
 	snapshot.RawText = toolcall.NormalizeMarkerText(snapshot.RawText, opts.ToolMarker)
 	snapshot.RawThinking = toolcall.NormalizeMarkerText(snapshot.RawThinking, opts.ToolMarker)
 	snapshot.DetectionThinking = toolcall.NormalizeMarkerText(snapshot.DetectionThinking, opts.ToolMarker)
@@ -289,7 +296,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	// cannot retract emitted tool_calls). When only bad text was streamed, the
 	// finalize replaces it with the repaired tool_calls. Partial success is
 	// repaired as one ordered batch without value-based deduplication.
-	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
+	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw && snapshot.ContentCut != sse.CutPromptEcho {
 		if repaired, replaced := maybeRepairToolCalls(parsed, snapshot.RawText, opts); len(repaired) > 0 {
 			calls = repaired
 			text = deductRepairedSource(text, replaced)
@@ -321,7 +328,9 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		UpstreamError:     snapshot.UpstreamError,
 		ResponseMessageID: snapshot.ResponseMessageID,
 		StopReason:        stopReason,
+		ContentCut:        snapshot.ContentCut,
 	}
+	discardEchoTools(&turn)
 	turn.Usage = buildUsageWithPrefill(opts, thinking, text)
 	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
 		turn.Error = validateToolOutput(turn, opts, repairCompleted)

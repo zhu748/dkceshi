@@ -32,7 +32,6 @@ internal/httpapi/openai/chat/vercel_stream.go	550
 internal/httpapi/openai/files/expert_text_file_inline.go	313
 internal/httpapi/openai/files/file_inline_upload.go	466
 internal/httpapi/openai/responses/responses_handler.go	319
-internal/httpapi/openai/responses/responses_stream_runtime_core.go	342
 internal/httpapi/openai/responses/responses_stream_runtime_toolcalls.go	358
 internal/js/chat-stream/vercel_stream_impl.js	903
 internal/js/helpers/stream-tool-sieve/cdata_repair.js	329

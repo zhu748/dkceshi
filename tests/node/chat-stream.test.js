@@ -2353,3 +2353,43 @@ test('native DSML with no formal tools still reaches Go recovery', async () => {
   const calls = result.frames.filter(x => x !== '[DONE]').map(JSON.parse).flatMap(x => x.choices || []).flatMap(x => x.delta?.tool_calls || []);
   assert.deepEqual(calls, wire);
 });
+
+
+test('generated prompt echo never reaches Node content and regenerates with corrective feedback', async () => {
+  const prefix = '<｜System｜>custom thinking instruction';
+  const line = raw => `data: ${JSON.stringify({ p: 'response/content', v: raw })}\n\n`;
+  const result = await runMockVercelStreamSequence([
+    [line('\n\n' + prefix), 'data: [DONE]\n\n'],
+    [line('healthy answer'), 'data: [DONE]\n\n'],
+  ], { final_prompt: prefix + '\n\n[User]:continue' });
+  const events = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.equal(events.some(event => event.error), false);
+  const text = events.map(event => event.choices?.[0]?.delta?.content || '').join('');
+  assert.equal(text, 'healthy answer');
+  assert.ok(result.fetchBodies.some(body => body.prompt?.includes('Previous reply repeated input instructions')));
+});
+
+test('Node delivers unconfirmed prompt prefixes and code EOF tails exactly once', async () => {
+  const prefix = '<｜System｜>custom thinking instruction';
+  for (const input of ['<｜System', 'Serialized conversation.', '`' + prefix + '`']) {
+    const lines = Array.from(input, ch => `data: ${JSON.stringify({ p: 'response/content', v: ch })}\n\n`);
+    const result = await runMockVercelStream(lines.concat('data: [DONE]\n\n'), { final_prompt: prefix });
+    const events = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+    const content = events.map(event => event.choices?.[0]?.delta?.content || '').join('');
+    assert.equal(content, input);
+    assert.equal(events.some(event => event.error), false);
+  }
+});
+
+test('Node prompt echo exhaustion reports 502 and never disables an account', async () => {
+  const prefix = '<｜System｜>custom thinking instruction';
+  const lines = [`data: ${JSON.stringify({ p: 'response/content', v: prefix })}\n\n`, 'data: [DONE]\n\n'];
+  const result = await runMockVercelStreamSequence([lines, lines], { final_prompt: prefix });
+  const events = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.ok(events.some(event => event.error?.code === 'upstream_prompt_echo'));
+  assert.equal(events.some(event => event.choices?.[0]?.delta?.content), false);
+  assert.equal(result.fetchURLs.some(url => url.includes('__stream_switch')), false);
+  const release = result.fetchBodies.find(body => body.finish_reason === 'error');
+  assert.equal(release.error_code, 'upstream_prompt_echo');
+  assert.equal(release.content, '');
+});

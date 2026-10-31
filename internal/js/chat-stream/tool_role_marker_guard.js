@@ -74,7 +74,7 @@ function scan(guard, text, final = false) {
   guard.pending = data.slice(i);
   return data.slice(0, i);
 }
-function feedToolRoleMarkerGuard(guard, text) { return scan(guard, text); }
+function feedToolRoleMarkerGuard(guard, text, final = false) { return scan(guard, text, final); }
 function indexToolRoleMarker(text) {
   const guard = createToolRoleMarkerGuard();
   const kept = scan(guard, text, true);

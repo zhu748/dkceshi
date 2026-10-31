@@ -69,6 +69,9 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		return true
 	}
 
+	if s.policy.Cut() == sse.CutNone {
+		s.onParsed(sse.LineResult{Parsed: true, Flush: true})
+	}
 	if s.bufferToolContent {
 		for _, evt := range toolstream.Flush(&s.sieve, s.toolNames) {
 			if evt.Deferred {
@@ -113,6 +116,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 	s.closeTextBlock()
 
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
+		ContentCut:            s.policy.Cut(),
 		RawText:               s.rawText.String(),
 		UpstreamError:         s.upstreamErr,
 		VisibleText:           s.text.String(),

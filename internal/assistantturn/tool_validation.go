@@ -4,12 +4,17 @@ import (
 	"net/http"
 	"strings"
 
+	"ds2api/internal/sse"
 	"ds2api/internal/toolcall"
 )
 
 // Validate before rendering on every protocol. A known client invocation that
 // still has broken syntax is not an answer and must not execute partially.
 func validateToolOutput(turn Turn, opts BuildOptions, repaired bool) *OutputError {
+	if turn.ContentCut == sse.CutPromptEcho {
+		return &OutputError{Status: http.StatusBadGateway, Code: OutputCodePromptEcho,
+			Message: "Upstream repeated generated instructions instead of producing an answer."}
+	}
 	parsed := turn.ParsedToolCalls
 	if !repaired && (parsed.SawToolCallIntent || parsed.SawToolCallSyntax && len(turn.ToolCalls) == 0) &&
 		!turn.ContentFilter && strings.TrimSpace(turn.UpstreamError) == "" {

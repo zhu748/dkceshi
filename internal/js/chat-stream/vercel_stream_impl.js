@@ -35,6 +35,8 @@ const {
 } = require('./dedupe');
 const {
   CUT_NONE,
+  CUT_PROMPT_ECHO,
+  flushContentPolicy,
   createContentPolicy,
   feedContentPolicy,
   feedContentPolicyTail,
@@ -51,9 +53,8 @@ const {
   switchOptionsForStatus,
   isTransientUpstreamMessage,
   EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS,
-  clonePayloadForToolOutputRetry,
+  clonePayloadForOutputRetry,
   usagePromptWithRetryPayload,
-  clonePayloadForEmptyOutputRetry,
 } = require('./stream_retry_policy');
 const {
   createContinueState,
@@ -308,7 +309,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     // 该策略持有，与 Go 侧 sse.ContentPolicy 语义一致；新增规则只需改策略本身。
     // 每个上游轮次在 processStream 的轮循环顶部重建一次（见下），因为规则状态
     // 属于一条上游流：上一轮命中的截断不能继续吞掉这一轮的正文。
-    let contentPolicy = createContentPolicy();
+    let contentPolicy = createContentPolicy(finalPrompt);
     let usagePrompt = finalPrompt;
     const toolSieveEnabled = toolPolicy.toolSieveEnabled;
     let toolSieveState = createToolSieveState();
@@ -366,13 +367,20 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         await releaseLease();
         return true;
       }
+      if (contentPolicyCut(contentPolicy) === CUT_PROMPT_ECHO) {
+        lastEmptyDetail = { status: 502, code: 'upstream_prompt_echo', message: 'Upstream repeated generated instructions instead of producing an answer.' };
+        if (options.deferEmpty && !answerDelivered) return false;
+        ended = true;
+        leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: '', error: lastEmptyDetail.message, error_code: lastEmptyDetail.code };
+        sendFailedChunk(res, 502, lastEmptyDetail.message, lastEmptyDetail.code);
+        await releaseLease();
+        if (!res.writableEnded && !res.destroyed) res.end();
+        return true;
+      }
       deltaCoalescer.flush();
-      // 收尾前释放归一化器暂存的标识残片，并并入累计文本，使 finish 阶段的
-      // 独立工具调用解析与逐片 sieve 看到同一份 EPSE 形态文本。残片只可能是
-      // 调用方标识（字母表不含 `[`）的前缀，因此只喂复读守卫、不喂角色标记
-      // 守卫——后者会把残片与它自己暂存的标记前缀合并后一起放行，把本该丢弃的
-      // `[To` 泄漏成正文（见 feedContentPolicyTail）。
-      const markerTail = markerNormalizer.flush();
+      // Unconfirmed prompt prefixes are literal EOF text and already passed
+      // the role guard; marker-normalizer tails cannot form a role delimiter.
+      const markerTail = flushContentPolicy(contentPolicy) + markerNormalizer.flush();
       if (markerTail) {
         outputText += markerTail;
         if (markerTail.trim() !== '') {
@@ -509,7 +517,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         // 这一轮的健康正文会被静默丢弃，客户端最后只会拿到
         // upstream_unavailable。与 Go 侧每个 attempt 重置一次对齐
         // （consume*StreamAttempt → ResetContentPolicy）。
-        contentPolicy = createContentPolicy();
+        contentPolicy = createContentPolicy(finalPrompt);
         lifecycle.reader = currentResponse.body.getReader();
         buffered = '';
         let streamEnded = false;
@@ -772,6 +780,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         return;
       }
       if (retryAttempts >= EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS) {
+        if (lastEmptyDetail?.code === 'upstream_prompt_echo') { await finish('stop'); return; }
         if (isInputContentBlocked) {
           await finish('stop');
           return;
@@ -822,9 +831,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         retry_attempt: retryAttempts,
         parent_message_id: processed.responseMessageID || 0,
       });
-      const retryPayload = isToolOutputError
-        ? clonePayloadForToolOutputRetry(completionPayload, processed.responseMessageID, lastEmptyDetail)
-        : clonePayloadForEmptyOutputRetry(completionPayload, processed.responseMessageID);
+      const retryPayload = clonePayloadForOutputRetry(completionPayload, processed.responseMessageID, lastEmptyDetail);
       usagePrompt = usagePromptWithRetryPayload(usagePrompt, retryPayload);
       const retryPowHeader = await refreshPowHeader('retry');
       if (!retryPowHeader) {

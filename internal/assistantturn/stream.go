@@ -29,6 +29,7 @@ type Accumulator struct {
 }
 
 type AccumulatorOptions struct {
+	Prompt                string
 	ThinkingEnabled       bool
 	SearchEnabled         bool
 	StripReferenceMarkers bool
@@ -37,6 +38,7 @@ type AccumulatorOptions struct {
 func NewAccumulator(opts AccumulatorOptions) *Accumulator {
 	return &Accumulator{
 		inner: StreamAccumulator{
+			Prompt:                opts.Prompt,
 			ThinkingEnabled:       opts.ThinkingEnabled,
 			SearchEnabled:         opts.SearchEnabled,
 			StripReferenceMarkers: opts.StripReferenceMarkers,
@@ -58,6 +60,13 @@ func (a *Accumulator) ResetContentPolicy() {
 		return
 	}
 	a.inner.ResetContentPolicy()
+}
+
+func (a *Accumulator) Cut() sse.CutReason {
+	if a == nil {
+		return sse.CutNone
+	}
+	return a.inner.Cut()
 }
 
 // ResetForRegeneration discards accumulated output before a replacement

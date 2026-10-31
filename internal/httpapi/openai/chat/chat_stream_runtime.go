@@ -124,6 +124,7 @@ func newChatStreamRuntime(
 		toolSieve:             toolstream.State{DeferMalformed: true},
 		streamToolCallIDs:     map[int]string{},
 		accumulator: assistantturn.StreamAccumulator{
+			Prompt:                finalPrompt,
 			ThinkingEnabled:       thinkingEnabled,
 			SearchEnabled:         searchEnabled,
 			StripReferenceMarkers: stripReferenceMarkers,
@@ -220,6 +221,9 @@ func (s *chatStreamRuntime) historyThinking() string {
 }
 
 func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool) bool {
+	if s.accumulator.Cut() == sse.CutNone {
+		s.onParsed(sse.LineResult{Parsed: true, Flush: true})
+	}
 	s.finalErrorStatus = 0
 	s.finalErrorMessage = ""
 	s.finalErrorCode = ""
@@ -227,6 +231,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	finalToolDetectionThinking := s.accumulator.ToolDetectionThinking.String()
 	finalText := s.accumulator.Text.String()
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
+		ContentCut:            s.accumulator.Cut(),
 		RawText:               s.accumulator.RawText.String(),
 		VisibleText:           finalText,
 		RawThinking:           s.accumulator.RawThinking.String(),

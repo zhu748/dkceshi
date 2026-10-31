@@ -16,6 +16,7 @@ import (
 	dsprotocol "ds2api/internal/deepseek/protocol"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
+	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
@@ -312,6 +313,7 @@ func newGeminiStreamRuntime(
 		toolsRaw:              toolsRaw,
 		history:               history,
 		accumulator: assistantturn.NewAccumulator(assistantturn.AccumulatorOptions{
+			Prompt:                finalPrompt,
 			ThinkingEnabled:       thinkingEnabled,
 			SearchEnabled:         searchEnabled,
 			StripReferenceMarkers: stripReferenceMarkers,
@@ -387,9 +389,13 @@ func (s *geminiStreamRuntime) sendErrorChunk(status int, message string) {
 
 //nolint:unused // retained for native Gemini stream handling path.
 func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
+	if s.accumulator.Cut() == sse.CutNone {
+		s.onParsed(sse.LineResult{Parsed: true, Flush: true})
+	}
 	s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = 0, "", ""
 	rawText, text, rawThinking, thinking, detectionThinking := s.accumulator.Snapshot()
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
+		ContentCut:        s.accumulator.Cut(),
 		RawText:           rawText,
 		VisibleText:       text,
 		RawThinking:       rawThinking,

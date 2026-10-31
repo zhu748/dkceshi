@@ -6,9 +6,8 @@ import (
 )
 
 // stopReasonForCut maps a content-policy cut to the stop reason reported to the
-// caller. Every cut is a clean stop: the content produced before the cut is
-// kept and the caller runs its normal finish path (HTTP 200) rather than
-// reporting an interruption.
+// caller. Usable content before a boundary cut is retained. Prompt echoes are
+// rejected by shared turn validation and may be regenerated before delivery.
 func stopReasonForCut(cut sse.CutReason) StopReason {
 	switch cut {
 	case sse.CutRepeatLoop:
@@ -17,6 +16,8 @@ func stopReasonForCut(cut sse.CutReason) StopReason {
 		return StopReasonToolRoleMarker
 	case sse.CutTranscriptBoundary:
 		return StopReasonTranscriptBoundary
+	case sse.CutPromptEcho:
+		return StopReason(sse.CutPromptEcho)
 	}
 	return StopReasonHandlerRequested
 }

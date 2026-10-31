@@ -19,7 +19,7 @@ func IsRetryableOutputError(err *assistantturn.OutputError) bool {
 		return false
 	}
 	switch err.Code {
-	case "upstream_empty_output", "upstream_unavailable", "account_muted", OutputCodeAccountUnauthorized, "captcha_required":
+	case assistantturn.OutputCodePromptEcho, "upstream_empty_output", "upstream_unavailable", "account_muted", OutputCodeAccountUnauthorized, "captcha_required":
 		return true
 	}
 	return IsToolOutputError(err) || isRetryableUpstreamError(err) || err.Code == "error" &&

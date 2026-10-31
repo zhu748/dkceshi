@@ -38,7 +38,7 @@ type CollectResult struct {
 // and admin.testAccount.
 //
 // The caller is responsible for closing resp.Body unless closeBody is true.
-func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) CollectResult {
+func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool, prompts ...string) CollectResult {
 	if closeBody {
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
@@ -53,6 +53,9 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 	upstreamError := ""
 	stopped := false
 	policy := ContentPolicy{}
+	if len(prompts) > 0 {
+		policy.Prompt = prompts[0]
+	}
 	collector := newCitationLinkCollector()
 	responseMessageID := 0
 	firstResponseMessageID := 0
@@ -130,6 +133,7 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 	if stopped {
 		readErr = nil
 	}
+	text.WriteString(policy.Flush())
 	return CollectResult{
 		Text:                   text.String(),
 		Thinking:               thinking.String(),

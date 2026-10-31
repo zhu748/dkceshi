@@ -8,6 +8,7 @@ import (
 )
 
 type StreamAccumulator struct {
+	Prompt                string
 	ThinkingEnabled       bool
 	SearchEnabled         bool
 	StripReferenceMarkers bool
@@ -58,6 +59,9 @@ func (a *StreamAccumulator) Apply(parsed sse.LineResult) StreamAccumulatorResult
 		}
 	}
 	for _, p := range parsed.Parts {
+		if p.Text != "" {
+			out.ContentSeen = true
+		}
 		if p.Type == "thinking" {
 			delta := a.applyThinkingPart(p.Text)
 			if delta.RawText != "" {
@@ -73,6 +77,12 @@ func (a *StreamAccumulator) Apply(parsed sse.LineResult) StreamAccumulatorResult
 			out.ContentSeen = true
 		}
 		if delta.RawText != "" || delta.VisibleText != "" || delta.CitationOnly {
+			out.Parts = append(out.Parts, delta)
+		}
+	}
+	if parsed.Flush {
+		delta := a.appendTextPart(a.policy.Flush())
+		if delta.RawText != "" {
 			out.Parts = append(out.Parts, delta)
 		}
 	}
@@ -103,7 +113,7 @@ func (a *StreamAccumulator) ResetContentPolicy() {
 	if a == nil {
 		return
 	}
-	a.policy = sse.ContentPolicy{}
+	a.policy = sse.ContentPolicy{Prompt: a.Prompt}
 }
 
 // HasPartialOutput reports whether the accumulated stream contains any raw
@@ -148,7 +158,12 @@ func (a *StreamAccumulator) applyTextPart(text string) StreamPartDelta {
 	// `[Tool]:` role marker and everything after it is fabricated dialogue, and
 	// a repetition loop means the rest of the stream is degenerate. Either way
 	// the text produced before the cut is kept and the rest is dropped.
+	a.policy.Prompt = a.Prompt
 	rawTrimmed = a.policy.Feed(rawTrimmed)
+	return a.appendTextPart(rawTrimmed)
+}
+
+func (a *StreamAccumulator) appendTextPart(rawTrimmed string) StreamPartDelta {
 	if rawTrimmed == "" {
 		return StreamPartDelta{Type: "text"}
 	}

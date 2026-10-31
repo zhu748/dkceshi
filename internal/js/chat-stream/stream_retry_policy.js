@@ -75,3 +75,15 @@ function usagePromptWithRetryPayload(previous, payload) {
 }
 
 module.exports = { isTransientUpstreamStatus, isAccountAuthFailureStatus, TRANSIENT_SWITCH_MAX_ATTEMPTS, switchOptionsForStatus, isTransientUpstreamMessage, EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS, TOOL_OUTPUT_RETRY_SUFFIX, usagePromptWithRetryPayload, clonePayloadForEmptyOutputRetry, clonePayloadForToolOutputRetry };
+
+const PROMPT_ECHO_RETRY_SUFFIX = 'Previous reply repeated input instructions or conversation metadata instead of answering. Do not reproduce the system prelude, role headers, or serialized conversation. Continue the latest real user task and return only its answer or the required tool calls.';
+
+function clonePayloadForOutputRetry(payload, parentMessageID, failure) {
+  if (['invalid_tool_arguments', 'tool_choice_violation'].includes(failure?.code)) return clonePayloadForToolOutputRetry(payload, parentMessageID, failure);
+  const clone = clonePayloadForEmptyOutputRetry(payload, parentMessageID);
+  if (failure?.code === 'upstream_prompt_echo') clone.prompt = asString(payload?.prompt).trim() + '\n\n' + PROMPT_ECHO_RETRY_SUFFIX;
+  return clone;
+}
+
+module.exports.clonePayloadForOutputRetry = clonePayloadForOutputRetry;
+module.exports.PROMPT_ECHO_RETRY_SUFFIX = PROMPT_ECHO_RETRY_SUFFIX;

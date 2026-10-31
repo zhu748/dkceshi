@@ -85,7 +85,7 @@ func (s *claudeStreamRuntime) resetContentPolicy() {
 	if s == nil {
 		return
 	}
-	s.policy = sse.ContentPolicy{}
+	s.policy = sse.ContentPolicy{Prompt: s.promptTokenText}
 }
 
 func newClaudeStreamRuntime(
@@ -116,6 +116,7 @@ func newClaudeStreamRuntime(
 		toolsRaw:              toolsRaw,
 		promptTokenText:       promptTokenText,
 		history:               history,
+		policy:                sse.ContentPolicy{Prompt: promptTokenText},
 		sieve:                 toolstream.State{DeferMalformed: true},
 		messageID:             fmt.Sprintf("msg_%d", time.Now().UnixNano()),
 		thinkingBlockIndex:    -1,
@@ -138,6 +139,11 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		return streamengine.ParsedDecision{Stop: true}
 	}
 
+	if parsed.Flush {
+		if tail := s.policy.Flush(); tail != "" {
+			parsed.Parts = append(parsed.Parts, sse.ContentPart{Type: "text", Text: tail})
+		}
+	}
 	contentSeen := false
 	for _, p := range parsed.ToolDetectionThinkingParts {
 		trimmed := sse.TrimContinuationOverlapFromBuilder(&s.toolDetectionThinking, p.Text)
@@ -162,7 +168,9 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 			// 内容规则可能在此截断正文通道：编造的 `[Tool]:` 角色标记及其后
 			// 全是虚构对话，复读死循环之后的输出也已退化。两种情况都只保留
 			// 截断点之前的正文。
-			rawTrimmed = s.policy.Feed(rawTrimmed)
+			if !parsed.Flush {
+				rawTrimmed = s.policy.Feed(rawTrimmed)
+			}
 			if rawTrimmed == "" {
 				continue
 			}

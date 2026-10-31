@@ -19,6 +19,9 @@ const (
 	// CutTranscriptBoundary ends the model's turn at the serialized terminator,
 	// before it can invent subsequent assistant, user or tool messages.
 	CutTranscriptBoundary CutReason = "transcript_boundary"
+	// CutPromptEcho rejects a reply that restarts the request's own generated
+	// system prelude or serializer introduction instead of answering.
+	CutPromptEcho CutReason = "prompt_echo"
 )
 
 // LogMessage returns the sentence describing this cut in the "cutting stream"
@@ -31,6 +34,8 @@ func (r CutReason) LogMessage() string {
 		return "hallucinated [Tool]: role marker detected; cutting stream"
 	case CutTranscriptBoundary:
 		return "serialized message boundary detected; cutting stream"
+	case CutPromptEcho:
+		return "generated prompt echoed in answer; rejecting stream"
 	}
 	return ""
 }
@@ -51,6 +56,10 @@ func (r CutReason) LogMessage() string {
 // in Feed, and give it a CutReason. Every surface picks it up through Cut with
 // no edit of its own.
 type ContentPolicy struct {
+	Prompt string
+
+	echo     PromptEchoGuard
+	echoInit bool
 	repeat   RepeatLoopGuard
 	toolRole ToolRoleMarkerGuard
 	cut      CutReason
@@ -61,6 +70,15 @@ type ContentPolicy struct {
 // matched pattern is withheld until a later Feed.
 func (p *ContentPolicy) Feed(text string) string {
 	if p == nil || p.cut != CutNone {
+		return ""
+	}
+	if !p.echoInit {
+		p.echo = NewPromptEchoGuard(p.Prompt)
+		p.echoInit = true
+	}
+	text = p.echo.Feed(text)
+	if p.echo.tripped {
+		p.cut = CutPromptEcho
 		return ""
 	}
 	kept := p.toolRole.Feed(text)
@@ -75,6 +93,19 @@ func (p *ContentPolicy) Feed(text string) string {
 		p.cut = p.toolRole.Reason()
 	}
 	return kept
+}
+
+// Flush finishes pending literal text once, without turning incomplete
+// fingerprints or delimiters into a false positive.
+func (p *ContentPolicy) Flush() string {
+	if p == nil || p.cut != CutNone {
+		return ""
+	}
+	tail := p.echo.Flush()
+	if tail == "" && p.toolRole.code == 0 && !p.toolRole.inCDATA && !p.toolRole.quote {
+		return ""
+	}
+	return p.toolRole.feed(tail, true)
 }
 
 // Cut reports which rule ended forwarding, or CutNone while the policy is still
