@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Check, Copy, Pencil, Play, Plus, Trash2, FolderX, Pin } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Check, Copy, Pencil, Plus, Trash2, FolderX, Pin } from 'lucide-react'
 import clsx from 'clsx'
 
 import AccountProxySelect from './AccountProxySelect'
+import { AccountTestButton, AccountTestProgress } from './AccountTestControls'
 import { formatMuteUntil } from './formatMuteUntil.js'
 
 // 代理下拉框默认最大宽度（与原有布局一致的视觉宽度上限）。
@@ -94,6 +95,7 @@ export default function AccountsTable({
     elasticPoolEnabled,
     onOpenElasticPool,
     onTestAll,
+    onCancelTestAll,
     onShowAddAccount,
     onEditAccount,
     onTestAccount,
@@ -153,14 +155,8 @@ export default function AccountsTable({
                         placeholder={t('accountManager.searchPlaceholder')}
                         className="px-3 py-1.5 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
                     />
-                    <button
-                        onClick={onTestAll}
-                        disabled={testingAll || !hasAnyAccounts}
-                        className="flex items-center px-3 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors text-xs font-medium border border-border disabled:opacity-50"
-                    >
-                        {testingAll ? <span className="animate-spin mr-2">⟳</span> : <Play className="w-3 h-3 mr-2" />}
-                        {t('accountManager.testAll')}
-                    </button>
+                    <AccountTestButton t={t} running={testingAll} hasAccounts={hasAnyAccounts}
+                        onStart={onTestAll} onCancel={onCancelTestAll} />
                     <button
                         onClick={onOpenDeviceIds}
                         className="flex items-center px-3 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors text-xs font-medium border border-border"
@@ -295,32 +291,7 @@ export default function AccountsTable({
                 )}
             </div>
 
-            {testingAll && batchProgress.total > 0 && (
-                <div className="p-4 border-b border-border bg-muted/30">
-                    <div className="flex items-center justify-between text-sm mb-2">
-                        <span className="font-medium">{t('accountManager.testingAllAccounts')}</span>
-                        <span className="text-muted-foreground">{batchProgress.current} / {batchProgress.total}</span>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden mb-4">
-                        <div
-                            className="bg-primary h-full transition-all duration-300"
-                            style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
-                        />
-                    </div>
-                    {batchProgress.results.length > 0 && (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 max-h-32 overflow-y-auto custom-scrollbar">
-                            {batchProgress.results.map((r, i) => (
-                                <div key={i} className={clsx(
-                                    "text-xs px-2 py-1 rounded border truncate",
-                                    r.success ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-destructive/10 border-destructive/20 text-destructive"
-                                )}>
-                                    {r.success ? '✓' : '✗'} {r.id}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
+            <AccountTestProgress t={t} running={testingAll} progress={batchProgress} />
 
             <div className="divide-y divide-border">
                 {loadingAccounts ? (

@@ -7,8 +7,9 @@ import (
 
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
+	"ds2api/internal/completionruntime"
+	"ds2api/internal/contextfile"
 	"ds2api/internal/httpapi/openai/files"
-	"ds2api/internal/httpapi/openai/history"
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/textclean"
@@ -42,7 +43,7 @@ func (h *Handler) applyCurrentInputFile(ctx context.Context, a *auth.RequestAuth
 	}
 	stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
 	stdReq = promptcompat.ApplySearchPrompt(stdReq)
-	svc := history.Service{Store: h.Store, DS: h.DS}
+	svc := contextfile.Service{Store: h.Store, DS: h.DS}
 	out, err := svc.ApplyCurrentInputFile(ctx, a, stdReq)
 	if err != nil || out.CurrentInputFileApplied {
 		return out, err
@@ -95,7 +96,7 @@ func writeOpenAIInlineFileError(w http.ResponseWriter, err error) {
 }
 
 func mapCurrentInputFileError(err error) (int, string) {
-	return history.MapError(err)
+	return contextfile.MapError(err)
 }
 
 func requestTraceID(r *http.Request) string {
@@ -103,15 +104,15 @@ func requestTraceID(r *http.Request) string {
 }
 
 func cleanVisibleOutput(text string, stripReferenceMarkers bool) string {
-	return shared.CleanVisibleOutput(text, stripReferenceMarkers)
+	return textclean.CleanVisibleOutput(text, stripReferenceMarkers)
 }
 
 func emptyOutputRetryEnabled() bool {
-	return shared.EmptyOutputRetryEnabled()
+	return completionruntime.EmptyOutputRetryEnabled()
 }
 
 func emptyOutputRetryMaxAttempts() int {
-	return shared.EmptyOutputRetryMaxAttempts()
+	return completionruntime.EmptyOutputRetryMaxAttempts()
 }
 
 func filterIncrementalToolCallDeltasByAllowed(deltas []toolstream.ToolCallDelta, seenNames map[int]string) []toolstream.ToolCallDelta {

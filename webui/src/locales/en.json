@@ -122,6 +122,7 @@
     "invalidIdentifier": "Invalid account identifier. Operation aborted.",
     "testAllConfirm": "Refresh all account tokens and verify login?",
     "testAllCompleted": "Completed: {success}/{total} refreshed",
+    "testAllStopped": "Batch refresh stopped after {current}/{total} accounts.",
     "testFailed": "Test failed: {error}",
     "available": "Available",
     "inUse": "In use",

@@ -89,6 +89,7 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
         deleteAccount,
         testAccount,
         testAllAccounts,
+        cancelAccountTests,
         deleteAllSessions,
         updateAccountBinding,
         toggleAccountEnabled,
@@ -224,6 +225,7 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
                 elasticPoolEnabled={Boolean(config?.elastic_pool?.enabled)}
                 onOpenElasticPool={openElasticPool}
                 onTestAll={testAllAccounts}
+                onCancelTestAll={cancelAccountTests}
                 onShowAddAccount={openAddAccount}
                 onEditAccount={openEditAccount}
                 onTestAccount={testAccount}

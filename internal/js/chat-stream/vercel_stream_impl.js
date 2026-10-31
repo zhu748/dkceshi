@@ -1,6 +1,6 @@
 'use strict';
 
-// Implementation moved here to keep the line-gate wrapper tiny.
+// Coordinate one prepared stream; policy, continuation and probes live in dedicated modules.
 
 const {
   createToolSieveState,
@@ -12,8 +12,9 @@ const {
 const { BASE_HEADERS } = require('../shared/deepseek-constants');
 const { serializeAppPayload } = require('../shared/deepseek-wire');
 const { fetchAppStream } = require('../shared/app-transport');
-const { writeOpenAIError, writeOpenAIErrorWithCode, openAIErrorType } = require('./error_shape');
-const { parseChunkForContent, isCitation, shouldSkipPath } = require('./sse_parse');
+const { createStreamLifecycle } = require('./stream_lifecycle');
+const { writeOpenAIError, writeOpenAIErrorWithCode } = require('./error_shape');
+const { parseChunkForContent, isCitation } = require('./sse_parse');
 const { buildUsage } = require('./token_usage');
 const {
   resolveToolcallPolicy,
@@ -31,7 +32,6 @@ const {
   fetchStreamSwitch,
   fetchStreamValidation,
   relayPreparedFailure,
-  createLeaseReleaser,
 } = require('./http_internal');
 const {
   trimContinuationOverlap,
@@ -47,111 +47,81 @@ const {
   createMarkerNormalizer,
 } = require('./marker');
 
+const {
+  isTransientUpstreamStatus,
+  isAccountAuthFailureStatus,
+  TRANSIENT_SWITCH_MAX_ATTEMPTS,
+  switchOptionsForStatus,
+  isTransientUpstreamMessage,
+  EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS,
+  TOOL_OUTPUT_RETRY_SUFFIX,
+  usagePromptWithEmptyOutputRetry,
+  clonePayloadForEmptyOutputRetry,
+} = require('./stream_retry_policy');
+const {
+  createContinueState,
+  observeContinueState,
+  shouldAutoContinue,
+  AUTO_CONTINUE_MAX_ROUNDS,
+  prepareContinueStateForNextRound,
+} = require('./stream_continue');
+const { sendFailedChunk, upstreamEmptyOutputDetail } = require('./stream_failure');
+const { detectMutedOrBannedResponse } = require('./upstream_inspect');
+
 const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
 const DEEPSEEK_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
-const EMPTY_OUTPUT_RETRY_SUFFIX = 'Previous reply had no visible output. Please regenerate the visible final answer or tool call now.';
-const EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS = 1;
-const TOOL_OUTPUT_RETRY_SUFFIX = 'Previous reply contained an invalid tool call. Regenerate the answer using only the declared tools, valid complete JSON arguments matching their schemas, and the requested tool_choice and parallel_tool_calls policy.';
-const AUTO_CONTINUE_MAX_ROUNDS = 32;
-const TRANSIENT_SWITCH_MAX_ATTEMPTS = 3;
-const TRANSIENT_UPSTREAM_STATUS = new Set([500, 502, 503, 504]);
-const TRANSIENT_UPSTREAM_KEYWORDS = [
-  '暂时', '稍后', '请重试', '繁忙', '超时', '不可用', '服务异常', '限流', '请求过于频繁',
-  'too many requests', 'rate limit', 'internal server error', 'connection reset',
-  'temporarily', 'try again', 'unavailable', 'timeout', 'overloaded', 'busy',
-];
-
-function isTransientUpstreamStatus(status) {
-  return TRANSIENT_UPSTREAM_STATUS.has(Number(status) || 0);
-}
-
-function isTransientUpstreamMessage(message) {
-  const normalized = asString(message).toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return TRANSIENT_UPSTREAM_KEYWORDS.some((keyword) => normalized.includes(keyword.toLowerCase()));
-}
-
-// 401 表示上游以鉴权失败拒绝了本次请求。它和临时 5xx 一样属于"换号就能救回来"
-// 的失败：Go 侧拿到 auth_failed 会把该账号计入连续鉴权失败，连续达到阈值后
-// 账号被移出号池，弹性号池随即让休眠账号补位。
-function isAccountAuthFailureStatus(status) {
-  return Number(status) === 401;
-}
-
-function switchOptionsForStatus(status) {
-  return isAccountAuthFailureStatus(status) ? { disable: true, auth_failed: true } : { disable: true };
-}
 
 async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAppStream) {
-  const prep = await fetchStreamPrepare(req, rawBody);
-  if (!prep.ok) {
-    relayPreparedFailure(res, prep);
-    return;
-  }
-
-  const model = asString(prep.body.model) || asString(payload.model);
-  const responseID = asString(prep.body.session_id) || `chatcmpl-${Date.now()}`;
-  const leaseID = asString(prep.body.lease_id);
-  let deepseekToken = asString(prep.body.deepseek_token);
-  const initialPowHeader = asString(prep.body.pow_header);
-  let completionPayload = prep.body.payload && typeof prep.body.payload === 'object' ? prep.body.payload : null;
-  const finalPrompt = asString(prep.body.final_prompt);
-  const thinkingEnabled = toBool(prep.body.thinking_enabled);
-  const searchEnabled = toBool(prep.body.search_enabled);
-  const toolPolicy = resolveToolcallPolicy(prep.body, payload.tools);
-  const toolNames = toolPolicy.toolNames;
-  const emitEarlyToolDeltas = toolPolicy.emitEarlyToolDeltas;
-  const stripReferenceMarkers = true;
-
-  if (!model || !leaseID || !deepseekToken || !initialPowHeader || !completionPayload) {
-    writeOpenAIError(res, 500, 'invalid vercel prepare response');
-    return;
-  }
-
-  let baseHeaders = prep.body.base_headers && typeof prep.body.base_headers === 'object'
-    ? { ...BASE_HEADERS, ...prep.body.base_headers }
-    : { ...BASE_HEADERS };
-  let headerExpirations = prep.body.base_header_expirations || {};
-  const updateBaseHeaders = (switchedBody) => {
-    if (switchedBody && switchedBody.base_headers && typeof switchedBody.base_headers === 'object') {
-      baseHeaders = { ...BASE_HEADERS, ...switchedBody.base_headers };
-      headerExpirations = switchedBody.base_header_expirations || {};
-    }
-  };
-
-  // leaseCompletion 由流式收尾路径填充，release 时上报给 Go 侧，用于
-  // 回填聊天历史并记录 Token 用量。
   let leaseCompletion = {};
-  const releaseLease = createLeaseReleaser(req, leaseID, () => leaseCompletion);
-  const upstreamController = new AbortController();
-  let clientClosed = false;
-  let reader = null;
-  const markClientClosed = () => {
-    if (clientClosed) {
+  const lifecycle = createStreamLifecycle(req, res, () => leaseCompletion);
+  const releaseLease = lifecycle.release;
+  try {
+    if (lifecycle.closed) return;
+    const prep = await fetchStreamPrepare(req, rawBody);
+    prep.body = prep.body && typeof prep.body === 'object' ? prep.body : {};
+    lifecycle.trackLease(asString(prep.body.lease_id));
+    if (lifecycle.closed) return;
+    if (!prep.ok) {
+      relayPreparedFailure(res, prep);
       return;
     }
-    clientClosed = true;
-    upstreamController.abort();
-    if (reader && typeof reader.cancel === 'function') {
-      Promise.resolve(reader.cancel()).catch(() => {});
-    }
-  };
-  const onReqAborted = () => markClientClosed();
-  const onResClose = () => {
-    if (!res.writableEnded) {
-      markClientClosed();
-    }
-  };
-  req.on('aborted', onReqAborted);
-  res.on('close', onResClose);
 
-  try {
+    const model = asString(prep.body.model) || asString(payload.model);
+    const responseID = asString(prep.body.session_id) || `chatcmpl-${Date.now()}`;
+    const leaseID = asString(prep.body.lease_id);
+    let deepseekToken = asString(prep.body.deepseek_token);
+    const initialPowHeader = asString(prep.body.pow_header);
+    let completionPayload = prep.body.payload && typeof prep.body.payload === 'object' ? prep.body.payload : null;
+    const finalPrompt = asString(prep.body.final_prompt);
+    const thinkingEnabled = toBool(prep.body.thinking_enabled);
+    const searchEnabled = toBool(prep.body.search_enabled);
+    const toolPolicy = resolveToolcallPolicy(prep.body, payload.tools);
+    const toolNames = toolPolicy.toolNames;
+    const emitEarlyToolDeltas = toolPolicy.emitEarlyToolDeltas;
+    const stripReferenceMarkers = true;
+
+    if (!model || !leaseID || !deepseekToken || !initialPowHeader || !completionPayload) {
+      writeOpenAIError(res, 500, 'invalid vercel prepare response');
+      return;
+    }
+
+    let baseHeaders = prep.body.base_headers && typeof prep.body.base_headers === 'object'
+      ? { ...BASE_HEADERS, ...prep.body.base_headers }
+      : { ...BASE_HEADERS };
+    let headerExpirations = prep.body.base_header_expirations || {};
+    const updateBaseHeaders = (switchedBody) => {
+      if (switchedBody && switchedBody.base_headers && typeof switchedBody.base_headers === 'object') {
+        baseHeaders = { ...BASE_HEADERS, ...switchedBody.base_headers };
+        headerExpirations = switchedBody.base_header_expirations || {};
+      }
+    };
+
     let currentPowHeader = initialPowHeader;
     const refreshPowHeader = async (roundType) => {
+      if (lifecycle.closed) return '';
       try {
         const pow = await fetchStreamPow(req, leaseID);
+        if (lifecycle.closed) return '';
         const nextPowHeader = asString(pow.body && pow.body.pow_header);
         if (pow.ok && nextPowHeader) {
           currentPowHeader = nextPowHeader;
@@ -162,7 +132,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           status: pow.status || 0,
         });
       } catch (err) {
-        if (clientClosed || isAbortError(err)) {
+        if (lifecycle.closed || isAbortError(err)) {
           return '';
         }
         console.warn('[vercel_stream_pow] refresh failed, reusing previous PoW', {
@@ -174,8 +144,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     };
 
     const fetchDeepSeekStream = async (url, bodyPayload, powHeader) => {
+      if (lifecycle.closed) return null;
       try {
-        return await appFetch(url, {
+        const response = await appFetch(url, {
           method: 'POST',
           headerExpirations,
           headers: {
@@ -184,10 +155,16 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             ...(powHeader ? { 'x-ds-pow-response': powHeader } : {}),
           },
           body: serializeAppPayload(url, bodyPayload),
-          signal: upstreamController.signal,
+          signal: lifecycle.signal,
         });
+        if (lifecycle.closed) {
+          try { await response.body?.cancel(); }
+          catch (error) { console.warn('[vercel_stream] late response cancel failed', error.message); }
+          return null;
+        }
+        return response;
       } catch (err) {
-        if (clientClosed || isAbortError(err)) {
+        if (lifecycle.closed || isAbortError(err)) {
           return null;
         }
         throw err;
@@ -212,11 +189,19 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       updateBaseHeaders(switched.body);
     };
 
+    // Let an in-flight Go control operation settle before releasing its lease,
+    // but do not start a new one or replay completion after disconnect.
+    const switchAccount = async (options) => {
+      if (lifecycle.closed) return null;
+      const switched = await fetchStreamSwitch(req, leaseID, options);
+      return lifecycle.closed ? null : switched;
+    };
+
     let completionRes = await fetchCompletion(completionPayload);
     if (completionRes === null) {
       return;
     }
-    if (clientClosed) {
+    if (lifecycle.closed) {
       return;
     }
 
@@ -225,7 +210,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     // 都会让 Go 侧持久化状态并触发弹性号池补位，因此全程无需人工干预。
     let accountSwitchCount = 0;
     while (true) {
+      if (lifecycle.closed) return;
       const detection = await detectMutedOrBannedResponse(completionRes);
+      if (lifecycle.closed) return;
       if (detection.response) {
         completionRes = detection.response;
         break;
@@ -238,7 +225,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       const switchOptions = detection.banned
         ? { banned: true, banned_reason: '账户已被停用' }
         : { mute_until: detection.mutedUntil };
-      const switched = await fetchStreamSwitch(req, leaseID, switchOptions);
+      const switched = await switchAccount(switchOptions);
+      if (!switched) return;
       if (!(switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object')) {
         await releaseLease();
         if (detection.banned) {
@@ -252,16 +240,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         switch_count: accountSwitchCount,
         reason: detection.banned ? 'banned' : 'muted',
       });
-      completionPayload = switched.body.payload;
-      deepseekToken = asString(switched.body.deepseek_token) || deepseekToken;
-      currentPowHeader = asString(switched.body.pow_header) || currentPowHeader;
-      activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
-      updateBaseHeaders(switched.body);
+      applySwitchedPayload(switched);
       completionRes = await fetchCompletion(completionPayload);
       if (completionRes === null) {
         return;
       }
-      if (clientClosed) {
+      if (lifecycle.closed) {
         return;
       }
     }
@@ -277,7 +261,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         (isTransientUpstreamStatus(status) || isAccountAuthFailureStatus(status))
         && switchAttempts < TRANSIENT_SWITCH_MAX_ATTEMPTS
       ) {
-        const switched = await fetchStreamSwitch(req, leaseID, switchOptionsForStatus(status));
+        const switched = await switchAccount(switchOptionsForStatus(status));
+        if (!switched) return;
         if (!(switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object')) {
           break;
         }
@@ -303,6 +288,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       }
     }
 
+    if (lifecycle.closed) return;
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -351,7 +337,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       sessionID: responseID,
       created,
       model,
-      isClosed: () => clientClosed,
+      isClosed: () => lifecycle.closed,
     });
     const sendDeltaFrame = (delta) => {
       if (delta.content || delta.tool_calls) answerDelivered = true;
@@ -374,7 +360,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       if (ended) {
         return true;
       }
-      if (clientClosed || res.writableEnded || res.destroyed) {
+      if (lifecycle.closed || res.writableEnded || res.destroyed) {
         ended = true;
         leaseCompletion = {
           finish_reason: 'stopped',
@@ -410,7 +396,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       let validatedCalls = null;
       if (prep.body.validate_tools === true && toolPolicy.constrained && (hasVisibleOutput || detected.length)) {
         try {
-          const validation = await fetchStreamValidation(req, leaseID, outputText, thinkingText, detectionThinkingText, upstreamController.signal);
+          const validation = await fetchStreamValidation(req, leaseID, outputText, thinkingText, detectionThinkingText, lifecycle.signal);
           if (!validation.ok) {
             const error = validation.body.error || {};
             if (options.deferEmpty && !answerDelivered && ['invalid_tool_arguments', 'tool_choice_violation'].includes(error.code)) {
@@ -425,7 +411,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           validatedCalls = validation.body.tool_calls || [];
           detected = validatedCalls.map(call => ({ name: call.function.name }));
         } catch (error) {
-          if (clientClosed) {
+          if (lifecycle.closed) {
             ended = true; leaseCompletion = { finish_reason: 'stopped', usage: null, thinking: thinkingText, content: outputText, error: '' };
             await releaseLease(); return true;
           }
@@ -539,17 +525,17 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         // upstream_unavailable。与 Go 侧每个 attempt 重置一次对齐
         // （consume*StreamAttempt → ResetContentPolicy）。
         contentPolicy = createContentPolicy();
-        reader = currentResponse.body.getReader();
+        lifecycle.reader = currentResponse.body.getReader();
         buffered = '';
         let streamEnded = false;
         try {
           // eslint-disable-next-line no-constant-condition
           while (true) {
-            if (clientClosed) {
+            if (lifecycle.closed) {
               await finish('stop');
               return { terminal: true, retryable: false };
             }
-            const { value, done } = await reader.read();
+            const { value, done } = await lifecycle.reader.read();
             if (done) {
               break;
             }
@@ -711,7 +697,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             }
           }
         } catch (err) {
-          if (clientClosed || isAbortError(err)) {
+          if (lifecycle.closed || isAbortError(err)) {
             await finish('stop');
             return { terminal: true, retryable: false, interrupted: false };
           }
@@ -738,11 +724,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           // Release the old upstream stream before retrying or waiting for a
           // different account. Otherwise an error event can leave its HTTP
           // stream alive and keep consuming upstream concurrency.
-          const finishedReader = reader;
-          reader = null;
+          const finishedReader = lifecycle.reader;
+          lifecycle.reader = null;
           if (finishedReader) {
             try { await finishedReader.cancel(); }
-            catch (err) { if (!clientClosed) console.warn('[vercel_stream] reader cancel failed', err.message); }
+            catch (err) { console.warn('[vercel_stream] reader cancel failed', err.message); }
             finishedReader.releaseLock();
           }
         }
@@ -750,9 +736,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (contentCut !== CUT_NONE) {
           // 复读死循环 / 编造的 `[Tool]:` 角色标记已打断：主动取消上游读取，
           // 且不再走 auto-continue，否则续答只会立刻重新进入同一种退化输出。
-          if (reader && typeof reader.cancel === 'function') {
-            await Promise.resolve(reader.cancel()).catch(() => {});
-          }
           break;
         }
 
@@ -810,9 +793,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         // The upstream stream was cut after partial output and the in-stream
         // continue resume did not recover it: surface the interruption instead
         // of finishing with a truncated "complete" response.
+        deltaCoalescer.flush();
+        ended = true;
         leaseCompletion = { finish_reason: 'upstream_interrupted', usage: null, thinking: thinkingText, content: outputText, error: 'Upstream stream interrupted before completion.' };
         await releaseLease();
         sendFailedChunk(res, 502, 'Upstream stream interrupted before completion.', 'upstream_interrupted');
+        if (!res.writableEnded && !res.destroyed) res.end();
         return;
       }
       if (!processed.retryable) {
@@ -830,17 +816,10 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             return;
           }
           transientSwitchAttempts += 1;
-          const switched = await fetchStreamSwitch(
-            req,
-            leaseID,
-            isAccountUnauthorized ? { disable: true, auth_failed: true } : { disable: true },
-          );
+          const switched = await switchAccount(isAccountUnauthorized ? { disable: true, auth_failed: true } : { disable: true });
+          if (!switched) return;
           if (switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object') {
-            completionPayload = switched.body.payload;
-            deepseekToken = asString(switched.body.deepseek_token) || deepseekToken;
-            currentPowHeader = asString(switched.body.pow_header) || currentPowHeader;
-            activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
-            updateBaseHeaders(switched.body);
+            applySwitchedPayload(switched);
             usagePrompt = finalPrompt;
             resetForRegeneration();
             completionRes = await fetchCompletion(completionPayload);
@@ -854,13 +833,10 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         }
         if (!accountSwitchAttempted) {
           accountSwitchAttempted = true;
-          const switched = await fetchStreamSwitch(req, leaseID);
+          const switched = await switchAccount();
+          if (!switched) return;
           if (switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object') {
-            completionPayload = switched.body.payload;
-            deepseekToken = asString(switched.body.deepseek_token) || deepseekToken;
-            currentPowHeader = asString(switched.body.pow_header) || currentPowHeader;
-            activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
-            updateBaseHeaders(switched.body);
+            applySwitchedPayload(switched);
             usagePrompt = finalPrompt;
             resetForRegeneration();
             completionRes = await fetchCompletion(completionPayload);
@@ -914,473 +890,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       resetForRegeneration();
     }
   } finally {
-    req.removeListener('aborted', onReqAborted);
-    res.removeListener('close', onResClose);
-    await releaseLease();
+    await lifecycle.dispose();
   }
 }
 
 function toBool(v) {
   return v === true;
-}
-
-function clonePayloadForEmptyOutputRetry(payload, parentMessageID) {
-  const clone = {
-    ...(payload || {}),
-    prompt: appendEmptyOutputRetrySuffix(asString(payload && payload.prompt)),
-  };
-  if (parentMessageID && parentMessageID > 0) {
-    clone.parent_message_id = parentMessageID;
-  }
-  return clone;
-}
-
-function appendEmptyOutputRetrySuffix(prompt) {
-  const base = asString(prompt).trimEnd();
-  if (!base) {
-    return EMPTY_OUTPUT_RETRY_SUFFIX;
-  }
-  return `${base}\n\n${EMPTY_OUTPUT_RETRY_SUFFIX}`;
-}
-
-function usagePromptWithEmptyOutputRetry(originalPrompt, attempts) {
-  if (!attempts || attempts <= 0) {
-    return originalPrompt;
-  }
-  const parts = [originalPrompt];
-  let next = originalPrompt;
-  for (let i = 0; i < attempts; i += 1) {
-    next = appendEmptyOutputRetrySuffix(next);
-    parts.push(next);
-  }
-  return parts.join('\n');
-}
-
-function createContinueState(sessionID) {
-  return {
-    sessionID: asString(sessionID),
-    responseMessageID: 0,
-    lastStatus: '',
-    finished: false,
-    sawContent: false,
-    sawDone: false,
-  };
-}
-
-function prepareContinueStateForNextRound(state) {
-  return {
-    ...state,
-    lastStatus: '',
-    finished: false,
-    sawContent: false,
-    sawDone: false,
-  };
-}
-
-function observeContinueState(state, chunk) {
-  if (!state || !chunk || typeof chunk !== 'object') {
-    return;
-  }
-  if (!state.sawContent && chunkHasVisibleContent(chunk)) {
-    state.sawContent = true;
-  }
-  const topID = numberValue(chunk.response_message_id);
-  if (topID > 0) {
-    state.responseMessageID = topID;
-  }
-  observeContinueDirectPatch(state, chunk.p, chunk.v);
-  if (chunk.p === 'response') {
-    observeContinueBatchPatches(state, 'response', chunk.v);
-  } else {
-    observeContinueBatchPatches(state, '', chunk.v);
-  }
-  const response = chunk.v && typeof chunk.v === 'object' ? chunk.v.response : null;
-  observeContinueResponseObject(state, response);
-  const messageResponse = chunk.message && typeof chunk.message === 'object' && chunk.message.response;
-  observeContinueResponseObject(state, messageResponse);
-}
-
-function observeContinueDirectPatch(state, path, value) {
-  if (!state) {
-    return;
-  }
-  switch (asString(path).trim().replace(/^\/+|\/+$/g, '')) {
-    case 'response/status':
-    case 'status':
-    case 'response/quasi_status':
-    case 'quasi_status':
-      setContinueStatus(state, asString(value));
-      break;
-    case 'response/auto_continue':
-    case 'auto_continue':
-      if (value === true) {
-        state.lastStatus = 'AUTO_CONTINUE';
-      }
-      break;
-    default:
-      break;
-  }
-}
-
-function observeContinueResponseObject(state, response) {
-  if (!state || !response || typeof response !== 'object') {
-    return;
-  }
-  const id = numberValue(response.message_id);
-  if (id > 0) {
-    state.responseMessageID = id;
-  }
-  setContinueStatus(state, asString(response.status));
-  if (response.auto_continue === true) {
-    state.lastStatus = 'AUTO_CONTINUE';
-  }
-}
-
-function observeContinueBatchPatches(state, parentPath, raw) {
-  if (!state || !Array.isArray(raw)) {
-    return;
-  }
-  for (const patch of raw) {
-    if (!patch || typeof patch !== 'object') {
-      continue;
-    }
-    const path = asString(patch.p).trim();
-    if (!path) {
-      continue;
-    }
-    let fullPath = path;
-    const parent = asString(parentPath).trim().replace(/^\/+|\/+$/g, '');
-    if (parent && !path.includes('/')) {
-      fullPath = `${parent}/${path}`;
-    }
-    switch (fullPath.replace(/^\/+|\/+$/g, '')) {
-      case 'response/status':
-      case 'status':
-      case 'response/quasi_status':
-      case 'quasi_status':
-        setContinueStatus(state, asString(patch.v));
-        break;
-      case 'response/auto_continue':
-      case 'auto_continue':
-        if (patch.v === true) {
-          state.lastStatus = 'AUTO_CONTINUE';
-        }
-        break;
-      default:
-        break;
-    }
-  }
-}
-
-function setContinueStatus(state, status) {
-  const normalized = asString(status).trim();
-  if (!normalized) {
-    return;
-  }
-  state.lastStatus = normalized;
-  if (['FINISHED', 'CONTENT_FILTER'].includes(normalized.toUpperCase())) {
-    state.finished = true;
-  }
-}
-
-function shouldAutoContinue(state) {
-  if (!state || state.finished || !state.sessionID || state.responseMessageID <= 0) {
-    return false;
-  }
-  const status = asString(state.lastStatus).trim().toUpperCase();
-  if (['INCOMPLETE', 'AUTO_CONTINUE'].includes(status)) {
-    return true;
-  }
-  // Relaxation: the stream ended (EOF or mid-body error) without reaching a
-  // terminal status but the message produced visible content — treat it as an
-  // interrupted response and resume via continue. A stream that already
-  // signalled completion with [DONE] is never resumed.
-  return !!state.sawContent && !state.sawDone;
-}
-
-const CONTINUE_METADATA_PATHS = new Set([
-  'response/status', 'status',
-  'response/quasi_status', 'quasi_status',
-  'response/auto_continue', 'auto_continue',
-  'conversation_mode', 'accumulated_token_usage',
-  'response/message_id', 'message_id',
-  'request_message_id', 'response/request_message_id',
-  'response/has_pending_fragment', 'has_pending_fragment',
-  'response/search_status',
-]);
-
-function isContinueMetadataPath(path) {
-  return CONTINUE_METADATA_PATHS.has(asString(path).trim());
-}
-
-// Mirrors the Go-side heuristic: reports whether an SSE JSON chunk carries
-// visible content (text / thinking / tool fragments) as opposed to envelope,
-// status or heartbeat frames.
-function chunkHasVisibleContent(chunk) {
-  if (!chunk || typeof chunk !== 'object') {
-    return false;
-  }
-  const path = asString(chunk.p);
-  if (path && shouldSkipPath(path)) {
-    return false;
-  }
-  if (!('v' in chunk)) {
-    return false;
-  }
-  const v = chunk.v;
-  if (typeof v === 'string') {
-    const trimmed = v.trim();
-    if (!trimmed) {
-      return false;
-    }
-    const upper = trimmed.toUpperCase();
-    if (['FINISHED', 'WIP', 'INCOMPLETE', 'AUTO_CONTINUE', 'CONTENT_FILTER'].includes(upper)) {
-      return false;
-    }
-    return true;
-  }
-  if (Array.isArray(v)) {
-    for (const item of v) {
-      if (!item || typeof item !== 'object') {
-        continue;
-      }
-      const itemPath = asString(item.p);
-      if (itemPath) {
-        if (shouldSkipPath(itemPath) || isContinueMetadataPath(itemPath)) {
-          continue;
-        }
-        if (itemPath.includes('content')) {
-          return true;
-        }
-      }
-      if (item.content !== undefined || item.v !== undefined) {
-        return true;
-      }
-    }
-    return false;
-  }
-  if (typeof v === 'object') {
-    if (v.response !== undefined) {
-      return false; // initial envelope, not content
-    }
-    if (asString(v.text) !== '') {
-      return true;
-    }
-    if (asString(v.content) !== '') {
-      return true;
-    }
-    if (Array.isArray(v.fragments) && v.fragments.length > 0) {
-      return true;
-    }
-    return false;
-  }
-  return false;
-}
-
-function numberValue(v) {
-  if (typeof v === 'number' && Number.isFinite(v)) {
-    return Math.trunc(v);
-  }
-  const parsed = Number.parseInt(asString(v), 10);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-const MODERATION_BLOCKED_THINKING_PHRASE = '你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧';
-
-function upstreamEmptyOutputDetail(contentFilter, _text, thinking) {
-  if (contentFilter) {
-    return {
-      status: 400,
-      message: 'Upstream content filtered the response and returned no output.',
-      code: 'content_filter',
-    };
-  }
-  if (thinking !== '') {
-    if (thinking.includes(MODERATION_BLOCKED_THINKING_PHRASE)) {
-      return {
-        status: 400,
-        message: '输入内容被审核拦截',
-        code: 'input_content_blocked',
-      };
-    }
-    return {
-      status: 429,
-      message: 'Upstream account hit a rate limit and returned reasoning without visible output.',
-      code: 'upstream_empty_output',
-    };
-  }
-  return {
-    status: 503,
-    message: 'Upstream service is unavailable and returned no output.',
-    code: 'upstream_unavailable',
-  };
-}
-
-function sendFailedChunk(res, status, message, code) {
-  if (res.writableEnded || res.destroyed) {
-    return;
-  }
-  res.write(`data: ${JSON.stringify({
-    status_code: status,
-    error: {
-      message,
-      type: openAIErrorType(status),
-      code,
-      param: null,
-    },
-  })}\n\n`);
-  if (!res.writableEnded && !res.destroyed) {
-    res.write('data: [DONE]\n\n');
-  }
-  if (typeof res.flush === 'function') {
-    res.flush();
-  }
-}
-
-// 检测 DeepSeek 是否返回了封号/停用 JSON 响应（HTTP 200 但 body 是 JSON 而非 SSE）。
-// 与 Go 侧 detectMutedCompletion / isUserBannedResponse 对齐：先 peek 第一个字节，只有 JSON 才读取全部 body。
-// 返回 { mutedUntil, banned, response }：
-//   - mutedUntil > 0 时表示检测到禁言，response 为 null；
-//   - banned 为 true 时表示检测到 USER_IS_BANNED，response 为 null；
-//   - 均未检测到时，response 为可能经过恢复的 Response（SSE body 未被消耗）。
-async function detectMutedOrBannedResponse(res) {
-  if (!res || !res.ok || !res.body) {
-    return { mutedUntil: 0, banned: false, response: res };
-  }
-  const reader = res.body.getReader();
-  let firstChunk;
-  try {
-    const result = await reader.read();
-    if (result.done || !result.value || result.value.length === 0) {
-      reader.releaseLock();
-      return { mutedUntil: 0, banned: false, response: res };
-    }
-    firstChunk = result.value;
-  } catch (_err) {
-    try { reader.releaseLock(); } catch (_e) {}
-    return { mutedUntil: 0, banned: false, response: res };
-  }
-  if (firstChunk[0] !== 0x7b) { // '{'
-    let cancelled = false;
-    let released = false;
-    const releaseSource = () => {
-      if (!released) { released = true; reader.releaseLock(); }
-    };
-    const newBody = new ReadableStream({
-      start(controller) { controller.enqueue(firstChunk); },
-      async pull(controller) {
-        try {
-          const { done, value } = await reader.read();
-          if (cancelled) return;
-          if (done) { controller.close(); releaseSource(); }
-          else controller.enqueue(value);
-        } catch (err) {
-          if (!cancelled) { controller.error(err); releaseSource(); }
-        }
-      },
-      async cancel(reason) {
-        cancelled = true;
-        try { if (!released) await reader.cancel(reason); }
-        finally { releaseSource(); }
-      },
-    });
-    return { mutedUntil: 0, banned: false, response: new Response(newBody, res) };
-  }
-  // JSON body: read it in full (bounded), then either report the mute/ban
-  // verdict or hand back a replayable response. Returning response:null with
-  // the original res — whose body reader is now locked and never released —
-  // made the downstream getReader() call throw "ReadableStream is locked"
-  // after headers were already flushed, silently truncating the client stream.
-  const chunks = [firstChunk];
-  let total = firstChunk.length;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      total += value.length;
-    }
-    if (total > MAX_MUTED_DETECT_JSON_BYTES) {
-      // Mirror the Go cap (client_completion_inspect.go reads at most 1 MiB+1
-      // and falls back to SSE replay beyond it): an oversized JSON body is not
-      // a mute/ban notice, so replay the buffered prefix as a normal response.
-      // Cancel the remainder so the underlying connection is released instead
-      // of staying locked until GC.
-      try { await reader.cancel(); } catch (_e) {}
-      return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
-    }
-  }
-  try {
-    const data = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
-    const mutedUntil = extractMuteUntil(data);
-    const banned = isBannedJSONResponse(data);
-    if (mutedUntil > 0 || banned) {
-      // Caller switches accounts and fetches a fresh response.
-      return { mutedUntil, banned, response: null };
-    }
-    // JSON body but neither muted nor banned (e.g. a business error payload):
-    // replay the buffered bytes so the empty-output path can inspect them.
-    return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
-  } catch (_err) {
-    // Truncated/invalid JSON: replay what we have, same as the Go path.
-    return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
-  }
-}
-
-// MAX_MUTED_DETECT_JSON_BYTES matches the Go-side mute-detection read cap
-// (1 MiB) in internal/deepseek/client/client_completion_inspect.go.
-const MAX_MUTED_DETECT_JSON_BYTES = 1 << 20;
-
-// replayJSONBodyResponse rebuilds a Response whose body replays the buffered
-// chunks; the original res body is fully consumed by now, so the replacement
-// is what downstream consumers read from.
-function replayJSONBodyResponse(res, chunks) {
-  const body = Buffer.concat(chunks);
-  return new Response(body, res);
-}
-
-// 判断 DeepSeek JSON 响应是否表示 USER_IS_BANNED。
-// 匹配规则与 Go 侧 isUserBannedResponse 对齐：data.biz_code == 10 或 data.biz_msg 包含 user_is_banned。
-function isBannedJSONResponse(data) {
-  if (!data || typeof data !== 'object') {
-    return false;
-  }
-  const d = data.data;
-  if (!d || typeof d !== 'object') {
-    return false;
-  }
-  const bizMsg = asString(d.biz_msg).toLowerCase();
-  const bizCode = Number(d.biz_code) || 0;
-  return bizCode === 10 || bizMsg.includes('user_is_banned');
-}
-
-// 从 DeepSeek 响应中解析 mute_until。
-// 匹配规则与 Go 侧 detectMutedCompletion/isMutedJSONResponse 对齐：
-// - data.biz_code == 5 或 14，或 data.biz_msg 包含 "muted"，视为封号；
-// - 优先取 data.biz_data.mute_until 或 data.mute_until。
-function extractMuteUntil(data) {
-  if (!data || typeof data !== 'object') {
-    return 0;
-  }
-  const d = data.data;
-  if (!d || typeof d !== 'object') {
-    return 0;
-  }
-  const bizMsg = asString(d.biz_msg).toLowerCase();
-  const bizCode = Number(d.biz_code) || 0;
-  if (bizCode !== 5 && bizCode !== 14 && !bizMsg.includes('muted')) {
-    return 0;
-  }
-  const topMuteUntil = Number(d.mute_until);
-  if (Number.isFinite(topMuteUntil) && topMuteUntil > 0) {
-    return topMuteUntil;
-  }
-  const bizData = d.biz_data;
-  if (!bizData || typeof bizData !== 'object') {
-    return 0;
-  }
-  const muteUntil = Number(bizData.mute_until);
-  return Number.isFinite(muteUntil) && muteUntil > 0 ? muteUntil : 0;
 }
 
 module.exports = {

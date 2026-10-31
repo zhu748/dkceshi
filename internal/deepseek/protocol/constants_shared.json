@@ -18,6 +18,7 @@
   "skip_contains_patterns": [
     "quasi_status",
     "elapsed_secs",
+    "token_usage",
     "pending_fragment",
     "conversation_mode",
     "fragments/-1/status",

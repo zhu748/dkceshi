@@ -10,7 +10,6 @@ import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
-	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
 )
 
@@ -24,7 +23,7 @@ func TestNonStreamRegeneratesInvalidToolArguments(t *testing.T) {
 	if outErr != nil || len(result.Turn.ToolCalls) != 1 {
 		t.Fatalf("tool output not recovered: err=%+v turn=%+v", outErr, result.Turn)
 	}
-	if len(ds.payloads) != 1 || !strings.Contains(ds.payloads[0]["prompt"].(string), shared.ToolOutputRetrySuffix) {
+	if len(ds.payloads) != 1 || !strings.Contains(ds.payloads[0]["prompt"].(string), ToolOutputRetrySuffix) {
 		t.Fatal("missing corrective tool retry prompt")
 	}
 }
@@ -46,7 +45,7 @@ func TestNonStreamPreservesTransientSSEErrorForFailover(t *testing.T) {
 	if outErr != nil || result.Turn.Text != "recovered" || a.AccountID == first {
 		t.Fatalf("transient SSE failure was not switched: err=%+v result=%+v", outErr, result)
 	}
-	if strings.Contains(ds.payloads[0]["prompt"].(string), shared.EmptyOutputRetrySuffix) {
+	if strings.Contains(ds.payloads[0]["prompt"].(string), EmptyOutputRetrySuffix) {
 		t.Fatal("explicit upstream failure was incorrectly treated as empty output")
 	}
 }

@@ -11,13 +11,14 @@ import (
 
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
+	"ds2api/internal/contextfile"
 	"ds2api/internal/httpapi/openai/chat"
 	"ds2api/internal/httpapi/openai/embeddings"
 	"ds2api/internal/httpapi/openai/files"
-	"ds2api/internal/httpapi/openai/history"
 	"ds2api/internal/httpapi/openai/responses"
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/textclean"
 )
 
 type openAITestSurface struct {
@@ -86,7 +87,7 @@ func (h *openAITestSurface) ChatCompletions(w http.ResponseWriter, r *http.Reque
 func (h *openAITestSurface) applyCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
 	stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
 	stdReq = promptcompat.ApplySearchPrompt(stdReq)
-	svc := history.Service{Store: h.Store, DS: h.DS}
+	svc := contextfile.Service{Store: h.Store, DS: h.DS}
 	out, err := svc.ApplyCurrentInputFile(ctx, a, stdReq)
 	if err != nil || out.CurrentInputFileApplied {
 		return out, err
@@ -118,11 +119,11 @@ func writeOpenAIError(w http.ResponseWriter, status int, message string) {
 }
 
 func replaceCitationMarkersWithLinks(text string, links map[int]string) string {
-	return shared.ReplaceCitationMarkersWithLinks(text, links)
+	return textclean.ReplaceCitationMarkersWithLinks(text, links)
 }
 
 func sanitizeLeakedOutput(text string) string {
-	return shared.CleanVisibleOutput(text, false)
+	return textclean.CleanVisibleOutput(text, false)
 }
 
 func requestTraceID(r *http.Request) string {

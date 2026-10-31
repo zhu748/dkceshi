@@ -134,7 +134,7 @@ func (p *Pool) rollDailyLimitDateLocked() bool {
 }
 
 // recordAccountDailyRequestLocked 记一次请求到账号当天的用量上。它是
-// recordAccountRequestLocked 的一部分，与每分钟计数同一时机（取号成功时）。
+// recordAccountRequestCheckedLocked 的一部分，与每分钟计数同一时机（取号成功时）。
 func (p *Pool) recordAccountDailyRequestLocked(accountID string) {
 	if accountID == "" || !p.dailyLimitActiveLocked() {
 		return

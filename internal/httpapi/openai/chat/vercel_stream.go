@@ -8,16 +8,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"ds2api/internal/auth"
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
+	"ds2api/internal/contextfile"
 	dsclient "ds2api/internal/deepseek/client"
-	"ds2api/internal/httpapi/openai/history"
 	"ds2api/internal/jsonvalue"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/util"
-
-	"github.com/google/uuid"
 )
 
 func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Request) {
@@ -338,7 +338,7 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 	stdReq := lease.Standard
 	var err error
 	if stdReq.CurrentInputFileApplied {
-		stdReq, err = (history.Service{Store: h.Store, DS: h.DS}).ReuploadAppliedCurrentInputFile(r.Context(), a, stdReq)
+		stdReq, err = (contextfile.Service{Store: h.Store, DS: h.DS}).ReuploadAppliedCurrentInputFile(r.Context(), a, stdReq)
 		if err != nil {
 			status, message := mapCurrentInputFileError(err)
 			writeOpenAIError(w, status, message)

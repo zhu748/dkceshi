@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"strings"
 
-	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
+	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/util"
 )
@@ -250,14 +250,14 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	// the model's invented tool result and the monologue after it are never
 	// delivered as reply text.
 	result.Text, _ = sse.TrimToolRoleMarker(result.Text)
-	thinking := shared.CleanVisibleOutput(result.Thinking, opts.StripReferenceMarkers)
-	text := shared.CleanVisibleOutput(result.Text, opts.StripReferenceMarkers)
+	thinking := textclean.CleanVisibleOutput(result.Thinking, opts.StripReferenceMarkers)
+	text := textclean.CleanVisibleOutput(result.Text, opts.StripReferenceMarkers)
 	text = toolcall.StripDSMLResidue(text)
 	if opts.SearchEnabled {
-		text = shared.ReplaceCitationMarkersWithLinks(text, result.CitationLinks)
+		text = textclean.ReplaceCitationMarkersWithLinks(text, result.CitationLinks)
 	}
 
-	parsed := shared.DetectAssistantToolCalls(result.Text, text, result.Thinking, result.ToolDetectionThinking, opts.ToolNames)
+	parsed := DetectAssistantToolCalls(result.Text, text, result.Thinking, result.ToolDetectionThinking, opts.ToolNames)
 	calls := toolcall.NormalizeParsedToolCallsForSchemas(parsed.Calls, opts.ToolsRaw)
 	repairCompleted := false
 	if result.ReadError == nil {
@@ -316,14 +316,14 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	// after it can reach the reply text or the finalize tool detection.
 	snapshot.RawText, _ = sse.TrimToolRoleMarker(snapshot.RawText)
 	snapshot.VisibleText, _ = sse.TrimToolRoleMarker(snapshot.VisibleText)
-	thinking := shared.CleanVisibleOutput(snapshot.VisibleThinking, opts.StripReferenceMarkers)
-	text := shared.CleanVisibleOutput(snapshot.VisibleText, opts.StripReferenceMarkers)
+	thinking := textclean.CleanVisibleOutput(snapshot.VisibleThinking, opts.StripReferenceMarkers)
+	text := textclean.CleanVisibleOutput(snapshot.VisibleText, opts.StripReferenceMarkers)
 	text = toolcall.StripDSMLResidue(text)
 	if opts.SearchEnabled {
-		text = shared.ReplaceCitationMarkersWithLinks(text, snapshot.CitationLinks)
+		text = textclean.ReplaceCitationMarkersWithLinks(text, snapshot.CitationLinks)
 	}
 
-	parsed := shared.DetectAssistantToolCalls(snapshot.RawText, text, snapshot.RawThinking, snapshot.DetectionThinking, opts.ToolNames)
+	parsed := DetectAssistantToolCalls(snapshot.RawText, text, snapshot.RawThinking, snapshot.DetectionThinking, opts.ToolNames)
 	calls := parsed.Calls
 	if len(calls) == 0 && len(snapshot.AdditionalToolCalls) > 0 {
 		calls = snapshot.AdditionalToolCalls
@@ -452,7 +452,7 @@ func UpstreamEmptyOutputDetail(contentFilter bool, text, thinking string) (int, 
 		return http.StatusBadRequest, "Upstream content filtered the response and returned no output.", "content_filter"
 	}
 	if strings.TrimSpace(thinking) != "" {
-		if shared.IsModerationBlockedThinking(thinking) {
+		if IsModerationBlockedThinking(thinking) {
 			return http.StatusBadRequest, "输入内容被审核拦截", "input_content_blocked"
 		}
 		return http.StatusTooManyRequests, "Upstream account hit a rate limit and returned reasoning without visible output.", "upstream_empty_output"

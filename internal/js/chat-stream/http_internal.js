@@ -31,64 +31,33 @@ async function readRawBody(req) {
   return Buffer.concat(chunks);
 }
 
-async function fetchStreamPrepare(req, rawBody) {
+async function requestStreamControl(req, flag, body) {
   const url = buildInternalGoURL(req);
-  url.searchParams.set('__stream_prepare', '1');
-
+  url.searchParams.set(flag, '1');
   const upstream = await fetch(url.toString(), {
     method: 'POST',
     headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),
-    body: rawBody,
-  });
-
-  const text = await upstream.text();
-  let body = {};
-  try {
-    body = JSON.parse(text || '{}');
-  } catch (_err) {
-    body = {};
-  }
-
-  return {
-    ok: upstream.ok,
-    status: upstream.status,
-    contentType: upstream.headers.get('content-type') || 'application/json',
-    text,
     body,
+  });
+  const text = await upstream.text();
+  let decoded = {};
+  try { decoded = JSON.parse(text || '{}'); } catch (_err) {}
+  return {
+    ok: upstream.ok, status: upstream.status,
+    contentType: upstream.headers.get('content-type') || 'application/json',
+    text, body: decoded,
   };
 }
 
-async function fetchStreamPow(req, leaseID) {
-  const url = buildInternalGoURL(req);
-  url.searchParams.set('__stream_pow', '1');
+function fetchStreamPrepare(req, rawBody) {
+  return requestStreamControl(req, '__stream_prepare', rawBody);
+}
 
-  const upstream = await fetch(url.toString(), {
-    method: 'POST',
-    headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),
-    body: Buffer.from(JSON.stringify({ lease_id: leaseID })),
-  });
-
-  const text = await upstream.text();
-  let body = {};
-  try {
-    body = JSON.parse(text || '{}');
-  } catch (_err) {
-    body = {};
-  }
-
-  return {
-    ok: upstream.ok,
-    status: upstream.status,
-    contentType: upstream.headers.get('content-type') || 'application/json',
-    text,
-    body,
-  };
+function fetchStreamPow(req, leaseID) {
+  return requestStreamControl(req, '__stream_pow', Buffer.from(JSON.stringify({ lease_id: leaseID })));
 }
 
 async function fetchStreamSwitch(req, leaseID, options = {}) {
-  const url = buildInternalGoURL(req);
-  url.searchParams.set('__stream_switch', '1');
-
   const switchBody = { lease_id: leaseID };
   if (options.disable) {
     switchBody.disable = true;
@@ -102,27 +71,8 @@ async function fetchStreamSwitch(req, leaseID, options = {}) {
       switchBody.banned_reason = asString(options.banned_reason);
     }
   }
-  const upstream = await fetch(url.toString(), {
-    method: 'POST',
-    headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),
-    body: Buffer.from(JSON.stringify(switchBody)),
-  });
-
-  const text = await upstream.text();
-  let body = {};
-  try {
-    body = JSON.parse(text || '{}');
-  } catch (_err) {
-    body = {};
-  }
-
-  return {
-    ok: upstream.ok,
-    status: upstream.status,
-    contentType: upstream.headers.get('content-type') || 'application/json',
-    text,
-    body,
-  };
+  if (options.auth_failed === true) switchBody.auth_failed = true;
+  return requestStreamControl(req, '__stream_switch', Buffer.from(JSON.stringify(switchBody)));
 }
 
 async function fetchStreamValidation(req, leaseID, content, thinking, detectionThinking, signal) {
@@ -216,8 +166,9 @@ function createLeaseReleaser(req, leaseID, getMeta) {
     released = true;
     try {
       await releaseStreamLease(req, leaseID, getMeta ? getMeta() : undefined);
-    } catch (_err) {
-      // Ignore release errors. Lease TTL cleanup on Go side still prevents permanent leaks.
+    } catch (error) {
+      // Go's lease TTL remains the fallback, but cleanup failures must be visible.
+      console.warn('[vercel_stream] lease release failed', error.message);
     }
   };
 }

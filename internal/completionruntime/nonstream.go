@@ -9,9 +9,8 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
 	"ds2api/internal/config"
+	"ds2api/internal/contextfile"
 	dsclient "ds2api/internal/deepseek/client"
-	"ds2api/internal/httpapi/openai/history"
-	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolcall"
@@ -29,7 +28,7 @@ type Options struct {
 	MaxAttempts           int
 	RetryEnabled          bool
 	RetryMaxAttempts      int
-	CurrentInputFile      history.CurrentInputConfigReader
+	CurrentInputFile      contextfile.CurrentInputConfigReader
 	ExpertPromptSegment   ExpertPromptSegmentConfigReader
 	// ToolCallRepairEnabled turns on the phase-3 finalize-only LLM tool-call
 	// repair pass. When enabled, the runtime builds a repair invoker bound to
@@ -179,7 +178,7 @@ func prepareCurrentInputFile(ctx context.Context, ds DeepSeekCaller, a *auth.Req
 	if opts.CurrentInputFile == nil || stdReq.CurrentInputFileApplied {
 		return stdReq, nil
 	}
-	out, err := (history.Service{Store: opts.CurrentInputFile, DS: ds}).ApplyCurrentInputFile(ctx, a, stdReq)
+	out, err := (contextfile.Service{Store: opts.CurrentInputFile, DS: ds}).ApplyCurrentInputFile(ctx, a, stdReq)
 	if err != nil {
 		return out, currentInputFileOutputError(err)
 	}
@@ -190,7 +189,7 @@ func prepareCurrentInputFile(ctx context.Context, ds DeepSeekCaller, a *auth.Req
 // 上传链路同样是账号级操作：Token 被上游拒绝时要带上 account_unauthorized 错误码，
 // 让共享重试逻辑先刷新 Token 再换号，而不是把 401 直接透传给客户端。
 func currentInputFileOutputError(err error) *assistantturn.OutputError {
-	status, message := history.MapError(err)
+	status, message := contextfile.MapError(err)
 	code := "error"
 	switch {
 	case dsclient.IsMutedError(err):
@@ -283,7 +282,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 
 		retryMax := opts.RetryMaxAttempts
 		if retryMax <= 0 {
-			retryMax = shared.EmptyOutputRetryMaxAttempts()
+			retryMax = EmptyOutputRetryMaxAttempts()
 		}
 		toolRetry := IsToolOutputError(turn.Error) && attempts < retryMax
 		if !opts.RetryEnabled || !toolRetry && !assistantturn.ShouldRetryEmptyOutput(turn, attempts, retryMax) {
@@ -316,9 +315,9 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			config.Logger.Warn("[completion_runtime_empty_retry] retry PoW fetch failed, falling back to original PoW", "surface", stdReq.Surface, "retry_attempt", attempts, "error", powErr)
 			retryPow = pow
 		}
-		retryPayload := shared.ClonePayloadForEmptyOutputRetry(payload, parentMessageID)
+		retryPayload := ClonePayloadForEmptyOutputRetry(payload, parentMessageID)
 		if toolRetry {
-			retryPayload = shared.ClonePayloadForToolOutputRetry(payload, parentMessageID)
+			retryPayload = ClonePayloadForToolOutputRetry(payload, parentMessageID)
 		}
 		nextResp, err := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		if err != nil {
@@ -344,9 +343,9 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, callErr
 		}
 		payload = retryPayload
-		usagePrompt = shared.UsagePromptWithEmptyOutputRetry(usagePrompt, attempts)
+		usagePrompt = UsagePromptWithEmptyOutputRetry(usagePrompt, attempts)
 		if toolRetry {
-			usagePrompt = shared.UsagePromptWithToolOutputRetry(stdReq.PromptTokenText, attempts)
+			usagePrompt = UsagePromptWithToolOutputRetry(stdReq.PromptTokenText, attempts)
 			accumulatedRawThinking, accumulatedToolDetectionThinking = "", ""
 		}
 		currentResp = nextResp
@@ -455,7 +454,7 @@ func reuploadCurrentInputFileForAccount(ctx context.Context, ds DeepSeekCaller, 
 	if opts.CurrentInputFile == nil || !stdReq.CurrentInputFileApplied {
 		return stdReq, nil
 	}
-	out, err := (history.Service{Store: opts.CurrentInputFile, DS: ds}).ReuploadAppliedCurrentInputFile(ctx, a, stdReq)
+	out, err := (contextfile.Service{Store: opts.CurrentInputFile, DS: ds}).ReuploadAppliedCurrentInputFile(ctx, a, stdReq)
 	if err != nil {
 		return out, currentInputFileOutputError(err)
 	}

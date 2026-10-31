@@ -74,46 +74,6 @@ function parseToolCallsDetailed(text, toolNames) {
   return result;
 }
 
-function parseStandaloneToolCalls(text, toolNames) {
-  return parseStandaloneToolCallsDetailed(text, toolNames).calls;
-}
-
-function parseStandaloneToolCallsDetailed(text, toolNames) {
-  const result = emptyParseResult();
-  const raw = toStringSafe(text);
-  if (!raw) {
-    return result;
-  }
-  if (shouldSkipToolCallParsingForCodeFenceExample(raw)) {
-    return result;
-  }
-  const original = stripFencedCodeBlocks(raw).trim();
-  const normalized = normalizeEPSEToolCallMarkup(original);
-  if (!normalized.ok || !normalized.text) {
-    return result;
-  }
-  result.sawToolCallSyntax = looksLikeToolCallSyntax(normalized.text) || hasRepairableXMLToolCallsWrapper(normalized.text);
-  // XML markup parsing only.
-  let parsed = parseMarkupToolCalls(normalized.text);
-  if (parsed.length === 0 && indexToolCDATAOpen(normalized.text, 0) >= 0) {
-    const recovered = sanitizeLooseCDATA(normalized.text);
-    if (recovered !== normalized.text) {
-      parsed = parseMarkupToolCalls(recovered);
-    }
-  }
-  parsed = reparseWithCDATAElementBoundaries(parsed, original);
-  if (parsed.length === 0) {
-    return result;
-  }
-
-  result.sawToolCallSyntax = true;
-  const filtered = filterToolCallsDetailed(parsed, toolNames);
-  result.calls = filtered.calls;
-  result.rejectedToolNames = filtered.rejectedToolNames;
-  result.rejectedByPolicy = filtered.rejectedToolNames.length > 0 && filtered.calls.length === 0;
-  return result;
-}
-
 // reparseWithCDATAElementBoundaries retries parsing with swallowed CDATA ranges
 // closed at their element boundary (Go parity:
 // internal/toolcall/toolcalls_cdata_boundary_repair.go). The greedy result is
@@ -192,6 +152,11 @@ function shouldSkipToolCallParsingForCodeFenceExample(text) {
   const stripped = stripFencedCodeBlocks(text);
   return !looksLikeToolCallSyntax(stripped);
 }
+
+// Both public entrypoints use the same wrapper-aware parser. Keep the names
+// for existing callers without maintaining a second parsing implementation.
+const parseStandaloneToolCalls = parseToolCalls;
+const parseStandaloneToolCallsDetailed = parseToolCallsDetailed;
 
 module.exports = {
   extractToolNames,

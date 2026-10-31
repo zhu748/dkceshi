@@ -556,6 +556,8 @@ test('vercel stream surfaces interruption when continue resume fails', async () 
     assert.ok(errorFrame, `expected an error frame, got ${JSON.stringify(parsed)}`);
     assert.equal(errorFrame.status_code, 502);
     assert.equal(errorFrame.error.code, 'upstream_interrupted');
+    assert.equal(parsed.map(item => item.choices?.[0]?.delta?.content || '').join(''), 'partial-code');
+    assert.equal(res.writableEnded, true, 'terminal interruption must close the HTTP response');
   } finally {
     global.fetch = originalFetch;
   }

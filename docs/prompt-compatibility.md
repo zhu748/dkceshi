@@ -256,7 +256,7 @@ You MUST reason with the utmost depth and rigor, leaving absolutely nothing to c
 旧配置不能重新打开发送后停止的分段路径。所有规范模型均映射为 default 模式。
 
 相关实现：`internal/promptcompat/history_transcript.go`、
-`internal/httpapi/openai/history/current_input_file.go`、`internal/completionruntime`。
+`internal/contextfile/current_input_file.go`、`internal/completionruntime`。
 
 ## 图片、文件与发送边界
 
@@ -373,3 +373,15 @@ preserve_image=true 保留原图；文档、文件引用、账号绑定及纯文
 Vercel prepare 声明 validate_tools 能力时，Node 将原始候选文本交给带租约校验的 Go 内部端点，复用同一参数校验、修复和工具策略，再发送 arguments 字符串；JavaScript 不重新解析该字符串中的大整数。校验端点不可用时返回错误，不交付未经校验的调用。
 
 工具参数在输入解码、历史渲染、输出解析和 Responses 回译中保持数字值；不能被 float64 无损重新编码的数值保留为 json.Number。CDATA 字符串不作数字推断。Claude 工具 ID 使用随机 UUID，避免同秒多轮重名；Gemini functionCall 同样返回 ID，供原样回填。
+
+## 共享实现的归属
+
+HISTORY.txt / TOOLS.txt 处理统一位于 `internal/contextfile`，供各协议和 `completionruntime` 直接调用。空输出 / 工具输出重试提示词与用量累计辅助位于 `internal/completionruntime/empty_retry.go`；输出清洗和流式累积分别位于 `textclean`、`assistantturn`。这些迁移不改变提示词、上传顺序或重试规则，避免让某个 HTTP 协议目录成为共享业务的所有者。
+
+## 输出侧 SSE 元数据边界
+
+Go `sse/paths.go` 与 Node `sse_paths.js` 对齐片段状态的绝对、response 相对及集合相对路径；嵌套 patch 在提取正文之前执行相同过滤，防止 `WIP` / `FINISHED` 或累计 token 字段混入可见答案。`token_usage` 在共享常量中声明为元数据，上游累计用量仍不替代内部估算。此变更不调整输入提示词、工具规则或历史转录。
+
+## Node 租约与断流收尾
+
+Node prepare 后持有的账号租约不改变输入归一化 / 历史文件语义；但必须在 prepare 异常或客户端断开时释放。401 内部恢复沿用 Go 的共享凭据恢复步骤，`auth_failed` 不得在控制请求编码时丢失。续答失败的部分输出先冲刷有效片段，再发送错误、`[DONE]` 和 HTTP 结束信号，避免连接悬挂或错误帧后的迟到正文。

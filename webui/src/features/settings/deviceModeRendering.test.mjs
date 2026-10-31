@@ -9,6 +9,8 @@ import { createServer } from 'vite'
 let vite
 let RegistrySettingsSection
 let AccountsTable
+let AccountTestButton
+let AccountTestProgress
 
 before(async () => {
     vite = await createServer({
@@ -21,6 +23,9 @@ before(async () => {
     })
     RegistrySettingsSection = (await vite.ssrLoadModule('/src/features/settings/RegistrySettingsSection.jsx')).default
     AccountsTable = (await vite.ssrLoadModule('/src/features/account/AccountsTable.jsx')).default
+    const controls = await vite.ssrLoadModule('/src/features/account/AccountTestControls.jsx')
+    AccountTestButton = controls.AccountTestButton
+    AccountTestProgress = controls.AccountTestProgress
 })
 
 after(async () => { await vite?.close() })
@@ -75,4 +80,25 @@ test('account toolbar keeps login IDs and Android profile management reachable',
     assert.match(html, /accountManager\.manageDeviceId/)
     assert.match(html, /accountManager\.manageAndroidProfile/)
     assert.match(html, /accountManager\.deviceIdRemaining/)
+})
+
+test('a running account batch can be canceled even if the account list becomes empty', () => {
+    const html = renderToStaticMarkup(React.createElement(AccountTestButton, {
+        t: key => key, running: true, hasAccounts: false, onStart() {}, onCancel() {},
+    }))
+    assert.match(html, /actions\.cancel/)
+    assert.doesNotMatch(html, /disabled=/)
+    const idle = renderToStaticMarkup(React.createElement(AccountTestButton, { t: key => key, running: false, hasAccounts: false }))
+    assert.match(idle, /disabled=/)
+})
+
+test('stopped batch progress retains completed account results while idle progress stays hidden', () => {
+    const html = renderToStaticMarkup(React.createElement(AccountTestProgress, {
+        t: key => key, running: false,
+        progress: { stopped: true, current: 1, total: 2, results: [{ id: 'completed-account', success: true }] },
+    }))
+    assert.match(html, /accountManager\.testAllStopped/)
+    assert.match(html, /completed-account/)
+    assert.match(html, /width:50%/)
+    assert.equal(renderToStaticMarkup(React.createElement(AccountTestProgress, { t: key => key, running: false })), '')
 })

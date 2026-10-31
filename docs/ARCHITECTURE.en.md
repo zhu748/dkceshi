@@ -29,6 +29,7 @@ ds2api/
 │   ├── assistantturn/                    # Upstream output to canonical assistant turn / stream event semantics
 │   ├── completionruntime/                # Shared Go DeepSeek completion startup, collection, empty-output/account-switch retry
 │   ├── config/                           # Config loading/validation/hot reload
+│   ├── contextfile/                      # Shared HISTORY.txt / TOOLS.txt uploads and continuation
 │   ├── deepseek/                         # DeepSeek upstream client/protocol/transport
 │   │   ├── client/                       # Login/session/completion/upload/delete calls
 │   │   ├── protocol/                     # DeepSeek URLs, constants, skip path/pattern
@@ -47,7 +48,6 @@ ds2api/
 │   │   │   ├── responses/                # Responses API and response store
 │   │   │   ├── files/                    # Files API and inline-file preprocessing
 │   │   │   ├── embeddings/               # Embeddings API
-│   │   │   ├── history/                  # OpenAI context file handling
 │   │   │   └── shared/                   # OpenAI HTTP errors/models/tool formatting
 │   │   └── requestbody/                  # HTTP body reading and UTF-8/JSON validation helpers
 │   ├── js/                               # Node runtime related logic
@@ -127,7 +127,7 @@ flowchart LR
     subgraph COMPAT[Prompt compatibility core]
         PC[internal/promptcompat]
         PROMPT[internal/prompt]
-        HIST[internal/httpapi/openai/history]
+        HIST[internal/contextfile]
     end
 
     subgraph RUNTIME[Shared runtime]
@@ -188,7 +188,7 @@ flowchart LR
 ## 3. Responsibilities in `internal/`
 
 - `internal/server`: router tree + middlewares (health, protocol routes, Admin/WebUI).
-- `internal/httpapi/openai/*`: OpenAI HTTP surface split into chat, responses, files, embeddings, history, and shared packages; chat/responses share the promptcompat, stream, and toolcall semantics.
+- `internal/httpapi/openai/*`: OpenAI HTTP surface split into chat, responses, files, embeddings, and shared packages; chat/responses share the promptcompat, stream, and toolcall semantics.
 - `internal/httpapi/{claude,gemini}`: protocol adapters that normalize into the same prompt compatibility semantics; normal direct paths must share DeepSeek session/PoW/completion execution through `completionruntime`, while `translatorcliproxy` is reserved for Vercel prepare/release, missing-backend fallback, and regression tests.
 - `internal/httpapi/ollama`: Ollama-compatible model list and capability query endpoints.
 - `internal/httpapi/requestbody`: shared HTTP body reading, JSON pre-validation, and UTF-8 error helpers across protocol adapters.
@@ -205,7 +205,8 @@ flowchart LR
 - `internal/responsehistory`: DeepSeek upstream response archive, saving assistant text, thinking, raw tool-call fragments, and streaming detail before protocol rendering/trimming.
 - `internal/config`: config loading/validation + runtime settings hot-reload.
 - `internal/account`: managed account pool, inflight slots, waiting queue.
-- `internal/textclean`: text cleanup helpers, e.g. stripping `[reference: N]` markers.
+- `internal/textclean`: protocol-independent visible-output cleanup, leaked control/tool markup removal, reference-marker stripping, and citation-link replacement.
+- `internal/contextfile`: shared HISTORY.txt / TOOLS.txt uploads, current-input continuation and reuploads after account switches, independent of HTTP surfaces.
 - `internal/claudeconv`: Claude API request to DeepSeek format conversion.
 - `internal/compat`: compatibility regression tests using SSE fixtures to verify output consistency.
 - `internal/rawsample`: upstream raw response capture, read/write, and management.
@@ -226,3 +227,27 @@ flowchart LR
 - API contracts: `API.md` / `API.en.md`
 - Deployment/testing/contributing: `docs/DEPLOY*`, `docs/TESTING.md`, `docs/CONTRIBUTING*`
 - Deep topics: `docs/toolcall-semantics.md`, `docs/DeepSeekSSE行为结构说明-2026-04-05.md`
+
+## Shared business dependency direction
+
+`assistantturn`, `completionruntime`, `contextfile`, and `textclean` do not import `httpapi`. Stream accumulation and tool detection belong to `assistantturn`; retry payloads and usage prompts belong to `completionruntime`. OpenAI `shared` contains HTTP and protocol-output helpers. `internal/compat/layer_boundary_test.go` guards this boundary.
+
+The Node tool parser exposes `parse_payload.js`. Its dependency order is character syntax / names / attributes, then CDATA and tag scanning, then normalization / elements / values, then call assembly. Recursive parameter grammar stays within `markup_value.js`; `cdata_repair.js` and `dsml_residue.js` own recovery and residue cleanup. `tests/node/tool-parser-structure.test.js` rejects circular module dependencies.
+
+## Config and history file responsibilities
+
+Config keeps one registry and its existing locks. `settings.go` / `sections.go` describe types, `settings_defaults.go` owns built-in declarations, `*_registry.go` owns registration and lookup, `*_values.go` owns effective values and updates, and validation / section codec / field constructors have their own files. `settings_cards.go` validates every member before publishing a card so rejection leaves no partial claims.
+
+`chathistory` separates models, initialization/query, mutations, load/recovery, legacy migration, persistence, index/ETag, pending detail changes and cloning. Helpers ending in `Locked` require `Store.mu`; splitting files does not change disk formats, revision allocation or write ordering.
+
+## Audio and SSE responsibilities
+
+`httpapi/openai/audio` separates HTTP coordination, request planning, text segmentation, worker acquisition, account gates, segment synthesis, recitation, encoding and session cleanup. Validation precedes account acquisition. Cleanup keeps a routing snapshot for each session and inherits the cleanup task deadline.
+
+Go SSE separates coordination, paths, fragments, nested extraction, thinking and content-filter handling. Node uses the matching `sse_*` modules plus text coercion. Leaf helpers do not import the coordinator, and the Node module graph is checked for cycles. Shared compatibility fixtures distinguish fragment metadata from response termination in both implementations.
+
+## Node stream lifetime and account batches
+
+The Node stream coordinator delegates lifetime/lease cleanup to `stream_lifecycle`, retry decisions to `stream_retry_policy`, continuation state to `stream_continue`, failure frames to `stream_failure`, and JSON response probing to `upstream_inspect`. Lifetime tracking starts before prepare; late lease IDs are released after disconnect or malformed preparation. In-flight Go control operations settle before lease cleanup, while new completions/switches are suppressed after disconnect.
+
+Account batch tests use a pure `batchAccountTests` controller, with React wiring in `useAccountTesting` and controls in `AccountTestControls`. Cancellation or unmount invalidates the active generation and its pending fetch/JSON callbacks. Explicit cancellation retains completed results; unmount cleanup does not publish UI state.

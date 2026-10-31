@@ -317,7 +317,7 @@ data: [DONE]
 - 开启 thinking 时会输出 `delta.reasoning_content`
 - 普通文本输出 `delta.content`
 - 最后一段包含 `finish_reason` 和 `usage`
-- token 计数优先透传上游 DeepSeek SSE（如 `accumulated_token_usage` / `token_usage`）；仅在上游缺失时回退本地估算。失败/中断型结束（例如 `response.failed`）可能不会携带 `usage`
+- token 计数使用内部估算，忽略上游累计 `accumulated_token_usage` / `token_usage`，避免把整段上下文累计值当作本次用量。失败/中断型结束（例如 `response.failed`）可能不会携带 `usage`
 
 #### Tool Calls
 
@@ -634,7 +634,7 @@ data: {"type":"message_stop"}
 - thinking：持续返回 `parts[].thought=true` 的增量 chunk
 - `tools` 场景：会缓冲并在结束时输出 `functionCall` 结构
 - 结束 chunk：包含 `finishReason: "STOP"` 与 `usageMetadata`
-- token 计数优先透传上游 DeepSeek SSE（如 `accumulated_token_usage` / `token_usage`）；仅在上游缺失时回退本地估算
+- token 计数使用内部估算，忽略上游累计 `accumulated_token_usage` / `token_usage`
 
 ---
 
@@ -1472,3 +1472,15 @@ curl http://localhost:5001/v1/chat/completions \
 `input` 最多 4096 字符。音色为 `mira`、`echo`、`stella`、`tide`；格式支持 `opus`（Ogg Opus，默认）和 `wav`，不支持 MP3。`speed` 仅接受 1；`model` 可省略或指定本项目支持的聊天模型。服务会创建朗读会话并在完成后清理，响应头 `X-Ds2-Tts-Text-Base64` 记录实际朗读文本。
 
 阅读器可使用 GET 形式 `/v1/audio/speech?input=...&voice=mira&response_format=wav`，也可用 `token` 查询参数传入 API Key；常规客户端优先使用 Authorization 请求头。设置页可关闭 `tts.enabled`，关闭时返回 503。参见[功能对齐说明](docs/function-alignment.md)。
+
+语音请求会在取号前验证分段数量，超过 32 段返回 400，不消耗账号取号额度。每个 worker 复用一个账号；可选并发取号需要非阻塞能力，否则使用已获得的 worker 分批处理。临时朗读会话按创建时账号的 token、设备及代理身份异步清理，遵守清理任务的总超时。
+
+## SSE 元数据边界
+
+所有协议的共享 SSE 处理都将 `response/fragments/N/status`、`fragments/N/status` 及嵌套 BATCH 中的 `N/status` 视为片段元数据；它们不进入正文，也不表示整个响应结束。嵌套 patch 与顶层使用同一元数据过滤规则，`token_usage` 不进入可见内容；真正的响应级 `status=FINISHED` 仍按终止信号处理。
+
+## Node 流式请求与管理台批量刷新
+
+Vercel Node 流式路径会释放 prepare 已返回的租约，包括字段不完整或客户端已断开的情形。上游 401 的内部恢复请求保留 `auth_failed` 标志，继续由 Go 的共享鉴权逻辑执行凭据恢复。不可恢复的断流会先发出已缓冲的有效片段，再发送 `upstream_interrupted`、`[DONE]` 并结束 HTTP 响应。
+
+管理台批量刷新 Token 运行期间可点击“取消”；取消或离开账号页面会停止后续账号请求并忽略迟到结果。主动取消保留已完成进度，已由服务端完成的刷新不会被撤回。

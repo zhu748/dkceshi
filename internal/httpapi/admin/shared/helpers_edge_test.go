@@ -8,11 +8,11 @@ import (
 	"ds2api/internal/config"
 )
 
-// ─── reverseAccounts ─────────────────────────────────────────────────
+// ─── ReverseAccounts ─────────────────────────────────────────────────
 
 func TestReverseAccountsEmpty(t *testing.T) {
 	a := []config.Account{}
-	reverseAccounts(a)
+	ReverseAccounts(a)
 	if len(a) != 0 {
 		t.Fatal("expected empty")
 	}
@@ -23,7 +23,7 @@ func TestReverseAccountsTwoElements(t *testing.T) {
 		{Email: "a@test.com"},
 		{Email: "b@test.com"},
 	}
-	reverseAccounts(a)
+	ReverseAccounts(a)
 	if a[0].Email != "b@test.com" || a[1].Email != "a@test.com" {
 		t.Fatalf("unexpected order after reverse: %v", a)
 	}
@@ -35,88 +35,88 @@ func TestReverseAccountsThreeElements(t *testing.T) {
 		{Email: "2@test.com"},
 		{Email: "3@test.com"},
 	}
-	reverseAccounts(a)
+	ReverseAccounts(a)
 	if a[0].Email != "3@test.com" || a[1].Email != "2@test.com" || a[2].Email != "1@test.com" {
 		t.Fatalf("unexpected order: %v", a)
 	}
 }
 
-// ─── intFromQuery edge cases ─────────────────────────────────────────
+// ─── IntFromQuery edge cases ─────────────────────────────────────────
 
 func TestIntFromQueryPresent(t *testing.T) {
 	req := httptest.NewRequest("GET", "/?limit=5", nil)
-	if got := intFromQuery(req, "limit", 10); got != 5 {
+	if got := IntFromQuery(req, "limit", 10); got != 5 {
 		t.Fatalf("expected 5, got %d", got)
 	}
 }
 
 func TestIntFromQueryMissing(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
-	if got := intFromQuery(req, "limit", 10); got != 10 {
+	if got := IntFromQuery(req, "limit", 10); got != 10 {
 		t.Fatalf("expected default 10, got %d", got)
 	}
 }
 
 func TestIntFromQueryInvalid(t *testing.T) {
 	req := httptest.NewRequest("GET", "/?limit=abc", nil)
-	if got := intFromQuery(req, "limit", 10); got != 10 {
+	if got := IntFromQuery(req, "limit", 10); got != 10 {
 		t.Fatalf("expected default 10 for invalid, got %d", got)
 	}
 }
 
 func TestIntFromQueryNegative(t *testing.T) {
 	req := httptest.NewRequest("GET", "/?limit=-3", nil)
-	if got := intFromQuery(req, "limit", 10); got != -3 {
+	if got := IntFromQuery(req, "limit", 10); got != -3 {
 		t.Fatalf("expected -3, got %d", got)
 	}
 }
 
 func TestIntFromQueryZero(t *testing.T) {
 	req := httptest.NewRequest("GET", "/?limit=0", nil)
-	if got := intFromQuery(req, "limit", 10); got != 0 {
+	if got := IntFromQuery(req, "limit", 10); got != 0 {
 		t.Fatalf("expected 0, got %d", got)
 	}
 }
 
-// ─── nilIfEmpty ──────────────────────────────────────────────────────
+// ─── NilIfEmpty ──────────────────────────────────────────────────────
 
 func TestNilIfEmptyEmpty(t *testing.T) {
-	if nilIfEmpty("") != nil {
+	if NilIfEmpty("") != nil {
 		t.Fatal("expected nil for empty string")
 	}
 }
 
 func TestNilIfEmptyNonEmpty(t *testing.T) {
-	if nilIfEmpty("hello") != "hello" {
+	if NilIfEmpty("hello") != "hello" {
 		t.Fatal("expected 'hello'")
 	}
 }
 
-// ─── nilIfZero ───────────────────────────────────────────────────────
+// ─── NilIfZero ───────────────────────────────────────────────────────
 
 func TestNilIfZeroZero(t *testing.T) {
-	if nilIfZero(0) != nil {
+	if NilIfZero(0) != nil {
 		t.Fatal("expected nil for zero")
 	}
 }
 
 func TestNilIfZeroNonZero(t *testing.T) {
-	if nilIfZero(42) != int64(42) {
+	if NilIfZero(42) != int64(42) {
 		t.Fatal("expected 42")
 	}
 }
 
 func TestNilIfZeroNegative(t *testing.T) {
-	if nilIfZero(-1) != int64(-1) {
+	if NilIfZero(-1) != int64(-1) {
 		t.Fatal("expected -1")
 	}
 }
 
-// ─── toStringSlice ───────────────────────────────────────────────────
+// ─── ToStringSlice ───────────────────────────────────────────────────
 
 func TestToStringSliceFromAnySlice(t *testing.T) {
 	input := []any{"a", "b", "c"}
-	got, ok := toStringSlice(input)
+	got, ok := ToStringSlice(input)
 	if !ok || len(got) != 3 {
 		t.Fatalf("expected 3 strings, got %#v ok=%v", got, ok)
 	}
@@ -127,7 +127,7 @@ func TestToStringSliceFromAnySlice(t *testing.T) {
 
 func TestToStringSliceFromMixed(t *testing.T) {
 	input := []any{"hello", 42, true}
-	got, ok := toStringSlice(input)
+	got, ok := ToStringSlice(input)
 	if !ok {
 		t.Fatal("expected ok for mixed types")
 	}
@@ -137,21 +137,21 @@ func TestToStringSliceFromMixed(t *testing.T) {
 }
 
 func TestToStringSliceFromNonSlice(t *testing.T) {
-	_, ok := toStringSlice("not a slice")
+	_, ok := ToStringSlice("not a slice")
 	if ok {
 		t.Fatal("expected not ok for string input")
 	}
 }
 
 func TestToStringSliceFromNil(t *testing.T) {
-	_, ok := toStringSlice(nil)
+	_, ok := ToStringSlice(nil)
 	if ok {
 		t.Fatal("expected not ok for nil input")
 	}
 }
 
 func TestToStringSliceEmpty(t *testing.T) {
-	got, ok := toStringSlice([]any{})
+	got, ok := ToStringSlice([]any{})
 	if !ok {
 		t.Fatal("expected ok for empty slice")
 	}
@@ -161,7 +161,7 @@ func TestToStringSliceEmpty(t *testing.T) {
 }
 
 func TestToStringSliceTrimsWhitespace(t *testing.T) {
-	got, ok := toStringSlice([]any{" hello ", " world "})
+	got, ok := ToStringSlice([]any{" hello ", " world "})
 	if !ok {
 		t.Fatal("expected ok")
 	}
@@ -170,10 +170,10 @@ func TestToStringSliceTrimsWhitespace(t *testing.T) {
 	}
 }
 
-// ─── toAccount edge cases ────────────────────────────────────────────
+// ─── ToAccount edge cases ────────────────────────────────────────────
 
 func TestToAccountAllFields(t *testing.T) {
-	acc := toAccount(map[string]any{
+	acc := ToAccount(map[string]any{
 		"email":    "user@test.com",
 		"mobile":   "13800138000",
 		"password": "secret",
@@ -194,7 +194,7 @@ func TestToAccountAllFields(t *testing.T) {
 }
 
 func TestToAccountNumericValues(t *testing.T) {
-	acc := toAccount(map[string]any{
+	acc := ToAccount(map[string]any{
 		"email": 12345,
 	})
 	if acc.Email != "12345" {
@@ -202,39 +202,39 @@ func TestToAccountNumericValues(t *testing.T) {
 	}
 }
 
-// ─── fieldString edge cases ──────────────────────────────────────────
+// ─── FieldString edge cases ──────────────────────────────────────────
 
 func TestFieldStringNonString(t *testing.T) {
-	got := fieldString(map[string]any{"key": 42}, "key")
+	got := FieldString(map[string]any{"key": 42}, "key")
 	if got != "42" {
 		t.Fatalf("expected '42' for int, got %q", got)
 	}
 }
 
 func TestFieldStringBool(t *testing.T) {
-	got := fieldString(map[string]any{"key": true}, "key")
+	got := FieldString(map[string]any{"key": true}, "key")
 	if got != "true" {
 		t.Fatalf("expected 'true', got %q", got)
 	}
 }
 
 func TestFieldStringWhitespace(t *testing.T) {
-	got := fieldString(map[string]any{"key": "  hello  "}, "key")
+	got := FieldString(map[string]any{"key": "  hello  "}, "key")
 	if got != "hello" {
 		t.Fatalf("expected trimmed 'hello', got %q", got)
 	}
 }
 
-// ─── statusOr ────────────────────────────────────────────────────────
+// ─── StatusOr ────────────────────────────────────────────────────────
 
 func TestStatusOrZeroReturnsDefault(t *testing.T) {
-	if got := statusOr(0, http.StatusOK); got != http.StatusOK {
+	if got := StatusOr(0, http.StatusOK); got != http.StatusOK {
 		t.Fatalf("expected %d, got %d", http.StatusOK, got)
 	}
 }
 
 func TestStatusOrNonZeroReturnsValue(t *testing.T) {
-	if got := statusOr(http.StatusBadRequest, http.StatusOK); got != http.StatusBadRequest {
+	if got := StatusOr(http.StatusBadRequest, http.StatusOK); got != http.StatusBadRequest {
 		t.Fatalf("expected %d, got %d", http.StatusBadRequest, got)
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"ds2api/internal/account"
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
-	"ds2api/internal/httpapi/openai/shared"
 )
 
 func TestExecuteStreamWithRetryUsesSharedRetryPayloadAndUsagePrompt(t *testing.T) {
@@ -55,10 +54,10 @@ func TestExecuteStreamWithRetryUsesSharedRetryPayloadAndUsagePrompt(t *testing.T
 	if got := ds.payloads[0]["parent_message_id"]; got != 77 {
 		t.Fatalf("retry parent_message_id mismatch: %#v", got)
 	}
-	if prompt, _ := ds.payloads[0]["prompt"].(string); !strings.Contains(prompt, shared.EmptyOutputRetrySuffix) {
+	if prompt, _ := ds.payloads[0]["prompt"].(string); !strings.Contains(prompt, EmptyOutputRetrySuffix) {
 		t.Fatalf("expected retry suffix in payload prompt, got %q", prompt)
 	}
-	if !strings.Contains(retryPrompt, shared.EmptyOutputRetrySuffix) {
+	if !strings.Contains(retryPrompt, EmptyOutputRetrySuffix) {
 		t.Fatalf("expected retry suffix in usage prompt, got %q", retryPrompt)
 	}
 }
@@ -181,7 +180,7 @@ func TestExecuteStreamWithRetrySwitchesManagedAccountBeforeFinal429(t *testing.T
 	if got := ds.payloads[1]["chat_session_id"]; got != "session-acc2@test.com" {
 		t.Fatalf("switched payload session mismatch: %#v", got)
 	}
-	if prompt, _ := ds.payloads[1]["prompt"].(string); strings.Contains(prompt, shared.EmptyOutputRetrySuffix) {
+	if prompt, _ := ds.payloads[1]["prompt"].(string); strings.Contains(prompt, EmptyOutputRetrySuffix) {
 		t.Fatalf("expected switched-account prompt without empty-output suffix, got %q", prompt)
 	}
 }

@@ -34,17 +34,9 @@ func (p *Pool) rateLimitMaxPerMinuteLocked() int {
 	return p.store.RuntimeAccountRateLimitMaxPerMinute()
 }
 
-// recordAccountRequestLocked 记一次取号成功的请求。每分钟计数与 24h 计数都在
-// 这一处记账，于是两个取号分支（指定账号 / 轮询）不必各自记得记哪种账。
-func (p *Pool) recordAccountRequestLocked(accountID string) {
-	p.recordAccountRateRequestLocked(accountID)
-	p.recordAccountDailyRequestLocked(accountID)
-}
-
-// recordAccountRequestCheckedLocked is recordAccountRequestLocked for callers
-// that already hold this attempt's acquireChecks: the disabled limits are
-// skipped without re-reading their (store-lock backed) enable flags on every
-// successful acquire.
+// recordAccountRequestCheckedLocked records both request limits after a
+// successful acquire. Reuse the attempt's enable checks instead of reading
+// store-backed flags again in each account-selection branch.
 func (p *Pool) recordAccountRequestCheckedLocked(accountID string, checks acquireChecks) {
 	if checks.rateEnabled {
 		p.recordAccountRateRequestLocked(accountID)

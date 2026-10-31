@@ -312,7 +312,7 @@ data: [DONE]
 - When thinking is enabled, the stream may emit `delta.reasoning_content`
 - Text emits `delta.content`
 - Last chunk includes `finish_reason` and `usage`
-- Token counting prefers pass-through from upstream DeepSeek SSE (`accumulated_token_usage` / `token_usage`), and only falls back to local estimation when upstream usage is absent. Failed/interrupted endings (for example `response.failed`) may not include `usage`
+- Token counts use internal estimates and ignore upstream cumulative `accumulated_token_usage` / `token_usage`, so whole-context totals are not mistaken for this request’s usage. Failed/interrupted endings (for example `response.failed`) may not include `usage`
 
 #### Tool Calls
 
@@ -625,7 +625,7 @@ Returns SSE (`text/event-stream`), each chunk as `data: <json>`:
 - thinking: incremental chunks with `parts[].thought=true`
 - `tools` mode: buffered and emitted as `functionCall` at finalize phase
 - final chunk: includes `finishReason: "STOP"` and `usageMetadata`
-- Token counting prefers pass-through from upstream DeepSeek SSE (`accumulated_token_usage` / `token_usage`), and only falls back to local estimation when upstream usage is absent
+- Token counts use internal estimates and ignore upstream cumulative `accumulated_token_usage` / `token_usage`
 
 ---
 
@@ -1462,3 +1462,15 @@ curl http://localhost:5001/v1/chat/completions \
 `input` accepts up to 4096 characters. Voices: `mira`, `echo`, `stella`, `tide`. Formats: `opus` (Ogg Opus, default) and `wav`; MP3 is unsupported. `speed` only accepts 1. `model` is optional or can name a supported chat model. The service creates a recitation session and cleans it up afterwards. `X-Ds2-Tts-Text-Base64` contains the actual recited text.
 
 Reader apps can use GET `/v1/audio/speech?input=...&voice=mira&response_format=wav` and provide an API Key through `token`; ordinary clients should prefer the Authorization header. Disabling `tts.enabled` returns 503. See the [feature alignment notes](docs/function-alignment.md).
+
+Speech requests validate segment count before acquiring any account. More than 32 segments returns 400 without spending an account acquisition allowance. Each worker reuses its account; optional parallel acquisitions require a nonblocking resolver, otherwise existing workers process the remaining segments in batches. Temporary recitation sessions are cleaned up with their originating account’s token, device and proxy identity, subject to the cleanup task’s total deadline.
+
+## SSE metadata boundaries
+
+Shared SSE handling treats `response/fragments/N/status`, `fragments/N/status` and `N/status` inside nested BATCH patches as fragment metadata. They neither become visible content nor finish the whole response. Nested patches use the same metadata filter as top-level patches, and `token_usage` is excluded from visible content. Response-level `status=FINISHED` remains a terminal signal.
+
+## Node streaming and admin batch refresh
+
+The Vercel Node stream releases any lease returned by prepare, including malformed preparation or a disconnected client. Internal recovery for upstream 401 preserves `auth_failed`, leaving credential recovery to Go's shared auth logic. An unrecoverable interruption flushes valid buffered deltas before sending `upstream_interrupted`, `[DONE]`, and ending the HTTP response.
+
+While the admin batch Token refresh runs, its button becomes Cancel. Canceling or leaving the accounts page stops subsequent account requests and ignores late results. Explicit cancellation retains completed progress; refreshes already completed by the server are not rolled back.

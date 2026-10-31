@@ -8,11 +8,9 @@ import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
-	"ds2api/internal/httpapi/openai/history"
-	"ds2api/internal/httpapi/openai/shared"
-	"ds2api/internal/promptcompat"
-
+	"ds2api/internal/contextfile"
 	dsclient "ds2api/internal/deepseek/client"
+	"ds2api/internal/promptcompat"
 )
 
 type StreamRetryOptions struct {
@@ -23,7 +21,7 @@ type StreamRetryOptions struct {
 	MaxAttempts         int
 	UsagePrompt         string
 	Request             promptcompat.StandardRequest
-	CurrentInputFile    history.CurrentInputConfigReader
+	CurrentInputFile    contextfile.CurrentInputConfigReader
 	ExpertPromptSegment ExpertPromptSegmentConfigReader
 }
 
@@ -85,7 +83,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 	}
 	retryMax := opts.RetryMaxAttempts
 	if retryMax <= 0 {
-		retryMax = shared.EmptyOutputRetryMaxAttempts()
+		retryMax = EmptyOutputRetryMaxAttempts()
 	}
 	attempts := 0
 	accountSwitchAttempted := false
@@ -203,9 +201,9 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			continue
 		}
 		config.Logger.Info("[completion_runtime_output_retry] regenerating undelivered output", "surface", surface, "retry_attempt", attempts, "error_code", pendingErr.Code)
-		retryPayload := shared.ClonePayloadForEmptyOutputRetry(currentPayload, parentMessageID)
+		retryPayload := ClonePayloadForEmptyOutputRetry(currentPayload, parentMessageID)
 		if IsToolOutputError(pendingErr) {
-			retryPayload = shared.ClonePayloadForToolOutputRetry(currentPayload, parentMessageID)
+			retryPayload = ClonePayloadForToolOutputRetry(currentPayload, parentMessageID)
 		}
 		next, callErr := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		var outErr *assistantturn.OutputError
@@ -226,9 +224,9 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			hooks.OnRetry(attempts)
 		}
 		if hooks.OnRetryPrompt != nil {
-			usagePrompt := shared.UsagePromptWithEmptyOutputRetry(opts.UsagePrompt, attempts)
+			usagePrompt := UsagePromptWithEmptyOutputRetry(opts.UsagePrompt, attempts)
 			if IsToolOutputError(pendingErr) {
-				usagePrompt = shared.UsagePromptWithToolOutputRetry(opts.UsagePrompt, attempts)
+				usagePrompt = UsagePromptWithToolOutputRetry(opts.UsagePrompt, attempts)
 			}
 			hooks.OnRetryPrompt(usagePrompt)
 		}

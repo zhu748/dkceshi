@@ -3,7 +3,6 @@ package gemini
 import (
 	"bytes"
 	"context"
-	"ds2api/internal/jsonvalue"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,23 +12,23 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
+	"ds2api/internal/contextfile"
 	"ds2api/internal/httpapi/openai/files"
-	"ds2api/internal/httpapi/openai/history"
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/httpapi/requestbody"
+	"ds2api/internal/jsonvalue"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/translatorcliproxy"
 	"ds2api/internal/util"
-
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 )
 
 func (h *Handler) handleGenerateContent(w http.ResponseWriter, r *http.Request, stream bool) {
@@ -155,11 +154,11 @@ func (h *Handler) applyCurrentInputFile(ctx context.Context, a *auth.RequestAuth
 	}
 	stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
 	stdReq = promptcompat.ApplySearchPrompt(stdReq)
-	return (history.Service{Store: h.Store, DS: h.DS}).ApplyCurrentInputFile(ctx, a, stdReq)
+	return (contextfile.Service{Store: h.Store, DS: h.DS}).ApplyCurrentInputFile(ctx, a, stdReq)
 }
 
 func mapCurrentInputFileError(err error) (int, string) {
-	return history.MapError(err)
+	return contextfile.MapError(err)
 }
 
 func (h *Handler) handleGeminiDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session) {

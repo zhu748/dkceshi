@@ -9,7 +9,6 @@ import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/completionruntime"
 	openaifmt "ds2api/internal/format/openai"
-	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
@@ -47,7 +46,7 @@ type chatStreamRuntime struct {
 	streamToolCallIDs map[int]string
 	streamToolNames   map[int]string
 	toolCallOffset    int
-	accumulator       shared.StreamAccumulator
+	accumulator       assistantturn.StreamAccumulator
 	responseMessageID int
 	upstreamErr       string
 
@@ -128,7 +127,7 @@ func newChatStreamRuntime(
 		toolSieve:             toolstream.State{DeferMalformed: true},
 		streamToolCallIDs:     map[int]string{},
 		streamToolNames:       map[int]string{},
-		accumulator: shared.StreamAccumulator{
+		accumulator: assistantturn.StreamAccumulator{
 			ThinkingEnabled:       thinkingEnabled,
 			SearchEnabled:         searchEnabled,
 			StripReferenceMarkers: stripReferenceMarkers,

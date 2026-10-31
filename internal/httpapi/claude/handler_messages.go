@@ -3,7 +3,6 @@ package claude
 import (
 	"bytes"
 	"context"
-	"ds2api/internal/jsonvalue"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,22 +12,23 @@ import (
 	"strings"
 	"time"
 
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
+	"ds2api/internal/contextfile"
 	claudefmt "ds2api/internal/format/claude"
 	"ds2api/internal/httpapi/openai/files"
-	"ds2api/internal/httpapi/openai/history"
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/httpapi/requestbody"
+	"ds2api/internal/jsonvalue"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	streamengine "ds2api/internal/stream"
 	"ds2api/internal/translatorcliproxy"
 	"ds2api/internal/util"
-
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 )
 
 func (h *Handler) Messages(w http.ResponseWriter, r *http.Request) {
@@ -163,11 +163,11 @@ func (h *Handler) applyCurrentInputFile(ctx context.Context, a *auth.RequestAuth
 	}
 	stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
 	stdReq = promptcompat.ApplySearchPrompt(stdReq)
-	return (history.Service{Store: h.Store, DS: h.DS}).ApplyCurrentInputFile(ctx, a, stdReq)
+	return (contextfile.Service{Store: h.Store, DS: h.DS}).ApplyCurrentInputFile(ctx, a, stdReq)
 }
 
 func mapCurrentInputFileError(err error) (int, string) {
-	return history.MapError(err)
+	return contextfile.MapError(err)
 }
 
 func (h *Handler) handleClaudeDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session) {

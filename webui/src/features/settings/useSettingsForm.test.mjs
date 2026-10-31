@@ -66,7 +66,7 @@ const SECTION_SPECS = [
     },
 ]
 
-// The registered settings' declared bounds, as internal/config/settings.go
+// The registered settings' declared bounds, as internal/config/settings_defaults.go
 // declares them: responses.store_ttl_seconds starts at 30, while
 // input_file.min_chars legitimately starts at 0.
 const INT_SETTING_SPECS = [

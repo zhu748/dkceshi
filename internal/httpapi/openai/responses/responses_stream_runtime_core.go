@@ -2,20 +2,18 @@ package responses
 
 import (
 	"context"
-
-	"ds2api/internal/assistantturn"
-	"ds2api/internal/completionruntime"
-	"ds2api/internal/toolcall"
 	"net/http"
 	"strings"
 
+	"ds2api/internal/assistantturn"
+	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
 	openaifmt "ds2api/internal/format/openai"
-	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
+	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
 )
 
@@ -44,7 +42,7 @@ type responsesStreamRuntime struct {
 
 	deferredText         strings.Builder
 	sieve                toolstream.State
-	accumulator          shared.StreamAccumulator
+	accumulator          assistantturn.StreamAccumulator
 	visibleText          strings.Builder
 	visibleReasoning     strings.Builder
 	responseMessageID    int
@@ -131,7 +129,7 @@ func newResponsesStreamRuntime(
 		persistResponse:       persistResponse,
 		history:               history,
 		visibleReasoning:      strings.Builder{},
-		accumulator: shared.StreamAccumulator{
+		accumulator: assistantturn.StreamAccumulator{
 			ThinkingEnabled:       thinkingEnabled,
 			SearchEnabled:         searchEnabled,
 			StripReferenceMarkers: stripReferenceMarkers,

@@ -122,6 +122,7 @@
     "invalidIdentifier": "账号标识无效，无法执行操作",
     "testAllConfirm": "刷新所有账号 Token 并验证登录？",
     "testAllCompleted": "完成：{success}/{total} 刷新成功",
+    "testAllStopped": "已停止批量刷新，已完成 {current}/{total}。",
     "testFailed": "测试失败: {error}",
     "available": "可用",
     "inUse": "正在使用",

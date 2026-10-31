@@ -1,0 +1,24 @@
+{
+  "chunk": {
+    "p": "response",
+    "o": "BATCH",
+    "v": [
+      {
+        "p": "fragments",
+        "o": "BATCH",
+        "v": [
+          {
+            "p": "token_usage",
+            "v": "99"
+          },
+          {
+            "p": "-1/content",
+            "v": "answer"
+          }
+        ]
+      }
+    ]
+  },
+  "thinking_enabled": false,
+  "current_type": "text"
+}

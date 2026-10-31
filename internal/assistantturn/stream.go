@@ -1,7 +1,6 @@
 package assistantturn
 
 import (
-	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/sse"
 )
 
@@ -26,7 +25,7 @@ type StreamEvent struct {
 }
 
 type Accumulator struct {
-	inner shared.StreamAccumulator
+	inner StreamAccumulator
 }
 
 type AccumulatorOptions struct {
@@ -37,7 +36,7 @@ type AccumulatorOptions struct {
 
 func NewAccumulator(opts AccumulatorOptions) *Accumulator {
 	return &Accumulator{
-		inner: shared.StreamAccumulator{
+		inner: StreamAccumulator{
 			ThinkingEnabled:       opts.ThinkingEnabled,
 			SearchEnabled:         opts.SearchEnabled,
 			StripReferenceMarkers: opts.StripReferenceMarkers,
@@ -45,15 +44,15 @@ func NewAccumulator(opts AccumulatorOptions) *Accumulator {
 	}
 }
 
-func (a *Accumulator) Apply(parsed sse.LineResult) shared.StreamAccumulatorResult {
+func (a *Accumulator) Apply(parsed sse.LineResult) StreamAccumulatorResult {
 	if a == nil {
-		return shared.StreamAccumulatorResult{}
+		return StreamAccumulatorResult{}
 	}
 	return a.inner.Apply(parsed)
 }
 
 // ResetContentPolicy starts a new upstream round, see
-// shared.StreamAccumulator.ResetContentPolicy.
+// StreamAccumulator.ResetContentPolicy.
 func (a *Accumulator) ResetContentPolicy() {
 	if a == nil {
 		return

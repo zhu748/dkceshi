@@ -436,7 +436,7 @@ func TestConfigCloneDeepCopiesEveryReferenceField(t *testing.T) {
 				continue
 			}
 			if sv.Pointer() == dv.Pointer() {
-				t.Errorf("Config.%s shares storage with its clone; give the section that owns it a Clone hook in sections.go", field.Name)
+				t.Errorf("Config.%s shares storage with its clone; give the section that owns it a Clone hook in its section_*.go declaration", field.Name)
 			}
 		}
 	}
