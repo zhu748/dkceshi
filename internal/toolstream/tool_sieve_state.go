@@ -83,7 +83,8 @@ func (s *State) resetIncrementalToolState() {
 }
 
 func (s *State) noteText(content string) {
-	if !hasMeaningfulText(content) {
+	// A whitespace-only chunk can start a new line or finish a pending fence.
+	if content == "" {
 		return
 	}
 	updateMarkdownCodeSpanState(s, content)
@@ -171,7 +172,7 @@ func atMarkdownFenceLineStart(text string, idx int) bool {
 }
 
 func updateCodeFenceState(state *State, text string) {
-	if state == nil || !hasMeaningfulText(text) {
+	if state == nil || text == "" {
 		return
 	}
 	next := simulateCodeFenceState(

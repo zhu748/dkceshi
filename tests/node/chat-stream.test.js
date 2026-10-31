@@ -2130,6 +2130,23 @@ test('App native search stays in reasoning with client web tools declared', asyn
   }
 });
 
+test('closed Markdown fence before eight calls cannot leak tool markup into content', async () => {
+  const prefix = ['Evidence:', '\n\n', '```text\n', 'sample\n', '```', '\n\n', 'Applying changes:\n'];
+  const args = { file_path: 'sample.py', old_string: 'old', new_string: 'new\n<|ZBBZUX|literal>' };
+  const block = '<|ZBBZUX|tool_calls>' + Array.from({ length: 8 }, () => '<|ZBBZUX|invoke name="edit">' + Object.entries(args).map(([name, value]) => `<|ZBBZUX|parameter name="${name}"><![CDATA[${value}]]></|ZBBZUX|parameter>`).join('') + '</|ZBBZUX|invoke>').join('') + '</|ZBBZUX|tool_calls>';
+  const wire = Array.from({ length: 8 }, (_, index) => ({ index, id: `call_${index}`, type: 'function', function: { name: 'edit', arguments: JSON.stringify(args) } }));
+  const lines = [...prefix, block].map(v => `data: ${JSON.stringify({ p: 'response/content', v })}\n\n`);
+  const { frames } = await runMockVercelStream([...lines, 'data: [DONE]\n\n'], {
+    tool_marker: 'ZBBZUX', tool_names: ['edit'], validate_tools: true, validation_result: { tool_calls: wire },
+  });
+  const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  const deltas = events.flatMap(event => event.choices?.map(choice => choice.delta || {}) || []);
+  assert.equal(events.some(event => event.error), false);
+  assert.equal(deltas.map(delta => delta.content || '').join(''), prefix.join(''));
+  assert.deepEqual(deltas.flatMap(delta => delta.tool_calls || []), wire);
+  assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
+});
+
 test('permanent errors and already delivered answers never regenerate', async () => {
   for (const partial of [false, true]) {
     const lines = partial ? ['data: {"p":"response/content","v":"partial"}\n\n'] : [];

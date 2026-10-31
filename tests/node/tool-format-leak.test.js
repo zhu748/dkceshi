@@ -18,6 +18,28 @@ function sieve(input, size) {
   return { text: events.map(e => e.text || '').join(''), calls: events.flatMap(e => e.calls || []) };
 }
 
+test('whitespace chunks preserve fence boundaries before real tool calls', () => {
+  for (const fence of ['```', '~~~']) {
+    for (const whitespace of ['\n', '\n\n', '\r\n', '\n  ', '\n\t']) {
+      const state = createToolSieveState(); state.deferMalformed = true;
+      const chunks = ['Evidence:', whitespace, fence + 'text\n', 'sample\n', fence, '\n\n', 'Next operation:\n', call];
+      const events = chunks.flatMap(chunk => processToolSieveChunk(state, chunk, ['read']));
+      events.push(...flushToolSieve(state, ['read']));
+      assert.equal(events.flatMap(event => event.calls || []).length, 1, JSON.stringify({ fence, whitespace }));
+      assert.equal(events.filter(event => !event.deferred).map(event => event.text || '').join(''), chunks.slice(0, -1).join(''));
+    }
+  }
+});
+
+test('whitespace chunks keep fenced tool documentation literal', () => {
+  const state = createToolSieveState(); state.deferMalformed = true;
+  const chunks = ['Example:', '\n\n', '```xml\n', call, '\n', '```', '\n', 'End.'];
+  const events = chunks.flatMap(chunk => processToolSieveChunk(state, chunk, ['read']));
+  events.push(...flushToolSieve(state, ['read']));
+  assert.deepEqual(events.flatMap(event => event.calls || []), []);
+  assert.equal(events.map(event => event.text || '').join(''), chunks.join(''));
+});
+
 test('transcript boundary cuts fabricated continuation across every chunk size', () => {
   const input = 'done\n' + boundary + '\n[Assistant]:' + call;
   for (let size = 1; size <= input.length; size++) {

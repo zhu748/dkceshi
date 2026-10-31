@@ -33,7 +33,8 @@ function resetIncrementalToolState(state) {
 }
 
 function noteText(state, text) {
-  if (!state || !hasMeaningfulText(text)) {
+  // A whitespace-only chunk can start a new line or finish a pending fence.
+  if (!state || !text) {
     return;
   }
   updateMarkdownCodeSpanState(state, text);
