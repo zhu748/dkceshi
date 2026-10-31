@@ -9,6 +9,7 @@ import (
 
 	"ds2api/internal/config"
 	dsclient "ds2api/internal/deepseek/client"
+	adminshared "ds2api/internal/httpapi/admin/shared"
 )
 
 // realDeviceIDRefresher 由 deepseek client 可选实现（与 deviceLockForgetter 同样的做法，
@@ -103,14 +104,7 @@ func (h *Handler) listRealDeviceIDs(w http.ResponseWriter, r *http.Request) {
 	if total > 0 {
 		totalPages = (total + pageSize - 1) / pageSize
 	}
-	start := (page - 1) * pageSize
-	if start > total {
-		start = total
-	}
-	end := start + pageSize
-	if end > total {
-		end = total
-	}
+	start, end := adminshared.PageBounds(page, pageSize, total)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"mode":    h.Store.RuntimeDeviceIDMode(),

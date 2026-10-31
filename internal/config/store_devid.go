@@ -1,28 +1,44 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"strings"
 )
 
-// UpdateAccountDeviceID 把新生成的真实设备指纹写回账号配置，并同步标注
-// device_id_type。auto 模式下由数美 fp SDK 刷新入口调用；标识不存在时返回
-// 错误，与 UpdateAccountToken 的行为保持一致。
-func (s *Store) UpdateAccountDeviceID(identifier, deviceID, deviceIDType string) error {
-	identifier = strings.TrimSpace(identifier)
+// CommitGeneratedDeviceID checks the exact device/routing state used by the
+// generator while holding the store lock. A filesystem promotion is rolled
+// back, together with memory, when config persistence fails.
+func (s *Store) CommitGeneratedDeviceID(ctx context.Context, snapshot DeviceSnapshot, deviceID string, promote func() (func() error, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	idx, ok := s.findAccountIndexLocked(identifier)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(deviceID) == "" {
+		return errors.New("devid: generator returned an empty device ID")
+	}
+	expected := snapshot.Account
+	idx, ok := s.findAccountIndexLocked(expected.Identifier())
 	if !ok {
 		return errors.New("account not found")
 	}
-	acc := s.cfg.Accounts[idx]
-	acc.DeviceID = strings.TrimSpace(deviceID)
-	if deviceIDType != "" {
-		acc.DeviceIDType = NormalizeDeviceIDType(deviceIDType)
+	current := s.cfg.Accounts[idx]
+	if s.deviceVersions[expected.Identifier()] != snapshot.Version || !sameGenerationState(expected, current) || generationProxy(s.cfg, current) != snapshot.Proxy {
+		return errors.New("devid: account device or routing changed during generation; retry with the current profile")
 	}
-	s.cfg.Accounts[idx] = acc
-	// 指纹属于设备身份材料，写回后立即落盘，避免进程退出丢失。
+	rollback, err := promote()
+	if err != nil {
+		return err
+	}
+	wasDirty := s.cfgDirty
+	s.cfg.Accounts[idx].DeviceID = strings.TrimSpace(deviceID)
+	s.cfg.Accounts[idx].DeviceIDType = DeviceIDTypeAuto
 	s.cfgDirty = true
-	return s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		s.cfg.Accounts[idx] = current
+		s.cfgDirty = wasDirty
+		return errors.Join(err, rollback())
+	}
+	return nil
 }

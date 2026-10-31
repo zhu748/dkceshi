@@ -79,6 +79,9 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 }
 
 func (c *Client) CloseIdleConnections() {
+	if c != nil && c.ordered != nil {
+		c.ordered.CloseIdleConnections()
+	}
 	if c != nil && c.http != nil {
 		c.http.CloseIdleConnections()
 	}

@@ -13,7 +13,6 @@ import (
 	"ds2api/internal/account"
 	"ds2api/internal/config"
 	adminshared "ds2api/internal/httpapi/admin/shared"
-	"os"
 )
 
 func accountStatusCounts(accounts []config.Account) map[string]int {
@@ -110,14 +109,7 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 	if total > 0 {
 		totalPages = (total + pageSize - 1) / pageSize
 	}
-	start := (page - 1) * pageSize
-	if start > total {
-		start = total
-	}
-	end := start + pageSize
-	if end > total {
-		end = total
-	}
+	start, end := adminshared.PageBounds(page, pageSize, total)
 	items := make([]map[string]any, 0, end-start)
 	for _, acc := range accounts[start:end] {
 		testStatus, _ := h.Store.AccountTestStatus(acc.Identifier())
@@ -340,85 +332,6 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_accounts": len(h.Store.Snapshot().Accounts)})
 }
 
-func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
-	identifier := chi.URLParam(r, "identifier")
-	if decoded, err := url.PathUnescape(identifier); err == nil {
-		identifier = decoded
-	}
-	var removedEmail, removedMobile string
-	busy := h.inflightAccounts()
-	err := h.Store.Update(func(c *config.Config) error {
-		idx := -1
-		for i, a := range c.Accounts {
-			if accountMatchesIdentifier(a, identifier) {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			return fmt.Errorf("账号不存在")
-		}
-		removedEmail = c.Accounts[idx].Email
-		removedMobile = c.Accounts[idx].Mobile
-		c.Accounts = append(c.Accounts[:idx], c.Accounts[idx+1:]...)
-		if c.ElasticPool.Enabled {
-			account.ReconcileElasticPoolWithBusy(c, busy)
-		}
-		// 账号被删除后重算号池绑定数。
-		config.ReconcileDeviceIDBindings(c)
-		return nil
-	})
-	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"detail": err.Error()})
-		return
-	}
-	removeDeviceProfile(config.Account{Email: removedEmail, Mobile: removedMobile}.Identifier())
-	forgetDeviceGenLock(h.DS, config.Account{Email: removedEmail, Mobile: removedMobile}.Identifier())
-	forgetAuthFailures(h.DS, config.Account{Email: removedEmail, Mobile: removedMobile}.Identifier())
-	h.Pool.Reset()
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total_accounts": len(h.Store.Snapshot().Accounts)})
-}
-
-// removeDeviceProfile 删除账号的设备档案文件；文件不存在时静默返回。
-func removeDeviceProfile(identifier string) {
-	if identifier == "" {
-		return
-	}
-	if err := os.Remove(config.DeviceProfilePath(identifier)); err != nil && !os.IsNotExist(err) {
-		config.Logger.Warn("[device_id] remove profile failed", "account", identifier, "error", err)
-	}
-}
-
-// deviceLockForgetter 由 deepseek client 可选实现，用于清理账号的 device_id 生成锁。
-type deviceLockForgetter interface {
-	ForgetDeviceGenLock(identifier string)
-}
-
-// forgetDeviceGenLock 删除账号后清理 device_id 生成锁（DS 未实现时静默跳过）。
-func forgetDeviceGenLock(ds adminshared.DeepSeekCaller, identifier string) {
-	if ds == nil || identifier == "" {
-		return
-	}
-	if fg, ok := ds.(deviceLockForgetter); ok {
-		fg.ForgetDeviceGenLock(identifier)
-	}
-}
-
-// authFailureForgetter 由 deepseek client 可选实现，用于清理账号的连续鉴权失败计数。
-type authFailureForgetter interface {
-	ForgetAuthFailures(identifier string)
-}
-
-// forgetAuthFailures 删除账号后清理其连续鉴权失败计数（DS 未实现时静默跳过）。
-func forgetAuthFailures(ds adminshared.DeepSeekCaller, identifier string) {
-	if ds == nil || identifier == "" {
-		return
-	}
-	if fg, ok := ds.(authFailureForgetter); ok {
-		fg.ForgetAuthFailures(identifier)
-	}
-}
-
 func (h *Handler) toggleAccountEnabled(w http.ResponseWriter, r *http.Request) {
 	identifier := chi.URLParam(r, "identifier")
 	if decoded, err := url.PathUnescape(identifier); err == nil {
@@ -472,44 +385,6 @@ func (h *Handler) toggleAccountEnabled(w http.ResponseWriter, r *http.Request) {
 	h.Pool.Reset()
 	h.notifyAccountsChanged()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "enabled": current})
-}
-
-// batchDeleteBannedAccounts 处理 POST /admin/accounts/banned/delete 请求。
-// 删除所有被上游停用(IsBanned)的账号，并清理其设备档案与 device_id 生成锁。
-func (h *Handler) batchDeleteBannedAccounts(w http.ResponseWriter, r *http.Request) {
-	var removed []string
-	busy := h.inflightAccounts()
-	err := h.Store.Update(func(c *config.Config) error {
-		kept := make([]config.Account, 0, len(c.Accounts))
-		for _, acc := range c.Accounts {
-			if acc.IsBanned() {
-				if id := acc.Identifier(); id != "" {
-					removed = append(removed, id)
-				}
-				continue
-			}
-			kept = append(kept, acc)
-		}
-		c.Accounts = kept
-		if c.ElasticPool.Enabled {
-			account.ReconcileElasticPoolWithBusy(c, busy)
-		}
-		// 被停用账号被删除后重算号池绑定数。
-		config.ReconcileDeviceIDBindings(c)
-		return nil
-	})
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
-		return
-	}
-	for _, identifier := range removed {
-		removeDeviceProfile(identifier)
-		forgetDeviceGenLock(h.DS, identifier)
-		forgetAuthFailures(h.DS, identifier)
-	}
-	h.Pool.Reset()
-	h.notifyAccountsChanged()
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "total": len(removed)})
 }
 
 func (h *Handler) batchToggleAccountEnabled(w http.ResponseWriter, r *http.Request) {

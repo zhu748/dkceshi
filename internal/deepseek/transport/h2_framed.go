@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
@@ -30,11 +31,15 @@ func WithOrderedHeaders(ctx context.Context, headers []OrderedHeader) context.Co
 // implementation. It handles flow control, CONTINUATION, cancellation and large
 // multipart bodies; the old handwritten writer did not honor send windows.
 // TLS/SETTINGS/HPACK bytes are not asserted to match the App without a raw trace.
-// Connections remain single-request, as in the previous implementation.
+// Idle connections are reused within one installation/token and proxy client.
 type H2FramedClient struct {
-	TLSConfig   *tls.Config
-	DialContext DialContextFunc
-	Timeout     time.Duration
+	TLSConfig      *tls.Config
+	DialContext    DialContextFunc
+	Timeout        time.Duration
+	poolMu         sync.Mutex
+	idle           map[string][]*h2Session
+	idleCount      int
+	poolGeneration uint64
 }
 
 func (c *H2FramedClient) Do(req *http.Request) (*http.Response, error) {
@@ -45,6 +50,10 @@ func (c *H2FramedClient) Do(req *http.Request) (*http.Response, error) {
 	} else {
 		ctx, cancel = context.WithCancel(ctx)
 	}
+	return c.roundTrip(req, ctx, cancel)
+}
+
+func (c *H2FramedClient) connect(ctx context.Context, req *http.Request) (*h2Session, error) {
 	addr := req.URL.Host
 	if req.URL.Port() == "" {
 		port := "443"
@@ -59,13 +68,11 @@ func (c *H2FramedClient) Do(req *http.Request) (*http.Response, error) {
 	}
 	conn, err := dial(ctx, "tcp", addr)
 	if err != nil {
-		cancel()
 		return nil, err
 	}
 	if req.URL.Scheme == "https" {
 		if proto, ok := negotiatedProtocol(conn); ok {
 			if proto != "h2" {
-				cancel()
 				return nil, errors.Join(fmt.Errorf("expected HTTP/2 ALPN, got %q", proto), conn.Close())
 			}
 		} else {
@@ -80,29 +87,29 @@ func (c *H2FramedClient) Do(req *http.Request) (*http.Response, error) {
 			}
 			secure := tls.Client(conn, cfg)
 			if err := secure.HandshakeContext(ctx); err != nil {
-				cancel()
 				return nil, errors.Join(err, conn.Close())
 			}
 			if secure.ConnectionState().NegotiatedProtocol != "h2" {
-				cancel()
 				return nil, errors.Join(errors.New("expected HTTP/2 ALPN"), secure.Close())
 			}
 			conn = secure
 		}
 	}
-	// Closing either the response or the request context also interrupts stalled
-	// peer SETTINGS and DATA reads, including before any response headers arrive.
 	stop := context.AfterFunc(ctx, func() { closeTransportConn(conn) })
-	cleanup := func() { stop(); cancel(); closeTransportConn(conn) }
+	defer stop()
 	transport := &fh2.Transport{DisableCompression: true, PseudoHeaderOrder: []string{":method", ":authority", ":path", ":scheme"}}
 	cc, err := transport.NewClientConn(conn)
 	if err != nil {
-		cleanup()
+		closeTransportConn(conn)
 		return nil, err
 	}
+	return &h2Session{conn: conn, client: cc}, nil
+}
+
+func (c *H2FramedClient) roundTrip(req *http.Request, ctx context.Context, cancel context.CancelFunc) (*http.Response, error) {
 	forkReq, err := fhttp.NewRequestWithContext(ctx, req.Method, req.URL.String(), req.Body)
 	if err != nil {
-		cleanup()
+		cancel()
 		return nil, err
 	}
 	forkReq.ContentLength = req.ContentLength
@@ -128,9 +135,25 @@ func (c *H2FramedClient) Do(req *http.Request) (*http.Response, error) {
 	}
 	forkReq.Header[fhttp.HeaderOrderKey] = order
 	forkReq.Header[fhttp.PHeaderOrderKey] = []string{":method", ":authority", ":path", ":scheme"}
-	upstream, err := cc.RoundTrip(forkReq)
+	key := h2IdentityKey(req, headers)
+	session, generation := c.takeIdle(key)
+	if session == nil {
+		session, err = c.connect(ctx, req)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+	}
+	stop := context.AfterFunc(ctx, func() { closeTransportConn(session.conn) })
+	cleanup := func(reusable bool) {
+		stopped := stop()
+		healthy := reusable && stopped && ctx.Err() == nil
+		cancel()
+		c.returnIdle(key, session, generation, healthy)
+	}
+	upstream, err := session.client.RoundTrip(forkReq)
 	if err != nil {
-		cleanup()
+		cleanup(false)
 		return nil, err
 	}
 	return &http.Response{

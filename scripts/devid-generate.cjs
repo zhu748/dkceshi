@@ -1,41 +1,22 @@
 #!/usr/bin/env node
-/*
- * devid-generate.cjs — 无浏览器 device_id 生成器（轻量版）。
- *
- * 运行链：Node vm + browser_env.js(环境模拟) + fp-1.min.js(数美 SDK)
- *   → SDK 读 window._smConf 自初始化，采集"指纹"并加密打包
- *   → XHR 被劫持进 __captured（不发网络）
- *   → 本脚本以真实 HTTPS 把载荷转发到数美云端 fp-it-acc.portal101.cn/deviceprofile/v4
- *   → 响应 code=1100 的 detail.deviceId 即 device_id
- *   → 上报前检查运行时身份，--debug 可额外解密体检采集内容
- *
- * 无浏览器进程；运行层为 Android 手机浏览器模拟模板，非 APK 原生 SDK。
- * 公开硬件规格之外的字体度量、Canvas 和浏览器行为仍需真机样本校准。
- *
- * 用法：
- *   node devid-generate.cjs [--reset] [--profile <file>] [--timeout <秒>]
- *                           [--debug] [--selftest] [--browser] [--anchor <file>]
- *   --browser    旧 Playwright 路径（应急兜底；生成慢但环境 100% 真实）
- *   --anchor     安卓锚定文件（JSON）：device_model/android_version/locale/tz/tz_offset；
- *                画像与账号声称的设备（x-device-model 等 HTTP 头）保持同一台"手机"
- *
- * 档案文件（--profile）JSON：
- *   { "version": 3, "profile": {<browser_env 画像>}, "smid_v2": "..." }
- * 兼容读旧 Playwright storageState（从中提取 localStorage.smidV2）。
- *
- * stdout 输出一行 JSON：{"ok":true,"device_id":"...","smid_v2":"...",...}
- * 过程日志全部走 stderr。
- */
+/* Android Web SDK runner: offline VM collection, account-routed capture, and
+ * standalone reporting. Run --selftest for an offline payload check or
+ * --check-assets for the runtime readiness probe. */
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const vm = require('node:vm');
-const zlib = require('node:zlib');
 const crypto = require('node:crypto');
+// DS2API_DEVID_CAPTURE_V1: account-routed SDK reporting is supported.
+const { parseArgs } = require('./devid-cli.cjs');
+const { loadArchive, selectAnchoredArchive, saveArchive } = require('./devid-state.cjs');
+const { makeHostPrims } = require('./devid-host.cjs');
+const { runViaBrowser, sendViaChromium } = require('./devid-browser.cjs');
+const { checkAssets } = require('./devid-assets.cjs');
 const { checkRuntime } = require('./devid-runtime-check.cjs');
 const { adaptBrowserEnv, VERSION } = require('./devid-android-env.cjs');
-const { ANDROID_FONTS, VIVO_SPECS, localeSettings, buildAndroidProfile } = require('./devid-android-profile.cjs');
+const { ANDROID_FONTS } = require('./devid-android-profile.cjs');
 
 const DEVID_DIR = path.resolve(String(process.env.DS2API_DEVID_DIR || '').trim() || path.join(__dirname, '..', 'data', 'devid'));
 const FINISH_T0 = Date.now();
@@ -60,189 +41,32 @@ const SM_CONF = {
 function log(...args) { process.stderr.write('[devid] ' + args.join(' ') + '\n'); }
 
 /* ---------------- 参数 ---------------- */
-function parseArgs(argv) {
-    const opts = { reset: false, profile: '', timeout: 120, debug: false, selftest: false, browser: false, anchor: '' };
-    for (let i = 0; i < argv.length; i++) {
-        const a = argv[i];
-        if (a === '--reset') opts.reset = true;
-        else if (a === '--anchor') opts.anchor = String(argv[++i] || '');
-        else if (a === '--profile') opts.profile = String(argv[++i] || '');
-        else if (a === '--timeout') opts.timeout = Number(argv[++i]) || 120;
-        else if (a === '--debug') opts.debug = true;
-        else if (a === '--selftest') opts.selftest = true;
-        else if (a === '--browser') opts.browser = true;
-        else if (a === '--via-chromium') opts.viaChromium = true;
-        else if (a === '--dump-payload') { const f = String(argv[++i] || ''); if (f) { opts.dumpPayload = f; } }
-        else if (a === '--help' || a === '-h') {
-            process.stdout.write('usage: node devid-generate.cjs [--anchor <file>] [--reset] [--profile <file>] [--timeout <sec>] [--debug] [--dump-payload <file>] [--selftest] [--browser]\n');
-            process.exit(0);
-        }
-    }
-    return opts;
-}
-
 /* ---------------- 档案（设备身份持久化） ---------------- */
-function loadArchive(opts) {
-    /* 返回 {profile, smidV2} 或全新档案 */
-    if (!opts.profile || opts.reset) {
-        if (opts.profile && opts.reset && fs.existsSync(opts.profile)) {
-            try { fs.unlinkSync(opts.profile); log('已删除旧档案（重置设备）:', opts.profile); } catch (_) {}
-        }
-        return { profile: null, smidV2: '' };
-    }
-    if (!fs.existsSync(opts.profile)) return { profile: null, smidV2: '' };
-    try {
-        const raw = JSON.parse(fs.readFileSync(opts.profile, 'utf8'));
-        /* 新格式 v3 */
-        if (raw && typeof raw === 'object' && raw.profile && raw.version === 3) {
-            log('复用设备档案(v3):', opts.profile);
-            return { profile: raw.profile, smidV2: String(raw.smid_v2 || '') };
-        }
-        /* 旧 Playwright storageState：提取 localStorage.smidV2（同设备延续） */
-        if (raw && Array.isArray(raw.origins)) {
-            let smidV2 = '';
-            for (const o of raw.origins) {
-                if (!Array.isArray(o.localStorage)) continue;
-                for (const kv of o.localStorage) if (kv.name === 'smidV2') smidV2 = String(kv.value || '');
-            }
-            log('旧 storageState 档案：提取 smidV2=', smidV2 ? smidV2.slice(0, 24) + '…' : '(空)');
-            return { profile: null, smidV2 };
-        }
-        log('档案格式不认识，按新设备处理');
-        return { profile: null, smidV2: '' };
-    } catch (e) {
-        log('档案解析失败，按新设备处理:', e.message);
-        return { profile: null, smidV2: '' };
-    }
-}
-
-/* ---------------- 画像挑选（profiles.json 权重表） ---------------- */
-function mulberry32(seed) {
-    let a = seed >>> 0;
-    return function () {
-        a |= 0; a = (a + 0x6D2B79F5) | 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-function buildAnchoredProfile(anchor, profilesSpec, gpuPool, seed) {
-    return buildAndroidProfile(anchor, profilesSpec, gpuPool, seed, mulberry32(seed));
-}
-
 /* ---------------- 宿主原语 ---------------- */
-function toBuffer(ab) {
-    if (Buffer.isBuffer(ab)) return ab;
-    if (ab instanceof ArrayBuffer) return Buffer.from(new Uint8Array(ab));
-    if (ab && ab.buffer) return Buffer.from(new Uint8Array(ab.buffer, ab.byteOffset || 0, ab.byteLength));
-    return Buffer.from(ab);
-}
-function toAB(buf) {
-    const out = Buffer.from(buf);
-    return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
-}
-function makeHostPrims() {
-    /* 定时器：返回宿主句柄，回调在 vm 侧闭包执行（跨 realm 函数调用安全） */
-    let nextId = 1;
-    const timers = new Map();
-    const mk = (loopFn, isInterval) => (fn, ms, ...a) => {
-        const id = nextId++;
-        const h = loopFn(() => {
-            if (!isInterval) timers.delete(id);
-            try { if (typeof fn === 'function') fn(...a); }
-            catch (e) { log('timer 回调异常:', e && e.message); }
-        }, Math.max(0, Number(ms) || 0));
-        timers.set(id, h);
-        return id;
-    };
-    const prims = {
-        setTimeout: mk(setTimeout, false),
-        clearTimeout: (id) => { const h = timers.get(id); if (h) { clearTimeout(h); timers.delete(id); } },
-        setInterval: mk(setInterval, true),
-        clearInterval: (id) => { const h = timers.get(id); if (h) { clearInterval(h); timers.delete(id); } },
-        /* 栈帧：宿主 Error.stack 同步携带 vm 侧帧（文件名=eval 时指定的 filename），
-         * 解析为 [[name, pos], …]；browser_env 会渲染成 V8 格式并跳过 frame 0。 */
-        stackFrames: () => {
-            const lines = (new Error().stack || '').split('\n');
-            const out = [];
-            for (let i = 1; i < lines.length; i++) {
-                const m = lines[i].match(/^\s*at (.+?) \((.+?)\)$/) || lines[i].match(/^\s*at (.+)$/);
-                if (!m) continue;
-                const name = m[1], pos = m[2] || '';
-                if (/node:internal|node:vm|devid-generate|Script\.runIn|Module\.runIn/.test(name + ' ' + pos)) continue;
-                out.push([name, pos]);
-            }
-            return out;
-        },
-        zlibDeflate: (ab) => toAB(zlib.deflateSync(toBuffer(ab))),
-        randomBytes: (n) => toAB(crypto.randomBytes(Math.max(0, n | 0))),
-        /* verify.js 的解密原语（--debug 体检用） */
-        aesCbcDecryptHex: (hex, key, iv) => {
-            try {
-                const d = crypto.createDecipheriv('aes-128-cbc',
-                    Buffer.from(String(key).slice(0, 16), 'latin1'),
-                    Buffer.from(String(iv), 'latin1'));
-                d.setAutoPadding(false);
-                return toAB(Buffer.concat([d.update(Buffer.from(String(hex), 'hex')), d.final()]));
-            } catch (_) { return null; }
-        },
-        inflate: (ab) => { try { return toAB(zlib.gunzipSync(toBuffer(ab))); } catch (_) { return null; } },
-        b64Decode: (s) => { try { return toAB(Buffer.from(String(s), 'base64')); } catch (_) { return null; } },
-    };
-    return prims;
-}
-
 /* ============================================================
  * 主流程
  * ============================================================ */
 if (require.main === module) {
-    const opts = parseArgs(process.argv.slice(2));
-    if (opts.browser) { runViaBrowser(opts).catch((e) => finish(false, e.message || String(e))); }
-    else { mainVm(opts).catch((e) => finish(false, e.message || String(e))); }
-}
-
-function selectAnchoredArchive(arch, anchor, profilesSpec, gpuPool, seed) {
-    if (!anchor) {
-        if (arch.profile && arch.profile.osFamily === 'android' && arch.profile.androidAdapterVersion === VERSION) return arch;
-        const device = VIVO_SPECS[seed % VIVO_SPECS.length];
-        anchor = { device_model: device[0], android_version: device[1], locale: 'zh-CN', tz: 'Asia/Shanghai', tz_offset: -480 };
-    }
-    const old = arch.profile;
-    const sameDevice = old && old.androidAdapterVersion === VERSION && old.osFamily === 'android' && old.deviceModel === anchor.device_model && old.androidVersion === Number(anchor.android_version);
-    if (sameDevice) {
-        return { profile: { ...old, ...localeSettings({ locale: old.locale, tz: old.tzName, tz_offset: old.tzOffset, ...anchor }, profilesSpec) }, smidV2: arch.smidV2 };
-    }
-    return { profile: buildAnchoredProfile(anchor, profilesSpec, gpuPool, seed), smidV2: '' };
+    Promise.resolve().then(() => {
+        const opts = parseArgs(process.argv.slice(2));
+        return opts.browser ? runViaBrowser(opts, log, finish) : mainVm(opts);
+    }).catch(e => finish(false, e.message || String(e)));
 }
 
 module.exports = { selectAnchoredArchive, makeHostPrims };
 
 function readData(name) { return fs.readFileSync(path.join(DEVID_DIR, name), 'utf8'); }
 
-function checkRequiredAssets(options) {
-    if (Number(process.versions.node.split('.')[0]) < 22) {
-        throw new Error(`SDK 生成需要 Node.js 22+，当前版本 ${process.versions.node}`);
-    }
-    const required = ['profiles.json', 'gpus.json', 'fp-1.min.js', 'browser_env.js', 'public_key'];
-    if (options.debug) required.push('verify.js');
-    const missing = required.filter(name => {
-        try {
-            const file = path.join(DEVID_DIR, name);
-            fs.accessSync(file, fs.constants.R_OK);
-            return !fs.statSync(file).isFile();
-        } catch { return true; }
-    });
-    if (missing.length) {
-        throw new Error(`SDK 资源不完整或不可读：${missing.join(', ')}。请将资源直接放入 ${DEVID_DIR}`);
-    }
-}
-
 async function mainVm(o) {
-    checkRequiredAssets(o);
+    const assetCheck = checkAssets(DEVID_DIR, o);
+    if (o.checkAssets) {
+        finish(true, '', undefined, { assets_verified: assetCheck.verified, node_version: process.versions.node });
+        return;
+    }
     const deadline = Date.now() + o.timeout * 1000;
 
     /* --- 档案与画像 --- */
-    const arch = loadArchive(o);
+    const arch = loadArchive(o, log);
     const profilesSpec = JSON.parse(readData('profiles.json'));
     const gpuPool = JSON.parse(readData('gpus.json'));
     let anchor = null;
@@ -276,7 +100,7 @@ async function mainVm(o) {
     }
 
     /* --- vm 装配 --- */
-    const prims = makeHostPrims();
+    const prims = makeHostPrims(log);
     const ctx = vm.createContext({});
     const prelude = `
         var __profile = ${JSON.stringify(JSON.stringify(profile))};
@@ -320,7 +144,7 @@ async function mainVm(o) {
     `, ctx, { filename: 'devid-prelude.js' });
 
     log('装载环境模拟…');
-    vm.runInContext(adaptBrowserEnv(readData('browser_env.js')), ctx, { filename: 'browser_env.js' });
+    vm.runInContext(adaptBrowserEnv(readData('browser_env.js')), ctx, { filename: 'browser_env.js', timeout: 5000 });
     const runtimeChecks = await checkRuntime(ctx, profile, SM_CONF.siteOverride);
 
     /* --- selftest：以检测方视角体检环境，然后退出 --- */
@@ -332,9 +156,9 @@ async function mainVm(o) {
             log((r.ok ? '✓ ' : '✗ ') + r.name + '  [' + r.expr + '] expect=' + r.expect + ' actual=' + String(r.actual).slice(0, 60));
             if (!r.ok) bad++;
         }
-        log('selftest: ' + (results.length - bad) + '/' + results.length + ' 通过');
-        process.stdout.write(JSON.stringify({ ok: bad === 0, selftest: true, pass: results.length - bad, total: results.length }) + '\n', () => process.exit(bad === 0 ? 0 : 1));
-        return;
+        log('environment checks: ' + (results.length - bad) + '/' + results.length + ' 通过');
+        o.selftestResult = { selftest: true, pass: results.length - bad, total: results.length };
+        if (bad) { finish(false, 'runtime identity selftest failed'); return; }
     }
     const incompatible = runtimeChecks.filter((r) => !r.ok);
     if (incompatible.length) {
@@ -345,7 +169,7 @@ async function mainVm(o) {
     if (o.debug) vm.runInContext(readData('verify.js'), ctx, { filename: 'verify.js' });
 
     log('运行数美 SDK…');
-    vm.runInContext(sdkSrc, ctx, { filename: 'fp-1.min.js' });
+    vm.runInContext(sdkSrc, ctx, { filename: 'fp-1.min.js', timeout: Math.max(1, Math.min(5000, deadline - Date.now())) });
 
     /* --- 等上报载荷 --- */
     log('等待指纹采集与上报…');
@@ -362,6 +186,20 @@ async function mainVm(o) {
         throw new Error('SDK 未产出上报载荷（超时 ' + o.timeout + 's）');
     }
     log('捕获上报:', captured.url, '载荷', String(captured.body).length, '字节');
+    if (captured.url !== 'https://' + SM_CONF.apiHost + SM_CONF.apiPath || String(captured.body).length > 2 * 1024 * 1024) throw new Error('SDK 上报地址或载荷无效');
+    JSON.parse(captured.body);
+    if (o.selftest) {
+        finish(true, '', undefined, { ...o.selftestResult, sdk_payload: true, assets_verified: assetCheck.verified, node_version: process.versions.node });
+        return;
+    }
+    if (o.capture) {
+        const smidV2 = String(vm.runInContext('(lsMap && lsMap.smidV2) || (cookieJar && cookieJar.smidV2) || ""', ctx) || '');
+        if (o.profile) saveArchive(o.profile, { version: 3, profile, smid_v2: smidV2, updated_at: new Date().toISOString() });
+        const headers = vm.runInContext('JSON.parse(JSON.stringify(__requestHeaders()))', ctx);
+        finish(true, '', undefined, { report: { url: captured.url, body: String(captured.body), headers }, mode: 'capture', environment: 'android-web-sdk' });
+        return;
+    }
+
 
     /* --- 本地指纹体检（verify.js + 补丁泄露的密钥） --- */
     let verifyOut = null;
@@ -388,7 +226,7 @@ async function mainVm(o) {
     let respText = '', respStatus = 0;
     if (o.viaChromium) {
         log('经真 Chromium 页面转发（TLS 对照实验）…');
-        const via = await sendViaChromium(captured, reqHeaders, o);
+        const via = await sendViaChromium(captured, reqHeaders, o, log);
         respStatus = via.status; respText = via.body;
     } else {
         log('上报数美:', SM_CONF.apiHost, '…');
@@ -419,13 +257,7 @@ async function mainVm(o) {
     log('device_id:', deviceId.slice(0, 24) + '…', ' smidV2:', smidV2 ? smidV2.slice(0, 24) + '…' : '(空)', ' detail.c:', detailCode);
 
     /* --- 档案写回 --- */
-    if (o.profile) {
-        try {
-            fs.mkdirSync(path.dirname(o.profile), { recursive: true });
-            fs.writeFileSync(o.profile, JSON.stringify({ version: 3, profile, smid_v2: smidV2, updated_at: new Date().toISOString() }, null, 2));
-            log('档案已写回:', o.profile);
-        } catch (e) { log('档案写回失败:', e.message); }
-    }
+    if (o.profile) saveArchive(o.profile, { version: 3, profile, smid_v2: smidV2, updated_at: new Date().toISOString() });
 
     finish(true, '', deviceId, {
         smid_v2: smidV2,
@@ -441,31 +273,6 @@ async function mainVm(o) {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-/* 经真 Chromium 页面 fetch 发上报：隔离 TLS/HTTP2 指纹变量（实验通道）。
- * 页面 fetch 的 sec-ch-ua 与 UA 由浏览器自身决定（与旧 Playwright 方案同等程度的不一致）。
- */
-async function sendViaChromium(captured, reqHeaders, o) {
-    const pw = resolvePlaywright();
-    if (!pw) throw new Error('--via-chromium 需要 playwright');
-    const browser = await pw.chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'] });
-    try {
-        const context = await browser.newContext({
-            userAgent: reqHeaders['User-Agent'] || reqHeaders['user-agent'],
-            locale: 'zh-CN', timezoneId: 'Asia/Shanghai',
-        });
-        const page = await context.newPage();
-        page.setDefaultTimeout(60000);
-        try { await page.goto('https://chat.deepseek.com/sign_in', { waitUntil: 'domcontentloaded' }); } catch (e) { log('goto:', e.message.split('\n')[0]); }
-        const result = await page.evaluate(async ({ url, body }) => {
-            try {
-                const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json;charset=UTF-8' }, body });
-                return { status: r.status, body: await r.text() };
-            } catch (e) { return { status: 0, body: String(e && e.message) }; }
-        }, { url: captured.url, body: captured.body });
-        return result;
-    } finally { await browser.close().catch(() => {}); }
-}
-
 function finish(ok, err, deviceId, extra) {
     const out = ok
         ? { ok: true, device_id: deviceId, elapsed_ms: Date.now() - FINISH_T0, ...(extra || {}) }
@@ -476,50 +283,3 @@ function finish(ok, err, deviceId, extra) {
 /* ============================================================
  * Playwright 兜底路径（--browser；环境 100% 真实，起浏览器慢）
  * ============================================================ */
-async function runViaBrowser(o) {
-    log('走 Playwright 兜底路径…');
-    const pw = resolvePlaywright();
-    if (!pw) throw new Error('playwright 未安装（--browser 兜底不可用）');
-    const browser = await pw.chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'] });
-    try {
-        const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
-            viewport: { width: 1366, height: 768 }, locale: 'zh-CN', timezoneId: 'Asia/Shanghai',
-            extraHTTPHeaders: { 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' },
-        });
-        await context.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); window.chrome = window.chrome || { runtime: {} }; });
-        const page = await context.newPage();
-        page.setDefaultTimeout(Math.max(10000, o.timeout * 1000));
-        try { await page.goto('https://chat.deepseek.com/sign_in', { waitUntil: 'domcontentloaded' }); } catch (e) { log('goto:', e.message.split('\n')[0]); }
-        await page.waitForFunction('typeof SMSdk !== "undefined"', null, { timeout: Math.max(5000, o.timeout * 1000), polling: 1000 });
-        await page.waitForFunction(() => { if (typeof SMSdk === 'undefined' || typeof SMSdk.getDeviceId !== 'function') return false; const id = SMSdk.getDeviceId(); return typeof id === 'string' && id.trim().length > 0; }, null, { timeout: Math.max(5000, o.timeout * 1000), polling: 1000 });
-        const deviceId = String(await page.evaluate('SMSdk.getDeviceId()')).trim();
-        if (!deviceId) throw new Error('SMSdk.getDeviceId() 为空');
-        if (o.profile) {
-            try {
-                const state = await context.storageState();
-                fs.mkdirSync(path.dirname(o.profile), { recursive: true });
-                fs.writeFileSync(o.profile, JSON.stringify(state));
-            } catch (e) { log('画像保存失败:', e.message); }
-        }
-        await browser.close().catch(() => {});
-        finish(true, '', deviceId, { mode: 'browser' });
-    } catch (e) {
-        await browser.close().catch(() => {});
-        throw e;
-    }
-}
-
-function resolvePlaywright() {
-    const candidates = [];
-    if (process.env.PLAYWRIGHT_MODULE) candidates.push(process.env.PLAYWRIGHT_MODULE);
-    candidates.push('playwright', 'playwright-core');
-    const roots = ['/usr/local/lib/node_modules', '/usr/lib/node_modules', '/home/z/.npm-global/lib/node_modules', '/home/z/.bun/install/global/node_modules'];
-    try {
-        const out = require('child_process').execSync('npm root -g', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-        if (out) roots.push(out);
-    } catch (_) {}
-    for (const r of roots) for (const m of ['playwright', 'playwright-core']) candidates.push(path.join(r, m));
-    for (const c of candidates) { try { return require(c); } catch (_) {} }
-    return null;
-}

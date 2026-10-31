@@ -15,7 +15,6 @@ export function useApiTesterState({ t }) {
     const [attachedFiles, setAttachedFiles] = useState([])
     const [configExpanded, setConfigExpanded] = useState(false)
 
-    const abortControllerRef = useRef(null)
     const defaultMessageRef = useRef(defaultMessage)
 
     useEffect(() => {
@@ -48,6 +47,5 @@ export function useApiTesterState({ t }) {
         setStreamingMode,
         configExpanded,
         setConfigExpanded,
-        abortControllerRef,
     }
 }

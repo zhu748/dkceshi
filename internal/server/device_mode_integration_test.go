@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -80,8 +81,12 @@ func TestDeviceModeSettingsAndSDKLoginFailureThroughRouter(t *testing.T) {
 		t.Fatal("saved mode did not become effective")
 	}
 	queue := call(http.MethodGet, "/admin/queue/status", "", token)
-	if queue["device_profile_kind"] != "android" || queue["device_id_mode"] != "auto" || queue["real_device_id_refresh_supported"] != true {
+	if queue["device_profile_kind"] != "android" || queue["device_id_mode"] != "auto" || queue["real_device_id_refresh_supported"] != false {
 		t.Fatalf("inconsistent queue capability: %+v", queue)
+	}
+	sdk, _ := queue["device_id_sdk"].(map[string]any)
+	if sdk["ready"] != false || !strings.Contains(fmt.Sprint(sdk["error"]), "SDK 资源不完整") {
+		t.Fatalf("missing SDK assets were not diagnosed: %+v", sdk)
 	}
 	if call(http.MethodGet, "/admin/device-ids/real", "", token)["mode"] != "auto" {
 		t.Fatal("SDK ID manager unavailable")

@@ -51,6 +51,13 @@ tests/
 .coverage
 htmlcov/
 
+# Runtime identity data and local compiler/review caches are not build inputs.
+data/
+.tmp/
+artifacts/
+logs/
+*.log
+
 # Node.js / WebUI 开发依赖
 node_modules/
 webui/node_modules/

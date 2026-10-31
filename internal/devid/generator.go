@@ -7,7 +7,7 @@
 // 登录页，让页面内嵌的数美 SDK 在真实浏览器环境里完成采集与上报，再读取
 // SMSdk.getDeviceId() 的结果。
 //
-// 生成器本体是 scripts/devid-generate.cjs（Node + Playwright），本包只负责
+// 生成器本体是 scripts/devid-generate.cjs（Node VM，浏览器实验路径才需要 Playwright），本包只负责
 // 解析脚本位置、拼接参数并执行解析输出。浏览器画像（storageState）持久化在
 // DevidDir()/profiles 下，按账号一一对应：复用画像 = 保持同一设备身份换新指纹；
 // 删除画像 = 换一台全新设备。
@@ -33,6 +33,9 @@ const defaultTimeout = 120 * time.Second
 
 // Options 描述一次指纹生成的全部输入。
 type Options struct {
+	// Reporter routes captured SDK traffic through the account's own network
+	// policy. Nil retains the standalone script's normal network path.
+	Reporter Reporter
 	// Script 是生成脚本路径。空串时按 LocateScript() 解析。
 	Script string
 	// Node 是 node 可执行文件。空串时使用 PATH 上的 node。
@@ -40,7 +43,7 @@ type Options struct {
 	// ProfilePath 是浏览器画像文件（storageState）。存在且未 Reset 时会被
 	// 复用（同一设备身份）；生成成功后写回该文件。
 	ProfilePath string
-	// ResetProfile 为 true 时忽略并删除既有画像，等于换一台新设备。
+	// ResetProfile 为 true 时忽略既有画像，成功写回前保留旧文件。
 	ResetProfile bool
 	// AnchorPath 是安卓锚定文件（JSON）。画像与账号声称的设备（x-device-model、
 	// x-client-locale 等 HTTP 头）保持同一台"手机"，消除签发环境与 App 身份
@@ -77,6 +80,12 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 	if !fileReadable(script) {
 		return "", fmt.Errorf("devid: 生成脚本不存在: %s", script)
 	}
+	if opts.Reporter != nil {
+		source, err := os.ReadFile(script)
+		if err != nil || !strings.Contains(string(source), "DS2API_DEVID_CAPTURE_V1") {
+			return "", errors.New("devid: generator is too old for account-routed reporting; use the current repository scripts")
+		}
+	}
 
 	node := strings.TrimSpace(opts.Node)
 	if node == "" {
@@ -86,7 +95,7 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 		var err error
 		node, err = exec.LookPath("node")
 		if err != nil {
-			return "", errors.New("devid: 找不到 node 可执行文件（指纹生成需要 Node + Playwright）")
+			return "", errors.New("devid: 找不到 node 可执行文件（指纹生成需要 Node.js 22+）")
 		}
 	}
 
@@ -98,6 +107,9 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 	defer cancel()
 
 	args := []string{script, "--timeout", fmt.Sprintf("%d", int(timeout.Seconds()))}
+	if opts.Reporter != nil {
+		args = append(args, "--capture")
+	}
 	if opts.ResetProfile {
 		args = append(args, "--reset")
 	}
@@ -118,9 +130,10 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 
 	err := cmd.Run()
 	var result struct {
-		OK       bool   `json:"ok"`
-		DeviceID string `json:"device_id"`
-		Error    string `json:"error"`
+		Report   *ReportRequest `json:"report"`
+		OK       bool           `json:"ok"`
+		DeviceID string         `json:"device_id"`
+		Error    string         `json:"error"`
 	}
 	line := strings.TrimSpace(lastJSONLine(stdout.String()))
 	parseErr := json.Unmarshal([]byte(line), &result)
@@ -156,6 +169,19 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 	if parseErr != nil {
 		return "", fmt.Errorf("devid: 生成脚本输出解析失败: %w", parseErr)
 	}
+	if result.OK && opts.Reporter != nil {
+		if result.Report == nil {
+			return "", errors.New("devid: generator does not support account-routed capture; update the generator script")
+		}
+		if err := ValidateReport(*result.Report); err != nil {
+			return "", err
+		}
+		status, body, err := opts.Reporter(runCtx, *result.Report)
+		if err != nil {
+			return "", fmt.Errorf("devid: SDK report failed: %w", err)
+		}
+		return deviceIDFromReport(status, body)
+	}
 	if !result.OK || strings.TrimSpace(result.DeviceID) == "" {
 		msg := strings.TrimSpace(result.Error)
 		if msg == "" {
@@ -164,11 +190,6 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 		return "", fmt.Errorf("devid: %s", msg)
 	}
 	return strings.TrimSpace(result.DeviceID), nil
-}
-
-// ProfilePathFor 返回账号对应的浏览器画像文件路径。
-func ProfilePathFor(identifier string) string {
-	return filepath.Join(config.DevidDir(), "profiles", config.SanitizeFilename(identifier)+".json")
 }
 
 // lastJSONLine 从脚本输出中取最后一行非空文本。脚本保证 stdout 只有结果 JSON，

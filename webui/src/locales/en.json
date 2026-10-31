@@ -333,7 +333,8 @@
       "photo_compress_ratio": "Photo quality (0–1; blank preserves original)",
       "picture_compress_format": "Compression format (webp or jpg; default webp)",
       "rangers_id": "Rangers ID (optional)"
-    }
+    },
+    "sdkUnavailable": "SDK is not ready: {reason}"
   },
   "proxyManager": {
     "title": "Proxy IPs",

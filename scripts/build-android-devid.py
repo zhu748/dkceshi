@@ -45,7 +45,7 @@ process.stdout.write(JSON.stringify({
 }));
 """
     adapted = json.loads(subprocess.check_output(
-        [node, "-e", program, str(root), str(assets)], text=True))
+        [node, "-e", program, str(root), str(assets)], text=True, encoding="utf-8"))
     files["data/devid/browser_env.js"] = adapted["env"].encode()
     profiles = json.loads(files["data/devid/profiles.json"])
     profiles.update({"version": 4, "_comment": "Android Web SDK simulated browser profiles; see ANDROID-DEVID-README.md",
@@ -60,8 +60,12 @@ process.stdout.write(JSON.stringify({
         "entries": [dict(v, families=["android"]) for v in adapted["gpus"].values()],
     }, ensure_ascii=False, indent=2).encode()
     files["data/devid/fonts.json"] = json.dumps(adapted["fonts"], ensure_ascii=False, indent=2).encode()
-    for name in ["devid-generate.cjs", "devid-runtime-check.cjs", "devid-android-env.cjs", "devid-android-profile.cjs"]:
+    runtime = json.loads((root / "scripts/devid-files.json").read_text())
+    for name in runtime["scripts"]:
         files["scripts/" + name] = (root / "scripts" / name).read_bytes()
+    for name in runtime["metadata"]:
+        files[name] = (root / name).read_bytes()
+    files["scripts/install-devid-assets.py"] = (root / "scripts/install-devid-assets.py").read_bytes()
     files["ANDROID-DEVID-README.md"] = (root / "docs/android-devid-package.md").read_bytes()
     files["examples/devid-android-anchor.json"] = json.dumps({
         "device_model": "V2405A", "android_version": 15,

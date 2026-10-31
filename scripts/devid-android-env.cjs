@@ -5,11 +5,22 @@ const VERSION = 1;
 const MARKER = '/* ds2api Android Web SDK adapter v1 */';
 const LEGACY_HASH = '7ccb74480bfeb26a7ad9188c6842fa6b88684db55da20cf9d78bf4f7c5231645';
 
+// Timestamp values are Numbers, not necessarily fractional. Adding a random
+// fraction to an epoch timestamp can round to an integer at double precision.
+// Validate the API contract instead of randomly rejecting a valid clock.
+function normalizeClockProbes(source) {
+    return source
+        .replace("['timeOrigin 是浮点', 'performance.timeOrigin % 1 !== 0', true]",
+            "['timeOrigin 是有限非负时间戳', 'Number.isFinite(performance.timeOrigin) && performance.timeOrigin >= 0', true]")
+        .replace("['performance.now 亚毫秒', 'performance.now() % 1 !== 0', true]",
+            "['performance.now 是有限非负计时', 'Number.isFinite(performance.now()) && performance.now() >= 0', true]");
+}
+
 // Patch only the supplied, known environment. An unknown version must be reviewed.
 // The SDK itself is unchanged; these are mobile browser compatibility templates.
 function adaptBrowserEnv(source) {
     let s = source.replace(/\r\n/g, '\n');
-    if (s.startsWith(MARKER)) return s;
+    if (s.startsWith(MARKER)) return normalizeClockProbes(s);
     if (crypto.createHash('sha256').update(s).digest('hex') !== LEGACY_HASH) {
         // Newer external environments are checked through their observable API.
         if (s.includes('__siteOverride') && /android\s*:/.test(s)) return s;
@@ -76,7 +87,7 @@ function adaptBrowserEnv(source) {
     replace('var ua = navigator.userAgent; if (ua.indexOf("Windows NT")', 'var ua = navigator.userAgent; if (ua.indexOf("Android") >= 0) return navigator.platform === "Linux armv8l"; if (ua.indexOf("Windows NT")');
     replace('var ua = navigator.userAgent, p = navigator.userAgentData.platform; if (ua.indexOf("Windows NT")', 'var ua = navigator.userAgent, p = navigator.userAgentData.platform; if (ua.indexOf("Android") >= 0) return p === "Android"; if (ua.indexOf("Windows NT")');
     replace('.getParameter(0x9246).indexOf("ANGLE") >= 0', '.getParameter(0x9246).length > 0');
-    return MARKER + '\n' + s;
+    return normalizeClockProbes(MARKER + '\n' + s);
 }
 
 module.exports = { adaptBrowserEnv, VERSION };

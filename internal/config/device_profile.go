@@ -23,29 +23,9 @@ var androidProfilePresets = androidProfiles()
 
 func androidProfiles() []androidProfile {
 	out := []androidProfile{{"V2507A", "36"}, {"Pixel 6a", "36"}, {"Pixel 9a", "36"}}
-	// Manufacturer model codes, with conservative Android API presets. See
-	// docs/android-device-models.md for the corresponding vivo product pages.
-	out = append(out,
-		androidProfile{"V2241A", "33"},  // X90
-		androidProfile{"V2242A", "33"},  // X90 Pro
-		androidProfile{"V2227A", "33"},  // X90 Pro+
-		androidProfile{"V2309A", "34"},  // X100
-		androidProfile{"V2324A", "34"},  // X100 Pro
-		androidProfile{"V2359A", "34"},  // X100s
-		androidProfile{"V2324HA", "34"}, // X100s Pro
-		androidProfile{"V2366GA", "34"}, // X100 Ultra
-		androidProfile{"V2366HA", "34"}, // X100 Ultra
-		androidProfile{"V2415A", "35"},  // X200
-		androidProfile{"V2405A", "35"},  // X200 Pro
-		androidProfile{"V2405DA", "35"}, // X200 Pro variant
-		androidProfile{"V2419A", "35"},  // X200 Pro mini
-		androidProfile{"V2454A", "35"},  // X200 Ultra
-		androidProfile{"V2454DA", "35"}, // X200 Ultra variant
-		androidProfile{"V2364A", "34"},  // S19
-		androidProfile{"V2362A", "34"},  // S19 Pro
-		androidProfile{"V2429A", "35"},  // S20
-		androidProfile{"V2430A", "35"},  // S20 Pro
-	)
+	for _, spec := range androidVivoSpecs {
+		out = append(out, androidProfile{spec.Model, spec.APILevel})
+	}
 	models := []string{"Pixel 6", "Pixel 6 Pro", "Pixel 7", "Pixel 7 Pro", "Pixel 7a", "Pixel Fold", "Pixel 8", "Pixel 8 Pro", "Pixel 8a", "Pixel 9", "Pixel 9 Pro", "Pixel 9 Pro XL", "Pixel 9 Pro Fold", "SM-S911B", "SM-S916B", "SM-S918B", "SM-S921B", "SM-S926B", "SM-S928B", "SM-S931B", "SM-S936B", "SM-S938B"}
 	for _, model := range models {
 		for _, api := range []string{"35", "36"} {

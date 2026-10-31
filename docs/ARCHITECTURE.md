@@ -251,3 +251,13 @@ Go SSE 按协调入口、路径、片段、嵌套提取、思考和过滤分类�
 Node 协调入口把租约 / 断开清理交给 `stream_lifecycle`，把重试规则、续答状态、失败帧和 JSON 响应探测分别交给 `stream_retry_policy`、`stream_continue`、`stream_failure`、`upstream_inspect`。生命周期在 prepare 前开始，晚到或准备字段不完整的租约仍要释放；在途 Go 控制操作结束后再清理，不在断开后发起新的 completion / 换号。
 
 账号批量测试由纯 `batchAccountTests` 控制器管理，`useAccountTesting` 接 React 状态，`AccountTestControls` 展示按钮和进度。取消 / 卸载使当前世代和在途 fetch / JSON 回调失效；主动取消保留已完成结果，卸载清理不提交 UI 状态。
+
+## SDK 与传输职责补充
+
+- `internal/devid`：生成器执行、采集载荷约束、可取消账号锁、全局并发槽位、档案暂存 / 回滚与就绪检查。
+- `internal/config/device_*`：设备资料比较、自动 ID 失效和账号版本检查；存储快照读取独立在 `store_snapshot.go`。
+- `deepseek/client/client_devid*`：账号锚定、生成编排和按账号网络策略提交 SDK 载荷。
+- `scripts/devid-*`：CLI、资源校验、档案、宿主原语、VM 协调及浏览器实验路径分别组织；规格 JSON 是 Go / Node 的同源输入。
+- `deepseek/client/client_tts*`：类型、设置 / 账号声音锁、WebSocket 消费和合成编排分别组织，接口和重试策略保持一致。
+- `deepseek/transport/h2_pool.go`：只复用已完整消费的连接；按 origin、token、安装身份和客户端代理隔离，不共享在途连接。每客户端最多 64 个空闲连接、每身份最多 2 个，空闲 90 秒关闭。
+- API 测试器的 `chatRequest.js` 持有请求身份，`chatStream.js` 读取 SSE，React hook 只负责生命周期绑定。

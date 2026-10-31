@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ds2api/internal/config"
+	"ds2api/internal/devid"
 )
 
 // Keep the SDK-generated login ID independent from the Android installation ID.
@@ -24,9 +25,11 @@ func (c *Client) ensureRiskDeviceID(ctx context.Context, acc config.Account) (co
 		return acc, errors.New("missing risk device_id: configure a generated SDK ID")
 	}
 	if c.Store.RuntimeDeviceIDMode() == config.DeviceIDTypeAuto {
-		lock := lockDevidGen("login:" + acc.Identifier())
-		lock.Lock()
-		defer lock.Unlock()
+		unlock, err := devid.AcquireAccount(ctx, "login:"+acc.Identifier())
+		if err != nil {
+			return acc, err
+		}
+		defer unlock()
 		if stored, ok := c.Store.FindAccount(acc.Identifier()); ok && stored.DeviceID != "" && stored.DeviceIDType == config.DeviceIDTypeAuto {
 			acc.DeviceID, acc.DeviceIDType = stored.DeviceID, stored.DeviceIDType
 			return acc, nil

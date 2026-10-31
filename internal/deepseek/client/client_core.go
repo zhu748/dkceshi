@@ -18,6 +18,7 @@ import (
 var intFrom = util.IntFrom
 
 type Client struct {
+	deviceReadiness   devid.ReadinessCache
 	deviceIDGenerator func(context.Context, devid.Options) (string, error)
 	ttsVoiceLocksMu   sync.Mutex
 	ttsVoiceLocks     map[string]*sync.Mutex

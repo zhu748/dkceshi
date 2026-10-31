@@ -67,4 +67,26 @@ COPY --from=dist-extract --chown=ds2api:ds2api /out/config.example.json /app/con
 COPY --from=dist-extract --chown=ds2api:ds2api /out/static/admin /app/static/admin
 USER ds2api
 
+# Optional target: includes the Node runner, while SDK assets remain an
+# external read-only mount and generated archives use a writable state volume.
+FROM node:24-bookworm-slim AS runtime-with-sdk
+USER root
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && groupadd -r ds2api && useradd -r -g ds2api -d /app -s /sbin/nologin ds2api \
+    && mkdir -p /app/scripts /app/internal/config /data/devid-state \
+    && chown -R ds2api:ds2api /app /data \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=runtime-from-source /usr/local/bin/ds2api /usr/local/bin/ds2api
+COPY --from=runtime-from-source --chown=ds2api:ds2api /app/config.example.json /app/config.example.json
+COPY --from=runtime-from-source --chown=ds2api:ds2api /app/static/admin /app/static/admin
+COPY --from=go-builder /app/scripts/devid-*.cjs /app/scripts/devid-files.json /app/scripts/
+COPY --from=go-builder /app/internal/config/android_device_specs.json /app/internal/config/android_device_specs.json
+ENV DS2API_DEVID_DIR=/opt/devid-assets
+ENV DS2API_DEVID_STATE_DIR=/data/devid-state
+EXPOSE 5001
+CMD ["/usr/local/bin/ds2api"]
+USER ds2api
+
 FROM runtime-from-source AS final

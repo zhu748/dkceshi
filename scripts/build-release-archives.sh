@@ -32,16 +32,18 @@ build_one() {
   cp config.example.json .env.example LICENSE README.MD README.en.md "${stage}/"
   cp -R static/admin "${stage}/static/admin"
 
+  mkdir -p "${stage}/scripts" "${stage}/internal/config"
+  while IFS= read -r script; do
+    cp "scripts/${script}" "${stage}/scripts/"
+  done < <(node -e 'for (const file of require("./scripts/devid-files.json").scripts) console.log(file)')
+  cp scripts/devid-files.json scripts/install-devid-assets.py "${stage}/scripts/"
+  cp internal/config/android_device_specs.json "${stage}/internal/config/"
+  cp docs/android-devid-package.md "${stage}/ANDROID-DEVID-README.md"
   if [[ "$goos" == "windows" ]]; then
-    mkdir -p "${stage}/scripts"
-    for script in devid-generate.cjs devid-runtime-check.cjs devid-android-env.cjs devid-android-profile.cjs; do
-      cp "scripts/${script}" "${stage}/scripts/"
-    done
     for script in start.bat check-device-sdk.bat; do
       awk '{ sub(/\r$/, ""); printf "%s\r\n", $0 }' "scripts/windows/${script}" > "${stage}/${script}"
     done
     cp scripts/windows/WINDOWS-README.txt "${stage}/"
-    cp docs/android-devid-package.md "${stage}/ANDROID-DEVID-README.md"
     (cd dist && zip -rq "${pkg}.zip" "${pkg}")
   else
     tar -C dist -czf "dist/${pkg}.tar.gz" "${pkg}"

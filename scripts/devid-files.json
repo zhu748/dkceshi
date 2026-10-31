@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "scripts": [
+    "devid-generate.cjs",
+    "devid-runtime-check.cjs",
+    "devid-android-env.cjs",
+    "devid-android-profile.cjs",
+    "devid-assets.cjs",
+    "devid-browser.cjs",
+    "devid-cli.cjs",
+    "devid-host.cjs",
+    "devid-state.cjs"
+  ],
+  "metadata": [
+    "scripts/devid-files.json",
+    "internal/config/android_device_specs.json"
+  ]
+}

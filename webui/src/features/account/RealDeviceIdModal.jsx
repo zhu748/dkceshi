@@ -17,6 +17,7 @@ export default function RealDeviceIdModal({
     refreshing,
     bulkRefreshing,
     errors,
+     sdkStatus,
     onClose,
     onRefresh,
     onReset,
@@ -31,6 +32,7 @@ export default function RealDeviceIdModal({
         return null
     }
     const bulkBusy = Boolean(bulkRefreshing)
+     const unavailable = sdkStatus?.ready === false
     const bulkButtonClass = "flex items-center px-3 py-1.5 rounded-lg transition-colors text-xs font-medium border disabled:opacity-50"
     const rowButtonClass = "px-2.5 py-1 rounded-md transition-colors text-xs font-medium border disabled:opacity-50"
     const pagerButtonClass = "p-1.5 border border-border rounded-md hover:bg-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -49,6 +51,9 @@ export default function RealDeviceIdModal({
                     </button>
                 </div>
                 <div className="p-4 sm:p-6 space-y-4">
+                    {unavailable && <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                        {t('accountManager.sdkUnavailable', { reason: sdkStatus.error })}
+                    </div>}
                     {/* 表格外的工具行：搜索在左，批量入口在右 */}
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <input
@@ -62,7 +67,7 @@ export default function RealDeviceIdModal({
                         <div className="flex flex-wrap gap-2">
                             <button
                                 onClick={onRefreshAll}
-                                disabled={bulkBusy || totalAll === 0}
+                                disabled={unavailable || bulkBusy || totalAll === 0}
                                 className={`${bulkButtonClass} bg-secondary text-secondary-foreground border-border hover:bg-secondary/80`}
                             >
                                 {bulkRefreshing === 'refresh' && <span className="animate-spin mr-1.5">⟳</span>}
@@ -70,7 +75,7 @@ export default function RealDeviceIdModal({
                             </button>
                             <button
                                 onClick={onResetAll}
-                                disabled={bulkBusy || totalAll === 0}
+                                disabled={unavailable || bulkBusy || totalAll === 0}
                                 className={`${bulkButtonClass} bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/20`}
                             >
                                 {bulkRefreshing === 'reset' && <span className="animate-spin mr-1.5">⟳</span>}
@@ -109,7 +114,7 @@ export default function RealDeviceIdModal({
                                                 <div className="flex flex-wrap items-center gap-2 justify-end">
                                                     <button
                                                         onClick={() => onRefresh(item.identifier)}
-                                                        disabled={busy}
+                                                        disabled={unavailable || busy}
                                                         className={`${rowButtonClass} bg-secondary text-secondary-foreground border-border hover:bg-secondary/80`}
                                                     >
                                                         {refreshing?.[item.identifier] && <span className="animate-spin mr-1">⟳</span>}
@@ -117,7 +122,7 @@ export default function RealDeviceIdModal({
                                                     </button>
                                                     <button
                                                         onClick={() => onReset(item.identifier)}
-                                                        disabled={busy}
+                                                        disabled={unavailable || busy}
                                                         className={`${rowButtonClass} bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/20`}
                                                     >
                                                         {t('accountManager.realDeviceIdReset')}

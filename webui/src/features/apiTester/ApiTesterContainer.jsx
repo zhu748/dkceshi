@@ -98,7 +98,6 @@ export default function ApiTesterContainer({ config, onMessage, authFetch }) {
         setStreamingMode,
         configExpanded,
         setConfigExpanded,
-        abortControllerRef,
     } = useApiTesterState({ t })
 
     const accounts = config.accounts || []
@@ -175,7 +174,6 @@ export default function ApiTesterContainer({ config, onMessage, authFetch }) {
         selectedAccount,
         streamingMode,
         attachedFiles,
-        abortControllerRef,
         setLoading,
         setIsStreaming,
         setResponse,

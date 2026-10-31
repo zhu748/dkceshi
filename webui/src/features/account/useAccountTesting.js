@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { createRequestGroup } from '../../utils/latestRequest.js'
 import { createBatchAccountTests } from './batchAccountTests.js'
 
 export function useAccountTesting({ apiFetch, t, onMessage, onRefresh, config, fetchAccounts, resolveAccountIdentifier, offerManualToken }) {
@@ -9,6 +10,8 @@ export function useAccountTesting({ apiFetch, t, onMessage, onRefresh, config, f
     const [sessionCounts, setSessionCounts] = useState({})
     const [deletingSessions, setDeletingSessions] = useState({})
 
+    const requests = useRef(createRequestGroup()).current
+    useEffect(() => () => requests.cancel(), [requests])
     const batch = useRef(null)
     if (!batch.current) {
         batch.current = createBatchAccountTests({ onRunning: setTestingAll, onProgress: setBatchProgress })
@@ -21,14 +24,17 @@ export function useAccountTesting({ apiFetch, t, onMessage, onRefresh, config, f
             onMessage('error', t('accountManager.invalidIdentifier'))
             return
         }
+        const request = requests.start('test:' + accountID)
+        if (!request) return
         setTesting(prev => ({ ...prev, [accountID]: true }))
         try {
             const res = await apiFetch('/admin/accounts/test', {
-                method: 'POST',
+                method: 'POST', signal: request.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ identifier: accountID }),
             })
             const data = await res.json()
+            if (!request.isCurrent()) return
             
             // 更新会话数
             if (data.session_count !== undefined) {
@@ -54,9 +60,10 @@ export function useAccountTesting({ apiFetch, t, onMessage, onRefresh, config, f
             fetchAccounts()
             onRefresh()
         } catch (e) {
-            onMessage('error', t('accountManager.testFailed', { error: e.message }))
+            if (request.isCurrent()) onMessage('error', t('accountManager.testFailed', { error: e.message }))
         } finally {
-            setTesting(prev => ({ ...prev, [accountID]: false }))
+            if (request.isCurrent()) setTesting(prev => ({ ...prev, [accountID]: false }))
+            request.finish()
         }
     }
 
@@ -93,14 +100,17 @@ export function useAccountTesting({ apiFetch, t, onMessage, onRefresh, config, f
         }
         if (!confirm(t('accountManager.deleteAllSessionsConfirm'))) return
         
+        const request = requests.start('sessions:' + accountID)
+        if (!request) return
         setDeletingSessions(prev => ({ ...prev, [accountID]: true }))
         try {
             const res = await apiFetch('/admin/accounts/sessions/delete-all', {
-                method: 'POST',
+                method: 'POST', signal: request.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ identifier: accountID }),
             })
             const data = await res.json()
+            if (!request.isCurrent()) return
             
             if (data.success) {
                 onMessage('success', t('accountManager.deleteAllSessionsSuccess'))
@@ -114,9 +124,10 @@ export function useAccountTesting({ apiFetch, t, onMessage, onRefresh, config, f
                 onMessage('error', data.message || t('messages.requestFailed'))
             }
         } catch (e) {
-            onMessage('error', t('messages.networkError'))
+            if (request.isCurrent()) onMessage('error', t('messages.networkError'))
         } finally {
-            setDeletingSessions(prev => ({ ...prev, [accountID]: false }))
+            if (request.isCurrent()) setDeletingSessions(prev => ({ ...prev, [accountID]: false }))
+            request.finish()
         }
     }
 

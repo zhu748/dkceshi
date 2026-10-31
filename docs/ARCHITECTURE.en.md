@@ -251,3 +251,19 @@ Go SSE separates coordination, paths, fragments, nested extraction, thinking and
 The Node stream coordinator delegates lifetime/lease cleanup to `stream_lifecycle`, retry decisions to `stream_retry_policy`, continuation state to `stream_continue`, failure frames to `stream_failure`, and JSON response probing to `upstream_inspect`. Lifetime tracking starts before prepare; late lease IDs are released after disconnect or malformed preparation. In-flight Go control operations settle before lease cleanup, while new completions/switches are suppressed after disconnect.
 
 Account batch tests use a pure `batchAccountTests` controller, with React wiring in `useAccountTesting` and controls in `AccountTestControls`. Cancellation or unmount invalidates the active generation and its pending fetch/JSON callbacks. Explicit cancellation retains completed results; unmount cleanup does not publish UI state.
+
+## SDK and transport boundaries
+
+`internal/devid` owns generator execution, captured-report validation, cancellable account locks,
+global generation slots, staged profiles with rollback, and offline readiness checks. Device state
+comparison and account incarnation checks live in `internal/config/device_*`; read-only store access
+lives in `store_snapshot.go`. The client layer alone selects the account network route.
+
+The Node runner separates CLI, asset validation, archive state, host primitives and experimental
+browser paths. `internal/config/android_device_specs.json` supplies both Go and Node model presets.
+TTS types, settings/voice locks, WebSocket consumption and synthesis orchestration have separate files.
+
+The ordered HTTP/2 pool reuses fully consumed connections within the same origin, token, installation
+and proxy client. Connections are checked out exclusively; a cancelled stream cannot close a sibling.
+It retains at most 64 idle connections per client, two per identity, with a 90-second idle lifetime.
+The API tester separates request ownership (`chatRequest.js`), SSE consumption (`chatStream.js`), and React lifecycle binding.

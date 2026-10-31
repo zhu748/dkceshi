@@ -29,6 +29,9 @@ func TestAutoLoginGeneratesRiskIDAndKeepsInstallationForDeviceCheck(t *testing.T
 		if _, err := os.Stat(opts.AnchorPath); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(opts.ProfilePath, []byte(`{"version":3,"profile":{}}`), 0o600); err != nil {
+			return "", err
+		}
 		return "B-generated-risk-id", nil
 	}
 	var installation string

@@ -4,27 +4,8 @@ const { VERSION } = require('./devid-android-env.cjs');
 
 // Resolution and GPU chip names: vivo official parameter pages, checked 2026-10-29.
 // DPR, browser renderer spelling and font metrics remain simulation presets.
-const VIVO_SPECS = [
-    ['V2241A', 13, 'x90', 1260, 2800, 'Immortalis-G715'],
-    ['V2242A', 13, 'x90pro', 1260, 2800, 'Immortalis-G715'],
-    ['V2227A', 13, 'x90proplus', 1440, 3200, 'Adreno 740'],
-    ['V2309A', 14, 'x100', 1260, 2800, 'Immortalis-G720'],
-    ['V2324A', 14, 'x100pro', 1260, 2800, 'Immortalis-G720'],
-    ['V2359A', 14, 'x100s', 1260, 2800, 'Immortalis-G720'],
-    ['V2324HA', 14, 'x100spro', 1260, 2800, 'Immortalis-G720'],
-    ['V2366GA', 14, 'x100ultra', 1440, 3200, 'Adreno 750'],
-    ['V2366HA', 14, 'x100ultra', 1440, 3200, 'Adreno 750'],
-    ['V2415A', 15, 'x200', 1260, 2800, 'Immortalis-G925'],
-    ['V2405A', 15, 'x200pro', 1260, 2800, 'Immortalis-G925'],
-    ['V2405DA', 15, 'x200pro', 1260, 2800, 'Immortalis-G925'],
-    ['V2419A', 15, 'x200promini', 1216, 2640, 'Immortalis-G925'],
-    ['V2454A', 15, 'x200ultra', 1440, 3168, 'Adreno 830'],
-    ['V2454DA', 15, 'x200ultra', 1440, 3168, 'Adreno 830'],
-    ['V2364A', 14, 's19', 1260, 2800, 'Adreno 720'],
-    ['V2362A', 14, 's19pro', 1260, 2800, 'Immortalis-G715'],
-    ['V2429A', 15, 's20', 1260, 2800, 'Adreno 720'],
-    ['V2430A', 15, 's20pro', 1260, 2800, 'Immortalis-G720'],
-];
+const VIVO_SPECS = require('../internal/config/android_device_specs.json').map(d =>
+    [d.model, d.android_version, d.product, d.width, d.height, d.gpu]);
 
 const ANDROID_FONTS = {
     _comment: 'Android font-name compatibility template; no Windows measured metrics. Widths use the simulator approximation.',
@@ -35,15 +16,21 @@ const ANDROID_FONTS = {
     familyAdvances: { default: 0.52, serif: 0.56, sans: 0.5, mono: 0.6 },
 };
 
-function localeSettings(anchor, spec = {}) {
+function localeSettings(anchor, spec = {}, at = new Date()) {
     const locale = String(anchor.locale || 'zh-CN');
     const locales = spec.locales || [];
     const loc = locales.find((l) => l.code === locale && l.tz === anchor.tz)
         || locales.find((l) => l.code === locale) || {};
     const langs = loc.langs || [...new Set([locale, locale.split('-')[0]])];
     const tzName = String(anchor.tz || loc.tz || 'Asia/Shanghai');
-    const tzOffset = Number(anchor.tz_offset ?? loc.tzOffset ?? -480);
-    new Intl.DateTimeFormat(locale, { timeZone: tzName }); // Fail on invalid locale/zone.
+    const formatter = new Intl.DateTimeFormat(locale, { timeZone: tzName, timeZoneName: 'longOffset' });
+    const label = formatter.formatToParts(at).find(p => p.type === 'timeZoneName').value;
+    const offset = /(?:GMT|UTC)(?:([+-])(\d{2}):(\d{2}))?$/.exec(label);
+    // A fixed English locale ensures localized GMT spellings cannot affect parsing.
+    const english = offset || /GMT(?:([+-])(\d{2}):(\d{2}))?$/.exec(new Intl.DateTimeFormat('en-US', { timeZone: tzName, timeZoneName: 'longOffset' }).formatToParts(at).find(p => p.type === 'timeZoneName').value);
+    if (!english) throw new Error('无法解析时区偏移: ' + tzName);
+    const currentOffset = english[1] ? (Number(english[2]) * 60 + Number(english[3])) * (english[1] === '+' ? -1 : 1) : 0;
+    const tzOffset = Number(anchor.tz_offset ?? currentOffset);
     if (!Number.isFinite(tzOffset) || Math.abs(tzOffset) > 840) throw new Error('非法 tz_offset');
     return { locale, lang: { code: locale, list: langs.slice() }, langs: langs.slice(),
         acceptLanguage: loc.acceptLanguage || langs.map((l, i) => l + (i ? ';q=' + Math.max(0.1, 1 - i / 10).toFixed(1) : '')).join(','), tzName, tzOffset };

@@ -87,7 +87,7 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 	exposeThinking := norm.Standard.Thinking
 	a, err := h.Auth.Determine(r)
 	if err != nil {
-		writeClaudeError(w, http.StatusUnauthorized, err.Error())
+		writeClaudeError(w, auth.RequestErrorStatus(err), err.Error())
 		return true
 	}
 	defer h.Auth.Release(a)

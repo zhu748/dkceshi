@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from 'react'
-import { createLatestRequest } from '../../utils/latestRequest.js'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createLatestRequest, createRequestGroup } from '../../utils/latestRequest.js'
 
 // useRealDeviceIds 管理 real 模式下绑定真实设备 id 的账号：拉取清单、按账号刷新、
 // 批量刷新。两个动作的区别只在设备档案：
@@ -27,6 +27,15 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
     // 搜索/翻页会并发发出请求；只有最新一次请求才允许提交状态，慢的旧响应
     // 后到时会覆盖新数据（与 useAccountsData 同一防护）。
     const realDeviceRequests = useRef(createLatestRequest()).current
+    const mutations = useRef(createRequestGroup()).current
+    const cancelRequests = useCallback(() => {
+        realDeviceRequests.cancel()
+        mutations.cancel()
+    }, [realDeviceRequests, mutations])
+    useEffect(() => cancelRequests, [cancelRequests])
+    const startMutation = key => mutations.has('bulk') ? null : mutations.start(key)
+    const currentPage = useRef(null)
+    currentPage.current = { page: realDevicePage, pageSize: realDevicePageSize, query: realDeviceQuery }
 
     // fetchRealDeviceIds 按页拉取。请求页超出范围时（清单被重置/解绑变短、
     // 搜索把结果筛少）自动回落到最后一页，避免停在空页上。
@@ -38,7 +47,7 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
                 let url = `/admin/device-ids/real?page=${page}&page_size=${targetPageSize}`
                 const q = String(targetQuery || '').trim()
                 if (q) url += `&q=${encodeURIComponent(q)}`
-                const res = await apiFetch(url)
+                const res = await apiFetch(url, { signal: request.signal })
                 if (!res.ok) {
                     // 5xx 静默失败会让列表一直停留在旧数据上；至少给出提示。
                     if (request.isCurrent()) {
@@ -49,13 +58,13 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
                 return await res.json()
             }
             let data = await load(targetPage)
-            if (!data) return
+            if (!data || !request.isCurrent()) return
             let page = targetPage
             const totalPages = Math.max(1, Number(data.total_pages) || 1)
             if (page > totalPages) {
                 page = totalPages
                 data = await load(page)
-                if (!data) return
+                if (!data || !request.isCurrent()) return
             }
             if (!request.isCurrent()) return
             setRealDeviceIdItems(Array.isArray(data.items) ? data.items : [])
@@ -66,9 +75,9 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
             setRealDeviceTotalAll(Number(data.total_all) || 0)
             setRealDeviceTotalPages(Math.max(1, Number(data.total_pages) || 1))
         } catch (e) {
-            console.error('Failed to fetch real device ids:', e)
+            if (request.isCurrent()) onMessage?.('error', t('messages.networkError'))
         } finally {
-            setLoadingRealDeviceIds(false)
+            if (request.isCurrent()) setLoadingRealDeviceIds(false)
         }
     }, [apiFetch, onMessage, t, realDevicePageSize, realDeviceQuery])
 
@@ -79,8 +88,12 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
     }, [fetchRealDeviceIds])
 
     const closeRealDeviceIds = useCallback(() => {
+        cancelRequests()
         setShowRealDeviceIds(false)
-    }, [])
+        setLoadingRealDeviceIds(false)
+        setBulkRefreshing('')
+        setRefreshingRealDeviceId({})
+    }, [cancelRequests])
 
     const changeRealDevicePageSize = useCallback((size) => {
         const next = Number(size) || 10
@@ -104,16 +117,20 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
 
     // afterRefresh 在任一次刷新成功后统一收口：列表（当前页与当前搜索）、账号、
     // 上层统计都要跟着变。
-    const afterRefresh = useCallback(async () => {
-        await fetchRealDeviceIds(realDevicePage, realDevicePageSize, realDeviceQuery)
+    const afterRefresh = useCallback(async (request) => {
+        const current = currentPage.current
+        await fetchRealDeviceIds(current.page, current.pageSize, current.query)
+        if (!request.isCurrent()) return
         await fetchAccounts?.()
-        onRefresh?.()
+        if (request.isCurrent()) onRefresh?.()
     }, [fetchAccounts, fetchRealDeviceIds, onRefresh, realDevicePage, realDevicePageSize, realDeviceQuery])
 
     const refreshRealDeviceId = useCallback(async (identifier, resetProfile) => {
         if (resetProfile && !confirm(t('accountManager.realDeviceIdResetConfirm', { account: identifier }))) {
             return
         }
+        const request = startMutation(identifier)
+        if (!request) return
         setRefreshingRealDeviceId(prev => ({ ...prev, [identifier]: true }))
         setBulkErrors(prev => {
             if (!prev[identifier]) return prev
@@ -123,11 +140,12 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
         })
         try {
             const res = await apiFetch('/admin/device-ids/real/refresh', {
-                method: 'POST',
+                method: 'POST', signal: request.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ identifier, reset_profile: Boolean(resetProfile) }),
             })
             const data = await res.json().catch(() => ({}))
+            if (!request.isCurrent()) return
             if (!res.ok) {
                 onMessage('error', data.detail || t('messages.requestFailed'))
                 return
@@ -138,11 +156,12 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
                     : 'accountManager.realDeviceIdRefreshSuccess',
                 { account: identifier },
             ))
-            await afterRefresh()
+            await afterRefresh(request)
         } catch (_err) {
-            onMessage('error', t('messages.networkError'))
+            if (request.isCurrent()) onMessage('error', t('messages.networkError'))
         } finally {
-            setRefreshingRealDeviceId(prev => ({ ...prev, [identifier]: false }))
+            if (request.isCurrent()) setRefreshingRealDeviceId(prev => ({ ...prev, [identifier]: false }))
+            request.finish()
         }
     }, [afterRefresh, apiFetch, onMessage, t])
 
@@ -150,15 +169,19 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
         if (resetProfile && !confirm(t('accountManager.realDeviceIdResetAllConfirm'))) {
             return
         }
+        if (mutations.size) return
+        const request = startMutation('bulk')
+        if (!request) return
         setBulkRefreshing(resetProfile ? 'reset' : 'refresh')
         setBulkErrors({})
         try {
             const res = await apiFetch('/admin/device-ids/real/refresh-all', {
-                method: 'POST',
+                method: 'POST', signal: request.signal,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ reset_profile: Boolean(resetProfile) }),
             })
             const data = await res.json().catch(() => ({}))
+            if (!request.isCurrent()) return
             if (!res.ok) {
                 onMessage('error', data.detail || t('messages.requestFailed'))
                 return
@@ -180,11 +203,12 @@ export function useRealDeviceIds({ apiFetch, t, onMessage, onRefresh, fetchAccou
                     { count: refreshed },
                 ))
             }
-            await afterRefresh()
+            await afterRefresh(request)
         } catch (_err) {
-            onMessage('error', t('messages.networkError'))
+            if (request.isCurrent()) onMessage('error', t('messages.networkError'))
         } finally {
-            setBulkRefreshing('')
+            if (request.isCurrent()) setBulkRefreshing('')
+            request.finish()
         }
     }, [afterRefresh, apiFetch, onMessage, t])
 

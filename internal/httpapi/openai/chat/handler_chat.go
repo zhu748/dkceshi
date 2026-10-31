@@ -58,11 +58,8 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	a, err := h.Auth.Determine(r)
 	if err != nil {
-		status := http.StatusUnauthorized
+		status := auth.RequestErrorStatus(err)
 		detail := err.Error()
-		if auth.IsNoIdleAccountError(err) {
-			status = http.StatusTooManyRequests
-		}
 		writeOpenAIError(w, status, detail)
 		return
 	}

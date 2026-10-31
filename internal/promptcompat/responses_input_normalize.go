@@ -164,10 +164,12 @@ func mergeResponsesAssistantToolCalls(prev any, next map[string]any) bool {
 	prevCalls, _ := prevMsg["tool_calls"].([]any)
 	nextCalls, _ := next["tool_calls"].([]any)
 	prevMsg["tool_calls"] = append(prevCalls, nextCalls...)
-	if strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(prevMsg["reasoning_content"])) == "" {
-		if reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(next["reasoning_content"])); reasoning != "" {
-			prevMsg["reasoning_content"] = reasoning
+	if reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(next["reasoning_content"])); reasoning != "" {
+		previous := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(prevMsg["reasoning_content"]))
+		if previous != "" {
+			reasoning = previous + "\n" + reasoning
 		}
+		prevMsg["reasoning_content"] = reasoning
 	}
 	return true
 }

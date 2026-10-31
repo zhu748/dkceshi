@@ -312,6 +312,7 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
                 show={showRealDeviceIds}
                 t={t}
                 items={realDeviceIdItems}
+				sdkStatus={queueStatus?.device_id_sdk}
                 loading={loadingRealDeviceIds}
                 page={realDevicePage}
                 pageSize={realDevicePageSize}

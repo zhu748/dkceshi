@@ -185,7 +185,7 @@ func (s *Store) RuntimeTokenRefreshIntervalHours() int {
 
 // RuntimeDeviceIDMode 返回全局设备 ID 模式（manual/auto，默认 manual）。
 // Vercel 部署强制 manual：serverless 文件系统只读（仅 /tmp 可写）且实例随用随弃，
-// 设备档案（data/device_profiles）与数美接入配置均无法持久化，每次冷启动重新
+// 设备档案（SDK 状态目录中的 profiles）与数美接入配置均无法持久化，每次冷启动重新
 // 生成都会得到新的 device_id/设备指纹，频繁变更反而放大风控暴露，故 auto 不可用。
 func (s *Store) RuntimeDeviceIDMode() string {
 	if IsVercel() {

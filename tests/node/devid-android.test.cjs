@@ -6,8 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
+const vm = require('node:vm');
 const { adaptBrowserEnv, VERSION } = require('../../scripts/devid-android-env.cjs');
-const { VIVO_SPECS, mobileHardware } = require('../../scripts/devid-android-profile.cjs');
+const { VIVO_SPECS, mobileHardware, localeSettings } = require('../../scripts/devid-android-profile.cjs');
 const { selectAnchoredArchive } = require('../../scripts/devid-generate.cjs');
 
 const root = path.resolve(__dirname, '../..');
@@ -71,6 +72,17 @@ test('unknown legacy source is rejected instead of patching ambiguous text', () 
     assert.throws(() => adaptBrowserEnv('var profile = {};'), /未知/);
 });
 
+test('clock probes accept integer precision but reject invalid clock values', () => {
+    const source = '/* ds2api Android Web SDK adapter v1 */\n' +
+        `var checks = [['timeOrigin 是浮点', 'performance.timeOrigin % 1 !== 0', true], ['performance.now 亚毫秒', 'performance.now() % 1 !== 0', true]];`;
+    const adapted = adaptBrowserEnv(source);
+    assert.equal(adaptBrowserEnv(adapted), adapted);
+    const run = (timeOrigin, now) => vm.runInNewContext(adapted + '; checks.map(check => eval(check[1]));', { performance: { timeOrigin, now: () => now } });
+    assert.ok(run(1793455200000, 10).every(Boolean));
+    assert.ok(run(1793455200000.5, 10.5).every(Boolean));
+    assert.ok(run(NaN, -1).every(value => value === false));
+});
+
 test('supplied SDK environment passes real VM checks across model/GPU families and locales', { skip: !fs.existsSync(path.join(assets, 'browser_env.js')), timeout: 30000 }, () => {
     const source = fs.readFileSync(path.join(assets, 'browser_env.js'), 'utf8');
     const adapted = adaptBrowserEnv(source);
@@ -93,4 +105,23 @@ test('supplied SDK environment passes real VM checks across model/GPU families a
     } finally {
         fs.rmSync(directory, { recursive: true });
     }
+});
+
+
+test('locale offsets follow IANA daylight saving rules without a fixed override', () => {
+    const a = { locale: 'en-US', tz: 'America/New_York' };
+    assert.equal(localeSettings(a, {}, new Date('2026-01-15T12:00:00Z')).tzOffset, 300);
+    assert.equal(localeSettings(a, {}, new Date('2026-07-15T12:00:00Z')).tzOffset, 240);
+    assert.equal(localeSettings({ ...a, tz_offset: 300 }, {}, new Date('2026-07-15T12:00:00Z')).tzOffset, 300);
+});
+
+test('hardware calibration overrides replace reused profile values and stale smid', () => {
+    const first = fresh();
+    first.profile.smidV2 = 'embedded-stale-id';
+    const next = selectAnchoredArchive({ ...first, smidV2: 'stale-id' }, { ...anchor, screen: [400, 900, 2.5], gpu: { vendor: 'ARM', renderer: 'Calibrated GPU' } }, {}, {}, 999);
+    assert.deepEqual([next.profile.screenW, next.profile.screenH, next.profile.dpr], [400, 900, 2.5]);
+    assert.equal(next.profile.gpu.renderer, 'Calibrated GPU');
+    assert.equal(next.smidV2, '');
+    assert.equal(next.profile.smidV2, undefined);
+    assert.equal(next.profile.canvasSeed, first.profile.canvasSeed);
 });

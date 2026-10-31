@@ -29,20 +29,20 @@ func closeTransportConn(conn net.Conn) {
 
 type orderedResponseBody struct {
 	io.ReadCloser
-	cleanup func()
+	cleanup func(bool)
 	once    sync.Once
 }
 
 func (b *orderedResponseBody) Read(p []byte) (int, error) {
 	n, err := b.ReadCloser.Read(p)
 	if err != nil {
-		b.once.Do(b.cleanup)
+		b.once.Do(func() { b.cleanup(err == io.EOF) })
 	}
 	return n, err
 }
 
 func (b *orderedResponseBody) Close() error {
 	err := b.ReadCloser.Close()
-	b.once.Do(b.cleanup)
+	b.once.Do(func() { b.cleanup(false) })
 	return err
 }

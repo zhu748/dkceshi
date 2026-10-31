@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/util"
 	"strings"
 )
 
@@ -219,8 +220,8 @@ func formatGeminiUnknownPartForPrompt(part map[string]any) string {
 	if raw == "" {
 		return ""
 	}
-	if len(raw) > maxGeminiRawPromptChars {
-		return raw[:maxGeminiRawPromptChars] + "...(truncated)"
+	if shortened, truncated := util.TruncateUTF8Bytes(raw, maxGeminiRawPromptChars); truncated {
+		return shortened + "...(truncated)"
 	}
 	return raw
 }
@@ -269,8 +270,8 @@ func sanitizeGeminiStringForPrompt(key, value string) string {
 	if looksLikeGeminiBinaryField(key) || looksLikeGeminiBase64(trimmed) {
 		return "[omitted_binary_payload]"
 	}
-	if len(trimmed) > maxGeminiRawPromptChars {
-		return trimmed[:maxGeminiRawPromptChars] + "...(truncated)"
+	if shortened, truncated := util.TruncateUTF8Bytes(trimmed, maxGeminiRawPromptChars); truncated {
+		return shortened + "...(truncated)"
 	}
 	return trimmed
 }

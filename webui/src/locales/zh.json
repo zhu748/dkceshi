@@ -333,7 +333,8 @@
       "photo_compress_ratio": "相册压缩质量（0–1，留空保留原图）",
       "picture_compress_format": "压缩格式（webp 或 jpg，默认 webp）",
       "rangers_id": "Rangers ID（可选）"
-    }
+    },
+    "sdkUnavailable": "SDK 尚未就绪：{reason}"
   },
   "proxyManager": {
     "title": "代理 IP",

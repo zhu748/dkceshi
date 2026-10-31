@@ -1,0 +1,15 @@
+# Apply with: docker compose -f docker-compose.yml -f docker-compose.sdk.yml up -d --build
+services:
+  ds2api:
+    build:
+      context: .
+      target: runtime-with-sdk
+    image: ds2api-sdk:local
+    environment:
+      DS2API_DEVID_DIR: /opt/devid-assets
+      DS2API_DEVID_STATE_DIR: /data/devid-state
+    volumes:
+      - ./data/devid:/opt/devid-assets:ro
+      - devid_state:/data/devid-state
+volumes:
+  devid_state:

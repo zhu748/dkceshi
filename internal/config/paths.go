@@ -77,9 +77,17 @@ func UsageStatsPath() string {
 }
 
 // DevidDir 返回数美 device_id 扩展包目录：SDK、浏览器环境模拟、画像目录、
-// SDK 补丁与解密校验配方都放在这里，仓库只保留加载代码（见 internal/devid/assets.go）。
+// SDK 补丁与解密校验配方都放在这里，仓库只保留加载代码（见 internal/devid）。
 func DevidDir() string {
 	return ResolvePath("DS2API_DEVID_DIR", "data/devid")
+}
+
+// DevidStateDir can separate mutable archives from read-only SDK assets.
+func DevidStateDir() string {
+	if strings.TrimSpace(os.Getenv("DS2API_DEVID_STATE_DIR")) != "" {
+		return ResolvePath("DS2API_DEVID_STATE_DIR", "data/devid")
+	}
+	return DevidDir()
 }
 
 // DevidPublicKeyPath 返回数美公钥文件路径（data/devid/public_key，纯文本）。
@@ -110,7 +118,7 @@ func AccountDailyLimitPath() string {
 
 // DeviceProfilePath 返回账号设备档案的完整路径。
 func DeviceProfilePath(identifier string) string {
-	return DeviceProfileDir() + string(os.PathSeparator) + SanitizeFilename(identifier) + ".json"
+	return filepath.Join(DeviceProfileDir(), AccountStorageKey(identifier)+".json")
 }
 
 // SanitizeFilename 把账号标识转成安全的文件名片段。

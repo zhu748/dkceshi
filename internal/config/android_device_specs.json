@@ -1,0 +1,173 @@
+[
+  {
+    "model": "V2241A",
+    "android_version": 13,
+    "api_level": "33",
+    "product": "x90",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G715"
+  },
+  {
+    "model": "V2242A",
+    "android_version": 13,
+    "api_level": "33",
+    "product": "x90pro",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G715"
+  },
+  {
+    "model": "V2227A",
+    "android_version": 13,
+    "api_level": "33",
+    "product": "x90proplus",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 740"
+  },
+  {
+    "model": "V2309A",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "x100",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G720"
+  },
+  {
+    "model": "V2324A",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "x100pro",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G720"
+  },
+  {
+    "model": "V2359A",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "x100s",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G720"
+  },
+  {
+    "model": "V2324HA",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "x100spro",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G720"
+  },
+  {
+    "model": "V2366GA",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "x100ultra",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 750"
+  },
+  {
+    "model": "V2366HA",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "x100ultra",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 750"
+  },
+  {
+    "model": "V2415A",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "x200",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G925"
+  },
+  {
+    "model": "V2405A",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "x200pro",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G925"
+  },
+  {
+    "model": "V2405DA",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "x200pro",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G925"
+  },
+  {
+    "model": "V2419A",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "x200promini",
+    "width": 1216,
+    "height": 2640,
+    "gpu": "Immortalis-G925"
+  },
+  {
+    "model": "V2454A",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "x200ultra",
+    "width": 1440,
+    "height": 3168,
+    "gpu": "Adreno 830"
+  },
+  {
+    "model": "V2454DA",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "x200ultra",
+    "width": 1440,
+    "height": 3168,
+    "gpu": "Adreno 830"
+  },
+  {
+    "model": "V2364A",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "s19",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Adreno 720"
+  },
+  {
+    "model": "V2362A",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "s19pro",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G715"
+  },
+  {
+    "model": "V2429A",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "s20",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Adreno 720"
+  },
+  {
+    "model": "V2430A",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "s20pro",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G720"
+  }
+]

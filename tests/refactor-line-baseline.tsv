@@ -8,16 +8,15 @@ internal/completionruntime/nonstream.go	563
 internal/config/codec.go	321
 internal/config/config.go	351
 internal/config/models.go	384
-internal/config/store.go	454
+internal/config/store.go	386
 internal/config/store_accessors.go	389
 internal/contextfile/current_input_file.go	312
 internal/deepseek/client/client_auth.go	424
 internal/deepseek/client/client_continue.go	360
 internal/deepseek/client/client_file_status.go	324
-internal/deepseek/client/client_tts.go	601
 internal/deepseek/client/client_upload.go	423
 internal/deepseek/transport/ws.go	433
-internal/httpapi/admin/accounts/handler_accounts_crud.go	554
+internal/httpapi/admin/accounts/handler_accounts_crud.go	429
 internal/httpapi/admin/accounts/handler_accounts_testing.go	331
 internal/httpapi/admin/configmgmt/handler_config_import.go	321
 internal/httpapi/admin/rawsamples/handler_raw_samples.go	553
@@ -65,7 +64,6 @@ internal/toolcall/toolcalls_scan.go	676
 internal/toolstream/tool_sieve_core.go	403
 internal/usagestats/store.go	664
 internal/webui/handler.go	468
-scripts/devid-generate.cjs	525
 start.mjs	569
 webui/src/features/account/AccountsTable.jsx	519
 webui/src/features/usage/TokenUsageContainer.jsx	609
