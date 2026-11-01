@@ -1,8 +1,9 @@
 package toolcall
 
 type ParsedToolCall struct {
-	Name  string         `json:"name"`
-	Input map[string]any `json:"input"`
+	Name           string            `json:"name"`
+	Input          map[string]any    `json:"input"`
+	StringLiterals map[string]string `json:"-"`
 }
 
 type ToolCallParseResult struct {

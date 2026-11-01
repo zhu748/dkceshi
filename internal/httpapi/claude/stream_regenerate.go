@@ -33,14 +33,14 @@ func (s *claudeStreamRuntime) failRetry(status int, message, code string) {
 	s.sendErrorWithCode(status, message, code)
 }
 
-// resetContentPolicy starts a new upstream round. The cut rules belong to one
-// upstream stream, so a rule that fired on the attempt that just ended must not
-// keep discarding the next attempt's text: an empty-output retry (or a retry on
-// another account) reads a fresh upstream response, and its content is what the
-// client is waiting for. Everything else the runtime holds is left alone.
+// resetContentPolicy starts a replacement generation; continuations retain it.
 func (s *claudeStreamRuntime) resetContentPolicy() {
 	if s == nil {
 		return
 	}
 	s.policy = sse.ContentPolicy{Prompt: s.promptTokenText}
+}
+
+func (s *claudeStreamRuntime) allowOutput(n int) bool {
+	return s.policy.AllowOutputSize(s.rawText.Len() + s.rawThinking.Len() + s.toolDetectionThinking.Len() + n)
 }

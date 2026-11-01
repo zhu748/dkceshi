@@ -548,6 +548,8 @@
     "responsesMaxEntries": "Responses 缓存条目上限",
     "responsesMaxBytes": "Responses 缓存容量上限（MiB）",
     "responsesCallerEntries": "每个调用者的 Responses 条目上限",
+    "requireToolCatalog": "要求声明工具目录",
+    "requireToolCatalogHelp": "未提供正式 tools 目录时拒绝工具调用。默认关闭，以兼容省略目录的 Agent 续轮；显式空 tools 数组始终禁止调用。",
     "toolSafetyTitle": "工具调用安全",
     "allowReasoningProse": "允许从带说明文字的思考中恢复工具调用",
     "allowReasoningProseHelp": "默认关闭，仅恢复纯工具格式的思考。仅在客户端需要旧版混合文本恢复行为时开启。",

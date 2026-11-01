@@ -198,6 +198,8 @@ type StreamSnapshot struct {
 
 func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	result.Text, result.Cut = rejectPromptEcho(result.Text, opts.Prompt, result.Cut)
+	result.Thinking, result.Cut = rejectReasoningEcho(result.Thinking, opts.Prompt, result.Cut)
+	result.ToolDetectionThinking, result.Cut = rejectReasoningEcho(result.ToolDetectionThinking, opts.Prompt, result.Cut)
 	result.Text = toolcall.NormalizeMarkerText(result.Text, opts.ToolMarker)
 	result.Thinking = toolcall.NormalizeMarkerText(result.Thinking, opts.ToolMarker)
 	result.ToolDetectionThinking = toolcall.NormalizeMarkerText(result.ToolDetectionThinking, opts.ToolMarker)
@@ -207,7 +209,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	// the model's invented tool result and the monologue after it are never
 	// delivered as reply text.
 	result.Text, _ = sse.TrimToolRoleMarker(result.Text)
-	thinking := textclean.CleanVisibleOutput(toolstream.FilterVisible(result.Thinking, opts.ToolMarker), opts.StripReferenceMarkers)
+	thinking := textclean.CleanVisibleOutput(toolstream.FilterVisible(result.Thinking, opts.ToolMarker, opts.Prompt), opts.StripReferenceMarkers)
 	text := textclean.CleanVisibleOutput(result.Text, opts.StripReferenceMarkers)
 	text = toolcall.StripDSMLResidue(text)
 	if opts.SearchEnabled {
@@ -257,7 +259,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	turn.Usage = buildTurnUsage(opts, turn)
 	turn.Error = validateToolOutput(turn, opts, repairCompleted)
 	if result.ReadError != nil {
-		turn.Error = &OutputError{Status: http.StatusBadGateway, Code: "upstream_read_error", Message: "Upstream stream read failed: " + result.ReadError.Error()}
+		turn.Error = readOutputError(result.ReadError)
 	}
 	if turn.Error != nil {
 		turn.StopReason = StopReasonError
@@ -267,6 +269,8 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 
 func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Turn {
 	snapshot.RawText, snapshot.ContentCut = rejectPromptEcho(snapshot.RawText, opts.Prompt, snapshot.ContentCut)
+	snapshot.RawThinking, snapshot.ContentCut = rejectReasoningEcho(snapshot.RawThinking, opts.Prompt, snapshot.ContentCut)
+	snapshot.DetectionThinking, snapshot.ContentCut = rejectReasoningEcho(snapshot.DetectionThinking, opts.Prompt, snapshot.ContentCut)
 	snapshot.VisibleText, snapshot.ContentCut = rejectPromptEcho(snapshot.VisibleText, opts.Prompt, snapshot.ContentCut)
 	snapshot.RawText = toolcall.NormalizeMarkerText(snapshot.RawText, opts.ToolMarker)
 	snapshot.RawThinking = toolcall.NormalizeMarkerText(snapshot.RawThinking, opts.ToolMarker)
@@ -278,7 +282,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	// after it can reach the reply text or the finalize tool detection.
 	snapshot.RawText, _ = sse.TrimToolRoleMarker(snapshot.RawText)
 	snapshot.VisibleText, _ = sse.TrimToolRoleMarker(snapshot.VisibleText)
-	thinking := textclean.CleanVisibleOutput(toolstream.FilterVisible(snapshot.VisibleThinking, opts.ToolMarker), opts.StripReferenceMarkers)
+	thinking := textclean.CleanVisibleOutput(toolstream.FilterVisible(snapshot.VisibleThinking, opts.ToolMarker, opts.Prompt), opts.StripReferenceMarkers)
 	text := textclean.CleanVisibleOutput(snapshot.VisibleText, opts.StripReferenceMarkers)
 	text = toolcall.StripDSMLResidue(text)
 	if opts.SearchEnabled {

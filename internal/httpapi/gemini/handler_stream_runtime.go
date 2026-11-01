@@ -190,14 +190,8 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 
 func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Response, runtime *geminiStreamRuntime, thinkingEnabled bool, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 	defer func() { _ = resp.Body.Close() }()
-	// A new attempt reads a new upstream response, so the content rules start
-	// over: a cut that ended the previous attempt (an empty-output retry, or a
-	// retry on another account) must not keep discarding this one's text.
-	runtime.accumulator.ResetContentPolicy()
-	initialType := "text"
-	if thinkingEnabled {
-		initialType = "thinking"
-	}
+	// Resume keeps delimiter and literal state; regeneration resets it explicitly.
+	initialType := runtime.accumulator.InitialType()
 	var scannerErr error
 	var stopReason streamengine.StopReason
 	streamengine.ConsumeSSE(streamengine.ConsumeConfig{

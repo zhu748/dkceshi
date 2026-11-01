@@ -33,7 +33,7 @@ function estimateTokens(text) {
   }
   let asciiChars = 0;
   let nonASCIIChars = 0;
-  for (const ch of Array.from(t)) {
+  for (const ch of t) {
     if (ch.charCodeAt(0) < 128) {
       asciiChars += 1;
     } else {

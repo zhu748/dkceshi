@@ -1,5 +1,6 @@
 'use strict';
 
+const { streamLimit } = require('../chat-stream/stream_limits');
 const http2 = require('node:http2');
 const { Readable } = require('node:stream');
 const zlib = require('node:zlib');
@@ -55,9 +56,11 @@ function fetchAppStream(url, init = {}) {
     let resolved = false;
     let failed = false;
     let cleaned = false;
+    let handshakeTimer;
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
+      clearTimeout(handshakeTimer);
       init.signal?.removeEventListener('abort', abort);
       if (stream && !stream.destroyed) stream.destroy();
       session.destroy();
@@ -72,6 +75,7 @@ function fetchAppStream(url, init = {}) {
       if (stream && stream !== body && !stream.destroyed) stream.destroy(error);
       cleanup();
     };
+    handshakeTimer = setTimeout(() => fail(new Error('Upstream connection or response headers timed out.')), streamLimit('connect_timeout_ms'));
     const abort = () => fail(init.signal.reason || new DOMException('Aborted', 'AbortError'));
     init.signal?.addEventListener('abort', abort, { once: true });
     session.once('error', fail);
@@ -91,6 +95,7 @@ function fetchAppStream(url, init = {}) {
           if (!resolved || !stream.readableEnded) fail(new Error('HTTP/2 stream closed before response completed'));
         });
         stream.once('response', (raw) => {
+          clearTimeout(handshakeTimer);
           const headers = new Headers();
           for (const [key, value] of Object.entries(raw)) {
             if (!key.startsWith(':') && value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : String(value));

@@ -118,6 +118,9 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 	if !parsed.Parsed {
 		return streamengine.ParsedDecision{}
 	}
+	if parsed.OutputLimit {
+		s.policy.RejectOutputLimit()
+	}
 	if parsed.ErrorMessage != "" {
 		s.upstreamErr = parsed.ErrorMessage
 		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReason("upstream_error")}
@@ -143,6 +146,9 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 	for _, p := range parsed.ToolDetectionThinkingParts {
 		trimmed := sse.ContentPartDelta(&s.toolDetectionThinking, p)
 		if trimmed != "" {
+			if !s.allowOutput(len(trimmed)) {
+				break
+			}
 			s.toolDetectionThinking.WriteString(trimmed)
 			contentSeen = true
 		}
@@ -154,7 +160,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		} else {
 			rawTrimmed = sse.ContentPartDelta(&s.rawText, p)
 		}
-		if rawTrimmed == "" {
+		if rawTrimmed == "" || !s.allowOutput(len(rawTrimmed)) {
 			continue
 		}
 		if p.Type == "thinking" {
@@ -175,6 +181,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		contentSeen = true
 		if p.Type == "thinking" {
 			if s.thinkingEnabled {
+				s.thinkingGuard.Prompt = s.promptTokenText
 				s.thinkingGuard.Marker = s.sieve.Marker
 				s.thinkingGuard.StripReferenceMarkers = s.stripReferenceMarkers
 				s.emitThinking(s.thinkingGuard.Write(rawTrimmed))

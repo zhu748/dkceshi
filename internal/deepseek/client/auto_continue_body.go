@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"ds2api/internal/config"
+	"ds2api/internal/streambudget"
 )
 
 type autoContinueBody struct {
@@ -27,7 +28,7 @@ func newAutoContinueBody(ctx context.Context, initial io.ReadCloser, sessionID s
 		ctx = context.Background()
 	}
 	if maxRounds <= 0 {
-		maxRounds = defaultAutoContinueLimit
+		maxRounds = streambudget.Value("auto_continue_max_rounds")
 	}
 	pumpCtx, cancel := context.WithCancel(ctx)
 	pr, pw := io.Pipe()

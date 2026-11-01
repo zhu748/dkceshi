@@ -14,6 +14,11 @@ func normalizeCompiledToolValue(value any, schema *jsonschema.Schema, depth int)
 	if value == nil || schema == nil || depth >= 128 {
 		return value, false
 	}
+	if text, ok := value.(string); ok && !schemaExpectsString(schema, 0) && schema.Validate(text) != nil {
+		if parsed, ok := parseJSONLiteralValue(text); ok && schema.Validate(parsed) == nil {
+			return parsed, true
+		}
+	}
 	changed := false
 	apply := func(child *jsonschema.Schema) {
 		next, didChange := normalizeCompiledToolValue(value, child, depth+1)

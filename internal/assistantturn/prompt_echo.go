@@ -19,3 +19,11 @@ func discardEchoTools(turn *Turn) {
 		turn.ParsedToolCalls.Calls = nil
 	}
 }
+
+// A body echo must not discard safe reasoning already delivered.
+func rejectReasoningEcho(text, prompt string, cut sse.CutReason) (string, sse.CutReason) {
+	if sse.IsPromptEcho(text, prompt) {
+		return "", sse.CutPromptEcho
+	}
+	return text, cut
+}

@@ -10,9 +10,12 @@ function createChatCompletionEmitter({ res, sessionID, created, model, isClosed 
     if (isClosed() || res.writableEnded || res.destroyed) {
       return;
     }
-    res.write(`data: ${JSON.stringify(obj)}\n\n`);
-    if (typeof res.flush === 'function') {
-      res.flush();
+    try {
+      res.write(`data: ${JSON.stringify(obj)}\n\n`);
+      if (typeof res.flush === 'function') res.flush();
+    } catch (error) {
+      console.warn('[stream_emitter] write failed', error.message);
+      res.destroy?.(error);
     }
   };
 

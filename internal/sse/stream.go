@@ -3,6 +3,7 @@ package sse
 import (
 	"bufio"
 	"context"
+	"ds2api/internal/streambudget"
 	"io"
 	"strings"
 	"time"
@@ -43,8 +44,14 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 		scanDone := make(chan error, 1)
 
 		go func() {
+			remaining := streambudget.Value("max_output_bytes")
+			maxLine := streambudget.Value("max_line_bytes")
 			for {
-				line, err := reader.ReadBytes('\n')
+				line, err := streambudget.ReadLine(reader, maxLine)
+				if len(line) > remaining {
+					line, err = nil, streambudget.ErrLimit
+				}
+				remaining -= len(line)
 				if len(line) > 0 {
 					select {
 					// ReadBytes already returns an owned slice, unlike ReadSlice.

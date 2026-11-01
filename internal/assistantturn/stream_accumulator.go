@@ -50,9 +50,15 @@ type StreamAccumulatorResult struct {
 
 func (a *StreamAccumulator) Apply(parsed sse.LineResult) StreamAccumulatorResult {
 	out := StreamAccumulatorResult{}
+	if parsed.OutputLimit {
+		a.policy.RejectOutputLimit()
+	}
 	for _, p := range parsed.ToolDetectionThinkingParts {
 		trimmed := sse.ContentPartDelta(&a.ToolDetectionThinking, p)
 		if trimmed != "" {
+			if !a.allowOutput(len(trimmed)) {
+				break
+			}
 			a.ToolDetectionThinking.WriteString(trimmed)
 			// Tool-detection thinking is real upstream activity even when the
 			// caller disabled visible reasoning; without this, a long silent
@@ -106,16 +112,8 @@ func (a *StreamAccumulator) Cut() sse.CutReason {
 	return a.policy.Cut()
 }
 
-// ResetContentPolicy starts a new upstream round. The cut rules belong to one
-// upstream stream, so a rule that fired on the attempt that just ended must not
-// keep discarding the next attempt's text: an empty-output retry (or a retry on
-// another account) reads a fresh upstream response, and its content is what the
-// client is waiting for. The accumulated text and every other field are left
-// alone — only the detection state is cleared.
-//
-// Every surface calls this at the start of an attempt, i.e. in its
-// consume*StreamAttempt, because that is the boundary where a new upstream
-// response begins.
+// ResetContentPolicy starts a replacement generation. Resuming the same
+// message must retain pending delimiters and CDATA/Markdown state.
 func (a *StreamAccumulator) ResetContentPolicy() {
 	if a == nil {
 		return
@@ -136,6 +134,9 @@ func (a *StreamAccumulator) HasPartialOutput() bool {
 
 func (a *StreamAccumulator) applyThinkingPart(text string) StreamPartDelta {
 	rawTrimmed := text
+	if !a.allowOutput(len(rawTrimmed)) {
+		return StreamPartDelta{Type: "thinking"}
+	}
 	if rawTrimmed != "" {
 		a.RawThinking.WriteString(rawTrimmed)
 	}
@@ -143,6 +144,7 @@ func (a *StreamAccumulator) applyThinkingPart(text string) StreamPartDelta {
 	if !a.ThinkingEnabled || rawTrimmed == "" {
 		return delta
 	}
+	a.thinkingGuard.Prompt = a.Prompt
 	a.thinkingGuard.Marker = a.ToolMarker
 	a.thinkingGuard.StripReferenceMarkers = a.StripReferenceMarkers
 	return a.appendVisibleThinkingDelta(delta, a.thinkingGuard.Write(rawTrimmed))
@@ -182,6 +184,9 @@ func (a *StreamAccumulator) applyTextPart(text string) StreamPartDelta {
 	// a repetition loop means the rest of the stream is degenerate. Either way
 	// the text produced before the cut is kept and the rest is dropped.
 	a.policy.Prompt = a.Prompt
+	if !a.allowOutput(len(rawTrimmed)) {
+		return StreamPartDelta{Type: "text"}
+	}
 	rawTrimmed = a.policy.Feed(rawTrimmed)
 	return a.appendTextPart(rawTrimmed)
 }
@@ -202,4 +207,8 @@ func (a *StreamAccumulator) appendTextPart(rawTrimmed string) StreamPartDelta {
 	a.Text.WriteString(trimmed)
 	delta.VisibleText = trimmed
 	return delta
+}
+
+func (a *StreamAccumulator) allowOutput(n int) bool {
+	return a.policy.AllowOutputSize(a.RawText.Len() + a.RawThinking.Len() + a.ToolDetectionThinking.Len() + n)
 }

@@ -112,10 +112,7 @@ func (h *Handler) prepareResponsesStreamRuntime(w http.ResponseWriter, resp *htt
 
 func (h *Handler) consumeResponsesStreamAttempt(r *http.Request, resp *http.Response, streamRuntime *responsesStreamRuntime, initialType string, thinkingEnabled bool, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 	defer func() { _ = resp.Body.Close() }()
-	// A new attempt reads a new upstream response, so the content rules start
-	// over: a cut that ended the previous attempt (an empty-output retry, or a
-	// retry on another account) must not keep discarding this one's text.
-	streamRuntime.accumulator.ResetContentPolicy()
+	// Resume keeps delimiter and literal state; regeneration resets it explicitly.
 	streamRuntime.upstreamErr = ""
 	// On a continue/resume (or retry) round the stream has already consumed
 	// part of the message. Never blindly re-seed the segment cursor to

@@ -1,4 +1,5 @@
 'use strict';
+const { streamLimit } = require('./stream_limits');
 
 const {
   writeOpenAIError,
@@ -38,6 +39,7 @@ async function requestStreamControl(req, flag, body) {
     method: 'POST',
     headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),
     body,
+    signal: AbortSignal.timeout(streamLimit(flag === '__stream_pow' ? 'connect_timeout_ms' : 'max_duration_ms')),
   });
   const text = await upstream.text();
   let decoded = {};

@@ -242,5 +242,44 @@
     "visible": "before\n~~~xml\n</think>\n~~~\nafterend",
     "calls": [],
     "invalid": false
+  },
+  {
+    "name": "canonical compact CDATA example",
+    "marker": "",
+    "raw": "```xml\n<tool_calls><invoke name=\"read\"><parameter name=\"path\"><![CDATA[a.txt]]></parameter></invoke></tool_calls>\n```",
+    "visible": "```xml\n<tool_calls><invoke name=\"read\"><parameter name=\"path\"><![CDATA[a.txt]]></parameter></invoke></tool_calls>\n```",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "canonical multiline CDATA example",
+    "marker": "",
+    "raw": "~~~xml\n<tool_calls>\n<invoke name=\"read\">\n<parameter name=\"path\">\n<![CDATA[a.txt]]>\n</parameter>\n</invoke>\n</tool_calls>\n~~~",
+    "visible": "~~~xml\n<tool_calls>\n<invoke name=\"read\">\n<parameter name=\"path\">\n<![CDATA[a.txt]]>\n</parameter>\n</invoke>\n</tool_calls>\n~~~",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "unclosed canonical CDATA example",
+    "marker": "",
+    "raw": "```xml\n<tool_calls><invoke name=\"read\"><parameter name=\"path\"><![CDATA[a.txt]]></parameter></invoke></tool_calls>",
+    "visible": "```xml\n<tool_calls><invoke name=\"read\"><parameter name=\"path\"><![CDATA[a.txt]]></parameter></invoke></tool_calls>",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "literal JSON-looking CDATA string",
+    "marker": "",
+    "raw": "<tool_calls><invoke name=\"read\"><parameter name=\"content\"><![CDATA[\"quoted text\"]]></parameter></invoke></tool_calls>",
+    "visible": "",
+    "calls": [
+      {
+        "name": "read",
+        "input": {
+          "content": "\"quoted text\""
+        }
+      }
+    ],
+    "invalid": false
   }
 ]

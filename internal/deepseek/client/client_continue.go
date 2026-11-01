@@ -15,9 +15,8 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/streambudget"
 )
-
-const defaultAutoContinueLimit = 8
 
 type continueOpenFunc func(context.Context, string, int) (*http.Response, error)
 
@@ -50,7 +49,7 @@ func (c *Client) wrapCompletionWithAutoContinue(ctx context.Context, a *auth.Req
 		return resp
 	}
 	config.Logger.Debug("[auto_continue] wrapping completion response", "session_id", sessionID)
-	resp.Body = newAutoContinueBody(ctx, resp.Body, sessionID, defaultAutoContinueLimit, func(ctx context.Context, sessionID string, responseMessageID int) (*http.Response, error) {
+	resp.Body = newAutoContinueBody(ctx, resp.Body, sessionID, streambudget.Value("auto_continue_max_rounds"), func(ctx context.Context, sessionID string, responseMessageID int) (*http.Response, error) {
 		return c.callContinue(ctx, a, sessionID, responseMessageID, powResp)
 	})
 	return resp
@@ -65,7 +64,6 @@ func (c *Client) ContinueCompletion(ctx context.Context, a *auth.RequestAuth, se
 	return c.callContinue(ctx, a, sessionID, responseMessageID, powResp)
 }
 
-// callContinue sends a continue request to DeepSeek to resume generation.
 func (c *Client) callContinue(ctx context.Context, a *auth.RequestAuth, sessionID string, responseMessageID int, powResp string) (*http.Response, error) {
 	if strings.TrimSpace(sessionID) == "" || responseMessageID <= 0 {
 		return nil, errors.New("missing continue identifiers")
@@ -155,13 +153,14 @@ var (
 func streamBodyWithContinueState(ctx context.Context, pw *io.PipeWriter, body io.Reader, state *continueState) (bool, error) {
 	reader := bufio.NewReaderSize(body, 64*1024)
 	hadDone := false
+	maxLine := streambudget.Value("max_line_bytes")
 	for {
 		select {
 		case <-ctx.Done():
 			return hadDone, ctx.Err()
 		default:
 		}
-		line, err := reader.ReadBytes('\n')
+		line, err := streambudget.ReadLine(reader, maxLine)
 		if len(line) == 0 && err != nil {
 			if err == io.EOF {
 				return hadDone, nil

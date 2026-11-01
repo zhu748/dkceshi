@@ -126,7 +126,7 @@ func DefaultToolChoicePolicy() ToolChoicePolicy {
 }
 
 func (p ToolChoicePolicy) IsNone() bool {
-	return p.Mode == ToolChoiceNone
+	return p.Mode == ToolChoiceNone || p.RestrictAllowed && len(p.Allowed) == 0
 }
 
 func (p ToolChoicePolicy) IsRequired() bool {
@@ -135,7 +135,7 @@ func (p ToolChoicePolicy) IsRequired() bool {
 
 func (p ToolChoicePolicy) Allows(name string) bool {
 	if len(p.Allowed) == 0 {
-		return true
+		return !p.RestrictAllowed
 	}
 	_, ok := p.Allowed[name]
 	return ok

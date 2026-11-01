@@ -16,7 +16,7 @@ func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Respons
 			config.Logger.Warn("[claude_stream] close response failed", "error", err)
 		}
 	}()
-	s.resetContentPolicy()
+	// Regeneration resets policy; a continuation retains its literal state.
 	s.upstreamErr = ""
 	initialType := "text"
 	if thinkingEnabled && s.rawText.Len() == 0 {

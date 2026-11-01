@@ -163,7 +163,7 @@ function toolChoiceViolation(calls, choice = {}) {
   if ((mode === 'required' || mode === 'forced') && calls.length === 0) return 'tool_choice requires at least one valid tool call.';
   for (const call of calls) {
     const name = call.name || (call.function && call.function.name);
-    if (mode === 'none' || (mode === 'forced' && name !== choice.ForcedName) || (choice.Allowed && Object.keys(choice.Allowed).length && !Object.hasOwn(choice.Allowed, name))) return 'tool_choice forbids this tool call: ' + name;
+    if (mode === 'none' || (choice.RestrictAllowed && !Object.hasOwn(choice.Allowed || {}, name)) || (mode === 'forced' && name !== choice.ForcedName) || (choice.Allowed && Object.keys(choice.Allowed).length && !Object.hasOwn(choice.Allowed, name))) return 'tool_choice forbids this tool call: ' + name;
   }
   return '';
 }

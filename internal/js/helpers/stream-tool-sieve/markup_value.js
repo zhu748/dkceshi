@@ -1,6 +1,5 @@
 'use strict';
 
-// Recursive parameter-value grammar, preserving literal code and CDATA.
 const { toRawString } = require('./state');
 const { unescapeHtml } = require('./entities');
 const {
@@ -55,7 +54,7 @@ function parseMarkupKVObject(text) {
     if (!key) {
       continue;
     }
-    const value = parseMarkupValue(block.body, key);
+    const value = parseMarkupValue(block.body, key, true);
     if (value === undefined || value === null) {
       continue;
     }
@@ -64,9 +63,10 @@ function parseMarkupKVObject(text) {
   return out;
 }
 
-function parseMarkupValue(raw, paramName = '') {
+function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
   const cdata = extractStandaloneCDATA(raw);
   if (cdata.ok) {
+    if (literalCDATA || preservesCDATAStringParameter(paramName)) return cdata.value;
     const literal = parseJSONLiteralValue(cdata.value);
     if (literal.ok) {
       const literalArray = coerceArrayValue(literal.value, paramName);

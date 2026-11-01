@@ -238,3 +238,12 @@ go test ./internal/toolstream -run '^$' -bench 'Benchmark(LongToolCapture|Litera
 ```
 
 第二轮边界回归补充：思考闭标签跨帧识别使用有界增量状态；复读检测不能匹配参数的 CDATA、引号或代码内容；跨协议请求标准化共同拒绝工具历史中已知 ID 的矛盾配对。对应 `internal/assistantturn/second_round_regression_test.go`、`internal/sse/replay_boundary_test.go`、`internal/promptcompat/tool_history_validation_test.go` 和 Node chat-stream 回归。
+
+
+## 安全边界补充
+
+Markdown 示例的上下文判定优先于其内部 CDATA；外层未闭合围栏不能仅凭工具结束标签被升级成可执行调用。参数内部未闭合代码围栏的兼容恢复则要求围栏之前已有未闭合 parameter。
+
+已声明 string 类型和 custom input 的 CDATA 保留字节，不先转 JSON 再转回字符串。旧式结构化参数可继续按 Schema 校验；字符串枚举不匹配时应拒绝调用，不能通过去掉字符串原文中的引号使其匹配。
+
+流式安全状态的生命周期为“一次生成”，跨 continue/resume 连接保留，重新生成时清空。正文和思考通道均执行与实际生成提示词绑定的回显过滤；最终工具校验还包括显式空目录、批次数量和输出资源限制。预算、严格目录开关和 Node 心跳/背压行为详见 `docs/prompt-compatibility.md` 的“工具安全与 Agent 续接补充”。

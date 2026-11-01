@@ -548,6 +548,8 @@
     "responsesMaxEntries": "Maximum stored responses",
     "responsesMaxBytes": "Response store memory limit (MiB)",
     "responsesCallerEntries": "Maximum stored responses per caller",
+    "requireToolCatalog": "Require a declared tool catalog",
+    "requireToolCatalogHelp": "Reject calls when no formal tools catalog is supplied. Off preserves schema-less agent continuation compatibility. An explicit empty tools array always disables calls.",
     "toolSafetyTitle": "Tool safety",
     "allowReasoningProse": "Allow tool recovery from reasoning with prose",
     "allowReasoningProseHelp": "Off by default: only tool-only reasoning can produce calls. Enable only for clients that require the older mixed-prose recovery behavior.",

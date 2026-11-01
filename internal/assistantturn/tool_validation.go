@@ -18,6 +18,9 @@ func validateToolOutput(turn Turn, opts BuildOptions, repaired bool) *OutputErro
 		return &OutputError{Status: http.StatusBadGateway, Code: OutputCodePromptEcho,
 			Message: "Upstream repeated generated instructions instead of producing an answer."}
 	}
+	if turn.ContentCut == sse.CutOutputLimit {
+		return &OutputError{Status: 502, Code: "output_limit_exceeded", Message: "Upstream output exceeded configured resource limits."}
+	}
 	parsed := turn.ParsedToolCalls
 	if !repaired {
 		unresolved := parsed.ResidualProtocolText

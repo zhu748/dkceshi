@@ -2,6 +2,7 @@
 
 // Ignore literal examples and canonicalize recognized tool wrappers.
 const { toRawString } = require('./state');
+const { openToolParameterBeforeFence } = require('./fence_context');
 const {
   indexToolCDATAOpen,
   skipXmlIgnoredSection,
@@ -31,8 +32,6 @@ const {
   xmlTagStartDelimiterLenAt,
 } = require('./markup_syntax');
 
-// Keep the original coordinate system throughout scanning and repair. Only
-// semantic fields (tool names, attribute keys, JSON literals) trim explicitly.
 
 function stripFencedCodeBlocks(text) {
   const t = typeof text === 'string' ? text : '';
@@ -58,7 +57,7 @@ function stripFencedCodeBlocks(text) {
     lineStart += lineWithNL.length;
 
     // CDATA protection
-    if (inCDATA || cdataStartsBeforeFence(line)) {
+    if (!inFence && (inCDATA || cdataStartsBeforeFence(line))) {
       out.push(lineWithNL);
       inCDATA = updateCDATAStateLine(inCDATA, line);
       continue;
@@ -97,7 +96,7 @@ function stripFencedCodeBlocks(text) {
     const head = beforeFenceIdx > 0 ? out.slice(0, beforeFenceIdx).join('') : '';
     if (fenceStartOffset >= 0 && fenceStartOffset <= t.length) {
       const tail = t.slice(fenceStartOffset);
-      if (textContainsToolMarkupCloseTag(tail)) {
+      if (openToolParameterBeforeFence(head) && textContainsToolMarkupCloseTag(tail)) {
         return head + tail;
       }
     }

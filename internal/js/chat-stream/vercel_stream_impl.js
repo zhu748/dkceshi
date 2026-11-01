@@ -1,4 +1,6 @@
 'use strict';
+const { createStreamWatch } = require('./stream_limits');
+const { startHeartbeat, waitForDrain } = require('./response_flow');
 const { explicitSnapshotDelta } = require('./dedupe');
 const { flushThinkingState } = require('./sse_thinking');
 const { createVisibleGuard, filterVisible } = require('../helpers/stream-tool-sieve/visible_guard');
@@ -73,6 +75,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
   let leaseCompletion = {};
   const lifecycle = createStreamLifecycle(req, res, () => leaseCompletion);
   const releaseLease = lifecycle.release;
+  const watch = createStreamWatch();
+  let stopHeartbeat = () => {};
   try {
     if (lifecycle.closed) return;
     const prep = await fetchStreamPrepare(req, rawBody);
@@ -294,11 +298,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       res.flushHeaders();
     }
 
+    stopHeartbeat = startHeartbeat(res);
     const created = Math.floor(Date.now() / 1000);
     let currentType = thinkingEnabled ? 'thinking' : 'text';
     let thinkingText = '';
     let rawThinkingText = '';
-    let thinkingGuard = createVisibleGuard(prep.body.tool_marker, true);
+    let thinkingGuard = createVisibleGuard(prep.body.tool_marker, true, finalPrompt);
     // Monotonic "has any non-whitespace char" flags: replaces per-line
     // outputText.trim() scans, which are O(total) per SSE line (O(n^2) per stream).
     let hasVisibleThinking = false;
@@ -343,13 +348,14 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
     const resetForRegeneration = () => {
       currentType = thinkingEnabled ? 'thinking' : 'text';
+      contentPolicy = createContentPolicy(finalPrompt);
       outputText = '';
       hasVisibleOutput = false;
       deferredToolText = '';
       toolCallsDetected = false;
       detectionThinkingText = '';
       rawThinkingText = '';
-      thinkingGuard = createVisibleGuard(prep.body.tool_marker, true);
+      thinkingGuard = createVisibleGuard(prep.body.tool_marker, true, finalPrompt);
       lastEmptyDetail = null;
       toolSieveState = createToolSieveState();
       toolSieveState.deferMalformed = toolSieveState.cleanVisible = toolSieveState.stripReferences = true;
@@ -378,7 +384,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: outputText, error: detail.message, error_code: detail.code };
         await finishStreamFailure(res, releaseLease, detail); return true;
       }
-      if (contentPolicyCut(contentPolicy) === CUT_PROMPT_ECHO) {
+      if (contentPolicyCut(contentPolicy) === CUT_PROMPT_ECHO || thinkingGuard.echoed) {
         lastEmptyDetail = { status: 502, code: 'upstream_prompt_echo', message: 'Upstream repeated generated instructions instead of producing an answer.' };
         if (options.deferEmpty && !answerDelivered) return false;
         ended = true;
@@ -532,12 +538,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       let contentCut = CUT_NONE;
       // eslint-disable-next-line no-constant-condition
       while (true) {
-        // 每一轮都是一次新的上游响应——自动续答轮、换号重试轮都从这里进入——
-        // 因此内容规则重新开始：上一轮命中的截断只属于上一轮，若继续生效，
-        // 这一轮的健康正文会被静默丢弃，客户端最后只会拿到
-        // upstream_unavailable。与 Go 侧每个 attempt 重置一次对齐
-        // （consume*StreamAttempt → ResetContentPolicy）。
-        contentPolicy = createContentPolicy(finalPrompt);
+        // Continuations retain delimiter/CDATA state; regeneration resets it.
         lifecycle.reader = currentResponse.body.getReader();
         buffered = '';
         let streamEnded = false;
@@ -548,7 +549,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
               await finish('stop');
               return { terminal: true, retryable: false };
             }
-            const { value, done } = await lifecycle.reader.read();
+            await waitForDrain(res);
+            const { value, done } = await watch.read(lifecycle.reader);
             if (done) {
               break;
             }
@@ -688,6 +690,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             }
           }
         } catch (err) {
+          if (err.code === 'output_limit_exceeded') {
+            ended = true; leaseCompletion = { finish_reason: 'error', error: err.message, error_code: err.code };
+            await finishStreamFailure(res, releaseLease, { status: 502, message: err.message, code: err.code });
+            return { terminal: true, retryable: false };
+          }
           if (lifecycle.closed || isAbortError(err)) {
             await finish('stop');
             return { terminal: true, retryable: false, interrupted: false };
@@ -882,6 +889,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       resetForRegeneration();
     }
   } finally {
+    stopHeartbeat();
     await lifecycle.dispose();
   }
 }

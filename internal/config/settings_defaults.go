@@ -16,6 +16,7 @@ func init() {
 		{
 			Key: "tool_safety", TitleKey: "settings.toolSafetyTitle",
 			Fields: []FieldSpec{
+				{Name: "require_tool_catalog", Kind: FieldBool, Default: false, LabelKey: "settings.requireToolCatalog", HelpKey: "settings.requireToolCatalogHelp"},
 				{Name: "allow_reasoning_prose", Kind: FieldBool, Default: false, LabelKey: "settings.allowReasoningProse", HelpKey: "settings.allowReasoningProseHelp"},
 			},
 		},

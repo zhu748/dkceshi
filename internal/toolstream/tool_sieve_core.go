@@ -66,7 +66,7 @@ func processChunk(state *State, chunk string, toolNames []string) []Event {
 		if state.DeferMalformed {
 			literal := toolcall.FindUnfinishedToolLiteralStart(pending)
 			partial := findPartialXMLToolTagStart(pending)
-			if literal >= 0 && (start < 0 || literal < start) && (partial < 0 || literal < partial) {
+			if literal >= 0 && !insideCodeFenceWithState(state, pending[:literal]) && (start < 0 || literal < start) && (partial < 0 || literal < partial) {
 				prefix := pending[:literal]
 				state.pending.Reset()
 				state.pending.WriteString(pending[literal:])

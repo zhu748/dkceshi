@@ -3,6 +3,7 @@ package toolstream
 import (
 	"strings"
 
+	"ds2api/internal/sse"
 	"ds2api/internal/toolcall"
 )
 
@@ -10,12 +11,20 @@ import (
 // must still be retained separately for final detection, validation and repair.
 // It never emits executable calls and keeps scanner state across SSE chunks.
 type VisibleGuard struct {
+	Prompt                string
+	echo                  sse.PromptEchoGuard
+	echoInit              bool
 	Marker                string
 	StripReferenceMarkers bool
 	state                 State
 }
 
 func (g *VisibleGuard) Write(text string) string {
+	if !g.echoInit {
+		g.echo = sse.NewPromptEchoGuard(g.Prompt)
+		g.echoInit = true
+	}
+	text = g.echo.Feed(text)
 	g.state.DeferMalformed = true
 	g.state.CleanVisible = true
 	g.state.DisplayOnly = true
@@ -25,7 +34,8 @@ func (g *VisibleGuard) Write(text string) string {
 }
 
 func (g *VisibleGuard) Flush() string {
-	return visibleGuardText(Flush(&g.state, nil))
+	tail := g.Write(g.echo.Flush())
+	return tail + visibleGuardText(Flush(&g.state, nil))
 }
 
 func visibleGuardText(events []Event) string {
@@ -43,7 +53,10 @@ func visibleGuardText(events []Event) string {
 	return out.String()
 }
 
-func FilterVisible(text, marker string) string {
+func FilterVisible(text, marker string, prompts ...string) string {
 	guard := VisibleGuard{Marker: marker}
+	if len(prompts) > 0 {
+		guard.Prompt = prompts[0]
+	}
 	return guard.Write(text) + guard.Flush()
 }

@@ -3,7 +3,8 @@
 const { asString } = require('./http_internal');
 const { shouldSkipPath } = require('./sse_parse');
 
-const AUTO_CONTINUE_MAX_ROUNDS = 32;
+const { streamLimit } = require('./stream_limits');
+const AUTO_CONTINUE_MAX_ROUNDS = streamLimit('auto_continue_max_rounds');
 
 function createContinueState(sessionID) {
   return {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ds2api/internal/config"
+	"ds2api/internal/streambudget"
 )
 
 // ToolCallRepairFixedPrompt is the verbatim instruction appended after the tool
@@ -145,8 +146,6 @@ func BuildToolCallRepairPrompt(badCode string, toolMarker ...string) (prompt str
 	return plan.prompt, plan.primary.slots, plan.primary.token
 }
 
-// firstRepairToolMarker returns the optional caller-specific marker, keeping the
-// pre-marker call sites and tests source-compatible.
 func firstRepairToolMarker(markers []string) string {
 	if len(markers) == 0 {
 		return ""
@@ -155,8 +154,6 @@ func firstRepairToolMarker(markers []string) string {
 }
 
 // RepairToolCallsWithLLM first recovers complete native DSML locally, then
-// attempts to repair remaining badCode using the provided LLM invoker.
-// It implements the three-way branch semantics from plan §4:
 //
 //	① valid format  → parse into tool calls, return (calls, true)
 //	② "NO TOOL"     → return (nil, false); caller validates the fallback
@@ -178,6 +175,10 @@ func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCall
 	}
 	marker := firstRepairToolMarker(toolMarker)
 	plan := buildToolCallRepairPlan(badCode, marker)
+	if len(plan.prompt) > streambudget.Value("max_repair_bytes") {
+		config.Logger.Warn("[toolcall_repair] skipped oversized repair prompt", "bytes", len(plan.prompt))
+		return nil, false
+	}
 	logAttrs := []any{
 		"interpretation", plan.interpretation,
 		"slot_count", len(plan.primary.slots),
@@ -289,8 +290,6 @@ func restoreAndParseRepairOutput(out string, res cdataSlotResult, promptToken cd
 	return calls, nil
 }
 
-// toolCallsContainPlaceholderLiteral reports whether any parsed value still
-// carries the placeholder prefix.
 func toolCallsContainPlaceholderLiteral(calls []ParsedToolCall, token cdataSlotToken) bool {
 	prefix := token.literalPrefix()
 	for _, c := range calls {

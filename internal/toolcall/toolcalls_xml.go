@@ -58,7 +58,8 @@ func parseXMLFragmentValue(raw string) (any, bool) {
 		return "", true
 	}
 
-	dec := xml.NewDecoder(strings.NewReader("<root>" + trimmed + "</root>"))
+	source := "<root>" + trimmed + "</root>"
+	dec := xml.NewDecoder(strings.NewReader(source))
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, false
@@ -68,19 +69,21 @@ func parseXMLFragmentValue(raw string) (any, bool) {
 		return nil, false
 	}
 
-	value, err := parseXMLNodeValue(dec, start)
+	value, err := parseXMLNodeValue(dec, start, source)
 	if err != nil {
 		return nil, false
 	}
 	return value, true
 }
 
-func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement) (any, error) {
+func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement, source string) (any, error) {
 	children := map[string]any{}
 	var text strings.Builder
 	hasChild := false
+	literalCDATA := false
 
 	for {
+		offset := dec.InputOffset()
 		tok, err := dec.Token()
 		if err != nil {
 			return nil, err
@@ -88,6 +91,9 @@ func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement) (any, error) {
 		switch t := tok.(type) {
 		case xml.CharData:
 			s := string([]byte(t))
+			if raw, ok := extractStandaloneCDATA(source[offset:dec.InputOffset()]); ok {
+				literalCDATA, s = true, raw
+			}
 			if hasChild && strings.TrimSpace(s) == "" {
 				continue
 			}
@@ -97,7 +103,7 @@ func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement) (any, error) {
 				text.Reset()
 			}
 			hasChild = true
-			child, err := parseXMLNodeValue(dec, t)
+			child, err := parseXMLNodeValue(dec, t, source)
 			if err != nil {
 				return nil, err
 			}
@@ -107,6 +113,9 @@ func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement) (any, error) {
 				return nil, errXMLMismatch(start.Name.Local, t.Name.Local)
 			}
 			if len(children) == 0 {
+				if literalCDATA {
+					return text.String(), nil
+				}
 				if parsed, ok := parseJSONLiteralValue(text.String()); ok {
 					return parsed, nil
 				}

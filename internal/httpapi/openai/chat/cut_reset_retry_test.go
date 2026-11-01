@@ -49,6 +49,8 @@ func TestConsumeChatStreamAttemptResetsTheCutBetweenAttempts(t *testing.T) {
 		t.Fatalf("a cut with no visible text must leave the attempt retryable, got %+v", firstResult)
 	}
 
+	// A replacement generation explicitly resets state; a continuation does not.
+	streamRuntime.resetForRegeneration()
 	// Round 2: a healthy upstream. Its text must reach the client.
 	second := makeOpenAISSEHTTPResponse(
 		`data: {"response_message_id":78,"p":"response/content","v":"healthy answer"}`,

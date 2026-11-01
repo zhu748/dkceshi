@@ -540,3 +540,29 @@ anyOf / oneOf 已有合法类型保持原值；只采用能通过完整 Schema �
 - 闭标签复读检测跳过 CDATA、引号、注释及 Markdown 字面量，参数中的重复 `</parameter>` 不再导致提前截断。真实结构性闭标签复读仍按原阈值终止。
 - Schema 字符串归一化同时遍历 properties 和全部匹配的 patternProperties；只有两者均未覆盖字段时才使用 additionalProperties。多个约束仍由完整 Schema 最终验证，不能因转换绕过相互冲突的约束。
 - 回归用例覆盖同值 APPEND、嵌套 SET、多片段快照、每个思考闭标签切分点、CDATA 参数保真、存储失败和 store:false、跨协议工具历史冲突。性能基准：`go test ./internal/sse -run '^$' -bench BenchmarkThinkingBoundaryMarkup -benchmem`。
+
+
+## 工具安全与 Agent 续接补充（2026-11-01）
+
+- Markdown 围栏中的工具代码是字面量示例，包括包含 CDATA 的单行/多行示例和未闭合围栏。只有围栏开始前已经处于真实工具参数内部时，才允许恢复被参数正文中的未闭合围栏遮住的结束标签。
+- 文本参数中的 CDATA 保留原始字节。对任意参数名，Schema 中的 string（含本地 `$ref`、组合、patternProperties、additionalProperties）优先恢复 CDATA 原文，避免 JSON 外观的字符串丢失引号、缩进、空白，或把文本 `null` 变成空值。无类型目录中的旧式对象/数组参数兼容解析继续保留；custom 工具的 input 始终保留原字符串。
+- 断流恢复和自动续答属于同一条 assistant 回答，必须保留正文防泄漏器的待定标记、CDATA、引号和 Markdown 状态。只有重新生成或更换账号后重放请求才清空状态。
+- 正文与可见思考均对本次实际生成的前导说明执行增量 Prompt Echo 检测；共享收尾也校验隐藏思考，回显内容不能恢复为工具调用。正常思考、引用、代码示例和未确认的短前缀保持原行为。
+- 省略 `tools` 时，默认继续兼容无正式目录的 Agent 续轮；显式 `tools: []` 表示没有可调用工具。后台“工具调用安全”的 `require_tool_catalog` 默认 false，开启后无正式目录的调用也会被拒绝。此设置由服务端控制，请求体不能覆盖。
+- Go 和 Node 使用 `internal/streambudget/defaults.json` 中一致的输出与续答默认预算。超限返回明确错误，整批工具调用不作部分交付，也不会截断参数后继续执行。
+
+可使用下列环境变量调整预算（正整数；无效值回退默认值）：
+
+| 环境变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `DS2API_STREAM_MAX_LINE_BYTES` | 8388608 | 单行 SSE 最大字节数，含换行 |
+| `DS2API_STREAM_MAX_OUTPUT_BYTES` | 33554432 | 上游读取/累积输出的字节预算；Node 跨续答和重试累计 |
+| `DS2API_STREAM_MAX_REPAIR_BYTES` | 1048576 | 参数槽位替换后发送给修复模型的提示词大小 |
+| `DS2API_STREAM_MAX_TOOL_CALLS` | 128 | 单个已校验工具批次的最大调用数 |
+| `DS2API_STREAM_AUTO_CONTINUE_MAX_ROUNDS` | 8 | Go/Node 自动续答轮数上限 |
+| `DS2API_STREAM_KEEPALIVE_MS` | 5000 | Node SSE 注释心跳间隔 |
+| `DS2API_STREAM_IDLE_TIMEOUT_MS` | 300000 | Node 上游读取空闲超时 |
+| `DS2API_STREAM_CONNECT_TIMEOUT_MS` | 30000 | Node 上游连接/响应头、PoW 控制请求及下游写入等待超时 |
+| `DS2API_STREAM_MAX_DURATION_MS` | 1800000 | Node 上游流处理总时长预算，以及包含上传/分段的 prepare、switch 控制请求超时 |
+
+Node 仅在 SSE 响应开始后发送心跳，结束或断开时清理定时器；下游背压期间暂停读取上游并跳过心跳，等待 drain 或结束连接。隐藏思考、工具参数片段仍属于上游活动。工具批次继续在 Go 共享校验完成后交付，心跳不代表工具已经执行。

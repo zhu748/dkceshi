@@ -1,5 +1,7 @@
 package sse
 
+import "ds2api/internal/streambudget"
+
 // CutReason identifies why a content policy stopped forwarding raw upstream
 // text. It is the single vocabulary shared by every protocol surface and every
 // runtime: a new cut rule is declared here once and reported by all of them
@@ -8,7 +10,8 @@ type CutReason string
 
 const (
 	// CutNone means the policy is still forwarding.
-	CutNone CutReason = ""
+	CutNone        CutReason = ""
+	CutOutputLimit CutReason = "output_limit"
 	// CutRepeatLoop means the upstream text degenerated into a run of protocol
 	// closing tags (see RepeatLoopGuard).
 	CutRepeatLoop CutReason = "repeat_loop"
@@ -28,6 +31,8 @@ const (
 // warning, so every surface logs the same words for the same rule.
 func (r CutReason) LogMessage() string {
 	switch r {
+	case CutOutputLimit:
+		return "upstream output exceeded configured resource limits"
 	case CutRepeatLoop:
 		return "upstream repetition loop detected; cutting stream"
 	case CutToolRoleMarker:
@@ -56,7 +61,8 @@ func (r CutReason) LogMessage() string {
 // in Feed, and give it a CutReason. Every surface picks it up through Cut with
 // no edit of its own.
 type ContentPolicy struct {
-	Prompt string
+	Prompt         string
+	maxOutputBytes int
 
 	echo     PromptEchoGuard
 	echoInit bool
@@ -116,3 +122,16 @@ func (p *ContentPolicy) Cut() CutReason {
 	}
 	return p.cut
 }
+
+// AllowOutputSize bounds accumulated source across continuation connections.
+func (p *ContentPolicy) AllowOutputSize(size int) bool {
+	if p.maxOutputBytes == 0 {
+		p.maxOutputBytes = streambudget.Value("max_output_bytes")
+	}
+	if size > p.maxOutputBytes {
+		p.cut = CutOutputLimit
+	}
+	return p.cut == CutNone
+}
+
+func (p *ContentPolicy) RejectOutputLimit() { p.cut = CutOutputLimit }

@@ -4,6 +4,9 @@ package promptcompat
 func ApplyToolSafetySettings(store any, policy ToolChoicePolicy) ToolChoicePolicy {
 	if reader, ok := store.(interface{ SettingBool(string, string) bool }); ok {
 		policy.AllowReasoningProse = reader.SettingBool("tool_safety", "allow_reasoning_prose")
+		if reader.SettingBool("tool_safety", "require_tool_catalog") && len(policy.Allowed) == 0 {
+			policy.RestrictAllowed = true
+		}
 	}
 	return policy
 }

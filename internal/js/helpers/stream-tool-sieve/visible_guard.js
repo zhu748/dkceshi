@@ -5,6 +5,7 @@ const { processToolSieveChunk, flushToolSieve } = require('./sieve');
 const { findToolProtocolPrefixOutsideIgnored } = require('./protocol_prefix');
 const { findToolMarkupTagOutsideIgnored } = require('./markup_scan');
 const { normalizeFullwidthASCIIChar, removeToolMarkupIgnorables } = require('./markup_syntax');
+const { createPromptEchoGuard, feedPromptEchoGuard, flushPromptEchoGuard } = require('../../chat-stream/prompt_echo');
 const { createMarkerNormalizer } = require('../../chat-stream/marker');
 
 function visibleGuardText(events) {
@@ -21,16 +22,18 @@ function visibleGuardText(events) {
   return text;
 }
 
-function createVisibleGuard(marker, stripReferences = false) {
+function createVisibleGuard(marker, stripReferences = false, prompt = '') {
   const state = createToolSieveState();
   state.deferMalformed = true;
   state.cleanVisible = true;
   state.stripReferences = stripReferences;
   state.displayOnly = true;
   const normalizer = createMarkerNormalizer(marker);
+  const echo = createPromptEchoGuard(prompt);
   return {
-    write: text => visibleGuardText(processToolSieveChunk(state, normalizer.write(text), [])),
-    flush: () => visibleGuardText(processToolSieveChunk(state, normalizer.flush(), []).concat(flushToolSieve(state, []))),
+    write: text => visibleGuardText(processToolSieveChunk(state, normalizer.write(feedPromptEchoGuard(echo, text)), [])),
+    get echoed() { return echo.tripped === true; },
+    flush: () => visibleGuardText(processToolSieveChunk(state, normalizer.write(flushPromptEchoGuard(echo)) + normalizer.flush(), []).concat(flushToolSieve(state, []))),
   };
 }
 

@@ -2,6 +2,8 @@ package stream
 
 import (
 	"context"
+	"ds2api/internal/streambudget"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -98,6 +100,10 @@ func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 		// Finalization may start another upstream attempt. Stop this attempt's
 		// reader first, without cancelling the caller's shared retry context.
 		cancelPump()
+		if errors.Is(scannerErr, streambudget.ErrLimit) && hooks.OnParsed != nil {
+			hooks.OnParsed(sse.LineResult{Parsed: true, OutputLimit: true})
+			reason, scannerErr = StopReasonHandlerRequested, nil
+		}
 		if hooks.OnFinalize != nil {
 			hooks.OnFinalize(reason, scannerErr)
 		}

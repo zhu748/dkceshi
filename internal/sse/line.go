@@ -8,6 +8,7 @@ import (
 // LineResult is the normalized parse result for one DeepSeek SSE line.
 type LineResult struct {
 	// Flush is an internal finalization signal, never decoded from upstream.
+	OutputLimit                bool
 	Flush                      bool
 	Parsed                     bool
 	Stop                       bool

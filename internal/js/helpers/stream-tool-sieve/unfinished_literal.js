@@ -1,5 +1,6 @@
 'use strict';
 
+const { insideCodeFenceWithState } = require('./state');
 const { skipXmlIgnoredSection } = require('./cdata_scan');
 const { markdownCodeSpanEnd } = require('./markdown_fence');
 const { findPartialXMLToolTagStart } = require('./sieve-xml');
@@ -29,7 +30,7 @@ function holdUnfinishedDisplayLiteral(state, pending, start) {
   if (!state.deferMalformed) return null;
   const literal = findUnfinishedToolLiteralStart(pending);
   const partial = findPartialXMLToolTagStart(pending);
-  return literal >= 0 && (start < 0 || literal < start) && (partial < 0 || literal < partial)
+  return literal >= 0 && !insideCodeFenceWithState(state, pending.slice(0, literal)) && (start < 0 || literal < start) && (partial < 0 || literal < partial)
     ? { prefix: pending.slice(0, literal), tail: pending.slice(literal) } : null;
 }
 

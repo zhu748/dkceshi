@@ -31,6 +31,9 @@ func ParseOpenAIToolPolicy(req map[string]any) (ToolChoicePolicy, error) {
 
 func parseToolChoicePolicy(toolChoiceRaw any, toolsRaw any) (ToolChoicePolicy, error) {
 	policy := DefaultToolChoicePolicy()
+	if tools, ok := toolsRaw.([]any); ok && tools != nil && len(tools) == 0 {
+		policy.RestrictAllowed = true
+	}
 	declaredNames := extractDeclaredToolNames(toolsRaw)
 	declaredSet := namesToSet(declaredNames)
 	if len(declaredNames) > 0 {

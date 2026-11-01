@@ -176,3 +176,54 @@ test('JSON read failure still cancels and unlocks the source', async () => {
   assert.equal(cancels, 1);
   assert.equal(releases, 1);
 });
+
+test('continuations retain split role markers and CDATA state', async () => {
+  const prefix = '<tool_calls><invoke name="write_file"><parameter name="content"><![CDATA[prefix ';
+  const suffix = '[Tool]: literal]]></parameter></invoke></tool_calls>';
+  for (const [first, second, isTool] of [['prefix [To', 'ol]: invented result', false], [prefix, suffix, true]]) {
+    const { req, res } = surfaces();
+    let validations = 0, continuations = 0;
+    global.fetch = async (url, options) => {
+      if (String(url).includes('__stream_release')) return json({});
+      if (String(url).includes('__stream_validate')) {
+        validations++;
+        assert.equal(JSON.parse(options.body).content, first + second);
+        return json({ tool_calls: [{ index: 0, id: 'call_safe', type: 'function', function: { name: 'write_file', arguments: '{"content":"prefix [Tool]: literal"}' } }] });
+      }
+      return json({ ...prepared(), tool_names: isTool ? ['write_file'] : [], validate_tools: isTool });
+    };
+    const upstream = async url => {
+      if (String(url).includes('/continue')) {
+        continuations++;
+        return new Response('data: ' + JSON.stringify({ p: 'response/content', v: second }) + '\n\ndata: [DONE]\n\n');
+      }
+      return new Response('data: ' + JSON.stringify({ response_message_id: 92, p: 'response/content', v: first }) + '\n\n');
+    };
+    await handleVercelStream(req, res, Buffer.from('{}'), {}, upstream);
+    const body = res.chunks.join('');
+    assert.equal(continuations, 1); assert.equal(body.includes('invented result'), false);
+    assert.equal(body.includes('"error"'), false);
+    assert.equal(validations, isTool ? 1 : 0);
+    if (isTool) assert.ok(body.includes('"tool_calls"'));
+  }
+});
+
+test('prepare retains the long-operation budget for file uploads', async t => {
+  const { fetchStreamPrepare } = require('../../internal/js/chat-stream/http_internal');
+  const savedConnect = process.env.DS2API_STREAM_CONNECT_TIMEOUT_MS;
+  const savedDuration = process.env.DS2API_STREAM_MAX_DURATION_MS;
+  process.env.DS2API_STREAM_CONNECT_TIMEOUT_MS = '1';
+  process.env.DS2API_STREAM_MAX_DURATION_MS = '1000';
+  t.after(() => {
+    if (savedConnect === undefined) delete process.env.DS2API_STREAM_CONNECT_TIMEOUT_MS;
+    else process.env.DS2API_STREAM_CONNECT_TIMEOUT_MS = savedConnect;
+    if (savedDuration === undefined) delete process.env.DS2API_STREAM_MAX_DURATION_MS;
+    else process.env.DS2API_STREAM_MAX_DURATION_MS = savedDuration;
+  });
+  global.fetch = async (_url, init) => {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(init.signal.aborted, false);
+    return json(prepared());
+  };
+  assert.equal((await fetchStreamPrepare(surfaces().req, Buffer.from('{}'))).ok, true);
+});

@@ -24,6 +24,7 @@ function createStreamLifecycle(req, res, getMeta) {
   const onResponseClose = () => { if (!res.writableEnded) close(); };
   req.on('aborted', close);
   res.on('close', onResponseClose);
+  res.on('error', close);
   if (closed) controller.abort();
 
   return {
@@ -36,6 +37,7 @@ function createStreamLifecycle(req, res, getMeta) {
     async dispose() {
       req.removeListener('aborted', close);
       res.removeListener('close', onResponseClose);
+      res.removeListener('error', close);
       closed = true;
       controller.abort();
       cancelReader();

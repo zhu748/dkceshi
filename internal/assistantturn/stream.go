@@ -115,3 +115,11 @@ func (a *Accumulator) Snapshot() (rawText, text, rawThinking, thinking, detectio
 		a.inner.Thinking.String(),
 		a.inner.ToolDetectionThinking.String()
 }
+
+// InitialType keeps pathless continuation deltas on the established body channel.
+func (a *Accumulator) InitialType() string {
+	if a != nil && a.inner.ThinkingEnabled && a.inner.RawText.Len() == 0 {
+		return "thinking"
+	}
+	return "text"
+}

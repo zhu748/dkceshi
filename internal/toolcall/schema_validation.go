@@ -3,6 +3,7 @@ package toolcall
 import (
 	"bytes"
 	"crypto/sha256"
+	"ds2api/internal/streambudget"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -87,6 +88,9 @@ func ValidateToolSchemas(toolsRaw any) error {
 // ValidateToolArguments runs after deterministic normalization and before any
 // executable call is delivered, for both ordinary calls and LLM-repaired ones.
 func ValidateToolArguments(calls []ParsedToolCall, toolsRaw any) error {
+	if len(calls) > streambudget.Value("max_tool_calls") {
+		return fmt.Errorf("tool call batch exceeds configured limit")
+	}
 	if err := validateToolCatalog(toolsRaw); err != nil {
 		return err
 	}

@@ -6,7 +6,7 @@ import "strings"
 func convertGeminiTools(raw any) []any {
 	tools, _ := raw.([]any)
 	if len(tools) == 0 {
-		return nil
+		return tools
 	}
 	out := make([]any, 0, len(tools))
 	for _, item := range tools {
