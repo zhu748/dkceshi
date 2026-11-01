@@ -136,6 +136,13 @@ async function runMockVercelStream(upstreamLines, prepareOverrides = {}) {
   return runMockVercelStreamSequence([upstreamLines], prepareOverrides);
 }
 
+test('clean EOF without a completion marker cannot become a successful stop', async () => {
+  const result = await runMockVercelStream(['data: {"p":"response/content","v":"partial answer"}\n\n']);
+  const frames = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.ok(frames.some(frame => frame.error?.code === 'upstream_interrupted'));
+  assert.equal(frames.some(frame => frame.choices?.[0]?.finish_reason === 'stop'), false);
+});
+
 async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides = {}) {
   const originalFetch = global.fetch;
   const fetchURLs = [];
@@ -771,7 +778,7 @@ test('required tool choice still rejects a plain text answer', async () => {
   assert.equal(parsed.some(frame => frame.choices?.[0]?.delta?.tool_calls), false);
 });
 
-test('vercel stream does not leak the marker into visible prose', async () => {
+test('vercel stream quarantines an unfinished marked wrapper and its payload', async () => {
   const { frames } = await runMockVercelStream([
     'data: {"p":"response/content","v":"see <|Q7ZK3M|tool_calls> in the docs"}\n\n',
     'data: [DONE]\n\n',
@@ -779,7 +786,46 @@ test('vercel stream does not leak the marker into visible prose', async () => {
   const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
   const content = parsed.map((item) => item.choices?.[0]?.delta?.content || '').join('');
   assert.equal(content.includes('Q7ZK3M'), false, `expected no marker leak, content=${JSON.stringify(content)}`);
-  assert.equal(content.includes('in the docs'), true, `expected prose kept, content=${JSON.stringify(content)}`);
+  assert.equal(content.includes('in the docs'), false, `expected unfinished payload quarantined, content=${JSON.stringify(content)}`);
+});
+
+test('reasoning stream hides tool protocol while preserving ordinary text and body', async () => {
+  for (const raw of [
+    'plan <|Q7ZK3M|invoke name="run"><|Q7ZK3M|parameter name="cmd">secret</|Q7ZK3M|parameter></|Q7ZK3M|invoke> done',
+    'plan <｜epse｜call name="run">secret</｜epse｜call>',
+    'plan <|Q7ZK3M|invoke name="run" secret',
+    'plan ＜｜DSML｜ calls>secret',
+  ]) {
+    const lines = Array.from(raw, v => `data: ${JSON.stringify({ p: 'response/thinking_content', v })}\n\n`);
+    lines.push('data: {"p":"response/content","v":"answer"}\n\n', 'data: [DONE]\n\n');
+    const { frames } = await runMockVercelStream(lines, { tool_marker: 'Q7ZK3M', thinking_enabled: true });
+    const choices = frames.filter(frame => frame !== '[DONE]').map(JSON.parse).flatMap(frame => frame.choices || []);
+    const reasoning = choices.map(choice => choice.delta.reasoning_content || '').join('');
+    assert.match(reasoning, /plan /);
+    assert.equal(/secret|EPSE|epse|Q7ZK3M|DSML/.test(reasoning), false, reasoning);
+    assert.equal(choices.map(choice => choice.delta.content || '').join(''), 'answer');
+  }
+});
+
+test('quoted tool examples remain visible in streamed reasoning', async () => {
+  const raw = 'example `<tool_calls><invoke name="run"></invoke></tool_calls>`';
+  const lines = Array.from(raw, v => `data: ${JSON.stringify({ p: 'response/thinking_content', v })}\n\n`);
+  lines.push('data: {"p":"response/content","v":"answer"}\n\n', 'data: [DONE]\n\n');
+  const { frames } = await runMockVercelStream(lines, { thinking_enabled: true });
+  const reasoning = frames.filter(frame => frame !== '[DONE]').map(JSON.parse).flatMap(frame => frame.choices || []).map(choice => choice.delta.reasoning_content || '').join('');
+  assert.equal(reasoning, raw);
+});
+
+test('quoted tool examples remain visible in streamed body without becoming calls', async () => {
+  const call = '<tool_calls><invoke name="run"></invoke></tool_calls>';
+  for (const raw of [JSON.stringify({ example: call }), '<![CDATA[' + call + ']]>', '`' + call + '`']) {
+    const lines = Array.from(raw, v => `data: ${JSON.stringify({ p: 'response/content', v })}\n\n`);
+    lines.push('data: [DONE]\n\n');
+    const { frames } = await runMockVercelStream(lines);
+    const choices = frames.filter(frame => frame !== '[DONE]').map(JSON.parse).flatMap(frame => frame.choices || []);
+    assert.equal(choices.map(choice => choice.delta.content || '').join(''), raw);
+    assert.equal(choices.some(choice => choice.delta.tool_calls), false);
+  }
 });
 
 test('vercel stream drops text after tool call block', async () => {
@@ -1156,7 +1202,7 @@ test('parseChunkForContent keeps nested fragments BATCH v payload without conten
     ],
   };
   const parsed = parseChunkForContent(chunk, true, 'text');
-  assert.equal(parsed.finished, false);
+  assert.equal(parsed.finished, true);
   assert.equal(parsed.newType, 'text');
   assert.equal(parsed.parts.length, 1);
   assert.deepEqual(parsed.parts[0], { text: '        pass\n```', type: 'text' });
@@ -1386,7 +1432,7 @@ test('parseChunkForContent ignores output tokens from response BATCH status snap
     'text',
   );
   assert.equal(parsed.parsed, true);
-  assert.equal(parsed.finished, false);
+  assert.equal(parsed.finished, true);
   assert.equal(parsed.contentFilter, false);
   assert.equal(parsed.outputTokens, 0);
   assert.deepEqual(parsed.parts, []);

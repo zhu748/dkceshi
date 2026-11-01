@@ -171,7 +171,7 @@ func (h *Handler) consumeResponsesStreamAttempt(r *http.Request, resp *http.Resp
 	// no-content window after producing partial output must not be silently
 	// finalized as a normal "stop": schedule a continue-resume so the same
 	// message is completed, or surface an explicit interruption error.
-	interrupted := scannerErr != nil || stopReason == streamengine.StopReasonIdleTimeout || stopReason == streamengine.StopReasonNoContentTimeout
+	interrupted := completionruntime.StreamInterrupted(scannerErr, stopReason)
 	if interrupted && streamRuntime.responseMessageID > 0 && streamRuntime.accumulator.HasPartialOutput() {
 		config.Logger.Warn("[openai_responses_stream] upstream stream interrupted; scheduling continue-resume",
 			"surface", "responses", "stream", true, "reason", stopReason, "error", fmt.Sprint(scannerErr), "response_message_id", streamRuntime.responseMessageID)

@@ -101,64 +101,6 @@ func StripDSMLResidue(text string) string {
 	return tailStripped
 }
 
-// stripTrailingPartialDSMLTag removes a trailing, as-yet-unterminated DSML tag
-// fragment (e.g. `<｜｜DSML｜｜ cal` whose `>` never arrived because the stream
-// ended). The sieve holds such fragments in pending while the stream is open
-// and used to release them verbatim at flush; the final net cuts them instead.
-// A bare `<` / separator run carries no DSML evidence and is left alone, and a
-// fragment inside a fenced code block is documentation, not residue.
-func stripTrailingPartialDSMLTag(text string) string {
-	idx := strings.LastIndexByte(text, '<')
-	if idx < 0 {
-		return text
-	}
-	start := idx
-	for start > 0 && text[start-1] == '<' {
-		start--
-	}
-	tail := text[start:]
-	if !isPartialDSMLTagPrefix(tail) || !partialDSMLTailHasEvidence(tail) {
-		return text
-	}
-	if insideFencedCode(text, start) {
-		return text
-	}
-	return text[:start]
-}
-
-// partialDSMLTailHasEvidence reports whether the unterminated fragment spells
-// at least part of the `dsml` literal, so a lone trailing `<` (or a separator
-// run) in ordinary prose is never cut.
-func partialDSMLTailHasEvidence(tail string) bool {
-	i := 1
-	for i < len(tail) && tail[i] == '<' {
-		i++
-	}
-	if i < len(tail) && tail[i] == '/' {
-		i++
-	}
-	for {
-		next, ok := consumeToolMarkupSeparator(tail, i)
-		if ok {
-			i = next
-			continue
-		}
-		if spacingLen := toolMarkupWhitespaceLikeLenAt(tail, i); spacingLen > 0 {
-			i += spacingLen
-			continue
-		}
-		break
-	}
-	if i >= len(tail) {
-		return false
-	}
-	if _, matched := consumeToolKeyword(tail, i, "dsml"); matched {
-		return true
-	}
-	return hasASCIIPartialPrefixFoldAt(tail, i, "dsml")
-}
-
-// dsmlBadSpans collects the spans of DSML wrappers in text.
 func dsmlBadSpans(text string) []TextSpan {
 	var spans []TextSpan
 	for pos := 0; pos < len(text); {

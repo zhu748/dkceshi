@@ -46,6 +46,7 @@ func (f *repairFakeCaller) CallCompletion(_ context.Context, _ *auth.RequestAuth
 	if !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}
+	body += "data: [DONE]\n"
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 }
 

@@ -125,10 +125,10 @@ func appendChunkValueContent(v any, partType string, thinkingEnabled bool, newTy
 		appendContentPart(parts, val, partType)
 	case []any:
 		pp, finished := extractContentRecursiveFrom(val, partType, thinkingEnabled, newType, path)
+		*parts = append(*parts, pp...)
 		if finished {
 			return true
 		}
-		*parts = append(*parts, pp...)
 	case map[string]any:
 		if appendObjectContentByPath(path, val, partType, parts) {
 			return false

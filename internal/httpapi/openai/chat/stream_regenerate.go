@@ -11,6 +11,7 @@ func (s *chatStreamRuntime) resetForRegeneration() {
 	s.accumulator.Text.Reset()
 	s.accumulator.RawThinking.Reset()
 	s.accumulator.ToolDetectionThinking.Reset()
+	s.accumulator.ResetThinkingGuard()
 	s.accumulator.ResetContentPolicy()
 	s.deferredText.Reset()
 	s.toolSieve = toolstream.State{DeferMalformed: true, Marker: s.toolSieve.Marker}

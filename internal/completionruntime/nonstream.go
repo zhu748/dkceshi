@@ -241,12 +241,12 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 	accumulatedRawThinking := ""
 	accumulatedToolDetectionThinking := ""
 	for {
-		turn, outErr := collectAttempt(currentResp, a, stdReq, usagePrompt, opts)
+		turn, outErr := collectAttempt(ctx, currentResp, a, stdReq, usagePrompt, opts)
 		if outErr != nil {
 			if canRetryOnAlternateAccount(ctx, a, outErr, opts.RetryEnabled, &accountSwitchAttempted) {
 				switched, switchErr := startStandardCompletionOnAlternateAccount(ctx, ds, a, stdReq, opts, maxAttempts)
 				if switchErr != nil {
-					return NonStreamResult{SessionID: sessionID, Payload: payload, Attempts: attempts}, switchErr
+					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, switchErr
 				}
 				if switched.Response != nil {
 					config.Logger.Info("[completion_runtime_account_switch_retry] retrying after 429", "surface", stdReq.Surface, "stream", false, "account", a.AccountID)
@@ -261,7 +261,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					continue
 				}
 			}
-			return NonStreamResult{SessionID: sessionID, Payload: payload, Attempts: attempts}, outErr
+			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, outErr
 		}
 		accumulatedThinking += sse.TrimContinuationOverlap(accumulatedThinking, turn.Thinking)
 		accumulatedRawThinking += sse.TrimContinuationOverlap(accumulatedRawThinking, turn.RawThinking)
@@ -458,7 +458,7 @@ func reuploadCurrentInputFileForAccount(ctx context.Context, ds DeepSeekCaller, 
 	return out, nil
 }
 
-func collectAttempt(resp *http.Response, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, usagePrompt string, opts Options) (assistantturn.Turn, *assistantturn.OutputError) {
+func collectAttempt(ctx context.Context, resp *http.Response, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, usagePrompt string, opts Options) (assistantturn.Turn, *assistantturn.OutputError) {
 	if outErr := completionResponseError(resp, a); outErr != nil {
 		return assistantturn.Turn{}, outErr
 	}
@@ -467,7 +467,7 @@ func collectAttempt(resp *http.Response, a *auth.RequestAuth, stdReq promptcompa
 			config.Logger.Warn("[completion_runtime] response body close failed", "surface", stdReq.Surface, "error", err)
 		}
 	}()
-	result := sse.CollectStream(resp, stdReq.Thinking, false, stdReq.FinalPrompt)
+	result := sse.CollectStreamWithOptions(resp, stdReq.Thinking, false, sse.CollectOptions{Context: ctx}, stdReq.FinalPrompt)
 	// collectAttempt only accumulates raw text/thinking across retries; the
 	// terminal turn is rebuilt once from turn.RawText by the retry loop (see
 	// ExecuteNonStreamStartedWithRetry). Running LLM repair here would repair

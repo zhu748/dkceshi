@@ -97,20 +97,6 @@ func (c *Client) callContinue(ctx context.Context, a *auth.RequestAuth, sessionI
 	return resp, nil
 }
 
-// newAutoContinueBody returns a new ReadCloser that transparently pumps
-// continuation rounds via an io.Pipe.
-func newAutoContinueBody(ctx context.Context, initial io.ReadCloser, sessionID string, maxRounds int, openContinue continueOpenFunc) io.ReadCloser {
-	if initial == nil || strings.TrimSpace(sessionID) == "" || openContinue == nil {
-		return initial
-	}
-	if maxRounds <= 0 {
-		maxRounds = defaultAutoContinueLimit
-	}
-	pr, pw := io.Pipe()
-	go pumpAutoContinue(ctx, pw, initial, continueState{sessionID: sessionID}, maxRounds, openContinue)
-	return pr
-}
-
 // pumpAutoContinue is the goroutine that drives the auto-continue loop.
 // It reads the initial SSE body, checks whether a continue is required,
 // and if so opens a new continue stream and splices it onto the pipe writer.
@@ -119,8 +105,7 @@ func pumpAutoContinue(ctx context.Context, pw *io.PipeWriter, initial io.ReadClo
 	current := initial
 	rounds := 0
 	for {
-		hadDone, err := streamBodyWithContinueState(ctx, pw, current, &state)
-		_ = current.Close()
+		hadDone, err := readContinueRound(ctx, pw, current, &state)
 		if err != nil {
 			_ = pw.CloseWithError(err)
 			return
@@ -137,6 +122,12 @@ func pumpAutoContinue(ctx context.Context, pw *io.PipeWriter, initial io.ReadClo
 			current = nextResp.Body
 			state.prepareForNextRound()
 			continue
+		}
+		if state.shouldContinue() {
+			if err := pw.CloseWithError(fmt.Errorf("upstream continuation limit reached after %d rounds", rounds)); err != nil {
+				config.Logger.Warn("[auto_continue] close failed stream pipe", "error", err)
+			}
+			return
 		}
 		// Emit the final [DONE] sentinel if the upstream had one.
 		if hadDone {
@@ -186,10 +177,7 @@ func streamBodyWithContinueState(ctx context.Context, pw *io.PipeWriter, body io
 					if err != nil && err != io.EOF {
 						return hadDone, err
 					}
-					if err == io.EOF {
-						return hadDone, nil
-					}
-					continue
+					return hadDone, nil
 				}
 				state.observe(data)
 			}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"ds2api/internal/toolstream"
 	"ds2api/internal/util"
 )
 
@@ -81,7 +82,7 @@ func (s *claudeStreamRuntime) sendMessageStart() {
 }
 
 func (s *claudeStreamRuntime) emitDeferredText() {
-	text := cleanVisibleOutput(s.deferredText.String(), s.stripReferenceMarkers)
+	text := cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers)
 	s.deferredText.Reset()
 	if text == "" {
 		return

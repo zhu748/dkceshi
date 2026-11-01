@@ -3,7 +3,9 @@
 // Remove malformed DSML protocol residue outside literal code examples.
 const {
   insideFencedCodeAt,
+  markdownCodeSpanEnd,
 } = require('./markdown_fence');
+const { skipXmlIgnoredSection } = require('./cdata_scan');
 const {
   findDSMLTagOutsideIgnored,
   findMatchingDSMLClose,
@@ -15,6 +17,7 @@ const {
   consumeToolMarkupClosingSlash,
   consumeToolMarkupSeparator,
   isXmlTagStartDelimiter,
+  lastIndexOfToolMarkupStartDelimiter,
   toolMarkupWhitespaceLikeLenAt,
 } = require('./markup_syntax');
 
@@ -131,12 +134,12 @@ function removeDSMLTextSpans(text, spans) {
 // trailing unterminated DSML tag fragment, requiring DSML evidence so a bare
 // trailing `<` in prose survives, and preserving fenced documentation.
 function stripTrailingPartialDSMLTag(text) {
-  const idx = text.lastIndexOf('<');
+  const idx = lastIndexOfToolMarkupStartDelimiter(text);
   if (idx < 0) {
     return text;
   }
   let start = idx;
-  while (start > 0 && text[start - 1] === '<') {
+  while (start > 0 && isXmlTagStartDelimiter(text[start - 1])) {
     start -= 1;
   }
   const tail = text.slice(start);
@@ -145,6 +148,16 @@ function stripTrailingPartialDSMLTag(text) {
   }
   if (insideFencedCodeAt(text, start)) {
     return text;
+  }
+  for (let i = 0; i < start; i += 1) {
+    const ignored = skipXmlIgnoredSection(text, i);
+    if (ignored.blocked || (ignored.advanced && ignored.next > start)) return text;
+    if (ignored.advanced) { i = ignored.next - 1; continue; }
+    const code = markdownCodeSpanEnd(text, i);
+    if (code.ok) {
+      if (code.end > start) return text;
+      i = code.end - 1;
+    }
   }
   return text.slice(0, start);
 }

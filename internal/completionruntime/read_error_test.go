@@ -38,6 +38,16 @@ func TestNonStreamRejectsInterruptedResponseWithPartialOutput(t *testing.T) {
 	}
 }
 
+func TestNonStreamRejectsCleanEOFWithoutCompletionMarker(t *testing.T) {
+	ds := &fakeDeepSeekCaller{responses: []*http.Response{{StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader("data: {\"p\":\"response/content\",\"v\":\"partial\"}\n")),
+	}}}
+	result, outErr := ExecuteNonStreamWithRetry(context.Background(), ds, &auth.RequestAuth{}, promptcompat.StandardRequest{}, Options{})
+	if outErr == nil || outErr.Code != "upstream_read_error" || result.Turn.Text != "partial" {
+		t.Fatalf("truncated answer accepted: result=%+v error=%+v", result, outErr)
+	}
+}
+
 func TestRepairRejectsInterruptedAndUpstreamErrorResponses(t *testing.T) {
 	for _, body := range []io.Reader{
 		io.MultiReader(strings.NewReader("data: {\"v\":\"partial repair\"}\n"), interruptedCompletionReader{}),

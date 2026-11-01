@@ -273,7 +273,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		s.toolCallsDoneEmitted = true
 	} else if s.bufferToolContent {
 		if !s.toolCallsEmitted && s.deferredText.Len() > 0 {
-			s.sendDelta(map[string]any{"content": cleanVisibleOutput(s.deferredText.String(), s.stripReferenceMarkers)})
+			s.sendDelta(map[string]any{"content": cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers)})
 			s.deferredText.Reset()
 		}
 		batch := chatDeltaBatch{runtime: s}
@@ -286,7 +286,11 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 				// 与 onParsed 中的行为保持一致。
 				continue
 			}
-			cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)
+			content := evt.Content
+			if evt.Deferred {
+				content = toolstream.FilterVisible(content, "")
+			}
+			cleaned := cleanVisibleOutput(content, s.stripReferenceMarkers)
 			if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 				continue
 			}
@@ -345,6 +349,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 	}
 
 	batch := chatDeltaBatch{runtime: s}
+	s.accumulator.ToolMarker = s.toolSieve.Marker
 	accumulated := s.accumulator.Apply(parsed)
 	for _, p := range accumulated.Parts {
 		if p.Type == "thinking" {

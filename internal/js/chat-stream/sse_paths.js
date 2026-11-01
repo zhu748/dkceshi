@@ -5,7 +5,7 @@ const { SKIP_PATTERNS, SKIP_EXACT_PATHS } = require('../shared/deepseek-constant
 const { asString } = require('./sse_text');
 
 function isStatusPath(pathValue) {
-  return pathValue === 'response/status' || pathValue === 'status';
+  return ['response/status', 'status', 'response/quasi_status', 'quasi_status'].includes(pathValue);
 }
 
 // isToolFragmentType reports whether a fragment type carries search/tool

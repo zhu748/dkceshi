@@ -158,7 +158,7 @@ func makeGeminiUpstreamResponse(lines ...string) *http.Response {
 
 func TestGeminiDirectAppliesCurrentInputFile(t *testing.T) {
 	ds := &testGeminiDS{
-		resp: makeGeminiUpstreamResponse(`data: {"p":"response/content","v":"ok"}`),
+		resp: makeGeminiUpstreamResponse(`data: {"p":"response/content","v":"ok"}`, "data: [DONE]"),
 	}
 	historyStore := chathistory.New(filepath.Join(t.TempDir(), "history.json"))
 	h := &Handler{
@@ -229,7 +229,7 @@ func TestGeminiDirectAppliesCurrentInputFile(t *testing.T) {
 
 func TestGeminiCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 	ds := &testGeminiDS{
-		resp: makeGeminiUpstreamResponse(`data: {"p":"response/content","v":"ok"}`),
+		resp: makeGeminiUpstreamResponse(`data: {"p":"response/content","v":"ok"}`, "data: [DONE]"),
 	}
 	h := &Handler{
 		Store: testGeminiConfig{},

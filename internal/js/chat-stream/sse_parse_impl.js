@@ -21,12 +21,13 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
   }
   const pathValue = asString(chunk.p);
   if (hasContentFilterStatus(chunk)) return { ...result, finished: true, contentFilter: true };
-  if (shouldSkipPath(pathValue)) return result;
   if (isStatusPath(pathValue)) return { ...result, finished: isFinishedStatus(chunk.v) };
+  if (shouldSkipPath(pathValue)) return result;
   if (!Object.prototype.hasOwnProperty.call(chunk, 'v')) return result;
 
   let newType = currentType;
   const parts = [];
+  let finished = false;
   const bodyStarted = thinkingEnabled && currentType === 'text';
   if (pathValue === 'response/fragments' && asString(chunk.o).toUpperCase() === 'APPEND' && Array.isArray(chunk.v)) {
     for (const frag of chunk.v) {
@@ -108,7 +109,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
     if (content) parts.push({ text: content, type: partType });
   } else if (Array.isArray(val)) {
     const extracted = extractContentRecursive(val, partType, newType, stripReferenceMarkers, thinkingEnabled, pathValue);
-    if (extracted.finished) return { ...result, finished: true, newType: extracted.newType || newType };
+    finished = extracted.finished;
     parts.push(...extracted.parts);
     newType = extracted.newType || newType;
   } else if (val && typeof val === 'object') {
@@ -117,6 +118,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
       parts.push({ text: directContent, type: partType });
     }
     const resp = val.response && typeof val.response === 'object' ? val.response : val;
+    finished = (!pathValue || pathValue === 'response') && (isFinishedStatus(resp.status) || isFinishedStatus(resp.quasi_status));
     if (Array.isArray(resp.fragments)) {
       for (const frag of resp.fragments) {
         if (!frag || typeof frag !== 'object') {
@@ -145,7 +147,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
   }
   
   const finalized = finalizeThinkingParts(filterLeakedContentFilterParts(parts), thinkingEnabled, newType, bodyStarted);
-  return { ...result, parts: finalized.parts, detectionThinking: finalized.detectionThinking || '', newType: finalized.newType };
+  return { ...result, finished, parts: finalized.parts, detectionThinking: finalized.detectionThinking || '', newType: finalized.newType };
 }
 
 function extractAccumulatedTokenUsage(chunk) {

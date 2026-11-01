@@ -1,4 +1,5 @@
 'use strict';
+const { createVisibleGuard, filterVisible } = require('../helpers/stream-tool-sieve/visible_guard');
 const { needsToolFinalization } = require('./tool_output');
 
 // Coordinate one prepared stream; policy, continuation and probes live in dedicated modules.
@@ -298,6 +299,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const created = Math.floor(Date.now() / 1000);
     let currentType = thinkingEnabled ? 'thinking' : 'text';
     let thinkingText = '';
+    let rawThinkingText = '';
+    let thinkingGuard = createVisibleGuard(prep.body.tool_marker);
     // Monotonic "has any non-whitespace char" flags: replaces per-line
     // outputText.trim() scans, which are O(total) per SSE line (O(n^2) per stream).
     let hasVisibleThinking = false;
@@ -345,6 +348,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       deferredToolText = '';
       toolCallsDetected = false;
       detectionThinkingText = '';
+      rawThinkingText = '';
+      thinkingGuard = createVisibleGuard(prep.body.tool_marker);
       lastEmptyDetail = null;
       toolSieveState = createToolSieveState();
       toolSieveState.deferMalformed = true;
@@ -377,6 +382,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (!res.writableEnded && !res.destroyed) res.end();
         return true;
       }
+      const thinkingTail = thinkingGuard.flush();
+      if (thinkingTail) { thinkingText += thinkingTail; deltaCoalescer.append('reasoning_content', thinkingTail); }
       deltaCoalescer.flush();
       // Unconfirmed prompt prefixes are literal EOF text and already passed
       // the role guard; marker-normalizer tails cannot form a role delimiter.
@@ -439,7 +446,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (!res.writableEnded && !res.destroyed) res.end();
         return true;
       }
-      if (!detected.length && !toolCallsEmitted && deferredToolText) { deltaCoalescer.append('content', deferredToolText); deferredToolText = ''; }
+      if (!detected.length && !toolCallsEmitted && deferredToolText) { deltaCoalescer.append('content', filterVisible(deferredToolText)); deferredToolText = ''; }
       if (detected.length > 0 && !toolCallsDoneEmitted) {
         toolCallsEmitted = true;
         toolCallsDoneEmitted = true;
@@ -455,7 +462,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             if (toolCallsEmitted) {
               continue;
             }
-            deltaCoalescer.append('content', evt.text);
+            deltaCoalescer.append('content', evt.deferred ? filterVisible(evt.text) : evt.text);
           }
         }
         deltaCoalescer.flush();
@@ -581,10 +588,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
               if (parsed.contentFilter) {
                 return { terminal: await finish(!hasVisibleOutput ? 'content_filter' : 'stop'), retryable: false };
               }
-              if (parsed.finished) {
-                streamEnded = true;
-                break;
-              }
 
               if (parsed.detectionThinking && !hasVisibleOutput) {
                 detectionThinkingText += trimContinuationOverlap(detectionThinkingText, parsed.detectionThinking);
@@ -595,7 +598,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                 }
                 if (p.type === 'thinking') {
                   if (thinkingEnabled) {
-                    const trimmed = trimContinuationOverlap(thinkingText, p.text);
+                    const rawTrimmed = trimContinuationOverlap(rawThinkingText, p.text);
+                    rawThinkingText += rawTrimmed;
+                    const trimmed = thinkingGuard.write(rawTrimmed);
                     if (!trimmed) {
                       continue;
                     }
@@ -607,9 +612,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                   }
                 } else {
                   // 先归一化再进入复读守卫 / 累计文本 / sieve：三者都只认 EPSE。
-                  // thinking 通道刻意不做归一化，与 Go 侧
-                  // chatStreamRuntime.onParsed 保持一致（Go 只在 assistantturn
-                  // 收口时归一化 thinking，流式 reasoning_content 片段原样下发）。
+                  // 思考通道由独立的可见性 guard 归一化并拦截工具格式。
                   const normalizedText = markerNormalizer.write(p.text);
                   if (!normalizedText) {
                     continue;
@@ -653,6 +656,10 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                     }
                   }
                 }
+              }
+              if (parsed.finished) {
+                streamEnded = true;
+                break;
               }
               if (contentPolicyCut(contentPolicy) !== CUT_NONE) {
                 // 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）触发：
@@ -720,11 +727,14 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             return { terminal: true, retryable: false };
           }
           if (!nextRes.ok || !nextRes.body) {
-            return { terminal: await finish('stop'), retryable: false };
+            return { terminal: false, retryable: false, interrupted: true, responseMessageID: continueState.responseMessageID };
           }
           continueState = prepareContinueStateForNextRound(continueState);
           currentResponse = nextRes;
           continue;
+        }
+        if (shouldAutoContinue(continueState) || (!continueState.finished && !continueState.sawDone && continueState.sawContent)) {
+          return { terminal: false, retryable: false, interrupted: true, responseMessageID: continueState.responseMessageID };
         }
         break;
       }

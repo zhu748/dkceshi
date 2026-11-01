@@ -30,19 +30,19 @@ func TestSearchToolFailureAfterWhitespaceCanRegenerate(t *testing.T) {
 			}
 			bad := `<tool_calls><invoke name="web_search"><parameter name="queries"><![CDATA[first||second]]></parameter></invoke></tool_calls>`
 			req := httptest.NewRequest(http.MethodPost, "/", nil)
-			terminal, retryable := (&Handler{}).consumeClaudeStreamAttempt(req, content(prefix, bad), runtime, false, true)
+			result := (&Handler{}).consumeClaudeStreamAttempt(req, content(prefix, bad), runtime, false, true)
 			delivered := strings.TrimSpace(prefix) != ""
-			if terminal != delivered || retryable == delivered {
-				t.Fatalf("incorrect delivery boundary: terminal=%t retryable=%t code=%s body=%s", terminal, retryable, runtime.finalErrorCode, rec.Body.String())
+			if result.Terminal != delivered || result.Retryable == delivered {
+				t.Fatalf("incorrect delivery boundary: terminal=%t retryable=%t code=%s body=%s", result.Terminal, result.Retryable, runtime.finalErrorCode, rec.Body.String())
 			}
 			if delivered {
 				return
 			}
 			runtime.resetForRegeneration()
 			good := strings.Replace(bad, "<![CDATA[first||second]]>", `["first","second"]`, 1)
-			terminal, _ = (&Handler{}).consumeClaudeStreamAttempt(req, content(good), runtime, false, true)
+			result = (&Handler{}).consumeClaudeStreamAttempt(req, content(good), runtime, false, true)
 			body := rec.Body.String()
-			if !terminal || strings.Contains(body, "event: error") || strings.Count(body, `"stop_reason":"tool_use"`) != 1 || strings.Contains(body, "first||second") {
+			if !result.Terminal || strings.Contains(body, "event: error") || strings.Count(body, `"stop_reason":"tool_use"`) != 1 || strings.Contains(body, "first||second") {
 				t.Fatalf("invalid attempt escaped or retry failed: %s", body)
 			}
 		})

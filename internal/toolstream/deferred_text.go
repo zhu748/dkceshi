@@ -11,7 +11,8 @@ func shouldDeferToolText(state *State, text string) bool {
 		return false
 	}
 	epse, canonical := toolcall.ContainsToolMarkupSyntaxOutsideIgnored(text)
-	return epse || canonical || toolcall.DetectToolCallIntent(text)
+	idx, _ := toolcall.FindToolProtocolPrefixOutsideIgnored(text, 0)
+	return idx >= 0 || epse || canonical || toolcall.DetectToolCallIntent(text)
 }
 
 func includeDuplicateLeadingLessThan(s string, idx int) int {

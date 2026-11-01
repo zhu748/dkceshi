@@ -42,6 +42,7 @@ type claudeStreamRuntime struct {
 
 	deferredText          strings.Builder
 	sieve                 toolstream.State
+	thinkingGuard         toolstream.VisibleGuard
 	rawText               strings.Builder
 	rawThinking           strings.Builder
 	toolDetectionThinking strings.Builder
@@ -64,6 +65,7 @@ type claudeStreamRuntime struct {
 	visibleTextEmitted bool
 	ended              bool
 	upstreamErr        string
+	contentFilter      bool
 	finalErrorStatus   int
 	finalErrorMessage  string
 	finalErrorCode     string
@@ -74,18 +76,6 @@ type claudeStreamRuntime struct {
 	// handler enabled repair; the per-chunk sieve never receives them.
 	toolCallRepair    toolcall.ToolCallRepairInvoker
 	toolCallRepairCtx context.Context
-}
-
-// resetContentPolicy starts a new upstream round. The cut rules belong to one
-// upstream stream, so a rule that fired on the attempt that just ended must not
-// keep discarding the next attempt's text: an empty-output retry (or a retry on
-// another account) reads a fresh upstream response, and its content is what the
-// client is waiting for. Everything else the runtime holds is left alone.
-func (s *claudeStreamRuntime) resetContentPolicy() {
-	if s == nil {
-		return
-	}
-	s.policy = sse.ContentPolicy{Prompt: s.promptTokenText}
 }
 
 func newClaudeStreamRuntime(
@@ -110,7 +100,7 @@ func newClaudeStreamRuntime(
 		messages:              messages,
 		thinkingEnabled:       thinkingEnabled,
 		searchEnabled:         searchEnabled,
-		bufferToolContent:     len(toolNames) > 0,
+		bufferToolContent:     true,
 		stripReferenceMarkers: stripReferenceMarkers,
 		toolNames:             toolNames,
 		toolsRaw:              toolsRaw,
@@ -135,11 +125,16 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 	if parsed.ResponseMessageID > 0 {
 		s.responseMessageID = parsed.ResponseMessageID
 	}
+	if parsed.ContentFilter {
+		s.contentFilter = true
+		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReason("content_filter")}
+	}
 	if parsed.Stop {
 		return streamengine.ParsedDecision{Stop: true}
 	}
 
 	if parsed.Flush {
+		s.emitThinking(s.thinkingGuard.Flush())
 		if tail := s.policy.Flush(); tail != "" {
 			parsed.Parts = append(parsed.Parts, sse.ContentPart{Type: "text", Text: tail})
 		}
@@ -178,44 +173,18 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		}
 		// Raw tool markup and hidden reasoning reset the activity watchdog.
 		contentSeen = true
+		if p.Type == "thinking" {
+			if s.thinkingEnabled {
+				s.thinkingGuard.Marker = s.sieve.Marker
+				s.emitThinking(s.thinkingGuard.Write(rawTrimmed))
+			}
+			continue
+		}
 		cleanedText := cleanVisibleOutput(rawTrimmed, s.stripReferenceMarkers)
 		if cleanedText == "" && !s.bufferToolContent {
 			continue
 		}
 		if p.Type != "thinking" && s.searchEnabled && sse.IsCitation(cleanedText) {
-			continue
-		}
-		if p.Type == "thinking" {
-			if !s.thinkingEnabled {
-				continue
-			}
-			trimmed := sse.TrimContinuationOverlapFromBuilder(&s.thinking, cleanedText)
-			if trimmed == "" {
-				continue
-			}
-			s.thinking.WriteString(trimmed)
-			s.closeTextBlock()
-			if !s.thinkingBlockOpen {
-				s.thinkingBlockIndex = s.nextBlockIndex
-				s.nextBlockIndex++
-				s.send("content_block_start", map[string]any{
-					"type":  "content_block_start",
-					"index": s.thinkingBlockIndex,
-					"content_block": map[string]any{
-						"type":     "thinking",
-						"thinking": "",
-					},
-				})
-				s.thinkingBlockOpen = true
-			}
-			s.send("content_block_delta", map[string]any{
-				"type":  "content_block_delta",
-				"index": s.thinkingBlockIndex,
-				"delta": map[string]any{
-					"type":     "thinking_delta",
-					"thinking": trimmed,
-				},
-			})
 			continue
 		}
 

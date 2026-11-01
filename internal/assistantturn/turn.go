@@ -9,6 +9,7 @@ import (
 	"ds2api/internal/sse"
 	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
+	"ds2api/internal/toolstream"
 	"ds2api/internal/util"
 )
 
@@ -207,7 +208,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	// the model's invented tool result and the monologue after it are never
 	// delivered as reply text.
 	result.Text, _ = sse.TrimToolRoleMarker(result.Text)
-	thinking := textclean.CleanVisibleOutput(result.Thinking, opts.StripReferenceMarkers)
+	thinking := textclean.CleanVisibleOutput(toolstream.FilterVisible(result.Thinking, opts.ToolMarker), opts.StripReferenceMarkers)
 	text := textclean.CleanVisibleOutput(result.Text, opts.StripReferenceMarkers)
 	text = toolcall.StripDSMLResidue(text)
 	if opts.SearchEnabled {
@@ -225,6 +226,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 		}
 	}
 	parsed.Calls = calls
+	text = toolstream.FilterVisible(text, opts.ToolMarker)
 
 	stopReason := StopReasonStop
 	if result.ContentFilter {
@@ -277,7 +279,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	// after it can reach the reply text or the finalize tool detection.
 	snapshot.RawText, _ = sse.TrimToolRoleMarker(snapshot.RawText)
 	snapshot.VisibleText, _ = sse.TrimToolRoleMarker(snapshot.VisibleText)
-	thinking := textclean.CleanVisibleOutput(snapshot.VisibleThinking, opts.StripReferenceMarkers)
+	thinking := textclean.CleanVisibleOutput(toolstream.FilterVisible(snapshot.VisibleThinking, opts.ToolMarker), opts.StripReferenceMarkers)
 	text := textclean.CleanVisibleOutput(snapshot.VisibleText, opts.StripReferenceMarkers)
 	text = toolcall.StripDSMLResidue(text)
 	if opts.SearchEnabled {
@@ -304,6 +306,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		}
 	}
 	parsed.Calls = calls
+	text = toolstream.FilterVisible(text, opts.ToolMarker)
 
 	stopReason := StopReasonStop
 	if snapshot.ContentFilter {

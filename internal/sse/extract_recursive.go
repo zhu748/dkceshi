@@ -27,7 +27,7 @@ func extractContentRecursiveFrom(items []any, defaultType string, thinkingEnable
 		}
 		if isStatusPath(itemPath) && !isFragmentScopedPath(parentPath) {
 			if s, ok := itemV.(string); ok && strings.EqualFold(strings.TrimSpace(s), "FINISHED") {
-				return nil, true
+				return parts, true
 			}
 			continue
 		}

@@ -22,7 +22,7 @@ function extractContentRecursive(items, defaultType, newType, stripReferenceMark
     // "正在搜索图片".
     if (isStatusPath(itemPath) && !isFragmentScopedPath(parentPath)) {
       if (isFinishedStatus(itemV)) {
-        return { parts: [], finished: true, newType };
+        return { parts, finished: true, newType };
       }
       continue;
     }

@@ -46,9 +46,7 @@ func (r *Resolver) RefreshTokenErr(ctx context.Context, a *RequestAuth) error {
 	if a == nil || !a.UseConfigToken || a.AccountID == "" {
 		return ErrNotManagedAccount
 	}
-	_ = r.Store.UpdateAccountToken(a.AccountID, "")
-	a.Account.Token = ""
-	if err := r.loginAndPersist(ctx, a); err != nil {
+	if err := r.loginCoalesced(ctx, a, true); err != nil {
 		config.Logger.Error("[refresh_token] failed", "account", a.AccountID, "error", err)
 		if errors.Is(err, ErrLoginRejected) {
 			r.MarkAuthFailure(a, "重新登录被上游拒绝："+err.Error())

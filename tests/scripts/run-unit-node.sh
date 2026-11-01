@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 ./tests/scripts/check-node-split-syntax.sh
+node --test tests/node/tool-visible-guard.test.js
 
 # Keep Node's file-level test scheduling serial to avoid intermittent cross-file
 # interference when multiple suites import mutable module singletons.

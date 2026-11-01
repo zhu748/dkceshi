@@ -65,7 +65,7 @@ func isToolFragmentType(typeName string) bool {
 }
 
 func isStatusPath(path string) bool {
-	return path == "response/status" || path == "status"
+	return path == "response/status" || path == "status" || path == "response/quasi_status" || path == "quasi_status"
 }
 
 // isFragmentScopedPath reports whether a patch path targets one specific

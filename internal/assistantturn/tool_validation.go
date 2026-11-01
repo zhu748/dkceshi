@@ -16,18 +16,20 @@ func validateToolOutput(turn Turn, opts BuildOptions, repaired bool) *OutputErro
 			Message: "Upstream repeated generated instructions instead of producing an answer."}
 	}
 	parsed := turn.ParsedToolCalls
-	if !repaired && (parsed.SawToolCallIntent || parsed.SawToolCallSyntax && len(turn.ToolCalls) == 0) &&
-		!turn.ContentFilter && strings.TrimSpace(turn.UpstreamError) == "" {
-		unresolved := parsed.ResidualIntentText
-		if strings.TrimSpace(unresolved) == "" {
+	if !repaired && !turn.ContentFilter && strings.TrimSpace(turn.UpstreamError) == "" {
+		unresolved := parsed.ResidualProtocolText
+		if unresolved == "" {
+			unresolved = parsed.ResidualIntentText
+		}
+		if strings.TrimSpace(unresolved) == "" && len(turn.ToolCalls) == 0 {
 			unresolved = parsed.SourceText
 		}
-		if strings.TrimSpace(unresolved) == "" {
+		if strings.TrimSpace(unresolved) == "" && len(turn.ToolCalls) == 0 {
 			unresolved = turn.RawText
 		}
 		// A damaged undeclared call must not disappear beside a valid call.
 		// Empty names also covers schema-less continuation requests.
-		if toolcall.HasNamedToolInvocation(unresolved, nil) {
+		if toolcall.HasNamedToolInvocation(unresolved, nil) || toolcall.HasUnresolvedToolMarkup(unresolved) {
 			return &OutputError{
 				Status: http.StatusUnprocessableEntity, Code: "invalid_tool_arguments",
 				Message: "Upstream returned an incomplete tool call that could not be safely repaired.",

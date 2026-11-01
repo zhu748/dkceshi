@@ -48,6 +48,7 @@ func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		return streamengine.ParsedDecision{Stop: true}
 	}
 
+	s.accumulator.SetToolMarker(s.toolSieve.Marker)
 	accumulated := s.accumulator.Apply(parsed)
 	for _, p := range accumulated.Parts {
 		if s.bufferContent {

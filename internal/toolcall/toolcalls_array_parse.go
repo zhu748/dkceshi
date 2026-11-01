@@ -2,7 +2,6 @@ package toolcall
 
 import (
 	"ds2api/internal/jsonvalue"
-	"html"
 	"strings"
 )
 
@@ -10,7 +9,7 @@ func parseLooseJSONArrayValue(raw, paramName string) ([]any, bool) {
 	if preservesCDATAStringParameter(paramName) {
 		return nil, false
 	}
-	trimmed := strings.TrimSpace(html.UnescapeString(raw))
+	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return nil, false
 	}
@@ -44,7 +43,7 @@ func parseLooseJSONArrayCandidate(raw, paramName string) ([]any, bool) {
 }
 
 func parseLooseArrayElementValue(raw string) (any, bool) {
-	trimmed := strings.TrimSpace(html.UnescapeString(raw))
+	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return nil, false
 	}

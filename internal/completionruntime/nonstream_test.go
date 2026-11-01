@@ -727,6 +727,9 @@ func TestStartCompletionAppliesCurrentInputFileGlobally(t *testing.T) {
 
 func sseHTTPResponse(status int, lines ...string) *http.Response {
 	body := strings.Join(lines, "\n")
+	if status == http.StatusOK {
+		body += "\ndata: [DONE]\n"
+	}
 	if !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}

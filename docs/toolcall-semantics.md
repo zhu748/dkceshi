@@ -69,8 +69,8 @@
 - DSML 外壳（如 `<DSML calls>` / `<|DSML|calls>` / `<DSML invoke name="...">`，本地名任意）也会作为额外的流式拦截入口进入捕获：DSML 不会解析成工具调用，捕获块完整后从可见正文中丢弃（隐藏），原始文本仍保留在 `accumulator.RawText` 中交给 finalize 兜底修复（`DetectToolCallIntent` → 修复链路），因此不会逐片泄漏到正文；流中途被主动打断时，未闭合的 DSML 块也一并隐藏。DSML 标签在 CDATA / 注释 / 围栏 / 行内 code span 内不触发，跨 chunk 的半截 DSML 标签也会被 hold。Go 侧实现 `internal/toolcall/toolcalls_intent.go` 的 `FindDSMLTagOutsideIgnored` / `FindMatchingDSMLClose` + `internal/toolcall/toolcalls_scan.go` 的 `isPartialDSMLTagPrefix`，Node / Vercel 侧对齐在 `internal/js/helpers/stream-tool-sieve/markup_scan.js`、`dsml_residue.js` 与 `sieve.js`。修复成功后的可见正文清理按**标记区间**进行（Go 侧 `internal/toolcall/toolcalls_deduct.go` 的 `BadToolMarkupSpans` / `RemoveTextSpans`）：只删除 DSML 包裹与解析失败的 EPSE / canonical 块，prose 保留；residual 因部分成功而不连续时仍能扣减，找不到坏标记区间时才退回整段 residual 删除。
 - 如果流里直接从 invoke 开始，但后面补上了 closing wrapper，Go 流式筛分也会按缺失 opening wrapper 的修复路径尝试恢复
 - 已识别成功的工具调用不会再次回流到普通文本
-- 不符合新格式的块不会执行，并继续按原样文本透传
-- 如果一个 confusable / 漂移过的工具壳在 candidate-span canonicalization + repair 后仍能形成有效工具调用，wrapper 后面的 suffix prose 会继续按普通文本输出；如果 canonicalization 后仍不满足 wrapper-confidence 或 XML 语义，整块就作为普通文本释放，不会半吞半漏。
+- 底层 sieve 默认模式可返回无法解析的文本事件；生产路径启用 `DeferMalformed`，明确的工具协议残片在共享收尾失败时返回 `invalid_tool_arguments`，不作为成功正文透传。该规则也覆盖尚无工具名的未闭合 EPSE 外壳、未知 EPSE 标签及截断 canonical 调用。
+- 如果一个 confusable / 漂移过的工具壳在 candidate-span canonicalization + repair 后仍能形成有效工具调用，wrapper 后面的 suffix prose 会继续按普通文本输出；如果 canonicalization 后仍不满足 wrapper-confidence 或 XML 语义，底层 sieve 可返回文本事件，生产路径仍由共享残余校验决定是否拒绝，不能先发送原始代码。
 - fenced code block（反引号 `` ``` `` 和波浪线 `~~~`）以及 Markdown inline code span（例如 `` `<tool_calls>...</tool_calls>` ``）中的 XML 示例始终按普通文本处理
 - 支持嵌套围栏（如 4 反引号嵌套 3 反引号）和 CDATA 内围栏保护
 - 对 `command` / `content` 等长文本参数，CDATA 内部如果包含 Markdown fenced EPSE / XML 示例，即使示例里出现 `]]></parameter>` / `</tool_calls>` 这类看起来像外层结束标签的片段，也会继续按参数原文保留，直到真正位于围栏外的外层结束标签
@@ -90,13 +90,15 @@
 
 - `calls`：解析出的工具调用列表（`name` + `input`）
 - `sawToolCallSyntax`：检测到 EPSE / canonical wrapper，或命中“缺失 opening wrapper 但可修复”的形态时会为 `true`；裸 `invoke` 不计入该标记
-- `sawToolCallIntent`：残余意图信号。在**归一化之前的原始文本**上（剥离 markdown 围栏后、`normalizeEPSEToolCallMarkup` 之前），扣除已成功解析的 wrapper 源区间后，残余文本里仍存在**成对的** `<|EPSE` 开标签 + `</|EPSE` 闭合标签时为 `true` —— 代表“模型想调工具但格式坏了、还有无法解析的意图”，是兜底修复的触发条件之一（详见第 7 节）
+- `sawToolCallIntent`：残余意图信号。在**归一化之前的原始文本**上（剥离 markdown 围栏后、`normalizeEPSEToolCallMarkup` 之前），扣除已成功解析的 wrapper 源区间后，残余文本里仍存在**成对的** `<|EPSE` 开标签 + `</|EPSE` 闭合标签时为 `true` —— 代表“模型想调工具但格式坏了、还有无法解析的意图”，是兜底修复的触发条件之一（详见第 7 节）；未闭合前缀另存内部 `ResidualProtocolText`，供最终校验检查没有闭标签的兄弟调用
 - `rejectedByPolicy`：当前固定为 `false`
 - `rejectedToolNames`：当前固定为空数组
 
 解析层不会因为参数值为空而丢弃工具调用。若模型输出了显式空字符串或纯空白参数，它们会按空字符串进入结构化 `tool_calls`；是否拒绝缺参或空命令应由后续工具执行侧 / 客户端 schema 校验决定。Prompt 层仍会要求模型不要主动输出空参数。
 
-完整的 EPSE / XML wrapper 只有在成功解析出有效 `invoke name`，并且参数节点（如存在）符合 `parameter` 语义后，才会变成结构化工具调用；真正的零参数工具调用仍然有效。如果 wrapper 完整但内部不是可执行工具调用形态（例如使用 `<param>`、缺少有效 `invoke name`、或其他 malformed XML 工具壳），底层 sieve 默认模式仍可返回文本事件；生产路径开启 DeferMalformed，将其隔离到共享收尾。具名调用修复失败时报错，不能将坏块释放为成功正文或执行部分批次。
+完整的 EPSE / XML wrapper 只有在成功解析出有效 `invoke name`，并且参数节点（如存在）符合 `parameter` 语义后，才会变成结构化工具调用；真正的零参数工具调用仍然有效。如果 wrapper 完整但内部不是可执行工具调用形态（例如使用 `<param>`、缺少有效 `invoke name`、或其他 malformed XML 工具壳），底层 sieve 默认模式仍可返回文本事件；生产路径开启 DeferMalformed，将其隔离到共享收尾。明确工具协议残片修复失败时报错，即使尚无调用名称；已成功解析调用旁的截断兄弟块同样校验，不能将坏块释放为成功正文或执行部分批次。
+
+可见思考也使用独立的有状态 `VisibleGuard`，与正文 sieve 共用前缀扫描规则。它只过滤显示，不执行调用；原始思考供最终恢复保留。Go 的 Chat、Responses、Claude、Gemini 与 Node 镜像均覆盖这一通道，Markdown、JSON 字符串、CDATA 和注释示例在分片补全后保留。正文的生产筛分同样保留未完成字面量上下文，避免跨分片的 JSON/CDATA 示例成为候选调用并丢失正文。重新生成清空 guard，续答保留状态以拦截跨轮标签。
 
 ## 5) 落地建议
 

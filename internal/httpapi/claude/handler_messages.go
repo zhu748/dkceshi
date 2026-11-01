@@ -454,7 +454,6 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		historySession,
 	)
 	streamRuntime.toolChoice = stdReq.ToolChoice
-	streamRuntime.bufferToolContent = true
 	streamRuntime.sieve.Marker = a.ToolMarker
 	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
 	streamRuntime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)
@@ -472,8 +471,7 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
 		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
-			terminalWritten, retryable := h.consumeClaudeStreamAttempt(r, currentResp, streamRuntime, thinkingEnabled, allowDeferEmpty)
-			return completionruntime.ConsumeAttemptResult{Terminal: terminalWritten, Retryable: retryable}
+			return h.consumeClaudeStreamAttempt(r, currentResp, streamRuntime, thinkingEnabled, allowDeferEmpty)
 		},
 		Finalize: func(_ int) {
 			streamRuntime.finalize("end_turn", false)
@@ -495,58 +493,4 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 			return &assistantturn.OutputError{Status: streamRuntime.finalErrorStatus, Message: streamRuntime.finalErrorMessage, Code: streamRuntime.finalErrorCode}
 		},
 	})
-}
-
-func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Response, streamRuntime *claudeStreamRuntime, thinkingEnabled bool, allowDeferEmpty bool) (bool, bool) {
-	defer func() { _ = resp.Body.Close() }()
-	// A new attempt reads a new upstream response, so the content rules start
-	// over: a cut that ended the previous attempt (an empty-output retry, or a
-	// retry on another account) must not keep discarding this one's text.
-	streamRuntime.resetContentPolicy()
-	streamRuntime.upstreamErr = ""
-	initialType := "text"
-	if thinkingEnabled {
-		initialType = "thinking"
-	}
-	finalReason := streamengine.StopReason("")
-	var scannerErr error
-	streamengine.ConsumeSSE(streamengine.ConsumeConfig{
-		Context:             r.Context(),
-		Body:                resp.Body,
-		ThinkingEnabled:     thinkingEnabled,
-		InitialType:         initialType,
-		KeepAliveInterval:   claudeStreamPingInterval,
-		IdleTimeout:         claudeStreamIdleTimeout,
-		MaxKeepAliveNoInput: claudeStreamMaxKeepaliveCnt,
-	}, streamengine.ConsumeHooks{
-		OnKeepAlive: func() {
-			streamRuntime.sendPing()
-		},
-		OnParsed: streamRuntime.onParsed,
-		OnFinalize: func(reason streamengine.StopReason, err error) {
-			finalReason = reason
-			scannerErr = err
-		},
-	})
-	if r.Context().Err() != nil {
-		// The client disconnected: close the history entry as "stopped" (with
-		// estimated usage) instead of leaving it "streaming" forever — the same
-		// handling the chat surface does on cancellation.
-		if streamRuntime.history != nil {
-			streamRuntime.history.Stopped(
-				responsehistory.ThinkingForArchive(streamRuntime.rawThinking.String(), streamRuntime.toolDetectionThinking.String(), streamRuntime.thinking.String()),
-				responsehistory.TextForArchive(streamRuntime.rawText.String(), streamRuntime.text.String()),
-				string(streamengine.StopReasonContextCancelled),
-			)
-		}
-		return true, false
-	}
-	if scannerErr != nil || finalReason == streamengine.StopReasonIdleTimeout || finalReason == streamengine.StopReasonNoContentTimeout {
-		streamRuntime.upstreamErr = "Upstream stream unavailable: interrupted before completion."
-	}
-	terminalWritten := streamRuntime.finalize("end_turn", allowDeferEmpty)
-	if terminalWritten {
-		return true, false
-	}
-	return false, true
 }

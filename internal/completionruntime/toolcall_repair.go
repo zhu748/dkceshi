@@ -120,7 +120,7 @@ func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *c
 			record.failure(resp.StatusCode, errToolCallRepairUpstream)
 			return "", errToolCallRepairUpstream
 		}
-		result := sse.CollectStream(resp, false, true)
+		result := sse.CollectStreamWithOptions(resp, false, true, sse.CollectOptions{Context: repairCtx})
 		if result.ReadError != nil {
 			record.failure(http.StatusBadGateway, result.ReadError)
 			return "", result.ReadError

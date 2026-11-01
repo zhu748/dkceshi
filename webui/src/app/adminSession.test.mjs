@@ -71,11 +71,22 @@ test('current offline verification keeps its stored token and an invalid credent
     for (const offline of [true, false]) {
         const local = storage('stored', Date.now() + 60000), tokens = []
         const session = createAdminSession({ local, session: storage(),
-            fetcher: async () => { if (offline) throw new Error('offline'); return { ok: false } },
+            fetcher: async () => { if (offline) throw new Error('offline'); return { ok: false, status: 401 } },
             onToken: (token) => tokens.push(token), onChecking: () => {} })
         await session.restore()
         assert.deepEqual(tokens, [offline ? 'stored' : null])
         if (!offline) assert.equal(local.getItem('ds2api_token'), null)
+    }
+})
+
+test('temporary verification failures preserve the stored login', async () => {
+    for (const status of [408, 429, 500, 502, 503]) {
+        const local = storage('stored', Date.now() + 60000), tokens = []
+        const session = createAdminSession({ local, session: storage(),
+            fetcher: async () => ({ ok: false, status }), onToken: token => tokens.push(token), onChecking: () => {} })
+        await session.restore()
+        assert.deepEqual(tokens, ['stored'])
+        assert.equal(local.getItem('ds2api_token'), 'stored')
     }
 })
 

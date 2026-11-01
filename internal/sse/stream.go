@@ -53,6 +53,7 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 		currentType := initialType
 
 		var pumpErr error
+		terminalSeen := false
 
 		var textBuffer strings.Builder
 		var thinkingBuffer strings.Builder
@@ -202,6 +203,7 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 			}
 
 			if result.Stop {
+				terminalSeen = true
 				if cfg.Enabled && cfg.FlushOnFinish {
 					for _, p := range result.ToolDetectionThinkingParts {
 						toolDetectionThinkingBuffer.WriteString(p.Text)
@@ -359,6 +361,9 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 		stopMaxWait()
 		if cfg.Enabled {
 			flushBuffer(true)
+		}
+		if pumpErr == nil && !terminalSeen {
+			pumpErr = ErrUnexpectedStreamEOF
 		}
 
 		if pumpErr != nil {

@@ -8,6 +8,7 @@ func (s *responsesStreamRuntime) resetForRegeneration() {
 	s.accumulator.Text.Reset()
 	s.accumulator.RawThinking.Reset()
 	s.accumulator.ToolDetectionThinking.Reset()
+	s.accumulator.ResetThinkingGuard()
 	s.accumulator.ResetContentPolicy()
 	s.deferredText.Reset()
 	s.sieve = toolstream.State{DeferMalformed: true, Marker: s.sieve.Marker}

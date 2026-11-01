@@ -240,7 +240,7 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 	// silently finalized as a normal finish frame: schedule a continue-resume so
 	// the same message is completed, or surface an explicit interruption error.
 	// Mirrors the chat.completions surface (openai/chat/empty_retry_runtime.go).
-	interrupted := scannerErr != nil || stopReason == streamengine.StopReasonIdleTimeout || stopReason == streamengine.StopReasonNoContentTimeout
+	interrupted := completionruntime.StreamInterrupted(scannerErr, stopReason)
 	if interrupted && runtime.responseMessageID > 0 && runtime.accumulator.HasPartialOutput() {
 		config.Logger.Warn("[gemini_stream] upstream stream interrupted; scheduling continue-resume",
 			"surface", "gemini.generate_content", "stream", true, "reason", stopReason, "error", fmt.Sprint(scannerErr), "response_message_id", runtime.responseMessageID)
@@ -448,10 +448,14 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 		turn.Thinking = ""
 		s.sendParts(buildGeminiPartsFromTurn(turn))
 	} else {
-		s.emitStreamText(s.deferredText.String())
+		s.emitStreamText(toolstream.FilterVisible(s.deferredText.String(), ""))
 		s.deferredText.Reset()
 		for _, event := range toolstream.Flush(&s.toolSieve, s.toolNames) {
-			s.emitStreamText(event.Content)
+			text := event.Content
+			if event.Deferred {
+				text = toolstream.FilterVisible(text, "")
+			}
+			s.emitStreamText(text)
 		}
 	}
 

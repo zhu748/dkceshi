@@ -73,7 +73,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	}
 
 	if len(detected) == 0 && s.deferredText.Len() > 0 {
-		s.emitTextDelta(cleanVisibleOutput(s.deferredText.String(), s.stripReferenceMarkers))
+		s.emitTextDelta(cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers))
 		s.deferredText.Reset()
 	}
 	s.closeReasoningItem()

@@ -76,7 +76,8 @@ export function createAdminSession({ fetcher = globalThis.fetch, onToken, onChec
             })
             if (!request.isCurrent()) return
             if (res.ok) publish(token)
-            else logout()
+            else if (res.status === 401 || res.status === 403) logout()
+            else publish(token)
         } catch {
             // Preserve the established offline fallback, but only for a
             // verification that still belongs to the active session.

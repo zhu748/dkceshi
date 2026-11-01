@@ -209,6 +209,7 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 	}
 
 	batch := responsesDeltaBatch{runtime: s}
+	s.accumulator.ToolMarker = s.sieve.Marker
 	accumulated := s.accumulator.Apply(parsed)
 	for _, p := range accumulated.Parts {
 		if p.Type == "thinking" {

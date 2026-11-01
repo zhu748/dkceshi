@@ -6,6 +6,8 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
     const [keysExpanded, setKeysExpanded] = useState(false)
     const accountRequests = useRef(createLatestRequest()).current
     const queueRequests = useRef(createLatestRequest()).current
+    const searchTimer = useRef(null)
+    const lastConfigRefresh = useRef(0)
 
     const [accounts, setAccounts] = useState([])
     const [page, setPage] = useState(1)
@@ -35,6 +37,7 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
         targetQuery = searchQuery,
         targetStatus = filterStatus
     ) => {
+        clearTimeout(searchTimer.current)
         const request = accountRequests.start()
         setLoadingAccounts(true)
         try {
@@ -68,10 +71,11 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
                 setTotalPages(data.total_pages || 1)
                 setTotalAccounts(data.total || 0)
                 setPage(data.page || 1)
-                // 账号列表是最新的（自动调度可能在后台重绑了账号），
-                // 同步刷新 config 让 proxies（含托管代理名）不过期，
-                // 避免账号显示成 mihomo-<hash> 的原始代理 ID。
-                onConfigRefresh?.()
+                // Coalesce full-config refreshes while paging/searching.
+                if (Date.now() - lastConfigRefresh.current >= 5000) {
+                    lastConfigRefresh.current = Date.now()
+                    onConfigRefresh?.()
+                }
             } else if (request.isCurrent()) {
                 // 非 200 静默失败会让列表停留在旧数据上；至少给出提示。
                 onMessage?.('error', t('messages.requestFailed'))
@@ -91,7 +95,9 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
 
     const handleSearchChange = (query) => {
         setSearchQuery(query)
-        fetchAccounts(1, pageSize, query, filterStatus)
+        accountRequests.cancel()
+        clearTimeout(searchTimer.current)
+        searchTimer.current = setTimeout(() => fetchAccounts(1, pageSize, query, filterStatus), 250)
     }
 
     const handleFilterChange = (status) => {
@@ -120,6 +126,7 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
         const interval = setInterval(fetchQueueStatus, 5000)
         return () => {
             clearInterval(interval)
+            clearTimeout(searchTimer.current)
             accountRequests.cancel()
             queueRequests.cancel()
         }

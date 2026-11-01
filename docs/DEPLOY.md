@@ -304,6 +304,9 @@ VERCEL_TEAM_ID=team_xxxxxxxxxxxx   # 个人账号可留空
 | `DS2API_ENV_WRITEBACK` | 检测到 `DS2API_CONFIG_JSON` 时自动写入 `DS2API_CONFIG_PATH`，并在成功后转为文件模式（`1/true/yes/on`） | 关闭 |
 | `DS2API_VERCEL_INTERNAL_SECRET` | 混合流式内部鉴权 | 回退用 `DS2API_ADMIN_KEY` |
 | `DS2API_VERCEL_STREAM_LEASE_TTL_SECONDS` | 流式 lease TTL | `900` |
+| `DS2API_NONSTREAM_IDLE_TIMEOUT_SECONDS` | 非流式单次上游收集的空闲超时（秒，正整数，最多 86400） | `300` |
+| `DS2API_NONSTREAM_MAX_DURATION_SECONDS` | 非流式单次上游收集的总时限（秒，正整数，最多 86400） | `1800` |
+| `DS2API_SSE_TERMINAL_DRAIN_MS` | 收到完成状态后等待引用元数据的最长时间（毫秒，正整数，最多 86400） | `250` |
 | `DS2API_RAW_STREAM_SAMPLE_ROOT` | raw stream 样本保存/读取根目录 | `tests/raw_stream_samples` |
 | `DS2API_STATIC_ADMIN_DIR` | WebUI 静态资源目录 | `static/admin` |
 | `DS2API_AUTO_BUILD_WEBUI` | 本地启动时是否自动构建缺失的 WebUI（`1/true/yes/on` 或 `0/false/no/off`） | 非 Vercel 默认开启 |

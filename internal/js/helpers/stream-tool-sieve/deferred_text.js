@@ -1,9 +1,10 @@
 'use strict';
+const { findToolProtocolPrefixOutsideIgnored } = require('./protocol_prefix');
 
 const { findToolMarkupTagOutsideIgnored, findDSMLTagOutsideIgnored, findMatchingDSMLClose } = require('./markup_scan');
 
 function shouldDeferText(state, text) {
-  return !!state.deferMalformed && (text.includes('<|EPSE') || !!findToolMarkupTagOutsideIgnored(text, 0) || !!findDSMLTagOutsideIgnored(text, 0));
+  return !!state.deferMalformed && (!!findToolProtocolPrefixOutsideIgnored(text) || !!findToolMarkupTagOutsideIgnored(text, 0) || !!findDSMLTagOutsideIgnored(text, 0));
 }
 
 // consumeDSMLHiddenCapture hides a DSML block from visible output: prefix is

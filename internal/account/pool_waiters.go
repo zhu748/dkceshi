@@ -1,5 +1,7 @@
 package account
 
+import "ds2api/internal/config"
+
 type poolWaiter struct {
 	ready   chan struct{}
 	target  string
@@ -48,30 +50,30 @@ func (p *Pool) canQueueLocked(target string, exclude map[string]bool, filter Acc
 	// 否则即使唤醒也无法获取，排队无意义。并发槽位是否已满不影响判断，
 	// 因为排队的请求等待的是账号被释放后腾出的槽位。
 	dailyChecks := p.acquireChecksLocked()
-	for _, id := range p.queueRingIDs() {
+	found := false
+	p.forEachQueueAccount(func(id string) bool {
 		if exclude[id] || (dailyChecks.dailyActive && p.dailyCounts[id] >= dailyChecks.dailyMax) {
-			continue
+			return true
 		}
 		acc, ok := p.store.FindAccount(id)
-		if !ok {
-			continue
+		if !ok || !acc.IsSchedulable() || (filter != nil && !filter(acc)) {
+			return true
 		}
-		if !acc.IsSchedulable() {
-			continue
-		}
-		if filter != nil && !filter(acc) {
-			continue
-		}
-		return true
-	}
-	return false
+		found = true
+		return false
+	})
+	return found
 }
 
+// Build the free-account view once per notification, rather than repeating
+// store lookups, daily-limit checks and a queue copy for every blocked waiter.
 func (p *Pool) notifyWaiterLocked() {
-	// Wake the oldest waiter that can use a free slot. A waiter for a busy
-	// tools-only account must not strand requests for an idle no-tools account.
+	if p.closed || len(p.waiters) == 0 || (p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight) {
+		return
+	}
+	view := waiterAvailability{pool: p, checks: p.acquireChecksLocked()}
 	for i, waiter := range p.waiters {
-		if !p.waiterCanAcquireLocked(waiter) {
+		if !view.matches(waiter) {
 			continue
 		}
 		p.waiters = append(p.waiters[:i], p.waiters[i+1:]...)
@@ -80,30 +82,43 @@ func (p *Pool) notifyWaiterLocked() {
 	}
 }
 
-func (p *Pool) waiterCanAcquireLocked(waiter *poolWaiter) bool {
-	if p.closed {
-		return false
-	}
-	if p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight {
-		return false
-	}
-	// Target mode mirrors acquireLocked's target branch: the target alone
-	// decides. Requiring queue membership here (the old scan) stranded waiters
-	// whose schedulable target simply was not part of the rotation snapshot.
+type waiterAvailability struct {
+	pool       *Pool
+	checks     acquireChecks
+	loaded     bool
+	candidates []config.Account
+	targets    map[string]config.Account
+}
+
+func (v *waiterAvailability) matches(waiter *poolWaiter) bool {
 	if waiter.target != "" {
-		if waiter.exclude[waiter.target] || !p.canAcquireIDLocked(waiter.target) {
+		id := waiter.target
+		if waiter.exclude[id] || !v.pool.canAcquireIDCheckedLocked(id, v.checks) {
 			return false
 		}
-		acc, ok := p.store.FindAccount(waiter.target)
-		return ok && acc.IsSchedulable() && (waiter.filter == nil || waiter.filter(acc))
-	}
-	checks := p.acquireChecksLocked()
-	for _, id := range p.queueRingIDs() {
-		if waiter.exclude[id] || !p.canAcquireIDCheckedLocked(id, checks) {
-			continue
+		if v.targets == nil {
+			v.targets = make(map[string]config.Account)
 		}
-		acc, ok := p.store.FindAccount(id)
-		if ok && acc.IsSchedulable() && (waiter.filter == nil || waiter.filter(acc)) {
+		acc, checked := v.targets[id]
+		if !checked {
+			acc, _ = v.pool.store.FindAccount(id)
+			v.targets[id] = acc
+		}
+		return acc.Identifier() != "" && acc.IsSchedulable() && (waiter.filter == nil || waiter.filter(acc))
+	}
+	if !v.loaded {
+		v.loaded = true
+		v.pool.forEachQueueAccount(func(id string) bool {
+			if v.pool.canAcquireIDCheckedLocked(id, v.checks) {
+				if acc, ok := v.pool.store.FindAccount(id); ok && acc.IsSchedulable() {
+					v.candidates = append(v.candidates, acc)
+				}
+			}
+			return true
+		})
+	}
+	for _, acc := range v.candidates {
+		if !waiter.exclude[acc.Identifier()] && (waiter.filter == nil || waiter.filter(acc)) {
 			return true
 		}
 	}

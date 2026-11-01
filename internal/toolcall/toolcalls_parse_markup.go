@@ -582,7 +582,25 @@ func parseInvokeParameterValue(paramName, raw string) any {
 		}
 		return value
 	}
-	decoded := html.UnescapeString(extractRawTagValue(trimmed))
+	// Valid JSON is already unambiguous; XML/HTML recovery must not rewrite it.
+	if parsed, ok := parseJSONLiteralValue(trimmed); ok {
+		if array, ok := coerceArrayValue(parsed, paramName); ok {
+			return array
+		}
+		return parsed
+	}
+	// Nested XML decodes its own leaf values. Pre-decoding the entire tree
+	// would decode entities a second time when the child parser reads them.
+	decoded := trimmed
+	if !strings.Contains(decoded, "<") || !strings.Contains(decoded, ">") {
+		decoded = extractRawTagValue(trimmed)
+	}
+	if parsed, ok := parseJSONLiteralValue(decoded); ok {
+		if parsedArray, ok := coerceArrayValue(parsed, paramName); ok {
+			return parsedArray
+		}
+		return parsed
+	}
 	if strings.Contains(decoded, "<") && strings.Contains(decoded, ">") {
 		if parsedValue, ok := parseXMLFragmentValue(decoded); ok {
 			switch v := parsedValue.(type) {
@@ -628,12 +646,6 @@ func parseInvokeParameterValue(paramName, raw string) any {
 			}
 			return parsed
 		}
-	}
-	if parsed, ok := parseJSONLiteralValue(decoded); ok {
-		if parsedArray, ok := coerceArrayValue(parsed, paramName); ok {
-			return parsedArray
-		}
-		return parsed
 	}
 	if parsed, ok := parseLooseJSONArrayValue(decoded, paramName); ok {
 		return parsed

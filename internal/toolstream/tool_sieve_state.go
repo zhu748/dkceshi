@@ -7,6 +7,7 @@ import (
 
 type State struct {
 	DeferMalformed         bool
+	DisplayOnly            bool // suppress bare calls in display channels without executing them
 	pending                strings.Builder
 	capture                strings.Builder
 	capturing              bool
@@ -292,9 +293,4 @@ func applyFenceMarker(stack *[]int, marker int) {
 		return
 	}
 	*stack = append(*stack, marker)
-}
-
-func shouldResetUnclosedMarkdownPrefix(state *State, prefix, suffix string) bool {
-	markdown := markdownCodeSpanStateAt(state, prefix)
-	return markdown.ticks > 0 && !markdown.fromPrior && !markdownCodeSpanCloses(suffix, markdown.ticks)
 }

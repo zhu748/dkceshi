@@ -117,6 +117,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
 		ContentCut:            s.policy.Cut(),
+		ContentFilter:         s.contentFilter,
 		RawText:               s.rawText.String(),
 		UpstreamError:         s.upstreamErr,
 		VisibleText:           s.text.String(),
@@ -144,7 +145,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		AlreadyEmittedToolCalls: s.toolCallsDetected,
 	})
 	if outcome.ShouldFail {
-		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsDetected) {
+		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput && !s.contentFilter, s.visibleTextEmitted || s.toolCallsDetected) {
 			s.finalErrorStatus = outcome.Error.Status
 			s.finalErrorMessage = outcome.Error.Message
 			s.finalErrorCode = outcome.Error.Code

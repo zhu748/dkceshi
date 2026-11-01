@@ -5,6 +5,7 @@ import (
 
 	"ds2api/internal/sse"
 	"ds2api/internal/textclean"
+	"ds2api/internal/toolstream"
 )
 
 type StreamAccumulator struct {
@@ -12,6 +13,7 @@ type StreamAccumulator struct {
 	ThinkingEnabled       bool
 	SearchEnabled         bool
 	StripReferenceMarkers bool
+	ToolMarker            string
 
 	RawThinking           strings.Builder
 	Thinking              strings.Builder
@@ -25,7 +27,8 @@ type StreamAccumulator struct {
 	// marker — so the surface can stop reading and keep whatever was generated
 	// instead of waiting out the idle watchdog. The rules live in sse so every
 	// runtime shares one definition.
-	policy sse.ContentPolicy
+	policy        sse.ContentPolicy
+	thinkingGuard toolstream.VisibleGuard
 }
 
 type StreamPartDelta struct {
@@ -81,6 +84,10 @@ func (a *StreamAccumulator) Apply(parsed sse.LineResult) StreamAccumulatorResult
 		}
 	}
 	if parsed.Flush {
+		if text := a.thinkingGuard.Flush(); text != "" {
+			delta := a.appendVisibleThinking(text)
+			out.Parts = append(out.Parts, delta)
+		}
 		delta := a.appendTextPart(a.policy.Flush())
 		if delta.RawText != "" {
 			out.Parts = append(out.Parts, delta)
@@ -136,7 +143,22 @@ func (a *StreamAccumulator) applyThinkingPart(text string) StreamPartDelta {
 	if !a.ThinkingEnabled || rawTrimmed == "" {
 		return delta
 	}
-	cleanedText := textclean.CleanVisibleOutput(rawTrimmed, a.StripReferenceMarkers)
+	a.thinkingGuard.Marker = a.ToolMarker
+	return a.appendVisibleThinkingDelta(delta, a.thinkingGuard.Write(rawTrimmed))
+}
+
+// ResetThinkingGuard discards a failed generation's held protocol fragments.
+// Continuations keep the guard so split tags cannot escape across attempts.
+func (a *StreamAccumulator) ResetThinkingGuard() {
+	a.thinkingGuard = toolstream.VisibleGuard{Marker: a.ToolMarker}
+}
+
+func (a *StreamAccumulator) appendVisibleThinking(text string) StreamPartDelta {
+	return a.appendVisibleThinkingDelta(StreamPartDelta{Type: "thinking"}, text)
+}
+
+func (a *StreamAccumulator) appendVisibleThinkingDelta(delta StreamPartDelta, text string) StreamPartDelta {
+	cleanedText := textclean.CleanVisibleOutput(text, a.StripReferenceMarkers)
 	if cleanedText == "" {
 		return delta
 	}

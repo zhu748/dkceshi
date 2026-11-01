@@ -86,6 +86,7 @@ type Resolver struct {
 	OnAccountUsed func(accountID string)
 
 	mu               sync.Mutex
+	loginFlights     map[string]*loginFlight
 	tokenRefreshedAt map[string]time.Time
 	authFailures     map[string]int
 }
@@ -359,30 +360,6 @@ func toolsPresentFromContext(ctx context.Context) bool {
 	v := ctx.Value(toolsPresentCtxKey)
 	b, _ := v.(bool)
 	return b
-}
-
-func (r *Resolver) loginAndPersist(ctx context.Context, a *RequestAuth) error {
-	if r == nil || r.Login == nil {
-		return errors.New("account login is unavailable")
-	}
-	token, err := r.Login(ctx, a.Account)
-	if err != nil {
-		return err
-	}
-	a.Account.Token = token
-	if stored, ok := r.Store.FindAccount(a.AccountID); ok {
-		a.Account.DeviceID = stored.DeviceID
-		a.Account.DeviceIDType = stored.DeviceIDType
-	}
-	a.DeepSeekToken = token
-	r.markTokenRefreshedNow(a.AccountID)
-	if err := r.Store.UpdateAccountToken(a.AccountID, token); err != nil {
-		return err
-	}
-	if r.PostLogin != nil {
-		r.PostLogin(ctx, a)
-	}
-	return nil
 }
 
 func (r *Resolver) RefreshToken(ctx context.Context, a *RequestAuth) bool {

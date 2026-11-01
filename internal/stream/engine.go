@@ -61,8 +61,8 @@ type ConsumeHooks struct {
 
 // finalize reports the end of a consume pass. reason describes how the pass
 // ended; scannerErr, when non-nil, is the underlying stream read error that
-// terminated the upstream body. A clean upstream EOF arrives as
-// StopReasonUpstreamCompleted with a nil scannerErr; engine-generated idle and
+// terminated the upstream body. EOF without a completion marker carries
+// sse.ErrUnexpectedStreamEOF; a completed response has a nil scannerErr. Idle and
 // no-content timeouts arrive as StopReasonIdleTimeout /
 // StopReasonNoContentTimeout with a descriptive scannerErr so callers can tell
 // an interrupted stream apart from a cleanly completed one instead of silently

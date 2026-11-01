@@ -1,6 +1,8 @@
 package sse
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -39,6 +41,15 @@ type CollectResult struct {
 //
 // The caller is responsible for closing resp.Body unless closeBody is true.
 func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool, prompts ...string) CollectResult {
+	return CollectStreamWithOptions(resp, thinkingEnabled, closeBody, CollectOptions{}, prompts...)
+}
+
+func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBody bool, opts CollectOptions, prompts ...string) CollectResult {
+	if resp == nil || resp.Body == nil {
+		return CollectResult{ReadError: errors.New("missing upstream response body")}
+	}
+	limits := newCollectLimits(resp, opts)
+	defer limits.cleanup()
 	if closeBody {
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
@@ -64,12 +75,17 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool, pr
 		currentType = "thinking"
 	}
 	readErr := dsprotocol.ScanSSELines(resp, func(line []byte) bool {
+		if limits.ctx.Err() != nil {
+			return false
+		}
+		limits.activity()
 		chunk, done, parsed := ParseDeepSeekSSELine(line)
 		if parsed && !done {
 			collector.ingestChunk(chunk)
 			observeResponseMessageIDWithFirst(chunk, &responseMessageID, &firstResponseMessageID)
 		}
 		if done {
+			stopped = true
 			return false
 		}
 		if stopped {
@@ -97,7 +113,7 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool, pr
 			// that can appear after response/status=FINISHED, but stop as soon
 			// as [DONE] arrives.
 			stopped = true
-			return true
+			limits.finish()
 		}
 		for _, p := range result.Parts {
 			if p.Type == "thinking" {
@@ -130,8 +146,13 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool, pr
 	// FINISHED freezes the answer while we continue reading late citations.
 	// A failure before that point means the answer is incomplete; a failure
 	// after a terminal status must not turn a completed answer into an error.
+	if cause := context.Cause(limits.ctx); cause != nil {
+		readErr = cause
+	}
 	if stopped {
 		readErr = nil
+	} else if readErr == nil && policy.Cut() == CutNone {
+		readErr = ErrUnexpectedStreamEOF
 	}
 	text.WriteString(policy.Flush())
 	return CollectResult{

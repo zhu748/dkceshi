@@ -2,6 +2,7 @@ package sse
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -16,8 +17,8 @@ func TestStartParsedLinePumpEmptyBody(t *testing.T) {
 	for r := range results {
 		collected = append(collected, r)
 	}
-	if err := <-done; err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := <-done; !errors.Is(err, ErrUnexpectedStreamEOF) {
+		t.Fatalf("expected incomplete EOF, got %v", err)
 	}
 	if len(collected) != 0 {
 		t.Fatalf("expected no results for empty body, got %d", len(collected))

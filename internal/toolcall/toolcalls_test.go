@@ -826,8 +826,8 @@ func TestRepairLooseJSON(t *testing.T) {
 	}
 }
 
-func TestParseToolCallInputRepairsControlCharsInPath(t *testing.T) {
-	in := `{"path":"D:\tmp\new\readme.txt","content":"line1\nline2"}`
+func TestParseToolCallInputPreservesEscapedWindowsPath(t *testing.T) {
+	in := `{"path":"D:\\tmp\\new\\readme.txt","content":"line1\nline2"}`
 	parsed := parseToolCallInput(in)
 
 	path, ok := parsed["path"].(string)

@@ -111,10 +111,6 @@ func (p *Pool) canAcquireIDCheckedLocked(accountID string, checks acquireChecks)
 	return true
 }
 
-func (p *Pool) canAcquireIDLocked(accountID string) bool {
-	return p.canAcquireIDCheckedLocked(accountID, p.acquireChecksLocked())
-}
-
 // currentInUseLocked returns the total number of in-flight acquisitions. It is
 // maintained incrementally (see inUseTotal) so the global-limit check on the
 // hot path stays O(1) instead of walking the whole inUse map per candidate.

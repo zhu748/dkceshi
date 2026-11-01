@@ -46,9 +46,6 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 		return nil, nil, false, currentFragmentType
 	}
 	path, _ := chunk["p"].(string)
-	if shouldSkipPath(path) {
-		return nil, nil, false, currentFragmentType
-	}
 	if isStatusPath(path) {
 		if s, ok := v.(string); ok {
 			if strings.EqualFold(strings.TrimSpace(s), "FINISHED") {
@@ -56,6 +53,9 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 			}
 			return nil, nil, false, currentFragmentType
 		}
+	}
+	if shouldSkipPath(path) {
+		return nil, nil, false, currentFragmentType
 	}
 	newType := currentFragmentType
 	parts := make([]ContentPart, 0, 8)
@@ -73,9 +73,7 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 	updateTypeFromNestedResponse(path, v, thinkingEnabled, &newType)
 	partType := resolvePartType(path, thinkingEnabled, newType)
 	finished := appendChunkValueContent(v, partType, thinkingEnabled, &newType, &parts, path)
-	if finished {
-		return nil, nil, true, newType
-	}
+	finished = finished || responseSnapshotFinished(path, v)
 	if bodyStartedAtStart {
 		// The upstream THINK parts are still surfaced to the caller's
 		// detection layer (ToolDetectionThinkingParts) so upstream activity is
@@ -92,7 +90,7 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 				cleaned = append(cleaned, p)
 			}
 		}
-		return cleaned, detection, false, newType
+		return cleaned, detection, finished, newType
 	}
 	var transitioned bool
 	parts, transitioned = splitThinkingParts(parts)
@@ -103,5 +101,5 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 	if !thinkingEnabled {
 		parts = dropThinkingParts(parts)
 	}
-	return parts, detectionThinkingParts, false, newType
+	return parts, detectionThinkingParts, finished, newType
 }

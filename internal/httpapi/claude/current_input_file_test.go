@@ -117,7 +117,7 @@ func (d *claudeCurrentInputDS) CallCompletion(_ context.Context, _ *auth.Request
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader("data: {\"p\":\"response/content\",\"v\":\"ok\"}\n")),
+		Body:       io.NopCloser(strings.NewReader("data: {\"p\":\"response/content\",\"v\":\"ok\"}\ndata: [DONE]\n")),
 	}, nil
 }
 

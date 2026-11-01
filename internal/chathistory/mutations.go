@@ -46,7 +46,6 @@ func (s *Store) Start(params StartParams) (Entry, error) {
 	}
 	s.details[entry.ID] = entry
 	s.markDetailDirtyLocked(entry.ID)
-	s.rebuildIndexLocked()
 	if err := s.saveLocked(); err != nil {
 		return cloneEntry(entry), err
 	}
@@ -94,7 +93,6 @@ func (s *Store) Update(id string, params UpdateParams) (Entry, error) {
 	}
 	s.details[target] = item
 	s.markDetailDirtyLocked(target)
-	s.rebuildIndexLocked()
 	if err := s.saveLocked(); err != nil {
 		return Entry{}, err
 	}
@@ -120,7 +118,6 @@ func (s *Store) Delete(id string) error {
 	s.markDetailDeletedLocked(target)
 	delete(s.details, target)
 	s.nextRevisionLocked()
-	s.rebuildIndexLocked()
 	if err := s.saveLocked(); err != nil {
 		return err
 	}
@@ -141,7 +138,6 @@ func (s *Store) Clear() error {
 	}
 	s.details = map[string]Entry{}
 	s.nextRevisionLocked()
-	s.rebuildIndexLocked()
 	if err := s.saveLocked(); err != nil {
 		return err
 	}
@@ -162,7 +158,6 @@ func (s *Store) SetLimit(limit int) (File, error) {
 	}
 	s.state.Limit = limit
 	s.nextRevisionLocked()
-	s.rebuildIndexLocked()
 	if err := s.saveLocked(); err != nil {
 		return File{}, err
 	}

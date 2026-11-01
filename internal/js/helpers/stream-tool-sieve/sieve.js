@@ -1,5 +1,7 @@
 'use strict';
 const { appendCapture, captureReady } = require('./capture_progress');
+const { findToolProtocolPrefixOutsideIgnored } = require('./protocol_prefix');
+const { holdUnfinishedDisplayLiteral } = require('./unfinished_literal');
 const { shouldDeferText, consumeDSMLHiddenCapture } = require('./deferred_text');
 const {
   resetIncrementalToolState,
@@ -9,6 +11,7 @@ const {
 const { trimWrappingJSONFence } = require('./jsonscan');
 const {
   findToolMarkupTagOutsideIgnored,
+  findMatchingToolMarkupClose,
   findDSMLTagOutsideIgnored,
   sanitizeLooseCDATA,
   stripDSMLResidue,
@@ -78,6 +81,13 @@ function processToolSieveChunk(state, chunk, toolNames) {
       break;
     }
     const start = findToolSegmentStart(state, pending);
+    const literal = holdUnfinishedDisplayLiteral(state, pending, start);
+    if (literal) {
+      state.pending = literal.tail;
+      noteText(state, literal.prefix);
+      if (literal.prefix) events.push({ type: 'text', text: literal.prefix });
+      break;
+    }
     if (start === HOLD_TOOL_SEGMENT_START) {
       break;
     }
@@ -221,7 +231,7 @@ function findToolSegmentStart(state, s) {
   while (true) {
     const hit = findNextToolInterceptTag(s, offset);
     if (state && state.deferMalformed) {
-      const candidate = s.indexOf('<|EPSE', offset);
+      const candidate = findToolProtocolPrefixOutsideIgnored(s, offset)?.start ?? -1;
       if (candidate >= 0 && (!hit || candidate < hit.start) && !insideCodeFenceWithState(state, s.slice(0, candidate)) && markdownCodeSpanStateAt(state, s.slice(0, candidate)).ticks === 0) return candidate;
     }
     if (!hit) {
@@ -239,6 +249,7 @@ function findToolSegmentStart(state, s) {
       offset = hit.end + 1;
       continue;
     }
+    if (state && state.deferMalformed) return HOLD_TOOL_SEGMENT_START;
     const tag = findToolMarkupTagOutsideIgnored(s, hit.start);
     if (markdown.fromPrior || (tag && tag.start === hit.start && tag.closing)) {
       return HOLD_TOOL_SEGMENT_START;
@@ -356,6 +367,10 @@ function consumeToolCapture(state, toolNames, final) {
   if (first && first.start === 0 && first.closing) return { ready: true, prefix: '', calls: [], suffix: captured.slice(first.end + 1) };
   const firstDSML = findDSMLTagOutsideIgnored(captured, 0);
   if (firstDSML && firstDSML.start === 0 && firstDSML.closing) return { ready: true, prefix: '', calls: [], suffix: captured.slice(firstDSML.end + 1) };
+  if (state.displayOnly && first && first.start === 0 && first.name !== 'tool_calls') {
+    const close = findMatchingToolMarkupClose(captured, first);
+    if (close) return { ready: true, prefix: '', calls: [], suffix: captured.slice(close.end + 1) };
+  }
 
   // XML-only tool call extraction.
   const xmlResult = consumeXMLToolCaptureImpl(captured, toolNames, trimWrappingJSONFence);
@@ -363,7 +378,7 @@ function consumeToolCapture(state, toolNames, final) {
     if (state.deferMalformed && !final && !xmlResult.calls.length) return { ready: false };
     return xmlResult;
   }
-  if (state.deferMalformed && !final && captured.includes('<|EPSE')) return { ready: false };
+  if (state.deferMalformed && !final && findToolProtocolPrefixOutsideIgnored(captured)) return { ready: false };
   // If XML tags are present but block is incomplete, keep buffering.
   if (hasOpenXMLToolTag(captured)) {
     return { ready: false, prefix: '', calls: [], suffix: '' };

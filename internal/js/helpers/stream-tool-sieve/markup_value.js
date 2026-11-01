@@ -2,6 +2,7 @@
 
 // Recursive parameter-value grammar, preserving literal code and CDATA.
 const { toRawString } = require('./state');
+const { unescapeHtml } = require('./entities');
 const {
   findToolCDATAEnd,
   findTrailingToolCDATACloseStart,
@@ -81,7 +82,13 @@ function parseMarkupValue(raw, paramName = '') {
     const looseArray = parseLooseJSONArrayValue(cdata.value, paramName);
     return looseArray.ok ? looseArray.value : cdata.value;
   }
-  const s = toRawString(extractRawTagValue(raw)).trim();
+  const exact = parseJSONLiteralValue(toRawString(raw).trim());
+  if (exact.ok) {
+    const array = coerceArrayValue(exact.value, paramName);
+    return array.ok ? array.value : exact.value;
+  }
+  const source = toRawString(raw).trim();
+  const s = source.includes('<') && source.includes('>') ? source : toRawString(extractRawTagValue(raw)).trim();
   if (!s) {
     return '';
   }
@@ -213,16 +220,6 @@ function extractRawTagValue(inner) {
   // 2. Fallback to unescaping standard HTML entities
   // Note: we avoid broad tag stripping here to preserve user content (like < symbols in code)
   return unescapeHtml(inner);
-}
-
-function unescapeHtml(safe) {
-  if (!safe) return '';
-  return safe.replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#039;/g, "'")
-    .replace(/&#x27;/g, "'");
 }
 
 function extractStandaloneCDATA(inner) {

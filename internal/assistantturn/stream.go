@@ -84,7 +84,14 @@ func (a *Accumulator) ResetForRegeneration() {
 	a.inner.RawThinking.Reset()
 	a.inner.Thinking.Reset()
 	a.inner.ToolDetectionThinking.Reset()
+	a.inner.ResetThinkingGuard()
 	a.inner.ResetContentPolicy()
+}
+
+func (a *Accumulator) SetToolMarker(marker string) {
+	if a != nil {
+		a.inner.ToolMarker = marker
+	}
 }
 
 // HasPartialOutput reports whether the accumulated stream contains any raw
