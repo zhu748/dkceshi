@@ -12,7 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 
@@ -281,7 +281,7 @@ func buildUploadMultipartBody(filename, contentType string, data []byte) ([]byte
 }
 
 func escapeMultipartFilename(filename string) string {
-	filename = filepath.Base(filename)
+	filename = path.Base(filename)
 	if filename == "." || filename == "" {
 		return "upload.bin"
 	}

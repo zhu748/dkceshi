@@ -550,23 +550,15 @@ func TestLoadConfigOnVercelWithoutConfigFileFallsBackToMemory(t *testing.T) {
 }
 
 func TestAccountTestStatusIsRuntimeOnlyAndNotPersisted(t *testing.T) {
-	tmp, err := os.CreateTemp(t.TempDir(), "config-*.json")
-	if err != nil {
-		t.Fatalf("create temp config: %v", err)
-	}
-	defer func() {
-		if err := tmp.Close(); err != nil {
-			slog.Warn("cleanup close failed", "error", err)
-		}
-	}()
-	if _, err := tmp.WriteString(`{
+	path := t.TempDir() + "/config.json"
+	if err := os.WriteFile(path, []byte(`{
 		"accounts":[{"email":"u@example.com","password":"p","test_status":"ok"}]
-	}`); err != nil {
+	}`), 0o600); err != nil {
 		t.Fatalf("write temp config: %v", err)
 	}
 
 	t.Setenv("DS2API_CONFIG_JSON", "")
-	t.Setenv("DS2API_CONFIG_PATH", tmp.Name())
+	t.Setenv("DS2API_CONFIG_PATH", path)
 
 	store := LoadStore()
 	if got, ok := store.AccountTestStatus("u@example.com"); ok || got != "" {
@@ -579,7 +571,7 @@ func TestAccountTestStatusIsRuntimeOnlyAndNotPersisted(t *testing.T) {
 		t.Fatalf("expected runtime status to be available, got %q (ok=%v)", got, ok)
 	}
 
-	content, err := os.ReadFile(tmp.Name())
+	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}

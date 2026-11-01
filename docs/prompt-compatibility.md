@@ -353,6 +353,8 @@ You MUST reason with the utmost depth and rigor, leaving absolutely nothing to c
 [android-har-alignment.md](android-har-alignment.md)。
 OpenAI Chat/Responses、Claude base64 image/document 与 Gemini inlineData 共用文件上传边界，
 文件 ID 进入标准请求的 RefFileIDs；base64 不进入纯文本 prompt。
+multipart 文件名统一按 `/` 移除路径前缀，反斜杠与引号作为文件名字符转义保留；
+线上字段不使用宿主系统的路径解析规则，避免部署到 Windows 后改变原文件名。
 内联文件及显式文件引用的请求固定当前账号，防止重试中混用跨账号文件 ID。
 通过 `/v1/files` 单独上传后，多账号环境需用返回的 account_id 固定后续请求的目标账号。
 PNG/JPEG 按显式或远程压缩配置处理；没有有效比例时保留原文件，文档内容保持原样。

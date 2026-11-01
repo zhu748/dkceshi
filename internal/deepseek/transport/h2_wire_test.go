@@ -44,6 +44,8 @@ func receiveOrderedRequest(conn net.Conn) (observed observedRequest) {
 		observed.err = err
 		return
 	}
+	var requestEnded, settingsAck bool
+	var requestStream uint32
 	for {
 		frame, err := framer.ReadFrame()
 		if err != nil {
@@ -54,7 +56,9 @@ func receiveOrderedRequest(conn net.Conn) (observed observedRequest) {
 		var stream uint32
 		switch f := frame.(type) {
 		case *http2.SettingsFrame:
-			if !f.IsAck() {
+			if f.IsAck() {
+				settingsAck = true
+			} else {
 				if err := framer.WriteSettingsAck(); err != nil {
 					observed.err = err
 					return
@@ -78,17 +82,23 @@ func receiveOrderedRequest(conn net.Conn) (observed observedRequest) {
 			}
 		}
 		if ended {
+			requestEnded, requestStream = true, stream
+		}
+		// Read the client's initial SETTINGS acknowledgement before closing.
+		// Closing a TCP socket with unread control frames can reset the peer
+		// on Windows and discard the tiny response sent by this test server.
+		if requestEnded && settingsAck {
 			var block bytes.Buffer
 			encoder := hpack.NewEncoder(&block)
 			if err := encoder.WriteField(hpack.HeaderField{Name: ":status", Value: "200"}); err != nil {
 				observed.err = err
 				return
 			}
-			if err := framer.WriteHeaders(http2.HeadersFrameParam{StreamID: stream, BlockFragment: block.Bytes(), EndHeaders: true}); err != nil {
+			if err := framer.WriteHeaders(http2.HeadersFrameParam{StreamID: requestStream, BlockFragment: block.Bytes(), EndHeaders: true}); err != nil {
 				observed.err = err
 				return
 			}
-			observed.err = framer.WriteData(stream, true, []byte("ok"))
+			observed.err = framer.WriteData(requestStream, true, []byte("ok"))
 			return
 		}
 	}
