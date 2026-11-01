@@ -217,3 +217,24 @@ JSON 兼容参数包只接受对象 input/parameters；空 input 的优先级在
 - Claude 隐藏工具思考和被清理的原始工具片段均更新上游活动计时。
 
 Gemini 在无工具目录的 agent 续轮中同样执行增量筛分：普通正文实时发送，所有候选 functionCall 在共享收尾通过后整批发送；已经发送正文时禁止重新生成。永久上游错误、审核及输入错误沿用共享重试策略，不作为空输出重试。
+
+
+## 9) SSE 原文、终态与 agent 恢复
+
+- 工具参数进入解析器前不执行正文显示清理；原始 CDATA 中的控制 token、引用标记和
+  `CONTENT_FILTER` 字样均属于参数数据。显示通道的清理与参数来源独立。
+- 上游明确错误或内容过滤终止待交付批次，不允许只交付其中合法的调用，也不启动 LLM 修复。
+- 默认仅从纯工具格式的思考中恢复调用；混合说明的旧版恢复可由管理员通过
+  `tool_safety.allow_reasoning_prose` 开启。此设置不放宽工具目录、Schema 或 tool_choice。
+- 普通 APPEND 增量保留相同调用的每次出现；SET（含嵌套 BATCH）按源片段字段去重。多片段重放先合并相邻同通道片段，修改已交付前缀时拒绝继续。显式快照的前缀比较没有最小长度门槛。
+- 编译后的本地 Schema 图同时用于类型归一化和最终验证，覆盖本地引用、properties 和全部匹配的 patternProperties；additionalProperties 只处理未覆盖字段，冲突约束不会被跳过。
+- 长块扫描的 CDATA、引号、注释和代码状态跨分片保存；字面量闭标签不会反复触发完整解析。
+
+回归覆盖 `internal/assistantturn/upstream_fidelity_test.go`、各协议的工具终态测试、共享可见性夹具、
+Node 的 SSE 到校验端点原文交接，以及长参数增量扫描。性能检查可运行：
+
+```sh
+go test ./internal/toolstream -run '^$' -bench 'Benchmark(LongToolCapture|LiteralClosingToolCapture)' -benchmem
+```
+
+第二轮边界回归补充：思考闭标签跨帧识别使用有界增量状态；复读检测不能匹配参数的 CDATA、引号或代码内容；跨协议请求标准化共同拒绝工具历史中已知 ID 的矛盾配对。对应 `internal/assistantturn/second_round_regression_test.go`、`internal/sse/replay_boundary_test.go`、`internal/promptcompat/tool_history_validation_test.go` 和 Node chat-stream 回归。

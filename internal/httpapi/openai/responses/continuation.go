@@ -67,13 +67,13 @@ func (h *Handler) restoreContinuation(r *http.Request, req map[string]any) ([]an
 	return cloneMessages(messages), nil
 }
 
-func (h *Handler) responsePersister(owner, id string, req map[string]any, context []any) func(map[string]any) {
+func (h *Handler) responsePersister(owner, id string, req map[string]any, context []any) func(map[string]any) bool {
 	enabled := req["store"] != false
-	return func(value map[string]any) {
+	return func(value map[string]any) bool {
 		value["store"] = enabled
 		value["previous_response_id"] = req["previous_response_id"]
 		if !enabled {
-			return
+			return true
 		}
 		output, _ := value["output"].([]any)
 		// Stream renderers may use typed slices; cloneValue canonicalizes them.
@@ -81,6 +81,13 @@ func (h *Handler) responsePersister(owner, id string, req map[string]any, contex
 			output, _ = cloneValue(value["output"]).([]any)
 		}
 		replay := append(cloneMessages(context), promptcompat.NormalizeResponsesInputAsMessages(output)...)
-		h.getResponseStore().putContext(owner, id, value, replay)
+		if !h.getResponseStore().putContext(owner, id, value, replay) {
+			value["store"] = false
+			return false
+		}
+		return true
 	}
 }
+
+const responseStorageCode = "response_storage_failed"
+const responseStorageMessage = "Response could not be stored within the configured capacity. Reduce the conversation size or use store:false."

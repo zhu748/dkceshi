@@ -10,8 +10,9 @@ import (
 // must still be retained separately for final detection, validation and repair.
 // It never emits executable calls and keeps scanner state across SSE chunks.
 type VisibleGuard struct {
-	Marker string
-	state  State
+	Marker                string
+	StripReferenceMarkers bool
+	state                 State
 }
 
 func (g *VisibleGuard) Write(text string) string {
@@ -19,6 +20,7 @@ func (g *VisibleGuard) Write(text string) string {
 	g.state.CleanVisible = true
 	g.state.DisplayOnly = true
 	g.state.Marker = g.Marker
+	g.state.StripReferenceMarkers = g.StripReferenceMarkers
 	return visibleGuardText(ProcessChunk(&g.state, text, nil))
 }
 

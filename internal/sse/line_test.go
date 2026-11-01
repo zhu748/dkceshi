@@ -1,6 +1,9 @@
 package sse
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestParseDeepSeekContentLineDone(t *testing.T) {
 	res := ParseDeepSeekContentLine([]byte("data: [DONE]"), false, "text")
@@ -94,63 +97,16 @@ func TestParseDeepSeekContentLinePreservesSpaceOnlyChunk(t *testing.T) {
 	}
 }
 
-func TestParseDeepSeekContentLineStripsLeakedContentFilterSuffix(t *testing.T) {
-	res := ParseDeepSeekContentLine([]byte(`data: {"p":"response/content","v":"正常输出CONTENT_FILTER你好，这个问题我暂时无法回答"}`), false, "text")
-	if !res.Parsed || res.Stop {
-		t.Fatalf("expected parsed non-stop result: %#v", res)
-	}
-	if len(res.Parts) != 1 || res.Parts[0].Text != "正常输出" {
-		t.Fatalf("unexpected parts after filter: %#v", res.Parts)
-	}
-}
-
-func TestParseDeepSeekContentLineDropsPureLeakedContentFilterChunk(t *testing.T) {
-	res := ParseDeepSeekContentLine([]byte(`data: {"p":"response/content","v":"CONTENT_FILTER你好，这个问题我暂时无法回答"}`), false, "text")
-	if !res.Parsed || res.Stop {
-		t.Fatalf("expected parsed non-stop result: %#v", res)
-	}
-	if len(res.Parts) != 0 {
-		t.Fatalf("expected empty parts, got %#v", res.Parts)
-	}
-}
-
-func TestParseDeepSeekContentLineTrimsFromContentFilterKeyword(t *testing.T) {
-	res := ParseDeepSeekContentLine([]byte(`data: {"p":"response/content","v":"模型会在命中 CONTENT_FILTER 时返回拒绝原因。"}`), false, "text")
-	if !res.Parsed || res.Stop {
-		t.Fatalf("expected parsed non-stop result: %#v", res)
-	}
-	if len(res.Parts) != 1 || res.Parts[0].Text != "模型会在命中" {
-		t.Fatalf("unexpected parts after filter: %#v", res.Parts)
-	}
-}
-
-func TestParseDeepSeekContentLineContentTextEqualContentFilterDoesNotStop(t *testing.T) {
-	res := ParseDeepSeekContentLine([]byte(`data: {"p":"response/content","v":"content_filter"}`), false, "text")
-	if !res.Parsed {
-		t.Fatalf("expected parsed result: %#v", res)
-	}
-	if res.Stop || res.ContentFilter {
-		t.Fatalf("did not expect content-filter stop for content text: %#v", res)
-	}
-}
-
-func TestParseDeepSeekContentLinePreservesTrailingNewlineBeforeLeakedContentFilter(t *testing.T) {
-	res := ParseDeepSeekContentLine([]byte("data: {\"p\":\"response/content\",\"v\":\"line1\\nCONTENT_FILTERblocked\"}"), false, "text")
-	if !res.Parsed || res.Stop {
-		t.Fatalf("expected parsed non-stop result: %#v", res)
-	}
-	if len(res.Parts) != 1 || res.Parts[0].Text != "line1\n" {
-		t.Fatalf("expected trailing newline preserved, got %#v", res.Parts)
-	}
-}
-
-func TestParseDeepSeekContentLineKeepsNewlineOnlyChunkBeforeLeakedContentFilter(t *testing.T) {
-	res := ParseDeepSeekContentLine([]byte("data: {\"p\":\"response/content\",\"v\":\"\\nCONTENT_FILTERblocked\"}"), false, "text")
-	if !res.Parsed || res.Stop {
-		t.Fatalf("expected parsed non-stop result: %#v", res)
-	}
-	if len(res.Parts) != 1 || res.Parts[0].Text != "\n" {
-		t.Fatalf("expected newline-only chunk preserved, got %#v", res.Parts)
+func TestParseDeepSeekContentLinePreservesContentFilterText(t *testing.T) {
+	for _, text := range []string{"正常输出CONTENT_FILTER你好，这个问题我暂时无法回答", "CONTENT_FILTER你好，这个问题我暂时无法回答", "模型会在命中 CONTENT_FILTER 时返回拒绝原因。", "content_filter", "line1\nCONTENT_FILTERblocked", "\nCONTENT_FILTERblocked"} {
+		data, err := json.Marshal(map[string]any{"p": "response/content", "v": text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := ParseDeepSeekContentLine(append([]byte("data: "), data...), false, "text")
+		if !res.Parsed || res.Stop || res.ContentFilter || len(res.Parts) != 1 || res.Parts[0].Text != text {
+			t.Fatalf("raw content was changed: %+v", res)
+		}
 	}
 }
 

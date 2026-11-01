@@ -212,7 +212,7 @@ func TestResponsesStreamStatusCapturedAs200(t *testing.T) {
 	}
 }
 
-func TestChatCompletionsStreamContentFilterStopsNormallyWithoutLeak(t *testing.T) {
+func TestChatCompletionsStreamContentFilterRemainsFailureWithoutLeak(t *testing.T) {
 	statuses := make([]int, 0, 1)
 	h := &openAITestSurface{
 		Store: mockOpenAIConfig{},
@@ -252,13 +252,9 @@ func TestChatCompletionsStreamContentFilterStopsNormallyWithoutLeak(t *testing.T
 		t.Fatalf("expected at least one json frame, body=%s", rec.Body.String())
 	}
 	last := frames[len(frames)-1]
-	choices, _ := last["choices"].([]any)
-	if len(choices) != 1 {
-		t.Fatalf("expected one choice in final frame, got %#v", last)
-	}
-	choice, _ := choices[0].(map[string]any)
-	if choice["finish_reason"] != "stop" {
-		t.Fatalf("expected finish_reason=stop for content-filter upstream stop, got %#v", choice["finish_reason"])
+	errObj, _ := last["error"].(map[string]any)
+	if errObj["code"] != "content_filter" {
+		t.Fatalf("expected content_filter error frame, got %#v", last)
 	}
 }
 

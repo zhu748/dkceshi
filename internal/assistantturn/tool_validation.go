@@ -11,12 +11,15 @@ import (
 // Validate before rendering on every protocol. A known client invocation that
 // still has broken syntax is not an answer and must not execute partially.
 func validateToolOutput(turn Turn, opts BuildOptions, repaired bool) *OutputError {
+	if err := terminalOutputError(turn); err != nil {
+		return err
+	}
 	if turn.ContentCut == sse.CutPromptEcho {
 		return &OutputError{Status: http.StatusBadGateway, Code: OutputCodePromptEcho,
 			Message: "Upstream repeated generated instructions instead of producing an answer."}
 	}
 	parsed := turn.ParsedToolCalls
-	if !repaired && !turn.ContentFilter && strings.TrimSpace(turn.UpstreamError) == "" {
+	if !repaired {
 		unresolved := parsed.ResidualProtocolText
 		if unresolved == "" {
 			unresolved = parsed.ResidualIntentText
@@ -41,6 +44,17 @@ func validateToolOutput(turn Turn, opts BuildOptions, repaired bool) *OutputErro
 	}
 	if err := toolcall.ValidateToolArguments(turn.ToolCalls, opts.ToolsRaw); err != nil {
 		return &OutputError{Status: http.StatusUnprocessableEntity, Message: err.Error(), Code: "invalid_tool_arguments"}
+	}
+	return nil
+}
+
+// Terminal upstream states win over parsed calls, repair and retry decisions.
+func terminalOutputError(turn Turn) *OutputError {
+	if strings.TrimSpace(turn.UpstreamError) != "" {
+		return &OutputError{Status: http.StatusBadRequest, Message: turn.UpstreamError, Code: "upstream_error"}
+	}
+	if turn.ContentFilter {
+		return &OutputError{Status: http.StatusBadRequest, Message: "Upstream content filtered the response.", Code: "content_filter"}
 	}
 	return nil
 }

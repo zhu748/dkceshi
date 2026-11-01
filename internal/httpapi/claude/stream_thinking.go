@@ -1,10 +1,8 @@
 package claude
 
-import "ds2api/internal/sse"
-
 func (s *claudeStreamRuntime) emitThinking(text string) {
 	text = cleanVisibleOutput(text, s.stripReferenceMarkers)
-	trimmed := sse.TrimContinuationOverlapFromBuilder(&s.thinking, text)
+	trimmed := text
 	if trimmed == "" {
 		return
 	}

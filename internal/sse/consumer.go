@@ -70,6 +70,7 @@ func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBo
 	collector := newCitationLinkCollector()
 	responseMessageID := 0
 	firstResponseMessageID := 0
+	boundary := &ThinkingBoundary{}
 	currentType := "text"
 	if thinkingEnabled {
 		currentType = "thinking"
@@ -97,7 +98,7 @@ func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBo
 		}
 		// The line was already decoded above; reuse the chunk instead of
 		// unmarshalling the same payload a second time per line.
-		result := ParseDeepSeekContentChunk(chunk, thinkingEnabled, currentType)
+		result := ParseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundary)
 		currentType = result.NextType
 		if !result.Parsed {
 			return true
@@ -117,10 +118,10 @@ func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBo
 		}
 		for _, p := range result.Parts {
 			if p.Type == "thinking" {
-				trimmed := TrimContinuationOverlap(thinking.String(), p.Text)
+				trimmed := ContentPartDelta(&thinking, p)
 				thinking.WriteString(trimmed)
 			} else {
-				trimmed := TrimContinuationOverlap(text.String(), p.Text)
+				trimmed := ContentPartDelta(&text, p)
 				// 内容规则可能在此截断正文通道：编造的 `[Tool]:` 角色标记及其后
 				// 全是虚构对话，复读死循环之后的输出也已退化。两种情况都只保留
 				// 截断点之前的正文。
@@ -132,7 +133,7 @@ func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBo
 			}
 		}
 		for _, p := range result.ToolDetectionThinkingParts {
-			trimmed := TrimContinuationOverlap(toolDetectionThinking.String(), p.Text)
+			trimmed := ContentPartDelta(&toolDetectionThinking, p)
 			toolDetectionThinking.WriteString(trimmed)
 		}
 		if policy.Cut() != CutNone {
@@ -153,6 +154,12 @@ func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBo
 		readErr = nil
 	} else if readErr == nil && policy.Cut() == CutNone {
 		readErr = ErrUnexpectedStreamEOF
+	}
+	if tail := boundary.flush(); tail != "" {
+		if thinkingEnabled {
+			thinking.WriteString(tail)
+		}
+		toolDetectionThinking.WriteString(tail)
 	}
 	text.WriteString(policy.Flush())
 	return CollectResult{

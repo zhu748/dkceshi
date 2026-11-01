@@ -4,10 +4,7 @@ func CleanVisibleOutput(text string, stripReferenceMarkers bool) string {
 	if text == "" {
 		return text
 	}
-	if stripReferenceMarkers {
-		text = StripReferenceMarkers(text)
-	}
-	var cleaner StreamCleaner
+	cleaner := StreamCleaner{StripReferenceMarkers: stripReferenceMarkers}
 	return cleaner.Write(text) + cleaner.Flush()
 }
 
@@ -15,8 +12,5 @@ func CleanVisibleOutput(text string, stripReferenceMarkers bool) string {
 // by the stateful stream guard. Re-running markup cleanup on isolated deltas
 // would lose the enclosing Markdown/JSON literal context.
 func CleanVisibleDelta(text string, stripReferenceMarkers bool) string {
-	if stripReferenceMarkers {
-		return StripReferenceMarkers(text)
-	}
 	return text
 }

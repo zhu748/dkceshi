@@ -6,7 +6,7 @@ import (
 	"ds2api/internal/toolcall"
 )
 
-func DetectAssistantToolCalls(rawText, visibleText, exposedThinking, detectionThinking string, toolNames []string) toolcall.ToolCallParseResult {
+func DetectAssistantToolCalls(rawText, visibleText, exposedThinking, detectionThinking string, toolNames []string, allowReasoningProse ...bool) toolcall.ToolCallParseResult {
 	textParsed := toolcall.ParseStandaloneToolCallsDetailed(rawText, toolNames)
 	if len(textParsed.Calls) > 0 || textParsed.SawToolCallIntent || textParsed.SawToolCallSyntax {
 		return textParsed
@@ -17,6 +17,9 @@ func DetectAssistantToolCalls(rawText, visibleText, exposedThinking, detectionTh
 	thinking := detectionThinking
 	if strings.TrimSpace(thinking) == "" {
 		thinking = exposedThinking
+	}
+	if (len(allowReasoningProse) == 0 || !allowReasoningProse[0]) && !toolcall.IsToolOnlySource(thinking) {
+		return textParsed
 	}
 	thinkingParsed := toolcall.ParseStandaloneToolCallsDetailed(thinking, toolNames)
 	if len(thinkingParsed.Calls) > 0 || thinkingParsed.SawToolCallIntent || thinkingParsed.SawToolCallSyntax {

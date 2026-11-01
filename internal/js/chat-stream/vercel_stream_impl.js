@@ -1,4 +1,6 @@
 'use strict';
+const { explicitSnapshotDelta } = require('./dedupe');
+const { flushThinkingState } = require('./sse_thinking');
 const { createVisibleGuard, filterVisible } = require('../helpers/stream-tool-sieve/visible_guard');
 const { needsToolFinalization } = require('./tool_output');
 
@@ -15,8 +17,8 @@ const { serializeAppPayload } = require('../shared/deepseek-wire');
 const { fetchAppStream } = require('../shared/app-transport');
 const { createStreamLifecycle } = require('./stream_lifecycle');
 const { writeOpenAIError, writeOpenAIErrorWithCode } = require('./error_shape');
-const { parseChunkForContent, isCitation } = require('./sse_parse');
-const { buildUsage } = require('./token_usage');
+const { parseChunkForContent } = require('./sse_parse');
+const { buildUsage, mergeReasoningForUsage } = require('./token_usage');
 const {
   resolveToolcallPolicy,
   toolChoiceViolation,
@@ -31,9 +33,6 @@ const {
   fetchStreamValidation,
   relayPreparedFailure,
 } = require('./http_internal');
-const {
-  trimContinuationOverlap,
-} = require('./dedupe');
 const {
   CUT_NONE,
   CUT_PROMPT_ECHO,
@@ -64,7 +63,7 @@ const {
   AUTO_CONTINUE_MAX_ROUNDS,
   prepareContinueStateForNextRound,
 } = require('./stream_continue');
-const { sendFailedChunk, upstreamEmptyOutputDetail } = require('./stream_failure');
+const { sendFailedChunk, upstreamEmptyOutputDetail, finishStreamFailure } = require('./stream_failure');
 const { detectMutedOrBannedResponse } = require('./upstream_inspect');
 
 const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
@@ -93,7 +92,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let completionPayload = prep.body.payload && typeof prep.body.payload === 'object' ? prep.body.payload : null;
     const finalPrompt = asString(prep.body.final_prompt);
     const thinkingEnabled = toBool(prep.body.thinking_enabled);
-    const searchEnabled = toBool(prep.body.search_enabled);
     const toolPolicy = resolveToolcallPolicy(prep.body, payload.tools);
     const toolNames = toolPolicy.toolNames;
     const stripReferenceMarkers = true;
@@ -300,11 +298,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let currentType = thinkingEnabled ? 'thinking' : 'text';
     let thinkingText = '';
     let rawThinkingText = '';
-    let thinkingGuard = createVisibleGuard(prep.body.tool_marker);
+    let thinkingGuard = createVisibleGuard(prep.body.tool_marker, true);
     // Monotonic "has any non-whitespace char" flags: replaces per-line
     // outputText.trim() scans, which are O(total) per SSE line (O(n^2) per stream).
     let hasVisibleThinking = false;
     let detectionThinkingText = '';
+    const rawReasoning = () => mergeReasoningForUsage(rawThinkingText, detectionThinkingText, thinkingText);
     let outputText = '';
     let hasVisibleOutput = false;
     let deferredToolText = '';
@@ -316,7 +315,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let usagePrompt = finalPrompt;
     const toolSieveEnabled = toolPolicy.toolSieveEnabled;
     let toolSieveState = createToolSieveState();
-    toolSieveState.deferMalformed = toolSieveState.cleanVisible = true;
+    toolSieveState.deferMalformed = toolSieveState.cleanVisible = toolSieveState.stripReferences = true;
     // 调用者专属工具调用标识（由 Go 侧按 API Key 派生并随 prepare 下发）。
     // 上游只会输出该标识，而 sieve / 独立解析 / 复读守卫都只认 EPSE，
     // 因此所有流入文本都要先经它有状态地归一化回 EPSE（跨分片标识会被
@@ -343,16 +342,17 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     };
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
     const resetForRegeneration = () => {
+      currentType = thinkingEnabled ? 'thinking' : 'text';
       outputText = '';
       hasVisibleOutput = false;
       deferredToolText = '';
       toolCallsDetected = false;
       detectionThinkingText = '';
       rawThinkingText = '';
-      thinkingGuard = createVisibleGuard(prep.body.tool_marker);
+      thinkingGuard = createVisibleGuard(prep.body.tool_marker, true);
       lastEmptyDetail = null;
       toolSieveState = createToolSieveState();
-      toolSieveState.deferMalformed = toolSieveState.cleanVisible = true;
+      toolSieveState.deferMalformed = toolSieveState.cleanVisible = toolSieveState.stripReferences = true;
       markerNormalizer = createMarkerNormalizer(prep.body.tool_marker);
     };
 
@@ -364,23 +364,34 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         ended = true;
         leaseCompletion = {
           finish_reason: 'stopped',
-          usage: buildUsage(usagePrompt, thinkingText, outputText),
-          thinking: thinkingText,
+          usage: buildUsage(usagePrompt, rawReasoning(), outputText),
+          thinking: rawReasoning(),
           content: outputText,
           error: '',
         };
         await releaseLease();
         return true;
       }
+      if (reason === 'content_filter') {
+        deltaCoalescer.flush(); ended = true;
+        const detail = upstreamEmptyOutputDetail(true, '', '');
+        leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: outputText, error: detail.message, error_code: detail.code };
+        await finishStreamFailure(res, releaseLease, detail); return true;
+      }
       if (contentPolicyCut(contentPolicy) === CUT_PROMPT_ECHO) {
         lastEmptyDetail = { status: 502, code: 'upstream_prompt_echo', message: 'Upstream repeated generated instructions instead of producing an answer.' };
         if (options.deferEmpty && !answerDelivered) return false;
         ended = true;
-        leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: '', error: lastEmptyDetail.message, error_code: lastEmptyDetail.code };
+        leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: '', error: lastEmptyDetail.message, error_code: lastEmptyDetail.code };
         sendFailedChunk(res, 502, lastEmptyDetail.message, lastEmptyDetail.code);
         await releaseLease();
         if (!res.writableEnded && !res.destroyed) res.end();
         return true;
+      }
+      const boundaryTail = flushThinkingState(toolSieveState);
+      if (boundaryTail) {
+        detectionThinkingText += boundaryTail;
+        if (thinkingEnabled) { rawThinkingText += boundaryTail; const visible = thinkingGuard.write(boundaryTail); thinkingText += visible; deltaCoalescer.append('reasoning_content', visible); }
       }
       const thinkingTail = thinkingGuard.flush();
       if (thinkingTail) { thinkingText += thinkingTail; deltaCoalescer.append('reasoning_content', thinkingTail); }
@@ -402,30 +413,31 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         const normalizer = createMarkerNormalizer(prep.body.tool_marker);
         detected = parseStandaloneToolCalls(normalizer.write(detectionThinkingText) + normalizer.flush(), toolNames);
       }
-      let validatedCalls = null;
+      let validatedCalls = null, validatedUsage = null;
       if ((detected.length || needsToolFinalization(outputText, detectionThinkingText, prep.body, toolSieveState)) && (hasVisibleOutput || detected.length || detectionThinkingText)) {
         try {
-          const validation = await fetchStreamValidation(req, leaseID, outputText, thinkingText, detectionThinkingText, lifecycle.signal);
+          const validation = await fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal);
           if (!validation.ok) {
             const error = validation.body.error || {};
-            if (options.deferEmpty && !answerDelivered && ['invalid_tool_arguments', 'tool_choice_violation'].includes(error.code)) {
+            if (options.deferEmpty && !answerDelivered && ['invalid_tool_arguments', 'tool_choice_violation', 'upstream_empty_output', 'upstream_unavailable'].includes(error.code)) {
               lastEmptyDetail = { status: validation.status, message: error.message || 'Tool validation failed', code: error.code };
               return false;
             }
             ended = true;
-            leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: outputText, error: error.message || 'Tool validation failed' };
+            leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: outputText, error: error.message || 'Tool validation failed' };
             sendFailedChunk(res, validation.status, leaseCompletion.error, error.code || 'invalid_tool_arguments');
             await releaseLease(); if (!res.writableEnded && !res.destroyed) res.end(); return true;
           }
           validatedCalls = validation.body.tool_calls || [];
+          validatedUsage = validation.body.usage;
           detected = validatedCalls.map(call => ({ name: call.function.name }));
         } catch (error) {
           if (lifecycle.closed) {
-            ended = true; leaseCompletion = { finish_reason: 'stopped', usage: buildUsage(usagePrompt, thinkingText, outputText), thinking: thinkingText, content: outputText, error: '' };
+            ended = true; leaseCompletion = { finish_reason: 'stopped', usage: buildUsage(usagePrompt, rawReasoning(), outputText), thinking: rawReasoning(), content: outputText, error: '' };
             await releaseLease(); return true;
           }
           ended = true;
-          leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: outputText, error: 'Tool validation unavailable: ' + error.message };
+          leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: outputText, error: 'Tool validation unavailable: ' + error.message };
           sendFailedChunk(res, 502, leaseCompletion.error, 'tool_validation_unavailable');
           await releaseLease(); if (!res.writableEnded && !res.destroyed) res.end(); return true;
         }
@@ -440,7 +452,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           return false;
         }
         ended = true;
-        leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: '', error: violation };
+        leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: '', error: violation };
         sendFailedChunk(res, 422, violation, 'tool_choice_violation');
         await releaseLease();
         if (!res.writableEnded && !res.destroyed) res.end();
@@ -477,7 +489,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         }
         ended = true;
         const detail = lastEmptyDetail || upstreamEmptyOutputDetail(reason === 'content_filter', outputText, thinkingText);
-        leaseCompletion = { finish_reason: reason, usage: null, thinking: thinkingText, content: outputText, error: detail.message };
+        leaseCompletion = { finish_reason: reason, usage: null, thinking: rawReasoning(), content: outputText, error: detail.message };
         sendFailedChunk(res, detail.status, detail.message, detail.code);
         await releaseLease();
         if (!res.writableEnded && !res.destroyed) {
@@ -486,7 +498,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         return true;
       }
       ended = true;
-      const finalUsage = buildUsage(usagePrompt, thinkingText, outputText);
+      const finalUsage = buildUsage(usagePrompt, rawReasoning(), outputText, validatedUsage?.completion_tokens);
+      if (validatedUsage?.completion_tokens_details) finalUsage.completion_tokens_details = validatedUsage.completion_tokens_details;
       sendFrame({
         id: responseID,
         object: 'chat.completion.chunk',
@@ -501,7 +514,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       leaseCompletion = {
         finish_reason: reason,
         usage: finalUsage,
-        thinking: thinkingText,
+        thinking: rawReasoning(),
         content: outputText,
         error: '',
       };
@@ -564,7 +577,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                 continue;
               }
               observeContinueState(continueState, chunk);
-              const parsed = parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenceMarkers);
+              const parsed = parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenceMarkers, toolSieveState);
               if (!parsed.parsed) {
                 continue;
               }
@@ -579,18 +592,18 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                 }
                 deltaCoalescer.flush();
                 ended = true;
-                leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: outputText, error: parsed.errorMessage };
+                leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: outputText, error: parsed.errorMessage };
                 sendFailedChunk(res, 502, parsed.errorMessage, 'upstream_error');
                 await releaseLease();
                 if (!res.writableEnded && !res.destroyed) res.end();
                 return { terminal: true, retryable: false };
               }
               if (parsed.contentFilter) {
-                return { terminal: await finish(!hasVisibleOutput ? 'content_filter' : 'stop'), retryable: false };
+                return { terminal: await finish('content_filter'), retryable: false };
               }
 
-              if (parsed.detectionThinking && !hasVisibleOutput) {
-                detectionThinkingText += trimContinuationOverlap(detectionThinkingText, parsed.detectionThinking);
+              if (parsed.detectionThinking) {
+                detectionThinkingText += parsed.snapshot ? explicitSnapshotDelta(detectionThinkingText, parsed.detectionThinking) : parsed.detectionThinking;
               }
               for (const p of parsed.parts) {
                 if (!p.text) {
@@ -598,7 +611,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                 }
                 if (p.type === 'thinking') {
                   if (thinkingEnabled) {
-                    const rawTrimmed = trimContinuationOverlap(rawThinkingText, p.text);
+                    const rawTrimmed = parsed.snapshot ? explicitSnapshotDelta(rawThinkingText, p.text) : p.text;
                     rawThinkingText += rawTrimmed;
                     const trimmed = thinkingGuard.write(rawTrimmed);
                     if (!trimmed) {
@@ -617,7 +630,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                   if (!normalizedText) {
                     continue;
                   }
-                  const trimmed = trimContinuationOverlap(outputText, normalizedText);
+                  const trimmed = parsed.snapshot ? explicitSnapshotDelta(outputText, normalizedText) : normalizedText;
                   if (!trimmed) {
                     continue;
                   }
@@ -626,9 +639,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                   // 截断点之前的正文。
                   const safeText = feedContentPolicy(contentPolicy, trimmed);
                   if (!safeText) {
-                    continue;
-                  }
-                  if (searchEnabled && isCitation(safeText)) {
                     continue;
                   }
                   outputText += safeText;
@@ -753,7 +763,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         const message = completionRes.body && !completionRes.bodyUsed ? await completionRes.text() : (lastEmptyDetail && lastEmptyDetail.message) || '';
         if (!isTransientUpstreamStatus(status) && !isAccountAuthFailureStatus(status) && status !== 429) {
           ended = true;
-          leaseCompletion = { finish_reason: 'error', usage: null, thinking: thinkingText, content: outputText, error: message };
+          leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: outputText, error: message };
           sendFailedChunk(res, status, message, 'upstream_error');
           await releaseLease();
           if (!res.writableEnded && !res.destroyed) res.end();
@@ -779,7 +789,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         // of finishing with a truncated "complete" response.
         deltaCoalescer.flush();
         ended = true;
-        leaseCompletion = { finish_reason: 'upstream_interrupted', usage: null, thinking: thinkingText, content: outputText, error: 'Upstream stream interrupted before completion.' };
+        leaseCompletion = { finish_reason: 'upstream_interrupted', usage: null, thinking: rawReasoning(), content: outputText, error: 'Upstream stream interrupted before completion.' };
         await releaseLease();
         sendFailedChunk(res, 502, 'Upstream stream interrupted before completion.', 'upstream_interrupted');
         if (!res.writableEnded && !res.destroyed) res.end();

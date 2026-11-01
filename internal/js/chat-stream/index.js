@@ -6,7 +6,6 @@ const {
 const {
   parseChunkForContent,
   extractContentRecursive,
-  filterLeakedContentFilterParts,
   hasContentFilterStatus,
   extractAccumulatedTokenUsage,
   shouldSkipPath,
@@ -124,7 +123,6 @@ module.exports.__test = {
   resetStreamToolCallState,
   estimateTokens,
   buildUsage,
-  filterLeakedContentFilterParts,
   hasContentFilterStatus,
   extractAccumulatedTokenUsage,
   isNodeStreamSupportedPath,

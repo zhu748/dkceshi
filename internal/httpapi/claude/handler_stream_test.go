@@ -158,8 +158,8 @@ func TestHandleClaudeStreamRealtimeTrimsContinuationReplay(t *testing.T) {
 	h := &Handler{}
 	prefix := strings.Repeat("A", 40)
 	resp := makeClaudeSSEHTTPResponse(
-		`data: {"p":"response/content","v":"`+prefix+`"}`,
-		`data: {"p":"response/content","v":"`+prefix+` tail"}`,
+		`data: {"p":"response/content","o":"SET","v":"`+prefix+`"}`,
+		`data: {"p":"response/content","o":"SET","v":"`+prefix+` tail"}`,
 		`data: [DONE]`,
 	)
 	rec := httptest.NewRecorder()

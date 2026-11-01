@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { VisibleCleaner } = require('../../internal/js/helpers/visible-cleaner');
 const { createVisibleGuard } = require('../../internal/js/helpers/stream-tool-sieve/visible_guard');
 const { needsToolFinalization } = require('../../internal/js/chat-stream/tool_output');
 const { createToolSieveState, processToolSieveChunk, flushToolSieve } = require('../../internal/js/helpers/stream-tool-sieve');
@@ -60,6 +61,21 @@ test('production body sieve keeps split literals before a real call', () => {
       const events = processToolSieveChunk(state, raw.slice(0, split), []).concat(processToolSieveChunk(state, raw.slice(split), []), flushToolSieve(state, []));
       assert.equal(events.map(event => event.text || '').join(''), literal + '\n', `split=${split}, raw=${raw}`);
       assert.equal(events.filter(event => event.type === 'tool_calls').length, 1, `split=${split}, raw=${raw}`);
+    }
+  }
+});
+test('display markers are filtered after classification and preserve literal examples', () => {
+  for (const [raw,want] of [
+    ['hello CONTENT_FILTERblocked','hello '],
+    ['CONTENT_FILTER=enabled;','CONTENT_FILTER=enabled;'],
+    ['mention CONTENT_FILTER in docs','mention CONTENT_FILTER in docs'],
+    ['before [citation:7] after','before  after'],
+    ['`[citation:7] CONTENT_FILTERblocked`','`[citation:7] CONTENT_FILTERblocked`'],
+    ['"[citation:7] CONTENT_FILTERblocked"','"[citation:7] CONTENT_FILTERblocked"'],
+  ]) {
+    for (let split=0;split<=raw.length;split++) {
+      const cleaner = new VisibleCleaner(true);
+      assert.equal(cleaner.write(raw.slice(0,split))+cleaner.write(raw.slice(split))+cleaner.flush(),want,`split=${split} raw=${raw}`);
     }
   }
 });

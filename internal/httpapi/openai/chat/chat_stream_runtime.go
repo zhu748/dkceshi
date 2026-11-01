@@ -121,7 +121,7 @@ func newChatStreamRuntime(
 		searchEnabled:         searchEnabled,
 		stripReferenceMarkers: stripReferenceMarkers,
 		bufferToolContent:     bufferToolContent,
-		toolSieve:             toolstream.State{CleanVisible: true, DeferMalformed: true},
+		toolSieve:             toolstream.State{CleanVisible: true, DeferMalformed: true, StripReferenceMarkers: stripReferenceMarkers},
 		streamToolCallIDs:     map[int]string{},
 		accumulator: assistantturn.StreamAccumulator{
 			Prompt:                finalPrompt,
@@ -335,10 +335,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 		s.responseMessageID = parsed.ResponseMessageID
 	}
 	if parsed.ContentFilter {
-		if strings.TrimSpace(s.accumulator.Text.String()) == "" {
-			return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReason("content_filter")}
-		}
-		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReasonHandlerRequested}
+		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReason("content_filter")}
 	}
 	if parsed.ErrorMessage != "" {
 		s.upstreamErr = parsed.ErrorMessage

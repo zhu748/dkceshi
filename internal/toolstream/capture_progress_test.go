@@ -70,6 +70,33 @@ func BenchmarkLongToolCapture(b *testing.B) {
 	}
 }
 
+func TestCaptureProgressDoesNotRescanLiteralClosingTags(t *testing.T) {
+	var progress captureProgress
+	raw := `<tool_calls><invoke name="write"><parameter name="content"><![CDATA[`
+	progress.ready(raw)
+	for range 512 {
+		raw += `</parameter></invoke></tool_calls>`
+		if progress.ready(raw) {
+			t.Fatal("CDATA example scheduled another complete parse")
+		}
+	}
+	if !progress.ready(raw + `]]></parameter></invoke></tool_calls>`) {
+		t.Fatal("actual closing structure missed")
+	}
+}
+
+func BenchmarkLiteralClosingToolCapture(b *testing.B) {
+	raw := `<tool_calls><invoke name="write"><parameter name="content"><![CDATA[` + strings.Repeat("</parameter>\n", 5041) + `]]></parameter></invoke></tool_calls>`
+	b.SetBytes(int64(len(raw)))
+	for b.Loop() {
+		state := State{DeferMalformed: true, CleanVisible: true}
+		for i := 0; i < len(raw); i += 128 {
+			ProcessChunk(&state, raw[i:min(i+128, len(raw))], nil)
+		}
+		Flush(&state, nil)
+	}
+}
+
 func TestUnicodeToolDelimitersDoNotLeakAcrossFragments(t *testing.T) {
 	for _, pair := range [][2]string{{"〈", "〉"}, {"﹤", "﹥"}, {"＜", "＞"}} {
 		raw := strings.NewReplacer("<", pair[0], ">", pair[1]).Replace(`<|Q7ZK3N|tool_calls><|Q7ZK3N|invoke name="read"><|Q7ZK3N|parameter name="path">a.txt</|Q7ZK3N|parameter></|Q7ZK3N|invoke></|Q7ZK3N|tool_calls>`)

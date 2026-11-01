@@ -21,8 +21,8 @@ func TestStreamAccumulatorAppliesThinkingAndTextDedupe(t *testing.T) {
 	second := acc.Apply(sse.LineResult{
 		Parsed: true,
 		Parts: []sse.ContentPart{
-			{Type: "thinking", Text: thinkingPrefix + " next"},
-			{Type: "text", Text: textPrefix + " world"},
+			{Snapshot: true, Type: "thinking", Text: thinkingPrefix + " next"},
+			{Snapshot: true, Type: "text", Text: textPrefix + " world"},
 		},
 	})
 
@@ -124,7 +124,7 @@ func TestStreamAccumulatorReportsUpstreamRepeatLoop(t *testing.T) {
 	}
 }
 
-func TestStreamAccumulatorSuppressesCitationTextWhenSearchEnabled(t *testing.T) {
+func TestStreamAccumulatorKeepsCitationSourceForToolClassification(t *testing.T) {
 	acc := StreamAccumulator{SearchEnabled: true, StripReferenceMarkers: true}
 	result := acc.Apply(sse.LineResult{
 		Parsed: true,
@@ -134,18 +134,18 @@ func TestStreamAccumulatorSuppressesCitationTextWhenSearchEnabled(t *testing.T) 
 	if !result.ContentSeen {
 		t.Fatalf("expected citation chunk to mark upstream content")
 	}
-	if len(result.Parts) != 1 || !result.Parts[0].CitationOnly {
-		t.Fatalf("expected citation-only delta, got %#v", result.Parts)
+	if len(result.Parts) != 1 || result.Parts[0].CitationOnly {
+		t.Fatalf("citation source must reach the tool sieve, got %#v", result.Parts)
 	}
 	if got := acc.RawText.String(); got != "[citation:1]" {
 		t.Fatalf("raw text = %q", got)
 	}
-	if got := acc.Text.String(); got != "" {
-		t.Fatalf("visible text = %q", got)
+	if got := acc.Text.String(); got != "[citation:1]" {
+		t.Fatalf("source text = %q", got)
 	}
 }
 
-func TestStreamAccumulatorStripsInlineCitationAndReferenceMarkers(t *testing.T) {
+func TestStreamAccumulatorPreservesSourceUntilDisplaySieve(t *testing.T) {
 	acc := StreamAccumulator{SearchEnabled: true, StripReferenceMarkers: true}
 	result := acc.Apply(sse.LineResult{
 		Parsed: true,
@@ -155,10 +155,10 @@ func TestStreamAccumulatorStripsInlineCitationAndReferenceMarkers(t *testing.T) 
 	if !result.ContentSeen {
 		t.Fatalf("expected marker chunk to mark upstream content")
 	}
-	if got := acc.Text.String(); got != "广州天气 多云" {
+	if got := acc.Text.String(); got != "广州天气[citation:1] 多云[reference:0]" {
 		t.Fatalf("visible text = %q", got)
 	}
-	if len(result.Parts) != 1 || result.Parts[0].VisibleText != "广州天气 多云" {
+	if len(result.Parts) != 1 || result.Parts[0].VisibleText != "广州天气[citation:1] 多云[reference:0]" {
 		t.Fatalf("unexpected parts: %#v", result.Parts)
 	}
 }

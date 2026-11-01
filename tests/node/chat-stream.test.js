@@ -220,6 +220,59 @@ test('chat-stream exposes parser test hooks', () => {
   assert.equal(typeof resolveToolcallPolicy, 'function');
 });
 
+test('Node preserves literal tool parameters through SSE and Go validation handoff', async () => {
+  const value = '[citation:9] before <think>literal</think> [citation:7] <|assistant|>\nCONTENT_FILTERblocked\nCONTENT_FILTER=enabled; after';
+  const raw = '<tool_calls><invoke name="write_file"><parameter name="content"><![CDATA[' + value + ']]></parameter></invoke></tool_calls>';
+  for (const size of [0, 1, 7, raw.length]) {
+    const chars = Array.from(raw), lines = [];
+    const chunks = size ? Array.from({length:Math.ceil(chars.length/size)},(_,i)=>chars.slice(i*size,(i+1)*size).join('')) : [raw.slice(0,raw.indexOf(value)),value,raw.slice(raw.indexOf(value)+value.length)];
+    for (const v of chunks) lines.push('data: ' + JSON.stringify({p:'response/content',v}) + '\n\n');
+    lines.push('data: [DONE]\n\n');
+    const result = await runMockVercelStream(lines, { validate_tools: true, search_enabled:true, tool_names: ['write_file'] });
+    const validation = result.fetchBodies.find(body => body.lease_id && typeof body.content === 'string' && !body.completion);
+    assert.equal(validation.content, raw, `validation source changed, size=${size}`);
+    const frames = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+    const calls = frames.flatMap(frame => frame.choices?.[0]?.delta?.tool_calls || []);
+    assert.equal(calls.length, 1);
+    assert.equal(JSON.parse(calls[0].function.arguments).content, value);
+    assert.equal(frames.some(frame => frame.choices?.[0]?.delta?.content), false);
+  }
+});
+
+test('Node never releases a pending call after upstream content filtering', async () => {
+  const raw = '<tool_calls><invoke name="write_file"></invoke></tool_calls>';
+  const result = await runMockVercelStream(['data: '+JSON.stringify({p:'response/content',v:raw})+'\n\n','data: {"code":"content_filter"}\n\n']);
+  const frames = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.ok(frames.some(frame => frame.error?.code === 'content_filter'));
+  assert.equal(frames.some(frame => frame.choices?.[0]?.delta?.tool_calls?.length), false);
+  assert.equal(result.fetchURLs.some(url => url.includes('__stream_validate')), false);
+});
+
+test('raw reasoning is retained for shared validation and history while display is filtered', async () => {
+  const source = '<tool_calls><invoke name="lookup"><parameter name="key"><![CDATA[value]]></parameter></invoke></tool_calls>';
+  const result = await runMockVercelStream(['data: '+JSON.stringify({p:'response/thinking_content',v:source})+'\n\n','data: [DONE]\n\n'], {thinking_enabled:true, validate_tools:true, tool_names:['lookup']});
+  const validation = result.fetchBodies.find(body=>typeof body.detection_thinking==='string');
+  assert.equal(validation.thinking,source);
+  assert.equal(validation.detection_thinking,source);
+  const release = result.fetchBodies.find(body=>body.finish_reason==='tool_calls');
+  assert.equal(release.thinking,source);
+  const frames=result.frames.filter(frame=>frame!=='[DONE]').map(JSON.parse);
+  assert.equal(frames.some(frame=>frame.choices?.[0]?.delta?.reasoning_content),false);
+  assert.ok(frames.at(-1).usage.completion_tokens>0);
+});
+
+test('Node retains repeated APPEND calls while deduplicating explicit SET replay', async () => {
+  const raw = '<tool_calls><invoke name="tick"></invoke></tool_calls>';
+  for (const op of ['APPEND','SET']) {
+    const line = 'data: '+JSON.stringify({p:'response/content',o:op,v:raw})+'\n\n';
+    const result = await runMockVercelStream([line,line,'data: [DONE]\n\n'], {validate_tools:true,tool_names:['tick']});
+    const frames = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+    const calls = frames.flatMap(frame => frame.choices?.[0]?.delta?.tool_calls || []);
+    assert.equal(calls.length,op === 'SET' ? 1 : 2);
+    assert.equal(new Set(calls.map(call=>call.id)).size,calls.length);
+  }
+});
+
 test('vercel stream emits Go-parity empty-output failure on DONE', async () => {
     const { frames } = await runMockVercelStream(['data: [DONE]\n\n']);
     assert.equal(frames.length, 2);
@@ -920,15 +973,15 @@ test('vercel stream emits content_filter failure when upstream filters empty out
   assert.equal(frames[1], '[DONE]');
 });
 
-test('vercel stream keeps stop finish when content_filter arrives after visible text', async () => {
+test('vercel stream preserves content_filter failure after visible text', async () => {
   const { frames } = await runMockVercelStream([
     'data: {"p":"response/content","v":"hello"}\n\n',
     'data: {"code":"content_filter"}\n\n',
   ]);
   const parsed = frames.filter((frame) => frame !== '[DONE]').map((frame) => JSON.parse(frame));
   assert.equal(parsed[0].choices[0].delta.content, 'hello');
-  assert.equal(parsed[1].choices[0].finish_reason, 'stop');
-  assert.equal(parsed[1].usage.completion_tokens, 1);
+  assert.equal(parsed[1].error.code, 'content_filter');
+  assert.equal(parsed[1].status_code, 400);
 });
 
 test('resolveToolcallPolicy requires final validation when prepare flags missing', () => {
@@ -1340,7 +1393,7 @@ test('parseChunkForContent preserves space-only content tokens', () => {
   assert.deepEqual(parsed.parts, [{ text: ' ', type: 'text' }]);
 });
 
-test('parseChunkForContent strips citation and reference markers from fragment content', () => {
+test('parseChunkForContent preserves citation/reference source until display cleanup', () => {
   const chunk = {
     p: 'response/fragments',
     o: 'APPEND',
@@ -1350,20 +1403,20 @@ test('parseChunkForContent strips citation and reference markers from fragment c
   };
   const parsed = parseChunkForContent(chunk, false, 'text');
   assert.equal(parsed.finished, false);
-  assert.deepEqual(parsed.parts, [{ text: '广州天气   多云', type: 'text' }]);
+  assert.deepEqual(parsed.parts, [{ text: '广州天气 [citation:1] [reference:12] 多云', type: 'text' }]);
 });
 
-test('parseChunkForContent strips leaked thought control markers from content', () => {
+test('parseChunkForContent preserves raw thought control tokens', () => {
   const chunk = {
     p: 'response/content',
     v: '<|▁of▁thought|>A<| of_thought |>B<| end_of_thought |>C',
   };
   const parsed = parseChunkForContent(chunk, false, 'text');
   assert.equal(parsed.finished, false);
-  assert.deepEqual(parsed.parts, [{ text: 'ABC', type: 'text' }]);
+  assert.deepEqual(parsed.parts, [{ text: chunk.v, type: 'text' }]);
 });
 
-test('parseChunkForContent strips fullwidth-delimited leaked control markers from content', () => {
+test('parseChunkForContent preserves raw fullwidth control tokens', () => {
   const fw = '\uff5c';
   const chunk = {
     p: 'response/content',
@@ -1371,7 +1424,7 @@ test('parseChunkForContent strips fullwidth-delimited leaked control markers fro
   };
   const parsed = parseChunkForContent(chunk, false, 'text');
   assert.equal(parsed.finished, false);
-  assert.deepEqual(parsed.parts, [{ text: 'ABC', type: 'text' }]);
+  assert.deepEqual(parsed.parts, [{ text: chunk.v, type: 'text' }]);
 });
 
 test('parseChunkForContent detects content_filter status and ignores upstream output tokens', () => {
@@ -1464,27 +1517,27 @@ test('parseChunkForContent filters INCOMPLETE status text without stopping strea
   assert.deepEqual(parsed.parts, []);
 });
 
-test('parseChunkForContent strips leaked CONTENT_FILTER suffix and preserves line breaks', () => {
+test('parseChunkForContent preserves content-filter source and line breaks', () => {
   const leaked = parseChunkForContent(
     { p: 'response/content', v: '正常输出CONTENT_FILTER你好，这个问题我暂时无法回答' },
     false,
     'text',
   );
-  assert.deepEqual(leaked.parts, [{ text: '正常输出', type: 'text' }]);
+  assert.deepEqual(leaked.parts, [{ text: '正常输出CONTENT_FILTER你好，这个问题我暂时无法回答', type: 'text' }]);
 
   const newlineTail = parseChunkForContent(
     { p: 'response/content', v: 'line1\nCONTENT_FILTERblocked' },
     false,
     'text',
   );
-  assert.deepEqual(newlineTail.parts, [{ text: 'line1\n', type: 'text' }]);
+  assert.deepEqual(newlineTail.parts, [{ text: 'line1\nCONTENT_FILTERblocked', type: 'text' }]);
 
   const newlineOnly = parseChunkForContent(
     { p: 'response/content', v: '\nCONTENT_FILTERblocked' },
     false,
     'text',
   );
-  assert.deepEqual(newlineOnly.parts, [{ text: '\n', type: 'text' }]);
+  assert.deepEqual(newlineOnly.parts, [{ text: '\nCONTENT_FILTERblocked', type: 'text' }]);
 });
 
 test('estimateTokens preserves whitespace-only strings and buildUsage accepts output token overrides', () => {
@@ -2438,4 +2491,97 @@ test('Node prompt echo exhaustion reports 502 and never disables an account', as
   const release = result.fetchBodies.find(body => body.finish_reason === 'error');
   assert.equal(release.error_code, 'upstream_prompt_echo');
   assert.equal(release.content, '');
+});
+
+test('second round replay snapshots preserve each invocation exactly once', async () => {
+  const a = '<tool_calls><invoke name="read"></invoke></tool_calls>';
+  const b = '<tool_calls><invoke name="write"></invoke></tool_calls>';
+  const wire = chunks => [...chunks.map(chunk => 'data: ' + JSON.stringify(chunk) + '\n\n'), 'data: [DONE]\n\n'];
+  const envelope = {v:{response:{fragments:[{id:10,type:'RESPONSE',content:a},{id:11,type:'RESPONSE',content:b}]}}};
+  for (const [chunks,names] of [
+    [[{p:'response/content',o:'APPEND',v:a},{p:'response',o:'BATCH',v:[{p:'fragments/-1/content',o:'SET',v:a}]}],['read']],
+    [[envelope,envelope],['read','write']],
+    [[{p:'response/content',o:'APPEND',v:a},{p:'response',o:'BATCH',v:[{p:'fragments/-1/content',o:'SET',v:a},{p:'fragments/-1/content',o:'APPEND',v:a}]}],['read','read']],
+  ]) {
+    const result = await runMockVercelStream(wire(chunks));
+    const frames = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+    const calls = frames.flatMap(frame => frame.choices?.[0]?.delta?.tool_calls || []);
+    assert.deepEqual(calls.map(call => call.function.name),names);
+    const content = frames.map(frame => frame.choices?.[0]?.delta?.content || '').join('');
+    assert.equal(/<tool_calls>|<invoke|<parameter/.test(content),false);
+  }
+});
+
+test('second round thinking close works across every frame boundary and preserves literals', async () => {
+  for (const enabled of [false,true]) {
+    for (const tag of ['</think>','</ THINK \n>','</tHiNk>']) {
+      for (let split=1;split<tag.length;split++) {
+        let current='thinking', state={}, body='',thinking='';
+        for (const text of ['plan'+tag.slice(0,split),tag.slice(split)+'answer']) {
+          const parsed=parseChunkForContent({p:'response/thinking_content',v:text},enabled,current,true,state);
+          current=parsed.newType;
+          for (const part of parsed.parts) { if(part.type==='text')body+=part.text; else thinking+=part.text; }
+        }
+        assert.equal(body,'answer');
+        assert.equal(thinking,enabled?'plan':'');
+      }
+    }
+  }
+  const result=await runMockVercelStream(['data: {"p":"response/thinking_content","v":"literal</thi"}\n\n','data: {"p":"response/content","v":"answer"}\n\n','data: [DONE]\n\n'],{thinking_enabled:true});
+  const frames=result.frames.filter(frame=>frame!=='[DONE]').map(JSON.parse);
+  assert.equal(frames.map(frame=>frame.choices?.[0]?.delta?.reasoning_content||'').join(''),'literal</thi');
+  const {flushThinkingState}=require('../../internal/js/chat-stream/sse_thinking');
+  const state={}; parseChunkForContent({p:'response/thinking_content',v:'literal</thi'},true,'thinking',true,state);
+  assert.equal(flushThinkingState(state),'</thi');
+  assert.equal(flushThinkingState(state),'');
+});
+
+test('second round repeated closing tags inside tool parameters survive every split', async () => {
+  const value='</parameter>\n'.repeat(12)+'exact tail';
+  const raw='<tool_calls><invoke name="write_file"><parameter name="content"><![CDATA['+value+']]></parameter></invoke></tool_calls>';
+  for(const size of [1,7,31,raw.length]) {
+    const lines=[];
+    for(let i=0;i<raw.length;i+=size)lines.push('data: '+JSON.stringify({p:'response/content',v:raw.slice(i,i+size)})+'\n\n');
+    lines.push('data: [DONE]\n\n');
+    const result=await runMockVercelStream(lines);
+    const frames=result.frames.filter(frame=>frame!=='[DONE]').map(JSON.parse);
+    const calls=frames.flatMap(frame=>frame.choices?.[0]?.delta?.tool_calls||[]);
+    assert.equal(calls.length,1);
+    assert.equal(JSON.parse(calls[0].function.arguments).content,value);
+  }
+});
+
+test('second round source IDs retain identical new fragments and reject rewritten snapshots', () => {
+  let current='text',state={},text='';
+  const chunks=[
+    {p:'response/fragments',o:'APPEND',v:[{id:1,type:'RESPONSE',content:'same'},{id:2,type:'RESPONSE',content:'same'}]},
+    {p:'response',o:'BATCH',v:[{p:'fragments/-1/content',o:'SET',v:'same!'},{p:'fragments/0/content',o:'SET',v:'same'},{p:'fragments/-1/content',o:'APPEND',v:'!'}]},
+    {p:'response/fragments/2/content',o:'SET',v:'same'},
+  ];
+  for(const chunk of chunks){const parsed=parseChunkForContent(chunk,false,current,true,state); current=parsed.newType;assert.equal(parsed.errorMessage,'');for(const part of parsed.parts)text+=part.text;}
+  assert.equal(text,'samesame!!same');
+  state={};
+  parseChunkForContent({p:'response/content',v:'old'},false,'text',true,state);
+  const bad=parseChunkForContent({p:'response/content',o:'SET',v:'new'},false,'text',true,state);
+  assert.ok(bad.errorMessage);
+  assert.equal(bad.finished,true);
+});
+
+test('second round metadata cannot consume initial snapshot provenance', () => {
+  const state={};
+  parseChunkForContent({v:{response_message_id:1}},false,'text',true,state);
+  const result=parseChunkForContent({v:{fragments:[{type:'RESPONSE',content:'hi'},{type:'RESPONSE',content:'!'}]}},false,'text',true,state);
+  const {explicitSnapshotDelta}=require('../../internal/js/chat-stream/dedupe');
+  assert.equal(result.snapshot,true);
+  assert.equal(explicitSnapshotDelta('hi!',result.parts[0].text),'');
+  assert.equal(explicitSnapshotDelta('hi','hi!'),'!');
+  assert.equal(explicitSnapshotDelta('hi!','hi!'),'');
+  const fresh={};
+  let text='';
+  for(const chunk of [{p:'response/content',v:'body'},{p:'response/fragments/-1',o:'BATCH',v:[{p:'content',v:'search progress'}]},{p:'response/content',o:'SET',v:'body!'}]) {
+    const parsed=parseChunkForContent(chunk,true,'text',true,fresh);
+    assert.equal(parsed.errorMessage,'');
+    for(const part of parsed.parts) if(part.type==='text')text+=part.text;
+  }
+  assert.equal(text,'body!');
 });

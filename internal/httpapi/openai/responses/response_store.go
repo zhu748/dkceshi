@@ -18,10 +18,11 @@ type storedResponse struct {
 }
 
 type responseStore struct {
-	mu    sync.Mutex
-	ttl   time.Duration
-	items map[string]storedResponse
-	bytes int
+	mu     sync.Mutex
+	ttl    time.Duration
+	items  map[string]storedResponse
+	bytes  int
+	limits responseStoreLimits
 }
 
 func newResponseStore(ttl time.Duration) *responseStore {
@@ -29,8 +30,9 @@ func newResponseStore(ttl time.Duration) *responseStore {
 		ttl = 15 * time.Minute
 	}
 	return &responseStore{
-		ttl:   ttl,
-		items: make(map[string]storedResponse),
+		ttl:    ttl,
+		items:  make(map[string]storedResponse),
+		limits: responseStoreLimits{entries: 256, bytes: 128 << 20, callerEntries: 256},
 	}
 }
 
@@ -45,55 +47,49 @@ func responseStoreOwner(a *auth.RequestAuth) string {
 	return a.CallerID
 }
 
-func (s *responseStore) put(owner, id string, value map[string]any) {
+func (s *responseStore) put(owner, id string, value map[string]any) bool {
 	if s == nil || owner == "" || id == "" || value == nil {
-		return
+		return false
 	}
-	s.putContext(owner, id, value, nil)
+	return s.putContext(owner, id, value, nil)
 }
 
-func (s *responseStore) putContext(owner, id string, value map[string]any, context []any) {
+func (s *responseStore) putContext(owner, id string, value map[string]any, context []any) bool {
 	if s == nil || owner == "" || id == "" || value == nil {
-		return
+		return false
 	}
 	// Keep immutable JSON snapshots. Encoding failures must not replace a
 	// valid response with nil, and reads need only decode their own snapshot.
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
-		return
+		return false
 	}
 	contextJSON, err := json.Marshal(context)
 	if err != nil {
-		return
+		return false
 	}
 	size := len(valueJSON) + len(contextJSON)
-	const maxStoreBytes = 128 << 20
-	if size > maxStoreBytes {
-		return
-	}
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweepLocked(now)
+	if size > s.limits.bytes {
+		return false
+	}
 	key := responseStoreKey(owner, id)
 	if old, ok := s.items[key]; ok {
 		s.bytes -= old.Size
 		delete(s.items, key)
 	}
-	for len(s.items) >= 256 || s.bytes+size > maxStoreBytes {
-		oldest := ""
-		var expires time.Time
-		for k, item := range s.items {
-			if oldest == "" || item.ExpiresAt.Before(expires) {
-				oldest = k
-				expires = item.ExpiresAt
-			}
-		}
-		s.bytes -= s.items[oldest].Size
-		delete(s.items, oldest)
+	for s.callerCountLocked(owner) >= s.limits.callerEntries {
+		s.evictOldestLocked(owner)
+	}
+	for len(s.items) >= s.limits.entries || s.bytes+size > s.limits.bytes {
+		s.evictOldestLocked("")
 	}
 	s.items[key] = storedResponse{Owner: owner, Value: valueJSON, Context: contextJSON, ExpiresAt: now.Add(s.ttl), Size: size}
 	s.bytes += size
+	return true
 }
 
 func (s *responseStore) get(owner, id string) (map[string]any, bool) {
@@ -175,10 +171,10 @@ func (h *Handler) getResponseStore() *responseStore {
 	}
 	if h.responses == nil {
 		h.responses = newResponseStore(ttl)
-	} else {
-		h.responses.mu.Lock()
-		h.responses.ttl = ttl
-		h.responses.mu.Unlock()
 	}
+	h.responses.mu.Lock()
+	h.responses.ttl = ttl
+	h.responses.configureLimits(h.Store)
+	h.responses.mu.Unlock()
 	return h.responses
 }

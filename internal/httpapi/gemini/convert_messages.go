@@ -91,10 +91,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 			if fnCall, ok := part["functionCall"].(map[string]any); ok {
 				flushText()
 				if name := strings.TrimSpace(asString(fnCall["name"])); name != "" {
-					callID := strings.TrimSpace(asString(fnCall["id"]))
-					if callID == "" {
-						callID = strings.TrimSpace(asString(fnCall["call_id"]))
-					}
+					callID := geminiFunctionCallID(fnCall)
 					callID = links.Call(name, callID)
 					msg := map[string]any{
 						"role": "assistant",
@@ -121,13 +118,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 			if fnResp, ok := part["functionResponse"].(map[string]any); ok {
 				flushText()
 				name := strings.TrimSpace(asString(fnResp["name"]))
-				callID := strings.TrimSpace(asString(fnResp["id"]))
-				if callID == "" {
-					callID = strings.TrimSpace(asString(fnResp["callId"]))
-				}
-				if callID == "" {
-					callID = strings.TrimSpace(asString(fnResp["tool_call_id"]))
-				}
+				callID := geminiFunctionCallID(fnResp)
 				callID, name = links.Result(name, callID)
 				content := fnResp["response"]
 				if content == nil {

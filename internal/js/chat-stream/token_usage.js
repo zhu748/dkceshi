@@ -1,5 +1,13 @@
 'use strict';
 
+const { trimContinuationOverlap } = require('./dedupe');
+
+function mergeReasoningForUsage(raw, detection, visible = '') {
+  if (!raw || detection.includes(raw)) return detection || visible;
+  if (raw.includes(detection)) return raw;
+  return raw + trimContinuationOverlap(raw, detection);
+}
+
 function buildUsage(prompt, thinking, output, outputTokens = 0, providedPromptTokens = 0) {
   const reasoningTokens = estimateTokens(thinking);
   const completionTokens = estimateTokens(output);
@@ -52,4 +60,5 @@ function asTokenString(v) {
 module.exports = {
   buildUsage,
   estimateTokens,
+  mergeReasoningForUsage,
 };

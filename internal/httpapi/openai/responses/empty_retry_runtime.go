@@ -17,7 +17,7 @@ import (
 	streamengine "ds2api/internal/stream"
 )
 
-func (h *Handler) handleResponsesStreamWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow, owner, responseID string, stdReq promptcompat.StandardRequest, model, finalPrompt string, refFileTokens int, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, toolChoice promptcompat.ToolChoicePolicy, traceID string, historySession *responsehistory.Session, persistOverride ...func(map[string]any)) {
+func (h *Handler) handleResponsesStreamWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow, owner, responseID string, stdReq promptcompat.StandardRequest, model, finalPrompt string, refFileTokens int, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, toolChoice promptcompat.ToolChoicePolicy, traceID string, historySession *responsehistory.Session, persistOverride ...func(map[string]any) bool) {
 	streamRuntime, initialType, ok := h.prepareResponsesStreamRuntime(w, resp, owner, responseID, model, finalPrompt, refFileTokens, thinkingEnabled, searchEnabled, toolNames, toolsRaw, toolChoice, traceID, historySession)
 	if !ok {
 		return
@@ -101,8 +101,8 @@ func (h *Handler) prepareResponsesStreamRuntime(w http.ResponseWriter, resp *htt
 		// false，会导致 EPSE 原文作为正文透传，产生乱码。toolSieve 解析不依赖 toolNames。
 		true,
 		h.toolcallFeatureMatchEnabled() && h.toolcallEarlyEmitHighConfidence(),
-		toolChoice, traceID, func(obj map[string]any) {
-			h.getResponseStore().put(owner, responseID, obj)
+		toolChoice, traceID, func(obj map[string]any) bool {
+			return h.getResponseStore().put(owner, responseID, obj)
 		}, historySession,
 	)
 	streamRuntime.refFileTokens = refFileTokens

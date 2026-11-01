@@ -65,13 +65,6 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		return true
 	}
 
-	if len(detected) > 0 {
-		s.toolCallsEmitted = true
-		if !s.toolCallsDoneEmitted {
-			s.emitFunctionCallDoneEvents(detected)
-		}
-	}
-
 	if len(detected) == 0 && s.deferredText.Len() > 0 {
 		s.emitTextDelta(cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers))
 		s.deferredText.Reset()
@@ -93,12 +86,20 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		s.failResponse(status, message, code)
 		return true
 	}
+	obj := s.buildCompletedResponseObject(turn.Thinking, turn.Text, detected)
+	if s.persistResponse != nil && !s.persistResponse(obj) {
+		s.failResponse(http.StatusInsufficientStorage, responseStorageMessage, responseStorageCode)
+		return true
+	}
+	if len(detected) > 0 {
+		s.toolCallsEmitted = true
+		if !s.toolCallsDoneEmitted {
+			s.emitFunctionCallDoneEvents(detected)
+		}
+	}
+
 	s.closeIncompleteFunctionItems()
 
-	obj := s.buildCompletedResponseObject(turn.Thinking, turn.Text, detected)
-	if s.persistResponse != nil {
-		s.persistResponse(obj)
-	}
 	if s.history != nil {
 		s.history.Success(
 			http.StatusOK,

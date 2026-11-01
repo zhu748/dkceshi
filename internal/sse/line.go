@@ -21,29 +21,34 @@ type LineResult struct {
 
 // ParseDeepSeekContentLine centralizes one-line DeepSeek SSE parsing for both
 // streaming and non-streaming handlers.
-func ParseDeepSeekContentLine(raw []byte, thinkingEnabled bool, currentType string) LineResult {
+func ParseDeepSeekContentLine(raw []byte, thinkingEnabled bool, currentType string, boundaries ...*ThinkingBoundary) LineResult {
 	chunk, done, parsed := ParseDeepSeekSSELine(raw)
 	if !parsed {
 		return LineResult{NextType: currentType}
 	}
 	if done {
-		return LineResult{Parsed: true, Stop: true, NextType: currentType}
+		result := LineResult{Parsed: true, Stop: true, NextType: currentType}
+		if len(boundaries) > 0 && boundaries[0] != nil {
+			result = boundaries[0].pendingLine(thinkingEnabled, currentType)
+			result.Stop = true
+		}
+		return result
 	}
-	return parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType)
+	return parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...)
 }
 
 // ParseDeepSeekContentChunk is ParseDeepSeekContentLine for a chunk that the
 // caller already decoded from the data payload (ParseDeepSeekSSELine). The
 // non-streaming collector parses every line once and reuses the result here
 // instead of unmarshalling the same JSON a second time.
-func ParseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, currentType string) LineResult {
+func ParseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, currentType string, boundaries ...*ThinkingBoundary) LineResult {
 	if chunk == nil {
 		return LineResult{NextType: currentType}
 	}
-	return parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType)
+	return parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...)
 }
 
-func parseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, currentType string) LineResult {
+func parseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, currentType string, boundaries ...*ThinkingBoundary) LineResult {
 	if errObj, hasErr := chunk["error"]; hasErr {
 		return LineResult{
 			Parsed:       true,
@@ -76,9 +81,10 @@ func parseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, curre
 			NextType:     currentType,
 		}
 	}
-	parts, detectionThinkingParts, finished, nextType := ParseSSEChunkForContentDetailed(chunk, thinkingEnabled, currentType)
-	parts = filterLeakedContentFilterParts(parts)
-	detectionThinkingParts = filterLeakedContentFilterParts(detectionThinkingParts)
+	parts, detectionThinkingParts, finished, nextType := ParseSSEChunkForContentDetailed(chunk, thinkingEnabled, currentType, boundaries...)
+	if len(boundaries) > 0 && boundaries[0] != nil && boundaries[0].replay.err != nil {
+		return LineResult{Parsed: true, Stop: true, ErrorMessage: boundaries[0].replay.err.Error(), NextType: nextType}
+	}
 	var respMsgID int
 	observeResponseMessageID(chunk, &respMsgID)
 	return LineResult{

@@ -67,6 +67,9 @@ func compileToolSchema(raw any) (*jsonschema.Schema, error) {
 }
 
 func ValidateToolSchemas(toolsRaw any) error {
+	if err := validateToolCatalog(toolsRaw); err != nil {
+		return err
+	}
 	tools, _ := toolsRaw.([]any)
 	for _, raw := range tools {
 		tool, _ := raw.(map[string]any)
@@ -84,35 +87,48 @@ func ValidateToolSchemas(toolsRaw any) error {
 // ValidateToolArguments runs after deterministic normalization and before any
 // executable call is delivered, for both ordinary calls and LLM-repaired ones.
 func ValidateToolArguments(calls []ParsedToolCall, toolsRaw any) error {
+	if err := validateToolCatalog(toolsRaw); err != nil {
+		return err
+	}
 	tools, _ := toolsRaw.([]any)
+	type entry struct {
+		schema any
+		custom bool
+	}
+	catalog := make(map[string]entry, len(tools))
+	for _, raw := range tools {
+		tool, _ := raw.(map[string]any)
+		name, _, schema := ExtractToolMeta(tool)
+		catalog[name] = entry{schema: schema, custom: tool["type"] == "custom"}
+	}
 	for _, call := range calls {
-		if IsCustomTool(toolsRaw, call.Name) {
+		meta, declared := catalog[call.Name]
+		if len(catalog) > 0 && !declared {
+			return fmt.Errorf("undeclared tool %q", call.Name)
+		}
+		if meta.custom {
 			if _, ok := call.Input["input"].(string); !ok || len(call.Input) != 1 {
 				return fmt.Errorf("custom tool %q requires one string input", call.Name)
 			}
 			continue
 		}
-		for _, raw := range tools {
-			tool, _ := raw.(map[string]any)
-			name, _, rawSchema := ExtractToolMeta(tool)
-			if name != call.Name || rawSchema == nil {
-				continue
-			}
-			schema, err := compileToolSchema(rawSchema)
-			if err != nil {
-				return fmt.Errorf("invalid schema for tool %q: %w", name, err)
-			}
-			data, err := json.Marshal(call.Input)
-			if err != nil {
-				return err
-			}
-			value, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
-			if err != nil {
-				return err
-			}
-			if err = schema.Validate(value); err != nil {
-				return fmt.Errorf("invalid arguments for tool %q: %w", name, err)
-			}
+		if meta.schema == nil {
+			continue
+		}
+		schema, err := compileToolSchema(meta.schema)
+		if err != nil {
+			return fmt.Errorf("invalid schema for tool %q: %w", call.Name, err)
+		}
+		data, err := json.Marshal(call.Input)
+		if err != nil {
+			return err
+		}
+		value, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+		if err != nil {
+			return err
+		}
+		if err = schema.Validate(value); err != nil {
+			return fmt.Errorf("invalid arguments for tool %q: %w", call.Name, err)
 		}
 	}
 	return nil

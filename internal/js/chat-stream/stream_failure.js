@@ -54,4 +54,10 @@ function sendFailedChunk(res, status, message, code) {
   }
 }
 
-module.exports = { sendFailedChunk, upstreamEmptyOutputDetail };
+async function finishStreamFailure(res, releaseLease, detail) {
+  sendFailedChunk(res, detail.status, detail.message, detail.code);
+  await releaseLease();
+  if (!res.writableEnded && !res.destroyed) res.end();
+}
+
+module.exports = { sendFailedChunk, upstreamEmptyOutputDetail, finishStreamFailure };

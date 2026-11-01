@@ -6,13 +6,18 @@ import "strings"
 // code stream immediately; ambiguous tokens/inline literals wait for their
 // boundary. It never parses, repairs, or emits executable tool calls.
 type StreamCleaner struct {
-	pending      string
-	fence        string
-	notLineStart bool
-	waiting      *pendingScan
+	StripReferenceMarkers bool
+	pending               string
+	fence                 string
+	notLineStart          bool
+	waiting               *pendingScan
+	filtered              bool
 }
 
 func (c *StreamCleaner) Write(text string) string {
+	if c.filtered {
+		return ""
+	}
 	if c.waiting != nil {
 		if !c.waiting.append(text) {
 			return ""
@@ -76,7 +81,28 @@ func (c *StreamCleaner) drain(final bool) string {
 			c.emit(&out, raw[:run], run)
 			continue
 		}
+		if c.StripReferenceMarkers {
+			end, wait := referenceDisplayUnit(raw, final)
+			if wait {
+				break
+			}
+			if end > 0 {
+				c.emit(&out, "", end)
+				continue
+			}
+		}
 		end, replacement, wait := cleanDisplayUnit(raw, final)
+		if raw[0] == 'C' || raw[0] == 'c' {
+			cut, pending := contentFilterSuffix(raw, final)
+			if cut {
+				c.pending = ""
+				c.filtered = true
+				break
+			}
+			if pending {
+				break
+			}
+		}
 		if wait {
 			break
 		}
@@ -85,7 +111,7 @@ func (c *StreamCleaner) drain(final bool) string {
 			continue
 		}
 		end = 1
-		for end < len(raw) && !strings.ContainsRune("`~<[\"", rune(raw[end])) {
+		for end < len(raw) && !strings.ContainsRune("`~<[\"Cc", rune(raw[end])) {
 			end++
 		}
 		c.emit(&out, raw[:end], end)

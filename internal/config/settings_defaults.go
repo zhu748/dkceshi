@@ -8,6 +8,15 @@ func init() {
 			Fields: []FieldSpec{
 				{Name: "store_ttl_seconds", Kind: FieldInt, Default: 900, Min: 30, Max: 86400,
 					LabelKey: "settings.responsesTTL"},
+				{Name: "max_entries", Kind: FieldInt, Default: 256, Min: 1, Max: 4096, LabelKey: "settings.responsesMaxEntries"},
+				{Name: "max_bytes_mib", Kind: FieldInt, Default: 128, Min: 1, Max: 1024, LabelKey: "settings.responsesMaxBytes"},
+				{Name: "max_caller_entries", Kind: FieldInt, Default: 128, Min: 1, Max: 4096, LabelKey: "settings.responsesCallerEntries"},
+			},
+		},
+		{
+			Key: "tool_safety", TitleKey: "settings.toolSafetyTitle",
+			Fields: []FieldSpec{
+				{Name: "allow_reasoning_prose", Kind: FieldBool, Default: false, LabelKey: "settings.allowReasoningProse", HelpKey: "settings.allowReasoningProseHelp"},
 			},
 		},
 		{
@@ -157,7 +166,7 @@ func init() {
 			Key:      "behavior",
 			TitleKey: "settings.behaviorTitle",
 			Order:    3,
-			Settings: []string{"responses", "embeddings", "thinking_injection", "bottom_format_injection"},
+			Settings: []string{"responses", "embeddings", "thinking_injection", "bottom_format_injection", "tool_safety"},
 		},
 		{
 			Key:            "keep_alive",

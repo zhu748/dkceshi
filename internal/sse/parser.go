@@ -7,8 +7,9 @@ import (
 )
 
 type ContentPart struct {
-	Text string
-	Type string
+	Text     string
+	Type     string
+	Snapshot bool
 }
 
 var dataPrefix = []byte("data:")
@@ -40,7 +41,12 @@ func ParseSSEChunkForContent(chunk map[string]any, thinkingEnabled bool, current
 	return parts, finished, nextType
 }
 
-func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool, currentFragmentType string) ([]ContentPart, []ContentPart, bool, string) {
+func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool, currentFragmentType string, boundaries ...*ThinkingBoundary) ([]ContentPart, []ContentPart, bool, string) {
+	boundary := &ThinkingBoundary{}
+	if len(boundaries) > 0 && boundaries[0] != nil {
+		boundary = boundaries[0]
+	}
+	chunk = boundary.replay.normalize(chunk, currentFragmentType, thinkingEnabled)
 	v, ok := chunk["v"]
 	if !ok {
 		return nil, nil, false, currentFragmentType
@@ -74,6 +80,12 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 	partType := resolvePartType(path, thinkingEnabled, newType)
 	finished := appendChunkValueContent(v, partType, thinkingEnabled, &newType, &parts, path)
 	finished = finished || responseSnapshotFinished(path, v)
+	if isContentSnapshot(chunk) {
+		for i := range parts {
+			parts[i].Snapshot = true
+		}
+	}
+	parts = coalesceSnapshotParts(parts)
 	if bodyStartedAtStart {
 		// The upstream THINK parts are still surfaced to the caller's
 		// detection layer (ToolDetectionThinkingParts) so upstream activity is
@@ -85,7 +97,6 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 			if p.Type == "thinking" {
 				continue
 			}
-			p.Text = stripThinkTags(p.Text)
 			if p.Text != "" {
 				cleaned = append(cleaned, p)
 			}
@@ -93,7 +104,7 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 		return cleaned, detection, finished, newType
 	}
 	var transitioned bool
-	parts, transitioned = splitThinkingParts(parts)
+	parts, transitioned = splitThinkingParts(parts, boundary)
 	if transitioned {
 		newType = "text"
 	}

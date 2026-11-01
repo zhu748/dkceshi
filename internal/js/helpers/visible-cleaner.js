@@ -3,12 +3,14 @@
 const { cleanDisplayUnit } = require('./visible-cleaner-tokens');
 const { markerRun, inlineCodeEnd } = require('./visible-cleaner-boundary');
 const { newPendingScan } = require('./visible-cleaner-pending');
+const { contentFilterSuffix, referenceDisplayUnit } = require('./visible-content-filter');
 
 // Display-only cleanup. Keep the Go StreamCleaner contract: no tool execution,
 // stable results across chunk partitions, and immediate fenced-code delivery.
 class VisibleCleaner {
-  constructor() { this.pending = ''; this.fence = ''; this.notLineStart = false; }
+  constructor(stripReferences = false) { this.pending = ''; this.fence = ''; this.notLineStart = false; this.stripReferences = stripReferences; }
   write(text) {
+    if (this.filtered) return '';
     if (this.waiting) {
       if (!this.waiting.append(text)) return '';
       this.pending += this.waiting.parts.join(''); this.waiting = null;
@@ -52,11 +54,21 @@ class VisibleCleaner {
         }
         emit(raw.slice(0, run), run); continue;
       }
+      if (this.stripReferences) {
+        const reference = referenceDisplayUnit(raw, final);
+        if (reference.wait) break;
+        if (reference.end) { emit('', reference.end); continue; }
+      }
       const unit = cleanDisplayUnit(raw, final, cleanVisible);
+      if (raw[0] === 'C' || raw[0] === 'c') {
+        const suffix = contentFilterSuffix(raw, final);
+        if (suffix.cut) { this.pending = ''; this.filtered = true; break; }
+        if (suffix.wait) break;
+      }
       if (unit.wait) break;
       if (unit.end) { emit(unit.text, unit.end); continue; }
       let end = 1;
-      while (end < raw.length && !'`~<["'.includes(raw[end])) end++;
+      while (end < raw.length && !'`~<["Cc'.includes(raw[end])) end++;
       emit(raw.slice(0, end), end);
     }
     return out;

@@ -30,6 +30,9 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 	// （content 纯文本 / reasoning_content / tool_calls），工具提示词、EPSE 格式
 	// 规范、底部格式提示与最终 prompt 全部由 promptcompat 的共享组装产出。
 	normalizedMessages := normalizeClaudeMessages(messagesRaw)
+	if err := promptcompat.ValidateToolHistory(normalizedMessages); err != nil {
+		return claudeNormalizedRequest{}, err
+	}
 	payload := cloneMap(req)
 	payload["messages"] = normalizedMessages
 	// API Key 上的「强制禁用工具调用」：工具定义已在入口处被清除，这里只把
@@ -40,6 +43,7 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 		return claudeNormalizedRequest{}, err
 	}
 	toolsRequested, _ := req["tools"].([]any)
+	toolPolicy = promptcompat.ApplyToolSafetySettings(store, toolPolicy)
 	reminder := promptcompat.ResolveToolReminder(store)
 
 	dsPayload := convertClaudeToDeepSeek(payload, store)

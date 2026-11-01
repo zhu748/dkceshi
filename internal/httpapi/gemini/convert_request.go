@@ -27,11 +27,19 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 	}
 
 	messagesRaw := geminiMessagesFromRequest(req)
+	if err := promptcompat.ValidateToolHistory(messagesRaw); err != nil {
+		return promptcompat.StandardRequest{}, err
+	}
 	if len(messagesRaw) == 0 {
 		return promptcompat.StandardRequest{}, fmt.Errorf("request must include non-empty contents")
 	}
 
 	toolsDisabled := promptcompat.ToolsForceDisabledInRequest(req)
+	if req["tools"] != nil {
+		if _, ok := req["tools"].([]any); !ok && !toolsDisabled {
+			return promptcompat.StandardRequest{}, fmt.Errorf("tools must be an array")
+		}
+	}
 	toolsRaw := convertGeminiTools(req["tools"])
 	toolPolicy, err := geminiToolPolicy(req, toolsRaw)
 	if err != nil {
@@ -43,6 +51,7 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 		toolsRaw = nil
 		toolPolicy = promptcompat.ToolChoicePolicy{Mode: promptcompat.ToolChoiceNone}
 	}
+	toolPolicy = promptcompat.ApplyToolSafetySettings(store, toolPolicy)
 	reminder := promptcompat.ResolveToolReminder(store)
 	finalPrompt, toolNames := promptcompat.BuildOpenAIPrompt(messagesRaw, toolsRaw, "", toolPolicy, thinkingEnabled, reminder)
 	if len(toolNames) == 0 && len(toolsRaw) > 0 {

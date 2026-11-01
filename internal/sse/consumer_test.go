@@ -31,7 +31,7 @@ func TestCollectStreamDedupesContinueSnapshotReplay(t *testing.T) {
 
 func TestCollectStreamDedupesIdenticalSnapshot(t *testing.T) {
 	prefix := strings.Repeat("continued answer ", 4)
-	body := "data: {\"v\":\"" + prefix + "\"}\n\ndata: {\"v\":\"" + prefix + "\"}\n\ndata: [DONE]\n"
+	body := "data: {\"o\":\"SET\",\"v\":\"" + prefix + "\"}\n\ndata: {\"o\":\"SET\",\"v\":\"" + prefix + "\"}\n\ndata: [DONE]\n"
 	resp := &http.Response{Body: io.NopCloser(strings.NewReader(body))}
 	if got := CollectStream(resp, false, true); got.Text != prefix {
 		t.Fatalf("identical continuation duplicated the answer: %q", got.Text)

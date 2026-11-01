@@ -4,7 +4,7 @@ const { VisibleCleaner } = require('../visible-cleaner');
 
 function cleanVisibleEvents(state, events, final = false) {
   if (!state?.cleanVisible) return events;
-  state.visibleCleaner ||= new VisibleCleaner();
+  state.visibleCleaner ||= new VisibleCleaner(state.stripReferences === true);
   for (const event of events) {
     if (!event.deferred && event.text) event.text = state.visibleCleaner.write(event.text);
   }

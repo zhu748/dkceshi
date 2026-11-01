@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { appendCapture, captureReady } = require('../../internal/js/helpers/stream-tool-sieve/capture_progress');
 
 const {
   extractToolNames,
@@ -1601,4 +1602,15 @@ test('long parameters survive streaming with a following independent call', () =
   const calls = events.filter(e => e.type === 'tool_calls').flatMap(e => e.calls);
   assert.deepEqual(calls.map(c => c.name), ['write', 'next']);
   assert.equal(calls[0].input.content, value);
+});
+test('literal closing tags in CDATA do not trigger repeated full parsing', () => {
+  const state = {capture:''};
+  appendCapture(state,'<tool_calls><invoke name="write"><parameter name="content"><![CDATA[');
+  assert.equal(captureReady(state),true);
+  for (let i=0;i<512;i++) {
+    appendCapture(state,'</parameter></invoke></tool_calls>');
+    assert.equal(captureReady(state),false);
+  }
+  appendCapture(state,']]></parameter></invoke></tool_calls>');
+  assert.equal(captureReady(state),true);
 });

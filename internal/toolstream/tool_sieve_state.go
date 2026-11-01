@@ -8,6 +8,7 @@ import (
 
 type State struct {
 	CleanVisible           bool
+	StripReferenceMarkers  bool
 	cleaner                textclean.StreamCleaner
 	DeferMalformed         bool
 	DisplayOnly            bool // suppress bare calls in display channels without executing them

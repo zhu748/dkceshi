@@ -20,6 +20,7 @@ func cleanVisibleEvents(state *State, events []Event) []Event {
 	if state == nil || !state.CleanVisible {
 		return events
 	}
+	state.cleaner.StripReferenceMarkers = state.StripReferenceMarkers
 	for i := range events {
 		if !events[i].Deferred && events[i].Content != "" {
 			events[i].Content = state.cleaner.Write(events[i].Content)

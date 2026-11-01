@@ -27,6 +27,14 @@ function trimContinuationOverlap(existing, incoming) {
   return incoming;
 }
 
+function explicitSnapshotDelta(existing, incoming) {
+  if (!incoming || !existing) return incoming;
+  if (incoming.startsWith(existing)) return incoming.slice(existing.length);
+  if (existing.startsWith(incoming)) return '';
+  return incoming;
+}
+
 module.exports = {
+  explicitSnapshotDelta,
   trimContinuationOverlap,
 };

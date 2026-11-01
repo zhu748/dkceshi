@@ -88,76 +88,11 @@ func ExtractToolMeta(tool map[string]any) (string, string, any) {
 }
 
 func normalizeToolValueWithSchema(value any, schema any) (any, bool) {
-	if value == nil || schema == nil {
+	compiled, err := compileToolSchema(schema)
+	if err != nil {
 		return value, false
 	}
-	schemaMap, ok := schema.(map[string]any)
-	if !ok || len(schemaMap) == 0 {
-		return value, false
-	}
-	if shouldCoerceSchemaToString(schemaMap) {
-		return stringifySchemaValue(value)
-	}
-	if looksLikeObjectSchema(schemaMap) {
-		obj, ok := value.(map[string]any)
-		if !ok || len(obj) == 0 {
-			return value, false
-		}
-		properties, _ := schemaMap["properties"].(map[string]any)
-		additional := schemaMap["additionalProperties"]
-		changed := false
-		out := make(map[string]any, len(obj))
-		for key, current := range obj {
-			next := current
-			var fieldChanged bool
-			if propSchema, ok := properties[key]; ok {
-				next, fieldChanged = normalizeToolValueWithSchema(current, propSchema)
-			} else if additional != nil {
-				next, fieldChanged = normalizeToolValueWithSchema(current, additional)
-			}
-			out[key] = next
-			changed = changed || fieldChanged
-		}
-		if !changed {
-			return value, false
-		}
-		return out, true
-	}
-	if looksLikeArraySchema(schemaMap) {
-		arr, ok := value.([]any)
-		if !ok || len(arr) == 0 {
-			return value, false
-		}
-		itemsSchema := schemaMap["items"]
-		if itemsSchema == nil {
-			return value, false
-		}
-		changed := false
-		out := make([]any, len(arr))
-		switch itemSchemas := itemsSchema.(type) {
-		case []any:
-			for i, item := range arr {
-				if i >= len(itemSchemas) {
-					out[i] = item
-					continue
-				}
-				next, itemChanged := normalizeToolValueWithSchema(item, itemSchemas[i])
-				out[i] = next
-				changed = changed || itemChanged
-			}
-		default:
-			for i, item := range arr {
-				next, itemChanged := normalizeToolValueWithSchema(item, itemsSchema)
-				out[i] = next
-				changed = changed || itemChanged
-			}
-		}
-		if !changed {
-			return value, false
-		}
-		return out, true
-	}
-	return value, false
+	return normalizeCompiledToolValue(value, compiled, 0)
 }
 
 func shouldCoerceSchemaToString(schema map[string]any) bool {
@@ -184,31 +119,6 @@ func shouldCoerceSchemaToString(schema map[string]any) bool {
 	default:
 		return false
 	}
-}
-
-func looksLikeObjectSchema(schema map[string]any) bool {
-	if schema == nil {
-		return false
-	}
-	if typ, ok := schema["type"].(string); ok && strings.EqualFold(strings.TrimSpace(typ), "object") {
-		return true
-	}
-	if _, ok := schema["properties"].(map[string]any); ok {
-		return true
-	}
-	_, hasAdditional := schema["additionalProperties"]
-	return hasAdditional
-}
-
-func looksLikeArraySchema(schema map[string]any) bool {
-	if schema == nil {
-		return false
-	}
-	if typ, ok := schema["type"].(string); ok && strings.EqualFold(strings.TrimSpace(typ), "array") {
-		return true
-	}
-	_, hasItems := schema["items"]
-	return hasItems
 }
 
 func isOnlyStringLikeTypes(values []any) bool {

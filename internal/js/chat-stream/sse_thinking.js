@@ -1,41 +1,63 @@
 'use strict';
 
 // Thinking/body transitions and the sticky body boundary.
-const { stripThinkTags } = require('./sse_text');
+const { LiteralState } = require('../helpers/literal-state');
 
-function splitThinkingParts(parts) {
+const MAX_THINKING_DELIMITER = 256;
+
+function closingPrefix(text) {
+  if (text.length < 2) return [text === '<', false];
+  if (!text.startsWith('</')) return [false, false];
+  let rest = text.slice(2).replace(/^[ \t\r\n\f]+/, '');
+  if (rest.length <= 5) return ['think'.startsWith(rest.toLowerCase()), false];
+  if (rest.slice(0, 5).toLowerCase() !== 'think') return [false, false];
+  rest = rest.slice(5).replace(/^[ \t\r\n\f]+/, '');
+  return [rest === '' || rest === '>', rest === '>'];
+}
+
+function splitThinking(text, state) {
+  const out = [];
+  let offset = 0;
+  for (const ch of text) {
+    const structural = state.thinkingLiteral.feed(ch);
+    offset += ch.length;
+    if (state.thinkingPending) {
+      const candidate = state.thinkingPending + ch;
+      const [prefix, complete] = closingPrefix(candidate);
+      if (complete) { state.thinkingPending = ''; return [out.join(''), text.slice(offset), true]; }
+      if (prefix && candidate.length <= MAX_THINKING_DELIMITER) { state.thinkingPending = candidate; continue; }
+      out.push(state.thinkingPending);
+      state.thinkingPending = '';
+    }
+    if (structural && ch === '<') state.thinkingPending = '<';
+    else out.push(ch);
+  }
+  return [out.join(''), '', false];
+}
+
+function flushThinkingState(state) {
+  const text = state.thinkingPending || '';
+  state.thinkingPending = '';
+  return text;
+}
+
+function splitThinkingParts(parts, state) {
   const out = [];
   let thinkingDone = false;
   for (const p of parts) {
     if (!p) continue;
-    if (thinkingDone && p.type === 'thinking') {
-      const cleaned = stripThinkTags(p.text);
-      if (cleaned) {
-        out.push({ text: cleaned, type: 'text' });
-      }
-      continue;
-    }
+    if (thinkingDone && p.type === 'thinking') { if (p.text) out.push({ ...p, type: 'text' }); continue; }
     if (p.type !== 'thinking') {
-      const cleaned = stripThinkTags(p.text);
-      if (cleaned) {
-        out.push({ text: cleaned, type: p.type });
-      }
+      const pending = flushThinkingState(state);
+      if (pending) out.push({ text: pending, type: 'thinking' });
+      if (p.text) out.push(p);
       continue;
     }
-    const match = /<\/\s*think\s*>/i.exec(p.text);
-    if (!match) {
-      out.push(p);
-      continue;
-    }
-    thinkingDone = true;
-    const before = p.text.substring(0, match.index);
-    let after = p.text.substring(match.index + match[0].length);
-    if (before) {
-      out.push({ text: before, type: 'thinking' });
-    }
-    after = stripThinkTags(after);
-    if (after) {
-      out.push({ text: after, type: 'text' });
+    const [before, after, closed] = splitThinking(p.text, state);
+    if (before) out.push({ ...p, text: before });
+    if (closed) {
+      thinkingDone = true;
+      if (after) out.push({ ...p, text: after, type: 'text' });
     }
   }
   return { parts: out, transitioned: thinkingDone };
@@ -48,7 +70,8 @@ function dropThinkingParts(parts) {
   return parts.filter((p) => p && p.type !== 'thinking');
 }
 
-function finalizeThinkingParts(parts, thinkingEnabled, newType, bodyStarted) {
+function finalizeThinkingParts(parts, thinkingEnabled, newType, bodyStarted, state = {}) {
+  state.thinkingLiteral ||= new LiteralState();
   if (bodyStarted) {
     // 一刀切: visible body output has already begun for this request, so every
     // residual thinking/reasoning increment is dropped wholesale. It is neither
@@ -59,14 +82,14 @@ function finalizeThinkingParts(parts, thinkingEnabled, newType, bodyStarted) {
       if (!p || p.type === 'thinking') {
         continue;
       }
-      const cleaned = stripThinkTags(p.text);
+      const cleaned = p.text;
       if (cleaned) {
         out.push({ ...p, text: cleaned });
       }
     }
-    return { parts: out, newType };
+    return { parts: out, newType, detectionThinking: parts.filter(p => p?.type === 'thinking').map(p => p.text).join('') };
   }
-  const splitResult = splitThinkingParts(parts);
+  const splitResult = splitThinkingParts(parts, state);
   let finalType = newType;
   let finalParts = splitResult.parts;
   if (splitResult.transitioned) {
@@ -81,4 +104,5 @@ function finalizeThinkingParts(parts, thinkingEnabled, newType, bodyStarted) {
 
 module.exports = {
   finalizeThinkingParts,
+  flushThinkingState,
 };

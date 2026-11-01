@@ -69,7 +69,7 @@ type responsesStreamRuntime struct {
 	finalErrorMessage    string
 	finalErrorCode       string
 
-	persistResponse func(obj map[string]any)
+	persistResponse func(obj map[string]any) bool
 	history         *responsehistory.Session
 
 	// toolCallRepair / toolCallRepairCtx wire the phase-3 finalize-only LLM
@@ -95,7 +95,7 @@ func newResponsesStreamRuntime(
 	_ bool, // retained for callers; tool batches are validated before delivery
 	toolChoice promptcompat.ToolChoicePolicy,
 	traceID string,
-	persistResponse func(obj map[string]any),
+	persistResponse func(obj map[string]any) bool,
 	history *responsehistory.Session,
 ) *responsesStreamRuntime {
 	return &responsesStreamRuntime{
@@ -111,7 +111,7 @@ func newResponsesStreamRuntime(
 		toolNames:             toolNames,
 		toolsRaw:              toolsRaw,
 		bufferToolContent:     bufferToolContent,
-		sieve:                 toolstream.State{CleanVisible: true, DeferMalformed: true},
+		sieve:                 toolstream.State{CleanVisible: true, DeferMalformed: true, StripReferenceMarkers: stripReferenceMarkers},
 		streamToolCallIDs:     map[int]string{},
 		functionItemIDs:       map[int]string{},
 		functionOutputIDs:     map[int]int{},

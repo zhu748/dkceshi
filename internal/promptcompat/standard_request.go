@@ -113,11 +113,12 @@ const (
 )
 
 type ToolChoicePolicy struct {
-	Mode            ToolChoiceMode
-	ForcedName      string
-	Allowed         map[string]struct{}
-	RestrictAllowed bool
-	DisableParallel bool
+	Mode                ToolChoiceMode
+	ForcedName          string
+	Allowed             map[string]struct{}
+	RestrictAllowed     bool
+	DisableParallel     bool
+	AllowReasoningProse bool
 }
 
 func DefaultToolChoicePolicy() ToolChoicePolicy {

@@ -21,10 +21,11 @@ function visibleGuardText(events) {
   return text;
 }
 
-function createVisibleGuard(marker) {
+function createVisibleGuard(marker, stripReferences = false) {
   const state = createToolSieveState();
   state.deferMalformed = true;
   state.cleanVisible = true;
+  state.stripReferences = stripReferences;
   state.displayOnly = true;
   const normalizer = createMarkerNormalizer(marker);
   return {
@@ -33,8 +34,8 @@ function createVisibleGuard(marker) {
   };
 }
 
-function filterVisible(text) {
-  const guard = createVisibleGuard();
+function filterVisible(text, stripReferences = false) {
+  const guard = createVisibleGuard(undefined, stripReferences);
   return guard.write(text) + guard.flush();
 }
 

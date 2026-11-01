@@ -1,6 +1,10 @@
 package sse
 
-import "strings"
+import (
+	"ds2api/internal/toolcall"
+	"strings"
+	"unicode/utf8"
+)
 
 // DefaultRepeatLoopThreshold is how many consecutive closing tags are treated
 // as a repetition loop.
@@ -63,6 +67,7 @@ type RepeatLoopGuard struct {
 	// Threshold overrides DefaultRepeatLoopThreshold when > 0.
 	Threshold int
 
+	literal toolcall.LiteralState
 	pending string
 	run     int
 	tripped bool
@@ -100,9 +105,19 @@ func (g *RepeatLoopGuard) Feed(text string) bool {
 	g.pending = ""
 	limit := g.threshold()
 	for i := 0; i < len(buf); {
+		r, size := utf8.DecodeRuneInString(buf[i:])
+		probe := g.literal
+		if !probe.Feed(r) {
+			g.literal, g.run = probe, 0
+			i += size
+			continue
+		}
 		next, status := scanProtocolClosingTag(buf, i)
 		switch status {
 		case closingTagMatched:
+			for _, ch := range buf[i:next] {
+				g.literal.Feed(ch)
+			}
 			g.run++
 			if g.run >= limit {
 				g.tripped = true
@@ -118,15 +133,20 @@ func (g *RepeatLoopGuard) Feed(text string) bool {
 			return false
 		}
 		if g.run > 0 && isRepeatLoopSeparator(buf[i]) {
-			i++
+			g.literal = probe
+			i += size
 			continue
 		}
 		g.run = 0
 		if next > i {
+			for _, ch := range buf[i:next] {
+				g.literal.Feed(ch)
+			}
 			i = next
 			continue
 		}
-		i++
+		g.literal = probe
+		i += size
 	}
 	return false
 }

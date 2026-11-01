@@ -107,7 +107,7 @@ func newClaudeStreamRuntime(
 		promptTokenText:       promptTokenText,
 		history:               history,
 		policy:                sse.ContentPolicy{Prompt: promptTokenText},
-		sieve:                 toolstream.State{CleanVisible: true, DeferMalformed: true},
+		sieve:                 toolstream.State{CleanVisible: true, DeferMalformed: true, StripReferenceMarkers: stripReferenceMarkers},
 		messageID:             fmt.Sprintf("msg_%d", time.Now().UnixNano()),
 		thinkingBlockIndex:    -1,
 		textBlockIndex:        -1,
@@ -141,7 +141,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 	}
 	contentSeen := false
 	for _, p := range parsed.ToolDetectionThinkingParts {
-		trimmed := sse.TrimContinuationOverlapFromBuilder(&s.toolDetectionThinking, p.Text)
+		trimmed := sse.ContentPartDelta(&s.toolDetectionThinking, p)
 		if trimmed != "" {
 			s.toolDetectionThinking.WriteString(trimmed)
 			contentSeen = true
@@ -150,9 +150,9 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 	for _, p := range parsed.Parts {
 		var rawTrimmed string
 		if p.Type == "thinking" {
-			rawTrimmed = sse.TrimContinuationOverlapFromBuilder(&s.rawThinking, p.Text)
+			rawTrimmed = sse.ContentPartDelta(&s.rawThinking, p)
 		} else {
-			rawTrimmed = sse.TrimContinuationOverlapFromBuilder(&s.rawText, p.Text)
+			rawTrimmed = sse.ContentPartDelta(&s.rawText, p)
 		}
 		if rawTrimmed == "" {
 			continue
@@ -176,6 +176,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		if p.Type == "thinking" {
 			if s.thinkingEnabled {
 				s.thinkingGuard.Marker = s.sieve.Marker
+				s.thinkingGuard.StripReferenceMarkers = s.stripReferenceMarkers
 				s.emitThinking(s.thinkingGuard.Write(rawTrimmed))
 			}
 			continue
@@ -184,10 +185,6 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		if cleanedText == "" && !s.bufferToolContent {
 			continue
 		}
-		if p.Type != "thinking" && s.searchEnabled && sse.IsCitation(cleanedText) {
-			continue
-		}
-
 		s.text.WriteString(cleanedText)
 
 		if !s.bufferToolContent {

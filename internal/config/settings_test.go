@@ -670,7 +670,7 @@ func TestVisibleSettingsAreGroupedIntoTheDeclaredCards(t *testing.T) {
 		grouped[card.Key] = append([]string(nil), card.Settings...)
 	}
 	want := map[string][]string{
-		"behavior":   {"responses", "embeddings", "thinking_injection", "bottom_format_injection"},
+		"behavior":   {"responses", "embeddings", "thinking_injection", "bottom_format_injection", "tool_safety"},
 		"keep_alive": {"keep_alive"},
 		"input_file": {"input_file"},
 	}

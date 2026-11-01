@@ -1,9 +1,5 @@
 package sse
 
-import (
-	"regexp"
-)
-
 // bodyStarted reports whether visible body output has already begun for the
 // current request: reasoning is enabled and the sticky segment cursor is
 // already in the text segment. Once that happens the one-size-fits-all rule
@@ -53,60 +49,55 @@ func dropThinkingParts(parts []ContentPart) []ContentPart {
 	return out
 }
 
-var thinkClosePattern = regexp.MustCompile(`(?i)</\s*think\s*>`)
-
-var thinkOpenPattern = regexp.MustCompile(`(?i)<\s*think\s*>`)
-
 // splitThinkingParts detects </think> inside thinking content and
 // auto-transitions everything after it to text. This handles the
 // DeepSeek API bug where the upstream SSE keeps sending
 // reasoning_content even though the model has finished thinking.
-func splitThinkingParts(parts []ContentPart) ([]ContentPart, bool) {
+func splitThinkingParts(parts []ContentPart, boundaries ...*ThinkingBoundary) ([]ContentPart, bool) {
+	boundary := &ThinkingBoundary{}
+	if len(boundaries) > 0 && boundaries[0] != nil {
+		boundary = boundaries[0]
+	}
 	var out []ContentPart
 	thinkingDone := false
 	for _, p := range parts {
 		if thinkingDone && p.Type == "thinking" {
 			// Already transitioned — treat remaining thinking as text.
-			cleaned := stripThinkTags(p.Text)
+			cleaned := p.Text
 			if cleaned != "" {
-				out = append(out, ContentPart{Text: cleaned, Type: "text"})
+				out = append(out, ContentPart{Text: cleaned, Type: "text", Snapshot: p.Snapshot})
 			}
 			continue
 		}
 		if p.Type != "thinking" {
-			cleaned := stripThinkTags(p.Text)
+			if tail := boundary.flush(); tail != "" {
+				out = append(out, ContentPart{Text: tail, Type: "thinking"})
+			}
+			cleaned := p.Text
 			if cleaned != "" {
-				out = append(out, ContentPart{Text: cleaned, Type: p.Type})
+				out = append(out, ContentPart{Text: cleaned, Type: p.Type, Snapshot: p.Snapshot})
 			}
 			continue
 		}
-		loc := thinkClosePattern.FindStringIndex(p.Text)
-		if loc == nil {
-			out = append(out, p)
+		before, after, closed := boundary.split(p.Text)
+		if !closed {
+			if before != "" {
+				p.Text = before
+				out = append(out, p)
+			}
 			continue
 		}
-		// Split at </think>: before is still thinking, after becomes text.
 		thinkingDone = true
-		before := p.Text[:loc[0]]
-		after := p.Text[loc[1]:]
 		if before != "" {
-			out = append(out, ContentPart{Text: before, Type: "thinking"})
+			out = append(out, ContentPart{Text: before, Type: "thinking", Snapshot: p.Snapshot})
 		}
-		after = stripThinkTags(after)
 		if after != "" {
-			out = append(out, ContentPart{Text: after, Type: "text"})
+			out = append(out, ContentPart{Text: after, Type: "text", Snapshot: p.Snapshot})
 		}
 	}
 	if !thinkingDone {
-		// Return 'out' instead of 'parts' because text parts might have been cleaned via stripThinkTags
+		// Keep payload text intact; only a confirmed thinking boundary is consumed.
 		return out, false
 	}
 	return out, true
-}
-
-// stripThinkTags removes any remaining <think> or </think> tags from text.
-func stripThinkTags(s string) string {
-	s = thinkClosePattern.ReplaceAllString(s, "")
-	s = thinkOpenPattern.ReplaceAllString(s, "")
-	return s
 }

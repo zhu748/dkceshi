@@ -1,6 +1,6 @@
 {
   "parts": [
-    {"text": "正常输出", "type": "text"}
+    {"text": "正常输出CONTENT_FILTER你好，这个问题我暂时无法回答", "type": "text"}
   ],
   "finished": false,
   "new_type": "text"

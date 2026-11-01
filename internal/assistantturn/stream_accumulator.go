@@ -51,7 +51,7 @@ type StreamAccumulatorResult struct {
 func (a *StreamAccumulator) Apply(parsed sse.LineResult) StreamAccumulatorResult {
 	out := StreamAccumulatorResult{}
 	for _, p := range parsed.ToolDetectionThinkingParts {
-		trimmed := sse.TrimContinuationOverlapFromBuilder(&a.ToolDetectionThinking, p.Text)
+		trimmed := sse.ContentPartDelta(&a.ToolDetectionThinking, p)
 		if trimmed != "" {
 			a.ToolDetectionThinking.WriteString(trimmed)
 			// Tool-detection thinking is real upstream activity even when the
@@ -66,7 +66,7 @@ func (a *StreamAccumulator) Apply(parsed sse.LineResult) StreamAccumulatorResult
 			out.ContentSeen = true
 		}
 		if p.Type == "thinking" {
-			delta := a.applyThinkingPart(p.Text)
+			delta := a.applyThinkingPart(sse.ContentPartDelta(&a.RawThinking, p))
 			if delta.RawText != "" {
 				out.ContentSeen = true
 			}
@@ -75,7 +75,7 @@ func (a *StreamAccumulator) Apply(parsed sse.LineResult) StreamAccumulatorResult
 			}
 			continue
 		}
-		delta := a.applyTextPart(p.Text)
+		delta := a.applyTextPart(sse.ContentPartDelta(&a.RawText, p))
 		if delta.RawText != "" {
 			out.ContentSeen = true
 		}
@@ -135,7 +135,7 @@ func (a *StreamAccumulator) HasPartialOutput() bool {
 }
 
 func (a *StreamAccumulator) applyThinkingPart(text string) StreamPartDelta {
-	rawTrimmed := sse.TrimContinuationOverlapFromBuilder(&a.RawThinking, text)
+	rawTrimmed := text
 	if rawTrimmed != "" {
 		a.RawThinking.WriteString(rawTrimmed)
 	}
@@ -144,6 +144,7 @@ func (a *StreamAccumulator) applyThinkingPart(text string) StreamPartDelta {
 		return delta
 	}
 	a.thinkingGuard.Marker = a.ToolMarker
+	a.thinkingGuard.StripReferenceMarkers = a.StripReferenceMarkers
 	return a.appendVisibleThinkingDelta(delta, a.thinkingGuard.Write(rawTrimmed))
 }
 
@@ -162,7 +163,7 @@ func (a *StreamAccumulator) appendVisibleThinkingDelta(delta StreamPartDelta, te
 	if cleanedText == "" {
 		return delta
 	}
-	trimmed := sse.TrimContinuationOverlapFromBuilder(&a.Thinking, cleanedText)
+	trimmed := cleanedText
 	if trimmed == "" {
 		return delta
 	}
@@ -172,7 +173,7 @@ func (a *StreamAccumulator) appendVisibleThinkingDelta(delta StreamPartDelta, te
 }
 
 func (a *StreamAccumulator) applyTextPart(text string) StreamPartDelta {
-	rawTrimmed := sse.TrimContinuationOverlapFromBuilder(&a.RawText, text)
+	rawTrimmed := text
 	if rawTrimmed == "" {
 		return StreamPartDelta{Type: "text"}
 	}
@@ -191,14 +192,10 @@ func (a *StreamAccumulator) appendTextPart(rawTrimmed string) StreamPartDelta {
 	}
 	a.RawText.WriteString(rawTrimmed)
 	delta := StreamPartDelta{Type: "text", RawText: rawTrimmed}
-	if a.SearchEnabled && sse.IsCitation(rawTrimmed) {
-		delta.CitationOnly = true
-		return delta
-	}
 	// Keep the assembled body lossless here. The body sieve owns streaming
 	// cleanup; finalization cleans this complete snapshot with full context.
 	cleanedText := textclean.CleanVisibleDelta(rawTrimmed, a.StripReferenceMarkers)
-	trimmed := sse.TrimContinuationOverlapFromBuilder(&a.Text, cleanedText)
+	trimmed := cleanedText
 	if trimmed == "" {
 		return delta
 	}

@@ -150,10 +150,11 @@ Claude 流式保留内容过滤状态，不把审核空输出当成服务临时�
 
 - Chat Go/Node 的流式工具 index 在整个响应内递增，不因新的工具块重新从 0 开始。
 - Responses 保留整轮的 item ID、call ID 和 output index，事件中的调用与最终 completed 对象保持一致，供下一轮结果回填。
-- Claude/Gemini 优先使用显式 ID。兼容缺少 ID 的同名结果时，按未返回调用的顺序配对；已匹配项移出队列，合成 ID 避开本请求中已有的 ID。
+- Claude/Gemini 优先使用显式 ID。Gemini 调用和结果对 `id`、`call_id`、`callId`、`tool_call_id` 使用相同优先级，显式乱序结果不能退回同名 FIFO 配对。兼容缺少 ID 的同名结果时，按未返回调用的顺序配对；已匹配项移出队列，合成 ID 避开本请求中已有的 ID。
+- Chat、Responses、Claude、Gemini 在标准化后共同校验工具历史：拒绝重复的未完成调用 ID、已知 ID 与结果名称冲突以及同一已知调用重复返回结果。显式乱序结果和缺失原始调用的部分历史继续兼容；合成 ID 预留整个请求中已有的显式 ID。
 - 缺少 ID 且结果乱序时不能可靠还原配对关系，调用端应传回原 ID。
 - Responses 的结果错误标志和显式 null 会保留，避免下一轮把失败当成成功或把 null 当成空字符串。
-- Node 与 Go 一样，仅在正文为空时尝试从推理通道恢复工具调用；关闭推理展示时，该内部检测不产生 reasoning_content 输出。
+- Node 与 Go 一样，仅在正文为空时尝试从推理通道恢复工具调用；默认只接受纯工具格式，混有计划、否定说明、注释或代码示例的思考不产生可执行调用。服务端 `tool_safety.allow_reasoning_prose` 可显式恢复旧版兼容行为，客户端请求不能覆盖该设置。关闭推理展示时，内部检测不产生 reasoning_content 输出。
 
 相关实现：`internal/toolcall/tool_prompt.go`、`internal/promptcompat/tool_prompt.go`、
 `internal/toolcall/marker.go`。
@@ -291,8 +292,7 @@ LLM 修复复用同一账号、新建会话、关闭思考，继承客户端取�
 详见 [toolcall-semantics.md](toolcall-semantics.md)。
 
 续答快照的去重在 Go（字符串与 Builder 路径）和 Node 中采用同一规则：
-只有至少 32 个 Unicode 字符的片段才参与前缀快照判断；更长的快照只追加新后缀，
-相同或较短的旧快照不重复追加。短片段即使包含 emoji 或重复前缀也按正常增量保留。
+只有明确标记的 SET 更新或带 fragments 的重放快照才进入去重；普通 APPEND / 增量数据无论多长都按原文追加，两次相同的工具调用保留为两个独立出现。同一上游流按 fragment ID、索引及补丁路径保留各字段原文，嵌套 BATCH 中的 SET 先转换成新后缀，再进入思考识别与显示筛分；修改已交付字段的既有前缀会终止响应。首次重放包中相邻同通道片段合并后执行跨传输轮的前缀比较，避免只去掉第一个片段。显式快照不受 32 字符门槛限制；无来源标记的旧文本启发式助手仍保留该门槛。
 长度判断最多扫描 32 个字符，避免对大段文本先做一次无条件的全文计数。
 
 非流式收集在明确结束信号之前发生底层读取错误时，保留原始部分输出供诊断，
@@ -485,7 +485,7 @@ preserve_image=true 保留原图；文档、文件引用、账号绑定及纯文
 
 `previous_response_id` 按调用者检索输入和输出的可重放上下文，在本次上传与账号分配前恢复；不存在、过期或跨调用者引用返回错误，不启动上游请求。只继承对话输入和 output items，不继承上一轮顶层 `instructions`；本轮应重发 instructions 与 tools。`store:false` 不保存 Responses 对象或续接状态（独立的响应日志策略仍由其配置控制）。
 
-状态存储是进程内缓存，TTL 使用 responses store 配置（默认 15 分钟），最多 256 项、序列化预算 128 MiB，超额淘汰较早条目；服务重启、多实例未共享状态或缓存淘汰后，请携带完整历史。写入和读取深拷贝嵌套数据，克隆工作不持有全局读取锁。未支持的 Conversations API 明确拒绝。
+状态存储是进程内缓存，TTL 使用 responses store 配置（默认 15 分钟）；`responses.max_entries` 默认 256 项、`max_bytes_mib` 默认 128 MiB，`max_caller_entries` 默认每调用者 128 项。调用者先在自身配额内淘汰旧条目，再执行全局容量淘汰；超大替换不能删除原有有效条目。流式与非流式使用同一保存回调；写入超出容量或无法编码时返回 `response_storage_failed`（非流式 HTTP 507，流式 `response.failed`），不会以 `response.completed` 声称保存成功，也不会在保存失败之前发送待交付工具调用。上述容量在后台设置中可调整，配置更新保留已有状态和有效期；服务重启、多实例未共享状态或缓存淘汰后，请携带完整历史。写入和读取深拷贝嵌套数据，克隆工作不持有全局读取锁。未支持的 Conversations API 明确拒绝。
 
 标准 `reasoning` items 的 content/summary 作为 assistant reasoning 恢复，不再降级为 user 文本；不解密 encrypted_content。custom_tool_call 与 custom_tool_call_output 保留 assistant/tool 角色和 call_id。`type:custom` 的自由文本在内部工具协议中使用唯一字符串参数 input，输出还原为 custom_tool_call/input 和 custom_tool_call_input 的 delta/done 事件。format/grammar 描述进入提示词；不宣称原生 CFG 约束解码。当前服务器不执行 OpenAI 托管工具。
 
@@ -509,3 +509,34 @@ Node prepare 后持有的账号租约不改变输入归一化 / 历史文件语�
 ## Gemini 无目录续轮的流式输出
 
 原生 Gemini 流式路径对无正式工具目录的 agent 续轮也启用共享 toolstream 筛分，跨分片的调用者标记不会作为正文泄漏。工具批次统一在 assistantturn 收尾校验后转换为 functionCall，保留参数数字精度与调用顺序。普通正文继续实时输出；正文已经交付后不再重新生成，永久错误不触发空输出重试。替代生成重置筛分与待交付批次，继续生成保留已有累积。
+
+
+## 工具输出完整性与计数
+
+SSE 解码保留正文与隐藏思考的源文本。`<think>`、`CONTENT_FILTER`、引用标记及模型控制 token
+若位于工具参数中，保持原值；不能先删除再把改写后的字符串交给 Schema 校验。
+显示清理在工具筛分后执行，跨分片维护引号、CDATA、注释及 Markdown 上下文。
+结构化状态字段决定上游内容过滤；文本中的普通 `CONTENT_FILTER` 提及保留，已知泄漏的
+`CONTENT_FILTERblocked` / 中文拒绝后缀仅在非字面量显示通道隐藏。
+旧版 `</think>` 恢复逻辑跨分片保留字面量上下文，参数中的同名标签不结束思考阶段。
+
+明确的上游错误与内容过滤状态阻止整个待交付工具批次，不执行格式修复，也不因已解析出
+合法兄弟调用而消除错误。Chat、Responses、Claude、Gemini 与 Node 使用同一终态规则。
+无效的显式工具目录（名称缺失、结构错误、重名、名称冲突或不支持的类型）在入口返回 400；
+无目录的历史兼容请求仍按原有工具策略处理。Gemini 的无效声明不会在适配时静默丢失。
+
+参数类型归一化复用本地编译的 Schema 引用图，支持 `$ref`、`$defs`、递归、allOf 与数组项。
+anyOf / oneOf 已有合法类型保持原值；只采用能通过完整 Schema 且结果唯一的转换，外部引用仍禁止。
+长工具块的增量扫描跳过 CDATA / 引号 / 注释 / Markdown 内的字面量闭标签，避免写入协议文档时反复全文解析。
+
+输出 Token 按生成源文本估算，包括工具名、参数及隐藏思考；同一思考同时出现在原始与检测
+通道时合并计数，从思考恢复的调用不重复计费。Node 工具校验响应携带共享层的输出用量，
+完成帧优先复用该结果。Node 校验和历史归档携带原始思考，客户端思考增量继续通过显示 guard。普通输出仍沿用各运行时的估算器，所有数值仍是估算，非上游账单。
+
+
+## 第二轮工具与 Agent 边界修复
+
+- 旧版 `</think>` 兼容恢复保留跨 SSE 帧的未完成标签和字面量状态，标签前缀最多暂存 256 字节；确认失败或 EOF 时作为思考原文释放。扫描仅检查当前有界候选，不再对每个 `<` 搜索整个剩余片段。
+- 闭标签复读检测跳过 CDATA、引号、注释及 Markdown 字面量，参数中的重复 `</parameter>` 不再导致提前截断。真实结构性闭标签复读仍按原阈值终止。
+- Schema 字符串归一化同时遍历 properties 和全部匹配的 patternProperties；只有两者均未覆盖字段时才使用 additionalProperties。多个约束仍由完整 Schema 最终验证，不能因转换绕过相互冲突的约束。
+- 回归用例覆盖同值 APPEND、嵌套 SET、多片段快照、每个思考闭标签切分点、CDATA 参数保真、存储失败和 store:false、跨协议工具历史冲突。性能基准：`go test ./internal/sse -run '^$' -bench BenchmarkThinkingBoundaryMarkup -benchmem`。

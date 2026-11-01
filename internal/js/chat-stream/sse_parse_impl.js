@@ -2,19 +2,24 @@
 
 // Decode one upstream content chunk; public helpers are re-exported here.
 const { asString, asContentString, stripReferenceMarkersText, stripThinkTags } = require('./sse_text');
-const { hasContentFilterStatus, filterLeakedContentFilterParts } = require('./sse_content_filter');
+const { hasContentFilterStatus } = require('./sse_content_filter');
 const { shouldSkipPath, isStatusPath, isFinishedStatus, isToolFragmentType, isFragmentStatusPath, isCitation } = require('./sse_paths');
 const { finalizeThinkingParts } = require('./sse_thinking');
+const { isContentSnapshot } = require('./sse_snapshot');
+const { SnapshotDecoder, coalesceSnapshotParts } = require('./sse_replay');
 const { extractContentRecursive } = require('./sse_extract');
 
-function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenceMarkers = true) {
+function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenceMarkers = true, state = {}) {
+  // Decode losslessly. Reference/control cleanup belongs to the display sieve,
+  // after tool parameters have been separated from visible text.
+  stripReferenceMarkers = false;
   if (!chunk || typeof chunk !== 'object') {
     return { parsed: false, parts: [], finished: false, contentFilter: false, errorMessage: '', outputTokens: 0, newType: currentType };
   }
   const usage = extractAccumulatedTokenUsage(chunk);
   const result = {
     parsed: true, parts: [], finished: false, contentFilter: false,
-    errorMessage: '', promptTokens: usage.prompt, outputTokens: usage.output, newType: currentType,
+    errorMessage: '', promptTokens: usage.prompt, outputTokens: usage.output, newType: currentType, snapshot: isContentSnapshot(chunk),
   };
   if (Object.prototype.hasOwnProperty.call(chunk, 'error')) {
     return { ...result, finished: true, errorMessage: formatErrorMessage(chunk.error) };
@@ -24,6 +29,11 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
   if (isStatusPath(pathValue)) return { ...result, finished: isFinishedStatus(chunk.v) };
   if (shouldSkipPath(pathValue)) return result;
   if (!Object.prototype.hasOwnProperty.call(chunk, 'v')) return result;
+
+  state.snapshotDecoder ||= new SnapshotDecoder();
+  chunk = state.snapshotDecoder.normalize(chunk, currentType, thinkingEnabled);
+  result.snapshot = isContentSnapshot(chunk);
+  if (state.snapshotDecoder.error) return { ...result, finished: true, errorMessage: state.snapshotDecoder.error };
 
   let newType = currentType;
   const parts = [];
@@ -146,7 +156,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
     }
   }
   
-  const finalized = finalizeThinkingParts(filterLeakedContentFilterParts(parts), thinkingEnabled, newType, bodyStarted);
+  const finalized = finalizeThinkingParts(result.snapshot ? coalesceSnapshotParts(parts) : parts, thinkingEnabled, newType, bodyStarted, state);
   return { ...result, finished, parts: finalized.parts, detectionThinking: finalized.detectionThinking || '', newType: finalized.newType };
 }
 
@@ -174,7 +184,6 @@ function formatErrorMessage(v) {
 module.exports = {
   parseChunkForContent,
   extractContentRecursive,
-  filterLeakedContentFilterParts,
   hasContentFilterStatus,
   extractAccumulatedTokenUsage,
   shouldSkipPath,

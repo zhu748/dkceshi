@@ -50,7 +50,13 @@
     "o3": "deepseek-v4.1-flash"
   },
   "responses": {
-    "store_ttl_seconds": 900
+    "store_ttl_seconds": 900,
+    "max_entries": 256,
+    "max_bytes_mib": 128,
+    "max_caller_entries": 128
+  },
+  "tool_safety": {
+    "allow_reasoning_prose": false
   },
   "thinking_injection": {
     "enabled": false,

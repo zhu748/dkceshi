@@ -9,29 +9,6 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	parsedLineBufferSize = 128
-	lineReaderBufferSize = 64 * 1024
-)
-
-type AccumulateConfig struct {
-	Enabled        bool
-	MinChars       int
-	MaxWait        time.Duration
-	FlushOnFinish  bool
-	WordBoundary   bool
-	FlushOnNewline bool
-}
-
-var productionAccumulate = AccumulateConfig{
-	Enabled:        true,
-	MinChars:       16,
-	MaxWait:        10 * time.Millisecond,
-	FlushOnFinish:  true,
-	WordBoundary:   false,
-	FlushOnNewline: true,
-}
-
 func StartParsedLinePump(ctx context.Context, body io.Reader, thinkingEnabled bool, initialType string) (<-chan LineResult, <-chan error) {
 	return startParsedLinePumpWithConfig(ctx, body, thinkingEnabled, initialType, productionAccumulate)
 }
@@ -43,13 +20,12 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 	go func() {
 		defer close(out)
 
-		// If the underlying body is closable, close it when the context is
-		// cancelled so a scan goroutine blocked on a dead upstream connection
-		// (no data, no EOF) is unblocked instead of leaking forever while
-		// holding the connection and its buffers.
+		// Close a closable body on cancellation to unblock the upstream reader
+		// and release its connection and buffers.
 		defer closeStreamBodyOnCancel(ctx, body)()
 
 		reader := bufio.NewReaderSize(body, lineReaderBufferSize)
+		boundary := &ThinkingBoundary{}
 		currentType := initialType
 
 		var pumpErr error
@@ -201,6 +177,11 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 			if result.ResponseMessageID > 0 {
 				pendingResponseMessageID = result.ResponseMessageID
 			}
+			if cfg.Enabled && hasSnapshotParts(result) {
+				terminalSeen = terminalSeen || result.Stop
+				pumpErr = forwardSnapshot(ctx, out, result, flushBuffer)
+				return pumpErr == nil
+			}
 
 			if result.Stop {
 				terminalSeen = true
@@ -329,7 +310,7 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 					}
 					goto done
 				}
-				result := ParseDeepSeekContentLine(line, thinkingEnabled, currentType)
+				result := ParseDeepSeekContentLine(line, thinkingEnabled, currentType, boundary)
 				if !processLine(result) {
 					goto done
 				}
@@ -342,7 +323,7 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 					pumpErr = err
 				}
 				for line := range scanCh {
-					result := ParseDeepSeekContentLine(line, thinkingEnabled, currentType)
+					result := ParseDeepSeekContentLine(line, thinkingEnabled, currentType, boundary)
 					if !processLine(result) {
 						goto done
 					}
@@ -358,6 +339,9 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 		}
 
 	done:
+		if ctx.Err() == nil {
+			_ = processLine(boundary.pendingLine(thinkingEnabled, currentType))
+		}
 		stopMaxWait()
 		if cfg.Enabled {
 			flushBuffer(true)

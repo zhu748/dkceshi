@@ -10,7 +10,6 @@ import (
 	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
-	"ds2api/internal/util"
 )
 
 type StopReason string
@@ -215,10 +214,10 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 		text = textclean.ReplaceCitationMarkersWithLinks(text, result.CitationLinks)
 	}
 
-	parsed := DetectAssistantToolCalls(result.Text, text, result.Thinking, result.ToolDetectionThinking, opts.ToolNames)
+	parsed := DetectAssistantToolCalls(result.Text, text, result.Thinking, result.ToolDetectionThinking, opts.ToolNames, opts.ToolChoice.AllowReasoningProse)
 	calls := toolcall.NormalizeParsedToolCallsForSchemas(parsed.Calls, opts.ToolsRaw)
 	repairCompleted := false
-	if result.ReadError == nil && result.Cut != sse.CutPromptEcho {
+	if result.ReadError == nil && !result.ContentFilter && result.UpstreamError == "" && result.Cut != sse.CutPromptEcho {
 		if repaired, replaced := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
 			calls = repaired
 			text = deductRepairedSource(text, replaced)
@@ -255,7 +254,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 		ContentCut:             result.Cut,
 	}
 	discardEchoTools(&turn)
-	turn.Usage = buildUsageWithPrefill(opts, thinking, text)
+	turn.Usage = buildTurnUsage(opts, turn)
 	turn.Error = validateToolOutput(turn, opts, repairCompleted)
 	if result.ReadError != nil {
 		turn.Error = &OutputError{Status: http.StatusBadGateway, Code: "upstream_read_error", Message: "Upstream stream read failed: " + result.ReadError.Error()}
@@ -286,7 +285,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		text = textclean.ReplaceCitationMarkersWithLinks(text, snapshot.CitationLinks)
 	}
 
-	parsed := DetectAssistantToolCalls(snapshot.RawText, text, snapshot.RawThinking, snapshot.DetectionThinking, opts.ToolNames)
+	parsed := DetectAssistantToolCalls(snapshot.RawText, text, snapshot.RawThinking, snapshot.DetectionThinking, opts.ToolNames, opts.ToolChoice.AllowReasoningProse)
 	calls := parsed.Calls
 	if len(calls) == 0 && len(snapshot.AdditionalToolCalls) > 0 {
 		calls = snapshot.AdditionalToolCalls
@@ -298,7 +297,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	// cannot retract emitted tool_calls). When only bad text was streamed, the
 	// finalize replaces it with the repaired tool_calls. Partial success is
 	// repaired as one ordered batch without value-based deduplication.
-	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw && snapshot.ContentCut != sse.CutPromptEcho {
+	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw && !snapshot.ContentFilter && snapshot.UpstreamError == "" && snapshot.ContentCut != sse.CutPromptEcho {
 		if repaired, replaced := maybeRepairToolCalls(parsed, snapshot.RawText, opts); len(repaired) > 0 {
 			calls = repaired
 			text = deductRepairedSource(text, replaced)
@@ -334,9 +333,11 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		ContentCut:        snapshot.ContentCut,
 	}
 	discardEchoTools(&turn)
-	turn.Usage = buildUsageWithPrefill(opts, thinking, text)
+	turn.Usage = buildTurnUsage(opts, turn)
 	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
 		turn.Error = validateToolOutput(turn, opts, repairCompleted)
+	} else {
+		turn.Error = terminalOutputError(turn)
 	}
 	if turn.Error != nil {
 		turn.StopReason = StopReasonError
@@ -344,48 +345,11 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	return turn
 }
 
-// buildUsageWithPrefill is BuildUsage with the BuildOptions prompt-count
-// prefill channel (see BuildOptions.PromptTokenCountFn).
-func buildUsageWithPrefill(opts BuildOptions, thinking, text string) Usage {
-	inputTokens := 0
-	prefilled := false
-	if opts.PromptTokenCountFn != nil {
-		if count, ok := opts.PromptTokenCountFn(opts.Prompt); ok {
-			inputTokens = count
-			prefilled = true
-		}
-	}
-	if !prefilled {
-		inputTokens = util.CountPromptTokens(opts.Prompt, opts.Model)
-	}
-	inputTokens += opts.RefFileTokens
-	reasoningTokens := util.CountOutputTokens(thinking, opts.Model)
-	outputTokens := reasoningTokens + util.CountOutputTokens(text, opts.Model)
-	return Usage{
-		InputTokens:     inputTokens,
-		OutputTokens:    outputTokens,
-		ReasoningTokens: reasoningTokens,
-		TotalTokens:     inputTokens + outputTokens,
-	}
-}
-
-func BuildUsage(model, prompt, thinking, text string, refFileTokens int) Usage {
-	inputTokens := util.CountPromptTokens(prompt, model) + refFileTokens
-	reasoningTokens := util.CountOutputTokens(thinking, model)
-	outputTokens := reasoningTokens + util.CountOutputTokens(text, model)
-	return Usage{
-		InputTokens:     inputTokens,
-		OutputTokens:    outputTokens,
-		ReasoningTokens: reasoningTokens,
-		TotalTokens:     inputTokens + outputTokens,
-	}
-}
-
 func ValidateTurn(turn Turn, policy promptcompat.ToolChoicePolicy) *OutputError {
 	// Preserve explicit upstream errors even after partial text. A truncated
 	// answer must not be reported as successful or regenerated after delivery.
-	if strings.TrimSpace(turn.UpstreamError) != "" {
-		return &OutputError{Status: http.StatusBadRequest, Message: turn.UpstreamError, Code: "upstream_error"}
+	if err := terminalOutputError(turn); err != nil {
+		return err
 	}
 	if len(turn.ToolCalls) == 0 && strings.TrimSpace(turn.Text) == "" {
 		status, message, code := UpstreamEmptyOutputDetail(turn.ContentFilter, turn.Text, turn.Thinking)
@@ -444,11 +408,13 @@ func FinalizeTurn(turn Turn, opts FinalizeOptions) FinalOutcome {
 	hasVisibleText := strings.TrimSpace(turn.Text) != ""
 	hasVisibleThinking := strings.TrimSpace(turn.Thinking) != ""
 	err := turn.Error
-	if hasToolCalls && (err == nil || err.Code != "tool_choice_violation" && err.Code != "invalid_tool_arguments" && err.Code != "upstream_read_error") {
-		err = nil
+	if err == nil {
+		err = terminalOutputError(turn)
 	}
 	finishReason := FinishReason(turn)
-	if hasToolCalls {
+	if err != nil {
+		finishReason = "error"
+	} else if hasToolCalls {
 		finishReason = "tool_calls"
 	}
 	return FinalOutcome{

@@ -39,6 +39,9 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 	if strings.TrimSpace(model) == "" || len(messagesRaw) == 0 {
 		return StandardRequest{}, fmt.Errorf("request must include 'model' and 'messages'")
 	}
+	if err := ValidateToolHistory(messagesRaw); err != nil {
+		return StandardRequest{}, err
+	}
 	resolvedModel, ok := config.ResolveModel(store, model)
 	if !ok {
 		return StandardRequest{}, fmt.Errorf("model %q is not available", model)
@@ -64,6 +67,7 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 		}
 	}
 	reminder := ResolveToolReminder(store)
+	toolPolicy = ApplyToolSafetySettings(store, toolPolicy)
 	finalPrompt, toolNames := BuildOpenAIPrompt(messagesRaw, req["tools"], traceID, toolPolicy, thinkingEnabled, reminder, marker)
 	toolNames = ensureToolDetectionEnabled(toolNames, req["tools"])
 	passThrough := collectOpenAIChatPassThrough(req)
@@ -111,6 +115,9 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 	}
 
 	messagesRaw := ResponsesMessagesFromRequest(req)
+	if err := ValidateToolHistory(messagesRaw); err != nil {
+		return StandardRequest{}, err
+	}
 	if len(messagesRaw) == 0 {
 		return StandardRequest{}, fmt.Errorf("request must include 'input' or 'messages'")
 	}
@@ -126,6 +133,7 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 		}
 		toolPolicy = parsed
 	}
+	toolPolicy = ApplyToolSafetySettings(store, toolPolicy)
 	finalPrompt, toolNames := BuildOpenAIPrompt(messagesRaw, req["tools"], traceID, toolPolicy, thinkingEnabled, reminder, marker)
 	toolNames = ensureToolDetectionEnabled(toolNames, req["tools"])
 	if !toolPolicy.IsNone() {

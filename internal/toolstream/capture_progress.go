@@ -14,6 +14,7 @@ import (
 type captureProgress struct {
 	offset   int
 	tagStart int
+	literal  toolcall.LiteralState
 }
 
 func (p *captureProgress) ready(text string) bool {
@@ -26,6 +27,10 @@ func (p *captureProgress) ready(text string) bool {
 		r, size := utf8.DecodeRuneInString(text[p.offset:])
 		pos := p.offset
 		p.offset += size
+		if !p.literal.Feed(r) {
+			p.tagStart = 0
+			continue
+		}
 		switch r {
 		case '<', '＜', '﹤', '〈':
 			p.tagStart = pos + 1 // zero means there is no pending tag

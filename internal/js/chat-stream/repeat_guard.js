@@ -26,6 +26,8 @@
 // Mirrors internal/sse/repeat_guard.go; keep the threshold and HTML name list in
 // sync.
 
+const { LiteralState } = require('../helpers/literal-state');
+
 const REPEAT_LOOP_THRESHOLD = 10;
 
 // HTML_CLOSING_TAG_NAMES lists the common HTML/SVG element names whose closing
@@ -51,6 +53,7 @@ function createRepeatLoopGuard(threshold = REPEAT_LOOP_THRESHOLD) {
   return {
     threshold: threshold > 0 ? threshold : REPEAT_LOOP_THRESHOLD,
     pending: '',
+    literal: new LiteralState(),
     run: 0,
     tripped: false,
   };
@@ -161,8 +164,12 @@ function feedRepeatLoopGuard(guard, text) {
   guard.pending = '';
   let i = 0;
   while (i < buf.length) {
+    const ch = String.fromCodePoint(buf.codePointAt(i));
+    const probe = Object.assign(new LiteralState(), guard.literal);
+    if (!probe.feed(ch)) { guard.literal = probe; guard.run = 0; i += ch.length; continue; }
     const { next, status } = scanProtocolClosingTag(buf, i);
     if (status === CLOSING_TAG_MATCHED) {
+      for (const c of buf.slice(i, next)) guard.literal.feed(c);
       guard.run += 1;
       if (guard.run >= guard.threshold) {
         guard.tripped = true;
@@ -177,11 +184,13 @@ function feedRepeatLoopGuard(guard, text) {
       return false;
     }
     if (guard.run > 0 && isRepeatLoopSeparator(buf[i])) {
-      i += 1;
+      guard.literal = probe;
+      i += ch.length;
       continue;
     }
     guard.run = 0;
-    i = next > i ? next : i + 1;
+    if (next > i) { for (const c of buf.slice(i, next)) guard.literal.feed(c); i = next; }
+    else { guard.literal = probe; i += ch.length; }
   }
   return false;
 }
