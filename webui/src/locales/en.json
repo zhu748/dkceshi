@@ -878,7 +878,31 @@
     "clearConfirm": "Clear all token usage data? This cannot be undone.",
     "clearConfirmAction": "Clear",
     "clearFailed": "Clear failed",
-    "clearDone": "Cleared"
+    "clearDone": "Cleared",
+    "account": "Account",
+    "unknownAccount": "Unknown historical account",
+    "directToken": "Direct token",
+    "breakdown": "Usage breakdown",
+    "accountUsage": "Account usage",
+    "modelUsage": "Model usage",
+    "reasoningTokens": "Reasoning tokens",
+    "tokenShare": "Token share",
+    "estimatedCost": "Estimated cost",
+    "lastUsedAt": "Last used (GMT+8)",
+    "sortBy": "Sort by",
+    "clearFilters": "Clear account / model filters",
+    "noMatchingUsage": "No usage matches these filters",
+    "breakdownCount": "{count} items",
+    "previousPage": "Previous",
+    "nextPage": "Next",
+    "accountingNote": "Counts include successful or stopped calls with valid tokens, attributed to the final account. Failed attempts, keep-alive and tool-repair subrequests are excluded. Tokens and costs are estimates; reasoning is included in output. Older records may lack account or last-used information. Click a name to filter.",
+    "sort": {
+      "total": "Most tokens",
+      "calls": "Most calls",
+      "cost": "Highest cost",
+      "lastUsedAt": "Most recent"
+    },
+    "importInvalidCsv": "CSV is incomplete or contains invalid quoting"
   },
   "tts": {
     "title": "Speech Preview",

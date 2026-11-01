@@ -26,8 +26,8 @@ export function fmtCompact(n) {
     return Math.round(value).toLocaleString('en-US')
 }
 
-export function fmtMoney(n, lang = 'zh') {
-    const formatted = Number(n || 0).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+export function fmtMoney(n, lang = 'zh', maxFractionDigits = 2) {
+    const formatted = Number(n || 0).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: maxFractionDigits })
     return (lang === 'zh' ? '¥' : 'CN¥ ') + formatted
 }
 
@@ -61,6 +61,12 @@ export function shortCaller(caller) {
     return value.slice(0, 8)
 }
 
+// Imported timestamps must remain representable by Intl.DateTimeFormat.
+export function validUsageTimestamp(value) {
+    const n = Number(value || 0)
+    return Number.isSafeInteger(n) && n > 0 && n <= 8640000000000000 ? n : 0
+}
+
 export function entryToRecord(entry) {
     const date = String(entry.date || '')
     const usage = {
@@ -72,6 +78,9 @@ export function entryToRecord(entry) {
     return {
         model: entry.model || 'unknown',
         caller_id: entry.caller_id || '',
+        account_id: entry.account_id || 'unknown',
+        account_label: entry.account_label || '',
+        last_used_at: validUsageTimestamp(entry.last_used_at),
         date,
         created_at: date ? parseDayKey(date).getTime() : 0,
         calls_count: Number(entry.calls || 0),
@@ -91,7 +100,8 @@ export function sameUsageRecords(a, b) {
         const x = a[i]
         const y = b[i]
         if (x.model !== y.model || x.caller_id !== y.caller_id || x.date !== y.date ||
-            x.created_at !== y.created_at || x.calls_count !== y.calls_count || x.cost !== y.cost) {
+            x.created_at !== y.created_at || x.calls_count !== y.calls_count || x.cost !== y.cost ||
+            x.account_id !== y.account_id || x.account_label !== y.account_label || x.last_used_at !== y.last_used_at) {
             return false
         }
         const xu = x.usage
@@ -129,6 +139,8 @@ export function aggregateDaily(records) {
             byModelCost: Object.create(null),
             byCaller: Object.create(null),
             byCallerCost: Object.create(null),
+            byAccount: Object.create(null),
+            byAccountCost: Object.create(null),
         }
         entry.calls += (r.calls_count || 0)
         entry.prompt += usage.prompt
@@ -139,10 +151,13 @@ export function aggregateDaily(records) {
 
         const model = r.model || 'unknown'
         const caller = String(r.caller_id || r.callerId || 'unknown')
+        const account = r.account_id || 'unknown'
         entry.byModel[model] = (entry.byModel[model] || 0) + usage.total
         entry.byModelCost[model] = (entry.byModelCost[model] || 0) + Number(r.cost || 0)
         entry.byCaller[caller] = (entry.byCaller[caller] || 0) + usage.total
         entry.byCallerCost[caller] = (entry.byCallerCost[caller] || 0) + Number(r.cost || 0)
+        entry.byAccount[account] = (entry.byAccount[account] || 0) + usage.total
+        entry.byAccountCost[account] = (entry.byAccountCost[account] || 0) + Number(r.cost || 0)
 
         map.set(key, entry)
     })
@@ -163,6 +178,8 @@ function emptyDayEntry(key, ts) {
         byModelCost: Object.create(null),
         byCaller: Object.create(null),
         byCallerCost: Object.create(null),
+        byAccount: Object.create(null),
+        byAccountCost: Object.create(null),
     }
 }
 
@@ -176,7 +193,7 @@ function mergeDayEntry(target, source) {
     target.reasoning += source.reasoning || 0
     target.total += source.total || 0
     target.cost += source.cost || 0
-    for (const field of ['byModel', 'byModelCost', 'byCaller', 'byCallerCost']) {
+    for (const field of ['byModel', 'byModelCost', 'byCaller', 'byCallerCost', 'byAccount', 'byAccountCost']) {
         const src = source[field] || {}
         for (const name of Object.keys(src)) {
             target[field][name] = (target[field][name] || 0) + src[name]
@@ -423,144 +440,4 @@ export function persistLocalPricing(pricing) {
     } catch (e) {
         // ignore invalid localStorage values
     }
-}
-
-export function csvEscape(value) {
-    const s = value == null ? '' : String(value)
-    if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
-    return s
-}
-
-// buildUsageCsv renders aggregated usage entries as CSV. Dates are the GMT+8
-// day keys straight from the ledger (not re-encoded through toISOString,
-// which used to shift every row to the previous UTC day).
-export function buildUsageCsv(records) {
-    const header = ['model', 'caller_id', 'date', 'prompt_tokens', 'completion_tokens', 'reasoning_tokens', 'total_tokens', 'calls', 'cost']
-    const rows = []
-    for (const r of records) {
-        const u = normalizeUsage(r.usage)
-        if (!u) continue
-        rows.push([
-            r.model || 'unknown',
-            r.caller_id || '',
-            r.date || '',
-            u.prompt,
-            u.completion,
-            u.reasoning,
-            u.total,
-            r.calls_count || 0,
-            Number(r.cost || 0).toFixed(4),
-        ].map(csvEscape).join(','))
-    }
-    const body = rows.length ? rows.join('\n') + '\n' : ''
-    return { csv: '\uFEFF' + header.join(',') + '\n' + body, count: rows.length }
-}
-
-// parseCsvRows 是一个最小但符合 RFC 4180 的 CSV 读取器：支持引号包裹、字段内
-// 的逗号/换行与 "" 转义，并吃掉导出的 UTF-8 BOM。只服务于导入「导出的 CSV」，
-// 不追求支持所有方言。
-function parseCsvRows(text) {
-    const rows = []
-    let row = []
-    let field = ''
-    let inQuotes = false
-    const src = String(text || '').replace(/^\uFEFF/, '')
-    for (let i = 0; i < src.length; i++) {
-        const ch = src[i]
-        if (inQuotes) {
-            if (ch === '"') {
-                if (src[i + 1] === '"') {
-                    field += '"'
-                    i++
-                } else {
-                    inQuotes = false
-                }
-            } else {
-                field += ch
-            }
-        } else if (ch === '"') {
-            inQuotes = true
-        } else if (ch === ',') {
-            row.push(field)
-            field = ''
-        } else if (ch === '\n') {
-            row.push(field)
-            field = ''
-            rows.push(row)
-            row = []
-        } else if (ch !== '\r') {
-            field += ch
-        }
-    }
-    if (field !== '' || row.length) {
-        row.push(field)
-        rows.push(row)
-    }
-    return rows
-}
-
-function toIntCell(value) {
-    const n = Number(String(value == null ? '' : value).replace(/,/g, '').trim())
-    return Number.isFinite(n) ? Math.round(n) : 0
-}
-
-function toFloatCell(value) {
-    const n = Number(String(value == null ? '' : value).replace(/,/g, '').trim())
-    return Number.isFinite(n) ? n : 0
-}
-
-// parseUsageCsv 解析「导出」按钮产出的 CSV，得到可直接提交给
-// /admin/usage/import 的条目数组。无法识别的表头/空文件返回 i18n key 形式的
-// error；个别坏行（日期或模型缺失）会被跳过并通过 skipped 反馈。
-export function parseUsageCsv(text) {
-    const rows = parseCsvRows(text).filter((r) => r.some((c) => String(c).trim() !== ''))
-    if (rows.length === 0) {
-        return { entries: [], skipped: 0, error: 'usage.importEmpty' }
-    }
-    const header = rows[0].map((h) => String(h).trim().toLowerCase())
-    const col = (name) => header.indexOf(name)
-    const columns = {
-        model: col('model'),
-        caller_id: col('caller_id'),
-        date: col('date'),
-        prompt_tokens: col('prompt_tokens'),
-        completion_tokens: col('completion_tokens'),
-        reasoning_tokens: col('reasoning_tokens'),
-        total_tokens: col('total_tokens'),
-        calls: col('calls'),
-        cost: col('cost'),
-    }
-    if (columns.model === -1 || columns.date === -1 || columns.prompt_tokens === -1 || columns.completion_tokens === -1) {
-        return { entries: [], skipped: 0, error: 'usage.importInvalidHeader' }
-    }
-    const entries = []
-    let skipped = 0
-    for (const row of rows.slice(1)) {
-        const cell = (index) => (index >= 0 && index < row.length ? String(row[index]).trim() : '')
-        const date = cell(columns.date)
-        const model = cell(columns.model)
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !model) {
-            skipped++
-            continue
-        }
-        const prompt = toIntCell(cell(columns.prompt_tokens))
-        const completion = toIntCell(cell(columns.completion_tokens))
-        const reasoning = toIntCell(cell(columns.reasoning_tokens))
-        const totalRaw = toIntCell(cell(columns.total_tokens))
-        entries.push({
-            date,
-            model,
-            caller_id: cell(columns.caller_id),
-            prompt_tokens: prompt,
-            completion_tokens: completion,
-            reasoning_tokens: reasoning,
-            total_tokens: totalRaw > 0 ? totalRaw : prompt + completion,
-            calls: toIntCell(cell(columns.calls)),
-            cost: toFloatCell(cell(columns.cost)),
-        })
-    }
-    if (entries.length === 0) {
-        return { entries: [], skipped, error: 'usage.importNoRows' }
-    }
-    return { entries, skipped, error: null }
 }

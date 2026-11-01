@@ -3,6 +3,9 @@ import { useI18n } from '../../i18n'
 import { useTheme } from '../../themeProvider'
 import './usage.css'
 import ModelRow from './ModelRow'
+import UsageBreakdown from './UsageBreakdown'
+import { accountOptionsFor, buildUsageSeries, filterUsageRecords, usageTotals } from './usageDashboard'
+import { buildUsageCsv, parseUsageCsv } from './usageCsv'
 import SettingsPanel from './SettingsPanel'
 import { useUsageRecords } from './useUsageRecords'
 import { useUsageSettings } from './useUsageSettings'
@@ -10,22 +13,14 @@ import { useEntranceAnimation } from './useEntranceAnimation'
 import { buildStackedOption } from './chartOptions'
 import {
     aggregateDaily,
-    buildUsageCsv,
     dayKey,
     fillDateRange,
     fmtCompact,
     fmtMoney,
     fmtNumber,
     normalizeUsage,
-    parseDayKey,
-    parseUsageCsv,
-    shortCaller,
 } from './usageUtils'
 
-const MODEL_PALETTE = ['#FF8800', '#FF5500', '#FFAA33', '#E64400', '#FFB84D', '#F97316', '#C2410C', '#FDBA74']
-const API_KEY_PALETTE = ['#A0DCFD', '#60B3FE', '#0C70F3', '#4DA3FF', '#1F6FEB', '#38BDF8', '#7DD3FC', '#1D4ED8']
-const OTHER_COLOR = '#94A3B8'
-const TOP_N = 8
 // Summary, filters and export become usable before the chart engine loads.
 const EChart = lazy(() => import('./EChart'))
 
@@ -55,6 +50,7 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
 
     const [dateRange, setDateRange] = useState('30')
     const [modelFilter, setModelFilter] = useState('all')
+    const [accountFilter, setAccountFilter] = useState('all')
     const [chartDimension, setChartDimension] = useState('model')
     const [importing, setImporting] = useState(false)
     const [summaryMode, setSummaryMode] = useState(() => {
@@ -81,56 +77,23 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
         return () => clearInterval(timer)
     }, [loadRecords])
 
-    const filtered = useMemo(() => {
-        let list = records.slice()
-        if (dateRange !== 'all') {
-            const days = Math.max(1, Number(dateRange) || 30)
-            const todayStart = parseDayKey(dayKey(Date.now())).getTime()
-            const cutoff = todayStart - (days - 1) * 86400000
-            list = list.filter((r) => {
-                const ts = Number(r.created_at || r.createdAt || 0)
-                return ts > 0 && ts >= cutoff
-            })
-        }
-        if (modelFilter !== 'all') {
-            list = list.filter((r) => (r.model || 'unknown') === modelFilter)
-        }
-        return list
-    }, [records, dateRange, modelFilter])
+    const today = dayKey(Date.now())
+    const filtered = useMemo(() => filterUsageRecords(records, {
+        dateRange, model: modelFilter, account: accountFilter,
+    }), [records, dateRange, modelFilter, accountFilter, today])
+    const accountOptions = useMemo(() => accountOptionsFor(records, t), [records, t])
 
     const summary = useMemo(() => {
-        let savedTotal = 0
-        let savedCost = 0
-        records.forEach((r) => {
-            const u = normalizeUsage(r.usage)
-            if (u) savedTotal += u.total
-            savedCost += Number(r.cost || 0)
-        })
-
-        let windowTotal = 0
-        let windowCost = 0
-        let promptSum = 0
-        let completionSum = 0
-        let calls = 0
-        filtered.forEach((r) => {
-            const u = normalizeUsage(r.usage)
-            if (!u) return
-            windowTotal += u.total
-            windowCost += Number(r.cost || 0)
-            promptSum += u.prompt
-            completionSum += u.completion
-            calls += (r.calls_count || 0)
-        })
-
-        return { savedTotal, savedCost, windowTotal, windowCost, promptSum, completionSum, calls }
+        const saved = usageTotals(records)
+        const window = usageTotals(filtered)
+        return {
+            savedTotal: saved.total, savedCost: saved.cost,
+            windowTotal: window.total, windowCost: window.cost,
+            promptSum: window.prompt, completionSum: window.output, calls: window.calls,
+        }
     }, [records, filtered])
 
-    const chartRecords = useMemo(() => {
-        if (modelFilter === 'all') return records.slice()
-        return records.filter((r) => (r.model || 'unknown') === modelFilter)
-    }, [records, modelFilter])
-
-    const dailyAll = useMemo(() => fillDateRange(aggregateDaily(chartRecords), dateRange), [chartRecords, dateRange])
+    const dailyAll = useMemo(() => fillDateRange(aggregateDaily(filtered), dateRange), [filtered, dateRange])
 
     const modelOptions = useMemo(() => {
         const set = new Set()
@@ -138,73 +101,8 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
         return Array.from(set).sort()
     }, [records])
 
-    // Sorted descending so the largest model/caller leads the legend; only the
-    // top TOP_N get their own series, everything else rolls up into "Other".
-    const topSeries = useMemo(() => {
-        const categories = new Set()
-        dailyAll.forEach((d) => {
-            const map = chartDimension === 'model' ? d.byModel : d.byCaller
-            Object.keys(map).forEach((key) => categories.add(key))
-        })
-        const withTotals = Array.from(categories).map((name) => {
-            let total = 0
-            dailyAll.forEach((d) => {
-                const map = chartDimension === 'model' ? d.byModel : d.byCaller
-                total += map[name] || 0
-            })
-            return { name, total }
-        })
-        withTotals.sort((a, b) => b.total - a.total)
-
-        const restNames = withTotals.slice(TOP_N).map((item) => item.name)
-        const usedNames = new Set()
-        const series = withTotals.slice(0, TOP_N).map((item, index) => {
-            let name = chartDimension === 'model' ? item.name : shortCaller(item.name)
-            if (chartDimension !== 'model') {
-                const base = name
-                let suffix = 2
-                while (usedNames.has(name)) {
-                    name = `${base} (${suffix})`
-                    suffix++
-                }
-                usedNames.add(name)
-            }
-            return {
-                name,
-                fullName: item.name,
-                color: chartDimension === 'model'
-                    ? MODEL_PALETTE[index % MODEL_PALETTE.length]
-                    : API_KEY_PALETTE[index % API_KEY_PALETTE.length],
-                valueOf: (d) => {
-                    const map = chartDimension === 'model' ? d.byModel : d.byCaller
-                    return map[item.name] || 0
-                },
-                valueOfCost: (d) => {
-                    const map = chartDimension === 'model' ? d.byModelCost : d.byCallerCost
-                    return map[item.name] || 0
-                },
-            }
-        })
-        if (restNames.length > 0) {
-            series.push({
-                name: t('usage.other'),
-                color: OTHER_COLOR,
-                valueOf: (d) => {
-                    const map = chartDimension === 'model' ? d.byModel : d.byCaller
-                    let sum = 0
-                    restNames.forEach((key) => { sum += map[key] || 0 })
-                    return sum
-                },
-                valueOfCost: (d) => {
-                    const map = chartDimension === 'model' ? d.byModelCost : d.byCallerCost
-                    let sum = 0
-                    restNames.forEach((key) => { sum += map[key] || 0 })
-                    return sum
-                },
-            })
-        }
-        return series
-    }, [dailyAll, chartDimension, t])
+    const topSeries = useMemo(() => buildUsageSeries(dailyAll, chartDimension, accountOptions, t, summaryMode === 'cost'),
+        [dailyAll, chartDimension, accountOptions, t, summaryMode])
 
     const costMode = summaryMode === 'cost'
     const dark = theme === 'dark'
@@ -273,6 +171,8 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
             if (!res.ok) throw new Error(data?.detail || t('usage.clearFailed'))
             onMessage?.('success', t('usage.clearDone'))
             clearRecords()
+            setAccountFilter('all')
+            setModelFilter('all')
         } catch (err) {
             onMessage?.('error', err.message || t('usage.clearFailed'))
         }
@@ -421,6 +321,23 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
                         </span>
                     </label>
 
+                    <label className="usage-select-wrap" onClick={openSelectMenu}>
+                        <span className="usage-select-label">{t('usage.account')}</span>
+                        <span className="usage-select-sep" />
+                        <span className="usage-select-value">
+                            <select className="usage-select" value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)}>
+                                <option value="all">{t('usage.all')}</option>
+                                {accountOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                            </select>
+                            <span className="usage-select-caret" aria-hidden="true">▾</span>
+                        </span>
+                    </label>
+                    {(accountFilter !== 'all' || modelFilter !== 'all') && (
+                        <button type="button" className="usage-btn" onClick={() => { setAccountFilter('all'); setModelFilter('all') }}>
+                            {t('usage.clearFilters')}
+                        </button>
+                    )}
+
                     <div className="usage-toolbar-actions">
                         <button type="button" className="usage-btn" onClick={loadRecords} disabled={loading}>
                             {t('usage.refresh')}
@@ -539,20 +456,13 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
                                     </div>
                                     <div className="usage-chart-actions">
                                         <div className="usage-segmented">
-                                            <button
-                                                type="button"
-                                                className={chartDimension === 'model' ? 'usage-seg-btn active' : 'usage-seg-btn'}
-                                                onClick={() => setChartDimension('model')}
-                                            >
-                                                {t('usage.model')}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className={chartDimension === 'apikey' ? 'usage-seg-btn active' : 'usage-seg-btn'}
-                                                onClick={() => setChartDimension('apikey')}
-                                            >
-                                                {t('usage.apiKey')}
-                                            </button>
+                                            {['model', 'account', 'apikey'].map((dimension) => (
+                                                <button key={dimension} type="button" aria-pressed={chartDimension === dimension}
+                                                    className={chartDimension === dimension ? 'usage-seg-btn active' : 'usage-seg-btn'}
+                                                    onClick={() => setChartDimension(dimension)}>
+                                                    {t(dimension === 'apikey' ? 'usage.apiKey' : `usage.${dimension}`)}
+                                                </button>
+                                            ))}
                                         </div>
                                     </div>
                                 </div>
@@ -575,6 +485,8 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
                         </div>
                     </div>
                 </div>
+
+                <UsageBreakdown filterKey={JSON.stringify([dateRange, modelFilter, accountFilter])} records={filtered} onAccount={setAccountFilter} onModel={setModelFilter} />
 
                 {modelRows.map((row) => (
                     <ModelRow key={row.model} row={row} dark={dark} costMode={costMode} cacheHit={cacheHit} />

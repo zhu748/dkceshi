@@ -10,21 +10,21 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
 	"ds2api/internal/config"
-	openaifmt "ds2api/internal/format/openai"
 	"ds2api/internal/prompt"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/usagestats"
 )
 
 type Session struct {
-	store       *chathistory.Store
-	usage       *usagestats.Store
-	entryID     string
-	startedAt   time.Time
-	lastPersist time.Time
-	recordModel string
-	startParams chathistory.StartParams
-	disabled    bool
+	store        *chathistory.Store
+	usage        *usagestats.RequestRecorder
+	entryID      string
+	startedAt    time.Time
+	lastPersist  time.Time
+	recordModel  string
+	usageRequest promptcompat.StandardRequest
+	startParams  chathistory.StartParams
+	disabled     bool
 }
 
 // progressPersistInterval bounds how often a streaming session's intermediate
@@ -65,13 +65,15 @@ func Start(params StartParams) *Session {
 		HistoryText: params.Standard.HistoryText,
 		FinalPrompt: params.Standard.FinalPrompt,
 	}
+	startedAt := time.Now()
 	session := &Session{
-		store:       params.Store,
-		usage:       params.Usage,
-		startedAt:   time.Now(),
-		lastPersist: time.Now(),
-		recordModel: recordModelForUsage(params.Standard),
-		startParams: startParams,
+		store:        params.Store,
+		usage:        usagestats.NewRequestRecorder(params.Usage, params.Auth, usagestats.ModelForRequest(params.Standard.ResolvedModel, params.Standard.ResponseModel), startedAt),
+		startedAt:    startedAt,
+		lastPersist:  time.Now(),
+		recordModel:  usagestats.ModelForRequest(params.Standard.ResolvedModel, params.Standard.ResponseModel),
+		startParams:  startParams,
+		usageRequest: params.Standard,
 	}
 	historyEnabled := params.Store != nil && params.Store.Enabled()
 	if !historyEnabled {
@@ -167,17 +169,6 @@ func (s *Session) Progress(thinking, content string) {
 	})
 }
 
-func recordModelForUsage(standard promptcompat.StandardRequest) string {
-	model := strings.TrimSpace(standard.ResolvedModel)
-	if model == "" {
-		model = strings.TrimSpace(standard.ResponseModel)
-	}
-	if model == "" {
-		return "unknown"
-	}
-	return model
-}
-
 func (s *Session) Success(statusCode int, thinking, content, finishReason string, usage map[string]any) {
 	if s == nil {
 		return
@@ -204,7 +195,7 @@ func (s *Session) recordUsage(usage map[string]any) {
 	if s == nil || s.usage == nil {
 		return
 	}
-	s.usage.Record(s.recordModel, s.startParams.CallerID, usage, s.startedAt)
+	s.usage.Record(usage)
 }
 
 func (s *Session) Error(statusCode int, message, finishReason, thinking, content string) {
@@ -219,30 +210,6 @@ func (s *Session) Error(statusCode int, message, finishReason, thinking, content
 		StatusCode:       statusCode,
 		ElapsedMs:        time.Since(s.startedAt).Milliseconds(),
 		FinishReason:     finishReason,
-		Completed:        true,
-	})
-}
-
-// Stopped 关闭一个被客户端取消的流式会话：把条目落为 "stopped" 终态，并按已
-// 生成的部分内容估算 token 用量入账，避免条目永久停留在 "streaming" 且账本
-// 漏记已消耗的请求（对齐 openai/chat 表面的 stopped 语义）。
-func (s *Session) Stopped(thinking, content, finishReason string) {
-	if s == nil {
-		return
-	}
-	usage := openaifmt.BuildChatUsageForModel(s.recordModel, s.startParams.FinalPrompt, thinking, content, 0)
-	s.recordUsage(usage)
-	if s.store == nil || s.disabled {
-		return
-	}
-	s.persistUpdate(chathistory.UpdateParams{
-		Status:           "stopped",
-		ReasoningContent: thinking,
-		Content:          content,
-		StatusCode:       http.StatusOK,
-		ElapsedMs:        time.Since(s.startedAt).Milliseconds(),
-		FinishReason:     finishReason,
-		Usage:            usage,
 		Completed:        true,
 	})
 }

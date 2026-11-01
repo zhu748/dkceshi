@@ -61,6 +61,7 @@ export function buildStackedOption({ daily, series, dark = false, costMode = fal
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'axis',
+            renderMode: 'richText',
             axisPointer: {
                 type: 'line',
                 snap: true,
@@ -119,6 +120,7 @@ export function buildLineOption({ daily, dark = false, name = 'API Requests', fm
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'axis',
+            renderMode: 'richText',
             axisPointer: {
                 type: 'line',
                 snap: true,

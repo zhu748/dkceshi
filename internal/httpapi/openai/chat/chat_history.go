@@ -9,22 +9,22 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/chathistory"
 	"ds2api/internal/config"
-	openaifmt "ds2api/internal/format/openai"
 	"ds2api/internal/prompt"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/usagestats"
 )
 
 type chatHistorySession struct {
-	store       *chathistory.Store
-	usage       *usagestats.Store
-	entryID     string
-	startedAt   time.Time
-	lastPersist time.Time
-	finalPrompt string
-	recordModel string
-	startParams chathistory.StartParams
-	disabled    bool
+	store        *chathistory.Store
+	usage        *usagestats.RequestRecorder
+	entryID      string
+	startedAt    time.Time
+	lastPersist  time.Time
+	finalPrompt  string
+	recordModel  string
+	usageRequest promptcompat.StandardRequest
+	startParams  chathistory.StartParams
+	disabled     bool
 }
 
 func startChatHistory(store *chathistory.Store, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) *chatHistorySession {
@@ -50,14 +50,16 @@ func startChatHistoryWithUsage(store *chathistory.Store, usage *usagestats.Store
 		HistoryText: stdReq.HistoryText,
 		FinalPrompt: stdReq.FinalPrompt,
 	}
+	startedAt := time.Now()
 	session := &chatHistorySession{
-		store:       store,
-		usage:       usage,
-		startedAt:   time.Now(),
-		lastPersist: time.Now(),
-		finalPrompt: stdReq.FinalPrompt,
-		recordModel: recordModelForUsage(stdReq),
-		startParams: startParams,
+		store:        store,
+		usage:        usagestats.NewRequestRecorder(usage, a, usagestats.ModelForRequest(stdReq.ResolvedModel, stdReq.ResponseModel), startedAt),
+		startedAt:    startedAt,
+		lastPersist:  time.Now(),
+		finalPrompt:  stdReq.FinalPrompt,
+		recordModel:  usagestats.ModelForRequest(stdReq.ResolvedModel, stdReq.ResponseModel),
+		startParams:  startParams,
+		usageRequest: stdReq,
 	}
 	historyEnabled := store != nil && store.Enabled()
 	if !historyEnabled {
@@ -82,17 +84,6 @@ func startChatHistoryWithUsage(store *chathistory.Store, usage *usagestats.Store
 		config.Logger.Warn("[chat_history] start persisted in memory after write failure", "error", err)
 	}
 	return session
-}
-
-func recordModelForUsage(stdReq promptcompat.StandardRequest) string {
-	model := strings.TrimSpace(stdReq.ResolvedModel)
-	if model == "" {
-		model = strings.TrimSpace(stdReq.ResponseModel)
-	}
-	if model == "" {
-		return "unknown"
-	}
-	return model
 }
 
 func shouldCaptureChatHistory(r *http.Request) bool {
@@ -203,34 +194,11 @@ func (s *chatHistorySession) error(statusCode int, message, finishReason, thinki
 	})
 }
 
-func (s *chatHistorySession) stopped(thinking, content, finishReason string) {
-	if s == nil {
-		return
-	}
-	usage := openaifmt.BuildChatUsage(s.finalPrompt, thinking, content)
-	s.recordUsage(usage)
-	if s.store == nil || s.disabled {
-		return
-	}
-	s.persistUpdate(chathistory.UpdateParams{
-		Status:           "stopped",
-		ReasoningContent: thinking,
-		Content:          content,
-		StatusCode:       http.StatusOK,
-		ElapsedMs:        time.Since(s.startedAt).Milliseconds(),
-		FinishReason:     finishReason,
-		Usage:            usage,
-		Completed:        true,
-	})
-}
-
-// recordUsage 把一次请求的 Token 用量计入全局账本。即使聊天历史关闭，
-// 只要注入了 usage store 就会生效。
 func (s *chatHistorySession) recordUsage(usage map[string]any) {
 	if s == nil || s.usage == nil {
 		return
 	}
-	s.usage.Record(s.recordModel, s.startParams.CallerID, usage, s.startedAt)
+	s.usage.Record(usage)
 }
 
 func (s *chatHistorySession) discard() {

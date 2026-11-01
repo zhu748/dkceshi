@@ -3,9 +3,11 @@ package usage
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 
+	"ds2api/internal/httpapi/requestbody"
 	"ds2api/internal/usagestats"
 )
 
@@ -70,27 +72,42 @@ func (h *Handler) updateUsageSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // importUsage 合并外部导出的 CSV 还原出的条目（前端解析后以 JSON 提交）。
-// 合并按日期 + 模型 + 调用方累加，费用沿用导出端数值，不做重新估算。
+// 合并按日期 + 模型 + 调用方 + 账号累加，费用沿用导出端数值，不做重新估算。
 func (h *Handler) importUsage(w http.ResponseWriter, r *http.Request) {
 	if h == nil || h.Usage == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"detail": "usage stats store is not configured"})
 		return
 	}
-	var body struct {
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
+	var body *struct {
 		Entries []usagestats.Entry `json:"entries"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "invalid JSON body"})
-		return
 	}
 	defer func() {
 		if err := r.Body.Close(); err != nil {
 			log.Printf("[admin_usage] close request body: %v", err)
 		}
 	}()
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&body); err != nil {
+		if requestbody.IsTooLarge(err) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"detail": "usage import exceeds 16 MiB"})
+		} else {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "invalid JSON body"})
+		}
+		return
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF || body == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "expected one JSON object"})
+		return
+	}
+
 	merged, err := h.Usage.Import(body.Entries)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, usagestats.ErrInvalidUsageEntry) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]any{"detail": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"imported": merged, "items": h.Usage.Summary()})

@@ -5,6 +5,7 @@ import (
 
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
+	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	streamengine "ds2api/internal/stream"
 )
@@ -33,7 +34,7 @@ func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Respons
 	})
 	if r.Context().Err() != nil {
 		if s.history != nil {
-			s.history.Stopped(responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()), string(streamengine.StopReasonContextCancelled))
+			s.history.Stopped(responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()), string(streamengine.StopReasonContextCancelled), promptcompat.StandardRequest{PromptTokenText: s.promptTokenText})
 		}
 		return completionruntime.ConsumeAttemptResult{Terminal: true}
 	}

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +15,7 @@ import (
 )
 
 const (
-	FileVersion   = 2
+	FileVersion   = 3
 	FlushInterval = time.Second
 )
 
@@ -26,30 +25,6 @@ var gmt8 = time.FixedZone("GMT+8", 8*60*60)
 // ErrInvalidUsageSettings marks user-input validation failures in
 // UsageSettings/SaveSettings so HTTP handlers can map them to 400.
 var ErrInvalidUsageSettings = errors.New("invalid usage settings")
-
-// Entry 表示某一天某个模型在某个调用方（API Key）下的累计 Token 用量与费用。
-type Entry struct {
-	Date             string  `json:"date"`
-	Model            string  `json:"model"`
-	CallerID         string  `json:"caller_id,omitempty"`
-	PromptTokens     int64   `json:"prompt_tokens"`
-	CompletionTokens int64   `json:"completion_tokens"`
-	ReasoningTokens  int64   `json:"reasoning_tokens"`
-	TotalTokens      int64   `json:"total_tokens"`
-	Cost             float64 `json:"cost,omitempty"`
-	Calls            int64   `json:"calls"`
-}
-
-// BackfillItem 是聊天历史回填的输入条目。
-type BackfillItem struct {
-	Timestamp  int64
-	Model      string
-	CallerID   string
-	Prompt     int64
-	Completion int64
-	Reasoning  int64
-	Total      int64
-}
 
 type fileData struct {
 	Version   int     `json:"version"`
@@ -75,8 +50,8 @@ type legacyV1File struct {
 	Days    map[string]*legacyDayUsage `json:"days"`
 }
 
-// Store 是内容无关的 Token 用量账本：按 GMT+8 日期 + 模型 + 调用方聚合
-// 数值累计与费用估算，不保存提示词、回复内容、账号或密钥本体。
+// Store 是内容无关的 Token 用量账本：按 GMT+8 日期 + 模型 + 调用方 + 账号聚合
+// 数值累计与费用估算，仅保存账号的哈希标识和脱敏标签，不保存提示词、回复内容或密钥本体。
 // 落盘采用版本化文件 + 后台定时 flush，费用按请求发生时刻的波峰倍率累计。
 type Store struct {
 	mu           sync.Mutex
@@ -127,186 +102,6 @@ func (s *Store) Path() string {
 		return ""
 	}
 	return s.path
-}
-
-// Record 在每次成功（或被中止但已有产出）的请求后累计一条用量记录。
-// 即使聊天历史关闭也会生效；at 通常传请求开始时间，用于日期分桶与波峰计价。
-// 「记录用量」关闭（settings.Enabled=false）时完全不记录。
-func (s *Store) Record(model, callerID string, usage map[string]any, at time.Time) {
-	if s == nil {
-		return
-	}
-	prompt, completion, reasoning, total := ParseUsage(usage)
-	if total <= 0 {
-		return
-	}
-	if at.IsZero() {
-		at = time.Now()
-	}
-	model, callerID = normalizeModel(model), normalizeCallerID(callerID)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.settings.Enabled {
-		return
-	}
-
-	cost := s.computeCostLocked(model, prompt, completion, at)
-	key := s.entryKeyLocked(at, model, callerID)
-	entry := s.entries[key]
-	if entry == nil {
-		date := at.In(gmt8).Format("2006-01-02")
-		entry = &Entry{Date: date, Model: model, CallerID: callerID}
-		s.entries[key] = entry
-	}
-	entry.PromptTokens += prompt
-	entry.CompletionTokens += completion
-	entry.ReasoningTokens += reasoning
-	entry.TotalTokens += total
-	entry.Calls++
-	entry.Cost += cost
-
-	s.dataChangedLocked()
-}
-
-func (s *Store) entryKeyLocked(at time.Time, model, callerID string) string {
-	return at.In(gmt8).Format("2006-01-02") + "\x00" + model + "\x00" + callerID
-}
-
-func (s *Store) dataChangedLocked() {
-	s.revision++
-	s.dirty = true
-}
-
-// Summary 返回按日期倒序、模型/调用方升序的累计条目。费用是记录时刻按
-// 当时单价一次估算的（含波峰倍率），不做追溯重算：调价只影响之后的请求，
-// 也避免「记录用量」开关反复切换导致的历史费用漂移。
-func (s *Store) Summary() []Entry {
-	if s == nil {
-		return []Entry{}
-	}
-	s.mu.Lock()
-
-	out := make([]Entry, 0, len(s.entries))
-	for _, entry := range s.entries {
-		out = append(out, *entry)
-	}
-	s.mu.Unlock()
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Date != out[j].Date {
-			return out[i].Date > out[j].Date
-		}
-		if out[i].Model != out[j].Model {
-			return out[i].Model < out[j].Model
-		}
-		return out[i].CallerID < out[j].CallerID
-	})
-	return out
-}
-
-// Backfill 仅在账本为空时把聊天历史里的历史请求一次性灌入，避免重复计数。
-func (s *Store) Backfill(items []BackfillItem) (bool, error) {
-	if s == nil {
-		return false, nil
-	}
-	s.mu.Lock()
-	if len(s.entries) > 0 {
-		s.mu.Unlock()
-		return false, nil
-	}
-
-	rebuilt := map[string]*Entry{}
-	for _, item := range items {
-		if item.Total <= 0 {
-			continue
-		}
-		model := normalizeModel(item.Model)
-		callerID := normalizeCallerID(item.CallerID)
-		ts := item.Timestamp
-		if ts <= 0 {
-			ts = time.Now().UnixMilli()
-		}
-		at := time.UnixMilli(ts)
-		cost := s.computeCostLocked(model, item.Prompt, item.Completion, at)
-		key := s.entryKeyLocked(at, model, callerID)
-		entry := rebuilt[key]
-		if entry == nil {
-			date := at.In(gmt8).Format("2006-01-02")
-			entry = &Entry{Date: date, Model: model, CallerID: callerID}
-			rebuilt[key] = entry
-		}
-		entry.PromptTokens += item.Prompt
-		entry.CompletionTokens += item.Completion
-		entry.ReasoningTokens += item.Reasoning
-		entry.TotalTokens += item.Total
-		entry.Calls++
-		entry.Cost += cost
-	}
-	s.entries = rebuilt
-	s.dataChangedLocked()
-	s.mu.Unlock()
-	return true, s.flushNow()
-}
-
-// Import 把外部导出（CSV 等）还原出的条目合并进账本：与既有条目
-// 同日期 + 模型 + 调用方时数值累加、费用原样相加，否则新建条目。
-// 传入条目的费用不会被重新估算，从而保留导出端记录时刻的计价结果。
-// 返回成功合并的条目数。
-func (s *Store) Import(entries []Entry) (int, error) {
-	if s == nil {
-		return 0, nil
-	}
-	s.mu.Lock()
-	merged := 0
-	for _, entry := range entries {
-		date := strings.TrimSpace(entry.Date)
-		if _, err := time.Parse("2006-01-02", date); err != nil {
-			continue
-		}
-		if strings.TrimSpace(entry.Model) == "" {
-			continue
-		}
-		model := normalizeModel(entry.Model)
-		callerID := normalizeCallerID(entry.CallerID)
-		key := date + "\x00" + model + "\x00" + callerID
-		target := s.entries[key]
-		if target == nil {
-			copied := entry
-			copied.Date = date
-			copied.Model = model
-			copied.CallerID = callerID
-			s.entries[key] = &copied
-		} else {
-			target.PromptTokens += entry.PromptTokens
-			target.CompletionTokens += entry.CompletionTokens
-			target.ReasoningTokens += entry.ReasoningTokens
-			target.TotalTokens += entry.TotalTokens
-			target.Cost += entry.Cost
-			target.Calls += entry.Calls
-		}
-		merged++
-	}
-	if merged > 0 {
-		s.dataChangedLocked()
-	}
-	s.mu.Unlock()
-	if merged == 0 {
-		return 0, nil
-	}
-	return merged, s.flushNow()
-}
-
-// Clear 清空全部用量数据并同步落盘。
-func (s *Store) Clear() error {
-	if s == nil {
-		return nil
-	}
-	s.mu.Lock()
-	s.entries = map[string]*Entry{}
-	s.dataChangedLocked()
-	s.mu.Unlock()
-	return s.flushNow()
 }
 
 func (s *Store) Settings() UsageSettings {
@@ -407,22 +202,8 @@ func (s *Store) flushWith(write func(string, []byte) error) error {
 	payload := s.snapshotLocked()
 	s.mu.Unlock()
 
-	sort.Slice(payload.Entries, func(i, j int) bool {
-		if payload.Entries[i].Date != payload.Entries[j].Date {
-			return payload.Entries[i].Date < payload.Entries[j].Date
-		}
-		if payload.Entries[i].Model != payload.Entries[j].Model {
-			return payload.Entries[i].Model < payload.Entries[j].Model
-		}
-		return payload.Entries[i].CallerID < payload.Entries[j].CallerID
-	})
-
-	body, err := json.MarshalIndent(payload, "", "  ")
-	if err == nil {
-		err = write(s.path, append(body, '\n'))
-	}
-	if err != nil {
-		return fmt.Errorf("save usage stats: %w", err)
+	if err := writeSnapshot(s.path, payload, write); err != nil {
+		return err
 	}
 
 	s.mu.Lock()
@@ -528,10 +309,10 @@ func migrateLegacyV1Days(days map[string]*legacyDayUsage) map[string]*Entry {
 		}
 		for model, usage := range day.Models {
 			normalized := normalizeModel(model)
-			key := date + "\x00" + normalized + "\x00" + "unknown"
+			key := entryKey(date, normalized, "unknown", "unknown")
 			entry := entries[key]
 			if entry == nil {
-				entry = &Entry{Date: date, Model: normalized, CallerID: "unknown"}
+				entry = &Entry{Date: date, Model: normalized, CallerID: "unknown", AccountID: "unknown"}
 				entries[key] = entry
 			}
 			entry.PromptTokens += usage.InputTokens
@@ -545,22 +326,16 @@ func migrateLegacyV1Days(days map[string]*legacyDayUsage) map[string]*Entry {
 
 func (s *Store) ingestEntries(list []Entry) {
 	for _, entry := range list {
-		model := normalizeModel(entry.Model)
-		callerID := normalizeCallerID(entry.CallerID)
-		key := entry.Date + "\x00" + model + "\x00" + callerID
+		entry.Model = normalizeModel(entry.Model)
+		entry.CallerID = normalizeCallerID(entry.CallerID)
+		entry.AccountID = normalizeCallerID(entry.AccountID)
+		key := entryKey(entry.Date, entry.Model, entry.CallerID, entry.AccountID)
 		if existing := s.entries[key]; existing != nil {
-			existing.PromptTokens += entry.PromptTokens
-			existing.CompletionTokens += entry.CompletionTokens
-			existing.ReasoningTokens += entry.ReasoningTokens
-			existing.TotalTokens += entry.TotalTokens
-			existing.Cost += entry.Cost
-			existing.Calls += entry.Calls
-			continue
+			mergeEntry(existing, entry)
+		} else {
+			copied := entry
+			s.entries[key] = &copied
 		}
-		copied := entry
-		copied.Model = model
-		copied.CallerID = callerID
-		s.entries[key] = &copied
 	}
 }
 

@@ -878,7 +878,31 @@
     "clearConfirm": "确定要清空所有 Token 用量数据吗？此操作不可恢复。",
     "clearConfirmAction": "确认清空",
     "clearFailed": "清空失败",
-    "clearDone": "已清空"
+    "clearDone": "已清空",
+    "account": "账号",
+    "unknownAccount": "历史未知账号",
+    "directToken": "直连 Token",
+    "breakdown": "使用情况明细",
+    "accountUsage": "账号使用情况",
+    "modelUsage": "模型使用情况",
+    "reasoningTokens": "思考 Tokens",
+    "tokenShare": "Token 占比",
+    "estimatedCost": "估算费用",
+    "lastUsedAt": "最近使用（GMT+8）",
+    "sortBy": "排序",
+    "clearFilters": "清除账号／模型筛选",
+    "noMatchingUsage": "当前筛选条件下暂无用量记录",
+    "breakdownCount": "共 {count} 项",
+    "previousPage": "上一页",
+    "nextPage": "下一页",
+    "accountingNote": "次数仅统计有有效 Token 的成功或中止调用，按最终处理账号归属，不含失败尝试、保活和工具修复子请求。Token 与费用为估算；思考 Token 已包含在输出中。旧记录无法确认账号或最近使用时间。点击名称可联动筛选。",
+    "sort": {
+      "total": "Token 从高到低",
+      "calls": "次数从高到低",
+      "cost": "费用从高到低",
+      "lastUsedAt": "最近使用优先"
+    },
+    "importInvalidCsv": "CSV 格式不完整或引号无效"
   },
   "tts": {
     "title": "朗读测试",

@@ -105,7 +105,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 			responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking),
 			responsehistory.TextForArchive(turn.RawText, turn.Text),
 			outcome.FinishReason,
-			assistantturn.OpenAIResponsesUsage(turn),
+			responsehistory.GenericUsage(turn),
 		)
 	}
 	s.sendEvent("response.completed", openaifmt.BuildResponsesCompletedPayload(obj))

@@ -158,7 +158,7 @@ func (h *Handler) consumeResponsesStreamAttempt(r *http.Request, resp *http.Resp
 				streamRuntime.history.Stopped(
 					responsehistory.ThinkingForArchive(streamRuntime.accumulator.RawThinking.String(), streamRuntime.accumulator.ToolDetectionThinking.String(), streamRuntime.accumulator.Thinking.String()),
 					responsehistory.TextForArchive(streamRuntime.accumulator.RawText.String(), streamRuntime.accumulator.Text.String()),
-					string(streamengine.StopReasonContextCancelled),
+					string(streamengine.StopReasonContextCancelled), promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens},
 				)
 			}
 		},

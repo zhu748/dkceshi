@@ -421,7 +421,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           detected = validatedCalls.map(call => ({ name: call.function.name }));
         } catch (error) {
           if (lifecycle.closed) {
-            ended = true; leaseCompletion = { finish_reason: 'stopped', usage: null, thinking: thinkingText, content: outputText, error: '' };
+            ended = true; leaseCompletion = { finish_reason: 'stopped', usage: buildUsage(usagePrompt, thinkingText, outputText), thinking: thinkingText, content: outputText, error: '' };
             await releaseLease(); return true;
           }
           ended = true;

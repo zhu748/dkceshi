@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { aggregateDaily, dayKey, entryToRecord, fillDateRange, sameUsageRecords } from './usageUtils.js'
+import { accountDisplay, accountOptionsFor, buildUsageSeries, filterUsageRecords, groupUsage, usageTotals } from './usageDashboard.js'
 
 function entry(overrides = {}) {
     return {
@@ -61,4 +62,66 @@ test('future-dated imports cannot expand a finite chart range into thousands of 
     const buckets = fillDateRange(aggregateDaily(rows), '30')
     assert.ok(buckets.length <= 180, `unbounded chart: ${buckets.length} points`)
     assert.equal(buckets.reduce((total, day) => total + day.total, 0), 280)
+})
+
+
+test('account and model breakdowns conserve calls and tokens without adding reasoning twice', () => {
+    const rows = [
+        entryToRecord(entry({ account_id: 'account:a', account_label: 'A', calls: 2, last_used_at: 1000 })),
+        entryToRecord(entry({ account_id: 'account:a', account_label: 'New A', model: 'other', last_used_at: 2000 })),
+        entryToRecord(entry({ account_id: 'account:b', calls: 3 })),
+        entryToRecord(entry()),
+    ]
+    for (const dimension of ['account', 'model']) {
+        const grouped = groupUsage(rows, dimension)
+        assert.equal(grouped.reduce((sum, row) => sum + row.calls, 0), 7)
+        assert.equal(grouped.reduce((sum, row) => sum + row.total, 0), 560)
+        assert.equal(grouped.reduce((sum, row) => sum + row.reasoning, 0), 40)
+        assert.equal(grouped.reduce((sum, row) => sum + row.share, 0), 1)
+    }
+    const account = groupUsage(rows, 'account').find((row) => row.id === 'account:a')
+    assert.equal(account.label, 'New A')
+    assert.equal(account.lastUsedAt, 2000)
+    assert.equal(usageTotals(rows).total, 560)
+    assert.equal(groupUsage([], 'account').length, 0)
+})
+
+test('date, model and account filters intersect at the GMT+8 day boundary', () => {
+    const rows = ['2026-10-24', '2026-10-25', '2026-10-31', '2026-11-01'].flatMap((date) => [
+        entryToRecord(entry({ date, account_id: 'account:a' })),
+        entryToRecord(entry({ date, account_id: 'account:b', model: 'other' })),
+    ])
+    const now = Date.parse('2026-10-30T16:00:01Z') // Oct 31 in GMT+8
+    const filtered = filterUsageRecords(rows, { dateRange: '7', account: 'account:a', model: 'deepseek-v4.1-flash' }, now)
+    assert.deepEqual(filtered.map((row) => row.date), ['2026-10-25', '2026-10-31'])
+    assert.equal(filterUsageRecords(rows, { account: 'unknown' }, now).length, 0)
+    assert.equal(filterUsageRecords(rows, {}, now).length, 8)
+})
+
+test('polling observes account attribution, label and last-used changes; invalid timestamps are unavailable', () => {
+    const previous = [entryToRecord(entry({ account_id: 'account:a', account_label: 'A', last_used_at: 1000 }))]
+    for (const update of [{ account_id: 'account:b' }, { account_label: 'B' }, { last_used_at: 2000 }]) {
+        assert.equal(sameUsageRecords(previous, [{ ...previous[0], ...update }]), false)
+    }
+    for (const value of [Number.MAX_VALUE, -1, 'not-a-time']) {
+        assert.equal(entryToRecord(entry({ last_used_at: value })).last_used_at, 0)
+    }
+})
+
+test('account chart top-eight and Other preserve totals and prototype-like identifiers', () => {
+    const rows = Array.from({ length: 12 }, (_, index) => entryToRecord(entry({
+        account_id: index === 0 ? '__proto__' : `account:${index}`,
+        cost: index + 1,
+    })))
+    const t = (key) => key
+    const daily = fillDateRange(aggregateDaily(rows), 'all')
+    const accounts = accountOptionsFor(rows, t)
+    const series = buildUsageSeries(daily, 'account', accounts, t)
+    assert.equal(series.length, 9)
+    assert.equal(daily.reduce((total, day) => total + series.reduce((n, item) => n + item.valueOf(day), 0), 0), 1680)
+    assert.equal(daily.reduce((total, day) => total + series.reduce((n, item) => n + item.valueOfCost(day), 0), 0), 78)
+    assert.equal(new Set(series.map((item) => item.name)).size, 9)
+    assert.equal(buildUsageSeries(daily, 'account', accounts, t, true)[0].fullName, 'account:11')
+    assert.equal(accountDisplay('unknown', '', t), 'usage.unknownAccount')
+    assert.match(accountDisplay('direct:caller:abc123', '', t), /usage.directToken/)
 })

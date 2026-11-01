@@ -73,7 +73,12 @@ export function useUsageRecords({ authFetch, onMessage }) {
     }, [loadRecords])
 
     const clearRecords = useCallback(() => {
+        ++loadRecordsIdRef.current
+        abortRef.current?.abort()
         setRecords([])
+        setLoading(false)
+        setInitialized(true)
+        setError('')
     }, [])
 
     return { records, loading, initialized, error, loadRecords, clearRecords }

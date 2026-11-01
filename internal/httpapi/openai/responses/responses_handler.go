@@ -146,7 +146,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if historySession != nil {
-			historySession.SuccessTurn(http.StatusOK, result.Turn, assistantturn.OpenAIResponsesUsage(result.Turn))
+			historySession.SuccessTurn(http.StatusOK, result.Turn, responsehistory.GenericUsage(result.Turn))
 		}
 		responseObj := openaifmt.BuildResponseObjectWithToolCalls(responseID, stdReq.ResponseModel, result.Turn.Prompt, result.Turn.Thinking, result.Turn.Text, result.Turn.ToolCalls, stdReq.ToolsRaw)
 		responseObj["usage"] = assistantturn.OpenAIResponsesUsage(result.Turn)

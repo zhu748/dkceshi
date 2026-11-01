@@ -23,7 +23,6 @@ internal/httpapi/admin/vercel/handler_vercel.go	374
 internal/httpapi/claude/handler_messages.go	497
 internal/httpapi/gemini/handler_generate.go	528
 internal/httpapi/gemini/handler_stream_runtime.go	537
-internal/httpapi/openai/chat/chat_history.go	325
 internal/httpapi/openai/chat/chat_stream_runtime.go	439
 internal/httpapi/openai/chat/handler_chat.go	320
 internal/httpapi/openai/chat/vercel_stream.go	550
@@ -46,7 +45,7 @@ internal/mihomo/health.go	457
 internal/mihomo/manager.go	714
 internal/mihomo/sharelinks.go	444
 internal/promptcompat/image_route.go	310
-internal/responsehistory/session.go	380
+internal/responsehistory/session.go	347
 internal/server/router.go	503
 internal/sse/stream.go	380
 internal/toolcall/marker.go	333
@@ -59,9 +58,8 @@ internal/toolcall/toolcalls_parse.go	369
 internal/toolcall/toolcalls_parse_markup.go	788
 internal/toolcall/toolcalls_scan.go	676
 internal/toolstream/tool_sieve_core.go	197
-internal/usagestats/store.go	664
+internal/usagestats/store.go	439
 internal/webui/handler.go	468
 start.mjs	569
 webui/src/features/account/AccountsTable.jsx	519
-webui/src/features/usage/TokenUsageContainer.jsx	609
-webui/src/features/usage/usageUtils.js	566
+webui/src/features/usage/TokenUsageContainer.jsx	521

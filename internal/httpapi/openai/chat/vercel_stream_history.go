@@ -43,7 +43,7 @@ func (h *Handler) recordVercelStreamCompletion(r *http.Request, a *auth.RequestA
 		return
 	}
 	if finishReason == "stopped" {
-		session.stopped(thinking, content, finishReason)
+		session.stoppedWithUsage(thinking, content, finishReason, usage)
 		return
 	}
 	session.success(http.StatusOK, thinking, content, finishReason, usage)

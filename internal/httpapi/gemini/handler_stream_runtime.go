@@ -223,7 +223,7 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 				runtime.history.Stopped(
 					responsehistory.ThinkingForArchive(rawThinking, detectionThinking, thinking),
 					responsehistory.TextForArchive(rawText, text),
-					string(streamengine.StopReasonContextCancelled),
+					string(streamengine.StopReasonContextCancelled), promptcompat.StandardRequest{PromptTokenText: runtime.finalPrompt},
 				)
 			}
 		},

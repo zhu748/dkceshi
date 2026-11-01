@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildUsageCsv, parseUsageCsv } from './usageUtils.js'
+import { buildUsageCsv, parseUsageCsv } from './usageCsv.js'
 
 function record(overrides) {
     return {
@@ -103,4 +103,57 @@ test('parses quoted fields containing commas and escaped quotes', () => {
     assert.equal(error, null)
     assert.equal(entries[0].model, 'model,quoted')
     assert.equal(entries[0].caller_id, 'caller "x"')
+})
+
+
+test('account attribution and last-used metadata survive a CSV round trip', () => {
+    const last = Date.parse('2026-10-31T12:34:00Z')
+    const { csv } = buildUsageCsv([record({ account_id: 'account:abc', account_label: 'Main, "A"', last_used_at: last })])
+    const { entries, error } = parseUsageCsv(csv)
+    assert.equal(error, null)
+    assert.equal(entries[0].account_id, 'account:abc')
+    assert.equal(entries[0].account_label, 'Main, "A"')
+    assert.equal(entries[0].last_used_at, last)
+})
+
+test('CSV preserves sub-cent cost precision across export and import', () => {
+    for (const cost of [0.00000037, 0.1234567891234567]) {
+        const { csv } = buildUsageCsv([record({ cost })])
+        assert.equal(parseUsageCsv(csv).entries[0].cost, cost)
+    }
+})
+
+test('CSV rejects invalid numeric rows and impossible calendar dates', () => {
+    const header = 'model,date,prompt_tokens,completion_tokens,reasoning_tokens,total_tokens,calls,cost\n'
+    for (const row of [
+        'model,2026-02-30,10,5,0,15,1,0',
+        'model,2026-11-01,-10,5,0,15,1,0',
+        'model,2026-11-01,oops,5,0,15,1,0',
+        'model,2026-11-01,1.5,5,0,15,1,0',
+        'model,2026-11-01,10,5,0,1,1,0',
+        'model,2026-11-01,10,5,6,15,1,0',
+        'model,2026-11-01,10,5,0,15,1,-1',
+    ]) {
+        const result = parseUsageCsv(header + row)
+        assert.equal(result.entries.length, 0, row)
+        assert.equal(result.skipped, 1, row)
+    }
+})
+
+test('CSV rejects an unterminated quoted field instead of silently importing it', () => {
+    const result = parseUsageCsv('model,date,prompt_tokens,completion_tokens\nmodel,2026-11-01,10,"5')
+    assert.equal(result.entries.length, 0)
+    assert.ok(result.error)
+})
+
+test('spreadsheet formulas are escaped reversibly without altering legacy apostrophes', () => {
+    for (const label of ['=HYPERLINK("https://example.invalid")', '+SUM(1,2)', '@SUM(1)', '\t=1+1', "'name"]) {
+        const { csv } = buildUsageCsv([record({ model: '=1+1', account_label: label })])
+        assert.ok(csv.includes("\n'=1+1,"), 'formula-looking model exported as an executable cell')
+        const parsed = parseUsageCsv(csv)
+        assert.equal(parsed.entries[0].model, '=1+1')
+        assert.equal(parsed.entries[0].account_label, label)
+    }
+    const legacy = parseUsageCsv("model,date,prompt_tokens,completion_tokens\n'model,2026-11-01,1,1")
+    assert.equal(legacy.entries[0].model, "'model")
 })

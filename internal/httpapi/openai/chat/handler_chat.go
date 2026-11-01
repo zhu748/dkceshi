@@ -310,7 +310,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, r *http.Request, resp *htt
 		OnContextDone: func() {
 			streamRuntime.markContextCancelled()
 			if historySession != nil {
-				historySession.stopped(streamRuntime.historyThinking(), streamRuntime.historyText(), string(streamengine.StopReasonContextCancelled))
+				historySession.stopped(streamRuntime.historyThinking(), streamRuntime.historyText(), string(streamengine.StopReasonContextCancelled), promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens})
 			}
 		},
 	})
