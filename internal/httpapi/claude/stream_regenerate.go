@@ -15,7 +15,7 @@ func (s *claudeStreamRuntime) resetForRegeneration() {
 	s.toolDetectionThinking.Reset()
 	s.deferredText.Reset()
 	s.resetContentPolicy()
-	s.sieve = toolstream.State{DeferMalformed: true, Marker: s.sieve.Marker}
+	s.sieve = toolstream.State{CleanVisible: true, DeferMalformed: true, Marker: s.sieve.Marker}
 	s.responseMessageID = 0
 	s.upstreamErr = ""
 	s.contentFilter = false

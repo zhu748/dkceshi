@@ -4,7 +4,7 @@ import (
 	"ds2api/internal/toolcall"
 )
 
-func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
+func processChunk(state *State, chunk string, toolNames []string) []Event {
 	if state == nil {
 		return nil
 	}
@@ -110,20 +110,20 @@ func ProcessChunk(state *State, chunk string, toolNames []string) []Event {
 	return events
 }
 
-func Flush(state *State, toolNames []string) []Event {
+func flush(state *State, toolNames []string) []Event {
 	if state == nil {
 		return nil
 	}
 	if tail := state.flushNormalizer(); tail != "" {
 		state.pending.WriteString(tail)
 	}
-	events := ProcessChunk(state, "", toolNames)
+	events := processChunk(state, "", toolNames)
 	if state.pending.Len() > 0 && state.markdownCodeSpanTicks > 0 {
 		// At end of stream, an unmatched backtick is literal Markdown text.
 		// Re-scan pending content so a real tool call after that stray
 		// backtick is not permanently hidden by inline-code state.
 		state.markdownCodeSpanTicks = 0
-		events = append(events, ProcessChunk(state, "", toolNames)...)
+		events = append(events, processChunk(state, "", toolNames)...)
 	}
 	if len(state.pendingToolCalls) > 0 {
 		events = append(events, Event{ToolCalls: state.pendingToolCalls})

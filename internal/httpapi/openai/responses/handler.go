@@ -112,3 +112,7 @@ func emptyOutputRetryEnabled() bool {
 func emptyOutputRetryMaxAttempts() int {
 	return completionruntime.EmptyOutputRetryMaxAttempts()
 }
+
+func cleanVisibleDelta(text string, stripReferenceMarkers bool) string {
+	return textclean.CleanVisibleDelta(text, stripReferenceMarkers)
+}

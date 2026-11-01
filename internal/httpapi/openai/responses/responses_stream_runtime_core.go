@@ -111,7 +111,7 @@ func newResponsesStreamRuntime(
 		toolNames:             toolNames,
 		toolsRaw:              toolsRaw,
 		bufferToolContent:     bufferToolContent,
-		sieve:                 toolstream.State{DeferMalformed: true},
+		sieve:                 toolstream.State{CleanVisible: true, DeferMalformed: true},
 		streamToolCallIDs:     map[int]string{},
 		functionItemIDs:       map[int]string{},
 		functionOutputIDs:     map[int]int{},

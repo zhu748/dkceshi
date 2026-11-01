@@ -338,16 +338,16 @@ Queue limit = DS2API_ACCOUNT_MAX_QUEUE (default = recommended concurrency)
 
 ## Tool Call Adaptation
 
-When `tools` is present in the request, DS2API performs anti-leak handling:
+DS2API isolates tool output, repairs its format, and translates validated calls. History continuations without a formal tool catalog use the same visibility and finalization checks:
 
-1. Toolcall feature matching is enabled only in **non-code-block context** (fenced examples are ignored)
-2. The parser treats the halfwidth-pipe DSML shell as the recommended executable tool-calling syntax: `<|DSML|tool_calls>` → `<|DSML|invoke name="...">` → `<|DSML|parameter name="...">`; it also accepts legacy canonical XML `<tool_calls>` → `<invoke name="...">` → `<parameter name="...">`, plus common DSML prefix/separator drift. DSML is a shell alias and internal parsing remains XML-based; legacy `<tools>` / `<tool_call>` / `<tool_name>` / `<param>`, `<function_call>`, `tool_use`, antml variants, and standalone JSON `tool_calls` payloads are treated as plain text, and complete but malformed wrappers are released as plain text too
+1. Executable tool-call detection runs outside Markdown fenced blocks and inline code spans; code examples remain literal text
+2. Prompts use an XML shell with a request-specific marker, normalized internally to EPSE. Parsing supports legacy canonical XML, and shared finalization can recover complete DSML calls. Protocol shells with unknown markers or tag names are isolated before source-preserving repair. Unsafe or incomplete repairs return `invalid_tool_arguments`; malformed source and partial call batches are never delivered. Examples inside Markdown, quoted strings, CDATA, and comments remain intact.
 3. `responses` streaming strictly uses official item lifecycle events (`response.output_item.*`, `response.content_part.*`, `response.function_call_arguments.*`)
 4. `responses` supports and enforces `tool_choice` (`auto`/`none`/`required`/forced function); `required` violations return `422` for non-stream and `response.failed` for stream
 5. The output protocol follows the client request (OpenAI / Claude / Gemini native shapes); model-side prompting can prefer XML, and the compatibility layer handles the protocol-specific translation
 
-> Note: the current parser still prioritizes “parse successfully whenever possible”; hard allow-list rejection for undeclared tool names is not enabled yet.
-> Explicit empty strings or whitespace-only parameters are preserved by the parser; prompting tells the model not to emit blank parameters, and missing/empty argument rejection belongs in the tool executor or client schema validation.
+> Note: the parser retains candidate calls; shared finalization validates the tool catalog, `tool_choice`, and parameter schemas before delivery.
+> Explicit empty strings or whitespace-only parameters remain intact during parsing. Prompts discourage blank arguments; schema and executor rules determine whether missing or empty values are rejected.
 
 ## Local Dev Packet Capture
 

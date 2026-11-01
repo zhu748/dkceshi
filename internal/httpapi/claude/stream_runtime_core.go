@@ -107,7 +107,7 @@ func newClaudeStreamRuntime(
 		promptTokenText:       promptTokenText,
 		history:               history,
 		policy:                sse.ContentPolicy{Prompt: promptTokenText},
-		sieve:                 toolstream.State{DeferMalformed: true},
+		sieve:                 toolstream.State{CleanVisible: true, DeferMalformed: true},
 		messageID:             fmt.Sprintf("msg_%d", time.Now().UnixNano()),
 		thinkingBlockIndex:    -1,
 		textBlockIndex:        -1,

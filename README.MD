@@ -375,16 +375,16 @@ Gemini 路由还可以使用 `x-goog-api-key`，或在没有认证头时使用 `
 
 ## Tool Call 适配
 
-当请求中带 `tools` 时，DS2API 会做防泄漏处理与结构化转译：
+DS2API 对工具输出进行显示隔离、格式恢复和结构化转译；无正式工具目录的历史续轮也经过相同的防泄漏与收尾校验：
 
 1. 只在**非 Markdown 代码上下文**启用执行型 toolcall 识别（fenced code block 和行内 code span 中的示例默认不触发）
-2. 解析层当前把半角管道符 DSML 外壳视为推荐可执行调用：`<|DSML|tool_calls>` → `<|DSML|invoke name="...">` → `<|DSML|parameter name="...">`；兼容旧式 canonical XML `<tool_calls>` → `<invoke name="...">` → `<parameter name="...">`，以及若干 DSML 前缀/分隔符漂移。DSML 只是外壳别名，内部仍以 XML 解析语义为准；旧式 `<tools>` / `<tool_call>` / `<tool_name>` / `<param>`、`<function_call>`、`tool_use` / antml 变体与纯 JSON `tool_calls` 片段都会按普通文本处理，完整但 malformed 的 wrapper 也会作为普通文本释放
+2. 提示词使用本次请求专属标识的 XML 外壳，内部归一化为 EPSE；解析兼容旧式 canonical XML，并在共享收尾恢复完整 DSML 调用。未知标识或标签名的协议外壳先隔离，再进行受来源完整性约束的修复；无法安全恢复时返回 `invalid_tool_arguments`，不释放坏码，也不交付部分批次。Markdown、引号字符串、CDATA 和注释中的示例保持原文。
 3. `responses` 流式严格使用官方 item 生命周期事件（`response.output_item.*`、`response.content_part.*`、`response.function_call_arguments.*`）
 4. `responses` 支持并执行 `tool_choice`（`auto`/`none`/`required`/强制函数）；`required` 违规时非流式返回 `422`，流式返回 `response.failed`
 5. 客户端请求哪种协议，就按该协议返回工具调用（OpenAI/Claude/Gemini 各自原生结构）；模型侧优先约束输出规范 XML，再由兼容层转译
 
-> 说明：当前版本 parser 层以”尽量解析成功”为优先，所有格式合法的 XML 工具调用都会通过，不做工具名 allow-list 过滤。
-> 解析层会保留显式空字符串或纯空白参数；Prompt 会要求模型不要主动输出空参数，缺参/空命令的拒绝应由工具执行侧或客户端 schema 校验负责。
+> 说明：底层 parser 保留候选调用，生产交付前由共享收尾校验工具目录、`tool_choice` 与参数 schema。
+> 解析层保留显式空字符串或纯空白参数；Prompt 要求模型不要主动输出空参数，缺参/空命令是否被拒绝取决于 schema 和执行器规则。
 >
 > 想评估”把工具调用封装成 XML 再输入模型”的方案，可参考：`docs/toolcall-semantics.md`。
 

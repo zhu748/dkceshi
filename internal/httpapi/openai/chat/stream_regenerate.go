@@ -14,7 +14,7 @@ func (s *chatStreamRuntime) resetForRegeneration() {
 	s.accumulator.ResetThinkingGuard()
 	s.accumulator.ResetContentPolicy()
 	s.deferredText.Reset()
-	s.toolSieve = toolstream.State{DeferMalformed: true, Marker: s.toolSieve.Marker}
+	s.toolSieve = toolstream.State{CleanVisible: true, DeferMalformed: true, Marker: s.toolSieve.Marker}
 	s.responseMessageID = 0
 	s.upstreamErr = ""
 	s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = 0, "", ""

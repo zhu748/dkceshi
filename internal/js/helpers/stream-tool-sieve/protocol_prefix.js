@@ -1,5 +1,8 @@
 'use strict';
 
+const { protocolEnvelopeAt } = require('./protocol_envelope');
+const { unfinishedToolTagName } = require('./body_integrity');
+
 const { skipXmlIgnoredSection } = require('./cdata_scan');
 const { markdownCodeSpanEnd } = require('./markdown_fence');
 const {
@@ -40,6 +43,8 @@ function protocolPrefixAt(text, start) {
     const keyword = consumeToolKeyword(text, i, protocol);
     if (keyword.ok && !/^[a-z0-9]$/i.test(normalizeFullwidthASCIIChar(text[keyword.next] || ''))) return protocol;
   }
+  if (protocolEnvelopeAt(text, start)) return 'envelope';
+  if (protocolEnvelopeAt(text, start, true) || (Buffer.byteLength(text.slice(start), 'utf8') > 128 && unfinishedToolTagName(text.slice(start)))) return 'envelope_partial';
   return '';
 }
 

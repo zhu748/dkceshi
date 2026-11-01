@@ -1,11 +1,14 @@
 package toolstream
 
 import (
+	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
 	"strings"
 )
 
 type State struct {
+	CleanVisible           bool
+	cleaner                textclean.StreamCleaner
 	DeferMalformed         bool
 	DisplayOnly            bool // suppress bare calls in display channels without executing them
 	pending                strings.Builder

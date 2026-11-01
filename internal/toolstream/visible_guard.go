@@ -16,6 +16,7 @@ type VisibleGuard struct {
 
 func (g *VisibleGuard) Write(text string) string {
 	g.state.DeferMalformed = true
+	g.state.CleanVisible = true
 	g.state.DisplayOnly = true
 	g.state.Marker = g.Marker
 	return visibleGuardText(ProcessChunk(&g.state, text, nil))
@@ -29,9 +30,9 @@ func visibleGuardText(events []Event) string {
 	var out strings.Builder
 	for _, event := range events {
 		if event.Deferred {
-			idx, _ := toolcall.FindToolProtocolPrefixOutsideIgnored(event.Content, 0)
+			idx, protocol := toolcall.FindToolProtocolPrefixOutsideIgnored(event.Content, 0)
 			epse, canonical := toolcall.ContainsToolMarkupSyntaxOutsideIgnored(event.Content)
-			if idx >= 0 || epse || canonical || toolcall.HasUnresolvedToolMarkup(event.Content) {
+			if (idx >= 0 && protocol != "envelope_partial") || epse || canonical || toolcall.HasUnresolvedToolMarkup(event.Content) {
 				continue
 			}
 		}
@@ -41,9 +42,6 @@ func visibleGuardText(events []Event) string {
 }
 
 func FilterVisible(text, marker string) string {
-	if !strings.ContainsAny(text, "<＜﹤〈") {
-		return text
-	}
 	guard := VisibleGuard{Marker: marker}
 	return guard.Write(text) + guard.Flush()
 }

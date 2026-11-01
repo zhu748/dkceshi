@@ -29,7 +29,7 @@ const toolCallRepairModel = "deepseek-v4.1-flash"
 
 // toolCallRepairTimeout bounds a single repair completion to 10 seconds
 // (phase3 §3). On timeout the invoker returns an error and the caller falls
-// back to emitting the residual verbatim (branch ③).
+// back to shared validation, which rejects unresolved tool protocol.
 const toolCallRepairTimeout = 10 * time.Second
 
 // toolCallRepairSessionDeleteTimeout bounds the best-effort cleanup delete of a

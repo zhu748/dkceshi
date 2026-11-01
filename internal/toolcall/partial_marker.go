@@ -6,13 +6,9 @@ import (
 )
 
 // A marker typo must not escape before its local tag name arrives. Buffer a
-// short unfinished tag name, including unknown prefixes, until the normal
-// scanner can classify it. The bound applies only before the local name is
-// recognizable, never to attributes or long parameter bodies.
+// unfinished tag name, including unknown prefixes, until the normal scanner
+// can classify it. Length is never evidence that a candidate is safe prose.
 func unfinishedToolTagName(text string) bool {
-	if len(text) > 128 {
-		return false
-	}
 	i, ok := partialToolTagNameStart(text)
 	if !ok {
 		return false

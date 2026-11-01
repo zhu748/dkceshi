@@ -273,7 +273,7 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 // one. Mirrors chat/claude stream_regenerate.go.
 func (s *geminiStreamRuntime) resetForRegeneration() {
 	s.accumulator.ResetForRegeneration()
-	s.toolSieve = toolstream.State{DeferMalformed: true, Marker: s.toolMarker}
+	s.toolSieve = toolstream.State{CleanVisible: true, DeferMalformed: true, Marker: s.toolMarker}
 	s.deferredText.Reset()
 	s.toolCallsPending = false
 	s.answerDelivered = false
@@ -307,7 +307,7 @@ func newGeminiStreamRuntime(
 		thinkingEnabled:       thinkingEnabled,
 		searchEnabled:         searchEnabled,
 		bufferContent:         len(toolNames) > 0 || systemTextTools,
-		toolSieve:             toolstream.State{DeferMalformed: true},
+		toolSieve:             toolstream.State{CleanVisible: true, DeferMalformed: true},
 		stripReferenceMarkers: stripReferenceMarkers,
 		toolNames:             toolNames,
 		toolsRaw:              toolsRaw,

@@ -28,7 +28,7 @@
 
 对本解析语义的影响：
 
-- 动态标识先由归一化器折回 EPSE。作为格式漂移兜底，流式层也暂存不超过 128 UTF-8 字节的未知半截标签名，直到能识别固定本地名或确定为普通文本；该限制不作用于已识别的标签属性和参数值。`TestProcessToolSieveUnknownMarkerFallback` 和跨分片错误标识回归覆盖未归一化标识的安全捕获，避免先泄漏正文、收尾再解析成调用。
+- 动态标识先由归一化器折回 EPSE。流式候选识别额外接受特殊分隔符包裹的未知标识与未知本地名，先隔离后解析；超过 128 UTF-8 字节的未定标签名进入捕获区，不再因长度放行为正文。普通 HTML/特殊 token 在边界明确后保留；缺乏工具外壳证据的半截未知 token 在 EOF 保留。相关语义以共享 `visibility/stream.json` 的 Go/Node 分片与最终校验测试为准。
 - 所以模型输出在进入 sieve / parser / 意图识别 / 兜底修复之前，必须由**有状态**归一化器把 M 折回 `EPSE`。Go：`internal/toolcall/marker.go` 的 `MarkerNormalizer` + `toolstream.State.Marker`（`ProcessChunk` / `Flush` 内部自动执行）+ `assistantturn.BuildOptions.ToolMarker`（收口幂等兜底）；Node / Vercel：`internal/js/chat-stream/marker.js`。归一化跨分片安全：尾部若为 M 的真前缀会先 hold，下一片到达再替换，收尾 flush 释放，因此半截标识不会泄漏成可见正文。hold 的判定基准是**最后一个完整 M 出现之后的残余**，而不是整个缓冲区：完整出现的尾部本身就是 M，以整个缓冲区为基准时自重叠标识（`N3KZ5N`）会把「本次出现已完整」误判成「下一次出现刚开始」，把完整出现切成「已释放的半截 + 被 hold 的尾部」并泄漏成可见正文。派生阶段同时排除自重叠标识（`DeriveToolMarker` 的两条不变量），此处是有意保留的第二道防线。
 - 本文档其余所有语义（EPSE 外壳、噪声前缀容错、简写形态、CDATA 边界修复、`sawToolCallIntent` 的 `<|EPSE` 成对判定、slot 修复）都以**归一化之后**的 EPSE 形态文本为前提。
 - 兜底修复（LLM repair）的 prompt（格式规范 + 固定提示词）同样按 M 渲染，模型回答在解析前归一化回 EPSE；残余坏码本身来自已归一化的内部文本，slot / 结构判定不受影响。
@@ -46,19 +46,19 @@
 
 - 如果模型漏掉 opening wrapper，但后面仍输出了一个或多个 invoke 并以 closing wrapper 收尾，Go 解析链路会在解析前补回缺失的 opening wrapper。
 - 在进入现有 EPSE rewrite / XML parse 之前，Go / Node 都会先做一次非常窄的 candidate-span canonicalization：只处理已经被 scanner 识别为工具标签壳的 wrapper / `invoke` / `parameter` / `name` / `CDATA` / `EPSE` 及其结构分隔符；这里会移除零宽 / BOM / 控制类干扰字符，并把 `<`、`>`、`/`、`|`、`=`、引号、Unicode 空白、常见 dash / underscore 变体这类工具语法外壳符号折回 ASCII 语义。
-- Go / Node 解析层不再枚举每一种 EPSE typo。它以固定本地标签名 `tool_calls` / `invoke` / `parameter` 为准，把标签名前的任意协议前缀壳视为可容忍噪声，并继续兼容半角管道符、全角感叹号 `！`、顿号 `、`、空白、重复 leading `<`、可视控制符 `␂`、原始 STX `\x02`、非 ASCII 分隔符、CJK 尖括号 `〈` / `〉`、弯引号属性值、PascalCase 本地名等漂移。例如 `<EPSE|tool_calls>`、`<<|EPSE|tool_calls>`、`<|EPSE tool_calls>`、`<EPSEtool_calls>`、`<DSmartToolCalls>`、`<<EPSE|EPSE|tool_calls>`、`<EPSE␂tool_calls>`、`<proto💥tool_calls>`、`<EPS|tool_calls>...〈/EPS|tool_calls〉`、`<！EPSE！tool_calls>...<！/EPSE！tool_calls>`、`<、EPSE、tool_calls>...<、/EPSE、tool_calls>` 都会归一化；相似但非固定标签名（如 `tool_calls_extra` / `ToolCallsExtra`）仍按普通文本处理。
+- Go / Node 解析层不再枚举每一种 EPSE typo。它以固定本地标签名 `tool_calls` / `invoke` / `parameter` 为准，把标签名前的任意协议前缀壳视为可容忍噪声，并继续兼容半角管道符、全角感叹号 `！`、顿号 `、`、空白、重复 leading `<`、可视控制符 `␂`、原始 STX `\x02`、非 ASCII 分隔符、CJK 尖括号 `〈` / `〉`、弯引号属性值、PascalCase 本地名等漂移。例如 `<EPSE|tool_calls>`、`<<|EPSE|tool_calls>`、`<|EPSE tool_calls>`、`<EPSEtool_calls>`、`<DSmartToolCalls>`、`<<EPSE|EPSE|tool_calls>`、`<EPSE␂tool_calls>`、`<proto💥tool_calls>`、`<EPS|tool_calls>...〈/EPS|tool_calls〉`、`<！EPSE！tool_calls>...<！/EPSE！tool_calls>`、`<、EPSE、tool_calls>...<、/EPSE、tool_calls>` 都会归一化；相似但非固定标签名（如 `tool_calls_extra` / `ToolCallsExtra`）不进入该确定性解析规则；其中带明确协议外壳的内容仍进入显示隔离与收尾校验。
 - 作为兜底，解析器还接受 EPSE 参数标签的“简写”形态：模型把 `<|EPSE|parameter ...>` 漏写成 `<|EPSE ...>`（缺少 `|parameter` 段），或把结束标签漏写成 `</|EPSE>`。打开简写只有在携带 `name=` 属性时才生效（`<|EPSE name="workdir">` → `<|EPSE|parameter name="workdir">`）；`</|EPSE>` 会被当作 `</|EPSE|parameter>`，而不带 `name=` 的裸简写（如 `<|EPSE foo="bar">`）以及空的 `<|EPSE>` 仍按普通文本处理。
 - 这个 candidate-span canonicalization 不会对普通 prose、参数正文、CDATA 内容或嵌套的非工具 XML 做广义 Unicode 归一化。也就是说，参数里的示例 `<invοke>`、普通聊天文本里的 confusable 单词、或其他非工具壳 XML 片段都保持原样；只有真正落在工具标签壳上的 whitelist 关键字和结构符号会被折叠。
 - 如果模型在固定工具标签名后多输出一个非结构性分隔符，例如 `<|EPSE|tool_calls|` / `<|EPSE|invoke|` / `<|EPSE|parameter|` / `<EPSEtool_calls※>`，或在带属性标签的结束符前多输出一个尾部分隔符（如 `<EPS|parameter name="command"|>`），兼容层会把这个尾部分隔符当作异常标签终止符并补齐或归一化；如果后面已经有 `>` / `〉`，也会消费这个多余分隔符后再归一化。结构性字符如 `<` / `>` / `/` / `=` / 引号、空白和 ASCII 字母数字不会被当作这类分隔符。
-- “缺失 opening wrapper”的修复只会在 wrapper-confidence 足够高时触发：scanner 必须已经识别出白名单工具壳结构（wrapper / invoke / parameter / `name=` 等），且剩余失败看起来只是壳层结构问题。相似但不在白名单内的 near-miss 标签名，或缺少足够 wrapper 证据的 malformed 片段，仍会按普通文本透传。
+- “缺失 opening wrapper”的修复只会在 wrapper-confidence 足够高时触发：scanner 必须已经识别出白名单工具壳结构（wrapper / invoke / parameter / `name=` 等），且剩余失败看起来只是壳层结构问题。没有协议外壳证据的 near-miss 标签名仍保留为普通文本；带协议外壳的未知标签由显示隔离与共享收尾校验处理。
 - 这是一个针对常见模型失误的窄修复，不改变推荐输出格式；prompt 仍要求模型直接输出完整 EPSE 外壳。
 - 裸 `<invoke ...>` / `<parameter ...>` 不会被当成“已支持的工具语法”；只有 `tool_calls` wrapper 或可修复的缺失 opening wrapper 才会进入工具调用路径。
 
 ## 2) 非兼容内容
 
-任何不满足上述 EPSE / legacy canonical XML 形态的内容，都会保留为普通文本，不会执行。一个例外是上一节提到的“缺失 opening wrapper、但 closing wrapper 仍存在”的窄修复场景。
+不满足支持语法的内容不会直接成为可执行调用。普通文本和字面量示例保留；已确认的工具协议外壳进入隔离和修复，不能因标签名不受支持就透传正文。修复仍受来源完整性和最终参数校验约束。
 
-当前 parser 不把 allow-list 当作硬安全边界：即使传入了已声明工具名列表，XML 里出现未声明工具名时也会尽量解析并交给上层协议输出；真正的执行侧仍必须自行校验工具名和参数。
+底层 parser 不把 allow-list 当作安全边界，会保留未知工具名交给共享收尾；生产交付前由共享收尾校验本次声明的工具目录、工具选择策略和参数 schema。执行侧仍应自行校验工具名和参数。
 
 ## 3) 流式与防泄漏行为
 
@@ -66,7 +66,7 @@
 
 - EPSE `<|EPSE|tool_calls>` wrapper、短横线形式（如 `<epse-tool-calls>` / `<epse-invoke>` / `<epse-parameter>`）、基于固定本地标签名的 EPSE 噪声容错形态、尾部非结构性分隔符形态（如 `<|EPSE|tool_calls|` / `<EPSEtool_calls※>`）和 canonical `<tool_calls>` wrapper 都会进入结构化捕获
 - 调用者专属标识（tool marker）形态在进入捕获前先被归一化回 EPSE（见 §1.1）。归一化器按分片滚动，遇到「尾部是 M 的真前缀」会先 hold，且 hold 的基准是最后一个完整 M 出现之后的残余（避免自重叠标识把完整出现切碎泄漏）；这条 hold 与 sieve 自身的工具标签 hold 相互独立，两者叠加保证既不会漏掉被切开的标识，也不会把半截标识透传成正文。Go 与 Node 行为一致。
-- DSML 外壳（如 `<DSML calls>` / `<|DSML|calls>` / `<DSML invoke name="...">`，本地名任意）也会作为额外的流式拦截入口进入捕获：DSML 不会解析成工具调用，捕获块完整后从可见正文中丢弃（隐藏），原始文本仍保留在 `accumulator.RawText` 中交给 finalize 兜底修复（`DetectToolCallIntent` → 修复链路），因此不会逐片泄漏到正文；流中途被主动打断时，未闭合的 DSML 块也一并隐藏。DSML 标签在 CDATA / 注释 / 围栏 / 行内 code span 内不触发，跨 chunk 的半截 DSML 标签也会被 hold。Go 侧实现 `internal/toolcall/toolcalls_intent.go` 的 `FindDSMLTagOutsideIgnored` / `FindMatchingDSMLClose` + `internal/toolcall/toolcalls_scan.go` 的 `isPartialDSMLTagPrefix`，Node / Vercel 侧对齐在 `internal/js/helpers/stream-tool-sieve/markup_scan.js`、`dsml_residue.js` 与 `sieve.js`。修复成功后的可见正文清理按**标记区间**进行（Go 侧 `internal/toolcall/toolcalls_deduct.go` 的 `BadToolMarkupSpans` / `RemoveTextSpans`）：只删除 DSML 包裹与解析失败的 EPSE / canonical 块，prose 保留；residual 因部分成功而不连续时仍能扣减，找不到坏标记区间时才退回整段 residual 删除。
+- DSML 外壳（如 `<DSML calls>` / `<|DSML|calls>` / `<DSML invoke name="...">`，本地名任意）也会作为额外的流式拦截入口进入捕获：流式 sieve 不直接交付 DSML 调用，捕获块完整后从可见正文中丢弃（隐藏），原始文本仍保留在 `accumulator.RawText` 中交给 finalize 恢复（完整 DSML 优先本地恢复，其余进入完整性受约束的修复链路），因此不会逐片泄漏到正文；流中途被主动打断时，未闭合的 DSML 块也一并隐藏。DSML 标签在 CDATA / 注释 / 围栏 / 行内 code span 内不触发，跨 chunk 的半截 DSML 标签也会被 hold。Go 侧实现 `internal/toolcall/toolcalls_intent.go` 的 `FindDSMLTagOutsideIgnored` / `FindMatchingDSMLClose` + `internal/toolcall/toolcalls_scan.go` 的 `isPartialDSMLTagPrefix`，Node / Vercel 侧对齐在 `internal/js/helpers/stream-tool-sieve/markup_scan.js`、`dsml_residue.js` 与 `sieve.js`。修复成功后的可见正文清理按**标记区间**进行（Go 侧 `internal/toolcall/toolcalls_deduct.go` 的 `BadToolMarkupSpans` / `RemoveTextSpans`）：只删除 DSML 包裹与解析失败的 EPSE / canonical 块，prose 保留；residual 因部分成功而不连续时仍能扣减，找不到坏标记区间时才退回整段 residual 删除。
 - 如果流里直接从 invoke 开始，但后面补上了 closing wrapper，Go 流式筛分也会按缺失 opening wrapper 的修复路径尝试恢复
 - 已识别成功的工具调用不会再次回流到普通文本
 - 底层 sieve 默认模式可返回无法解析的文本事件；生产路径启用 `DeferMalformed`，明确的工具协议残片在共享收尾失败时返回 `invalid_tool_arguments`，不作为成功正文透传。该规则也覆盖尚无工具名的未闭合 EPSE 外壳、未知 EPSE 标签及截断 canonical 调用。
@@ -83,6 +83,16 @@
 另外，`<parameter>` 的值如果本身是合法 JSON 字面量，也会按结构化值解析，而不是一律保留为字符串。例如 `123`、`true`、`null`、`[1,2]`、`{"a":1}` 都会还原成对应的 number / boolean / null / array / object。
 结构化 XML 参数也会还原为 JSON 结构：如果参数体只包含一个或多个 `<item>...</item>` 子节点，会输出数组；嵌套对象里的 item-only 字段也同样按数组处理。例如 `<parameter name="questions"><item><question>...</question></item></parameter>` 会输出 `{"questions":[{"question":"..."}]}`，而不是 `{"questions":{"item":...}}`。
 如果模型误把完整结构化 XML fragment 放进 CDATA，Go / Node 会先保护明显的原文字段（如 `content` / `command` / `prompt` / `old_string` / `new_string`），其余参数会尝试把 CDATA 内的完整 XML fragment 还原成 object / array；常见的 `<br>` 分隔符会按换行归一化后再解析。但如果 CDATA 只是单个平面的 XML/HTML 标签，例如 `<b>urgent</b>` 这种行内标记，兼容层会把它保留为原始字符串，而不会强行升成 object / array；只有明显表示结构的 CDATA 片段，例如多兄弟节点、嵌套子节点或 `item` 列表，才会触发结构化恢复。
+
+### 3.1) 显示隔离与格式恢复分离
+
+- `protocol_envelope` 只识别外壳，不推断工具语义。未知外壳中的具名调用可以进入既有修复；来源身份无法确认、参数含义不明确或完整性检查失败时，不交付调用。
+- `DeferMalformed` 保留候选原文供共享收尾；`CleanVisible` 在正文交付之前运行有状态显示清理。思考通道的 `VisibleGuard` 同样启用清理，原始内容仍独立保留。
+- Go `textclean.StreamCleaner` 与 Node `VisibleCleaner` 保留 Markdown/引号/CDATA/注释上下文。适配器只应用引用显示策略，不再逐 delta 重做格式删除。
+- wire 工具数组与结果按完整 JSON 结构识别，不依赖字段顺序或正则跨嵌套匹配。处于代码示例中的同样内容保持原样，空代码围栏也保留。
+- 显示外壳的结束位置按原文坐标、嵌套深度和字面量边界确定，避免 Unicode 大小写转换改变偏移，也避免示例里的结束标签提前结束外壳。
+- 待定显示单元超过 4 KiB 后分段缓冲，增量寻找完整边界；JSON 转义引号不触发反复重扫。完整解析和 EOF 处理仍决定最终显示结果。
+- 共享用例 `tests/compat/fixtures/visibility/stream.json` 同时覆盖两段任意切分、逐字节/字符及不同分片长度；Go 收尾和 Chat SSE 交付另行验证坏批次报错且不交付部分调用。
 
 ## 4) 输出结构
 
@@ -177,7 +187,7 @@ go test -v -run 'TestParseToolCalls|TestProcessToolSieve' ./internal/toolcall ./
 
 `repair_integrity.go` 比较修复前后的有名节点顺序及可确定的参数值，CDATA 占位符不能换到其他参数。
 贪婪/边界受限两种解释都必须先通过此校验再参与择优；备选解释不能通过丢弃未闭合参数取得成功。
-缺少工具名的原始调用也不能由修复模型自行猜一个工具名。最终输出必须解析完所有有名调用，残余坏调用使修复整体失败。
+缺少工具名的原始调用也不能由修复模型自行猜一个工具名。最终输出必须解析完所有有名调用，残余坏调用使修复整体失败。校验同时检查 `ResidualProtocolText`，修复输出附带的未闭合协议外壳即使尚无工具名，也不能绕过这一要求。
 JSON 兼容参数包只接受对象 input/parameters；空 input 的优先级在 Go 和 Node 中一致，不再被 parameters 替换。
 未闭合或未命名的 parameter 会使所属 invoke 失败，避免 schema 中的可选参数被静默漏掉。
 参数开标签若仅剩 `<|EPSE|description">` / `<|EPSE|old_string">`（带前缀、ASCII 字段名、

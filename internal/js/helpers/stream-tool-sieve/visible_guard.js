@@ -13,7 +13,8 @@ function visibleGuardText(events) {
     if (event.type !== 'text' || !event.text) continue;
     if (event.deferred) {
       const normalized = Array.from(removeToolMarkupIgnorables(event.text), normalizeFullwidthASCIIChar).join('');
-      if (findToolProtocolPrefixOutsideIgnored(event.text) || findToolMarkupTagOutsideIgnored(event.text, 0) || /<\/?(?:tool_calls|invoke|parameter)(?:\s|$)/i.test(normalized)) continue;
+      const candidate = findToolProtocolPrefixOutsideIgnored(event.text);
+      if ((candidate && candidate.protocol !== 'envelope_partial') || findToolMarkupTagOutsideIgnored(event.text, 0) || /<\/?(?:tool_calls|invoke|parameter)(?:\s|$)/i.test(normalized)) continue;
     }
     text += event.text;
   }
@@ -23,6 +24,7 @@ function visibleGuardText(events) {
 function createVisibleGuard(marker) {
   const state = createToolSieveState();
   state.deferMalformed = true;
+  state.cleanVisible = true;
   state.displayOnly = true;
   const normalizer = createMarkerNormalizer(marker);
   return {
@@ -32,7 +34,6 @@ function createVisibleGuard(marker) {
 }
 
 function filterVisible(text) {
-  if (!/[<＜﹤〈]/.test(text)) return text;
   const guard = createVisibleGuard();
   return guard.write(text) + guard.flush();
 }

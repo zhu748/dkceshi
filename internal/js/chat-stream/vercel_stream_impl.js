@@ -316,7 +316,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let usagePrompt = finalPrompt;
     const toolSieveEnabled = toolPolicy.toolSieveEnabled;
     let toolSieveState = createToolSieveState();
-    toolSieveState.deferMalformed = true;
+    toolSieveState.deferMalformed = toolSieveState.cleanVisible = true;
     // 调用者专属工具调用标识（由 Go 侧按 API Key 派生并随 prepare 下发）。
     // 上游只会输出该标识，而 sieve / 独立解析 / 复读守卫都只认 EPSE，
     // 因此所有流入文本都要先经它有状态地归一化回 EPSE（跨分片标识会被
@@ -352,7 +352,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       thinkingGuard = createVisibleGuard(prep.body.tool_marker);
       lastEmptyDetail = null;
       toolSieveState = createToolSieveState();
-      toolSieveState.deferMalformed = true;
+      toolSieveState.deferMalformed = toolSieveState.cleanVisible = true;
       markerNormalizer = createMarkerNormalizer(prep.body.tool_marker);
     };
 

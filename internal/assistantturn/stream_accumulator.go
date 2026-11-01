@@ -158,7 +158,7 @@ func (a *StreamAccumulator) appendVisibleThinking(text string) StreamPartDelta {
 }
 
 func (a *StreamAccumulator) appendVisibleThinkingDelta(delta StreamPartDelta, text string) StreamPartDelta {
-	cleanedText := textclean.CleanVisibleOutput(text, a.StripReferenceMarkers)
+	cleanedText := textclean.CleanVisibleDelta(text, a.StripReferenceMarkers)
 	if cleanedText == "" {
 		return delta
 	}
@@ -195,7 +195,9 @@ func (a *StreamAccumulator) appendTextPart(rawTrimmed string) StreamPartDelta {
 		delta.CitationOnly = true
 		return delta
 	}
-	cleanedText := textclean.CleanVisibleOutput(rawTrimmed, a.StripReferenceMarkers)
+	// Keep the assembled body lossless here. The body sieve owns streaming
+	// cleanup; finalization cleans this complete snapshot with full context.
+	cleanedText := textclean.CleanVisibleDelta(rawTrimmed, a.StripReferenceMarkers)
 	trimmed := sse.TrimContinuationOverlapFromBuilder(&a.Text, cleanedText)
 	if trimmed == "" {
 		return delta

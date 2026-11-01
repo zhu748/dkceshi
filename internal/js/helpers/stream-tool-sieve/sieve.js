@@ -1,4 +1,5 @@
 'use strict';
+const { cleanVisibleEvents } = require('./visible_events');
 const { appendCapture, captureReady } = require('./capture_progress');
 const { findToolProtocolPrefixOutsideIgnored } = require('./protocol_prefix');
 const { holdUnfinishedDisplayLiteral } = require('./unfinished_literal');
@@ -406,6 +407,6 @@ function consumeToolCapture(state, toolNames, final) {
 }
 
 module.exports = {
-  processToolSieveChunk,
-  flushToolSieve,
+  processToolSieveChunk: (state, chunk, names) => cleanVisibleEvents(state, processToolSieveChunk(state, chunk, names)),
+  flushToolSieve: (state, names) => cleanVisibleEvents(state, flushToolSieve(state, names), true),
 };

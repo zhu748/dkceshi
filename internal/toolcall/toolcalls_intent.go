@@ -52,7 +52,7 @@ func DetectToolCallIntent(text string) bool {
 			return true
 		}
 	}
-	return containsDSMLTagIntent(stripped)
+	return containsDSMLTagIntent(stripped) || hasNamedProtocolEnvelopeIntent(stripped)
 }
 
 // containsDSMLTagIntent reports whether text carries any DSML-prefixed markup

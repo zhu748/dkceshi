@@ -19,7 +19,7 @@ import (
 // 实测这句话容易误导模型：模型会把本来就是坏格式工具调用的片段判成普通聊天并直接返回
 // NO TOOL，导致该修的调用不修。因此暂时先移除这句提示词。分支 ② 的相关代码
 // （toolCallRepairNoToolSentinel 以及 RepairToolCallsWithLLM 里的判定）保持不变：
-// 模型若仍自发返回 NO TOOL，依旧按「非工具调用、坏码原样输出」处理。
+// 模型若仍自发返回 NO TOOL，则返回修复失败；共享校验仍拒绝未解决的工具协议。
 //
 // NOTE: 占位符相关的措辞必须与实际输入一致。早期版本声称「实际参数已用变量代替」，
 // 但未闭合的 CDATA 不参与 slot，模型实际会同时看到占位符和原始长内容，指令与输入
@@ -270,7 +270,7 @@ func restoreAndParseRepairOutput(out string, res cdataSlotResult, promptToken cd
 		}
 	}
 	parsed := parseToolCallsDetailedXMLOnly(restored)
-	if parsed.SawToolCallIntent {
+	if parsed.SawToolCallIntent || HasUnresolvedToolMarkup(parsed.ResidualProtocolText) {
 		return nil, fmt.Errorf("%w: unresolved tool-call intent", errIncompleteRepair)
 	}
 	calls := parsed.Calls

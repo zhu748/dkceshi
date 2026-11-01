@@ -129,3 +129,7 @@ func emptyOutputRetryMaxAttempts() int {
 func formatFinalStreamToolCallsWithStableIDs(calls []toolcall.ParsedToolCall, ids map[int]string, toolsRaw any, offsets ...int) []map[string]any {
 	return shared.FormatFinalStreamToolCallsWithStableIDs(calls, ids, toolsRaw, offsets...)
 }
+
+func cleanVisibleDelta(text string, stripReferenceMarkers bool) string {
+	return textclean.CleanVisibleDelta(text, stripReferenceMarkers)
+}

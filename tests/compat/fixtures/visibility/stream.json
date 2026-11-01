@@ -1,0 +1,246 @@
+[
+  {
+    "name": "foreign marker and wrong local name",
+    "marker": "Q7ZK3M",
+    "raw": "before\n<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>",
+    "visible": "before\n",
+    "calls": [],
+    "invalid": true
+  },
+  {
+    "name": "unknown unnamed envelope",
+    "marker": "Q7ZK3M",
+    "raw": "<|OTHER|broken>payload</|OTHER|broken>",
+    "visible": "",
+    "calls": [],
+    "invalid": true
+  },
+  {
+    "name": "unknown unclosed envelope",
+    "marker": "Q7ZK3M",
+    "raw": "before <|OTHER|broken payload",
+    "visible": "before ",
+    "calls": [],
+    "invalid": true
+  },
+  {
+    "name": "long marker",
+    "marker": "Q7ZK3M",
+    "raw": "<|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|tool_calls><|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|invoke name=\"read\"><|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|parameter name=\"path\"><![CDATA[a.txt]]></|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|parameter></|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|invoke></|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|tool_calls>",
+    "visible": "",
+    "calls": [
+      {
+        "name": "read",
+        "input": {
+          "path": "a.txt"
+        }
+      }
+    ],
+    "invalid": false
+  },
+  {
+    "name": "valid caller marker",
+    "marker": "Q7ZK3M",
+    "raw": "<|Q7ZK3M|tool_calls><|Q7ZK3M|invoke name=\"read\"><|Q7ZK3M|parameter name=\"path\"><![CDATA[a.txt]]></|Q7ZK3M|parameter></|Q7ZK3M|invoke></|Q7ZK3M|tool_calls>",
+    "visible": "",
+    "calls": [
+      {
+        "name": "read",
+        "input": {
+          "path": "a.txt"
+        }
+      }
+    ],
+    "invalid": false
+  },
+  {
+    "name": "damaged sibling",
+    "marker": "Q7ZK3M",
+    "raw": "<|Q7ZK3M|tool_calls><|Q7ZK3M|invoke name=\"read\"><|Q7ZK3M|parameter name=\"path\"><![CDATA[a.txt]]></|Q7ZK3M|parameter></|Q7ZK3M|invoke></|Q7ZK3M|tool_calls><|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>",
+    "visible": "",
+    "calls": [
+      {
+        "name": "read",
+        "input": {
+          "path": "a.txt"
+        }
+      }
+    ],
+    "invalid": true
+  },
+  {
+    "name": "foreign protocol inline example",
+    "marker": "Q7ZK3M",
+    "raw": "Example: `<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>`",
+    "visible": "Example: `<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>`",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "foreign protocol fence ```",
+    "marker": "Q7ZK3M",
+    "raw": "Example:\n```xml\n<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>\n```\nEnd.",
+    "visible": "Example:\n```xml\n<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>\n```\nEnd.",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "foreign protocol fence ~~~",
+    "marker": "Q7ZK3M",
+    "raw": "Example:\n~~~xml\n<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>\n~~~\nEnd.",
+    "visible": "Example:\n~~~xml\n<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>\n~~~\nEnd.",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "foreign protocol fence ````",
+    "marker": "Q7ZK3M",
+    "raw": "Example:\n````xml\n<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>\n````\nEnd.",
+    "visible": "Example:\n````xml\n<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>\n````\nEnd.",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "quoted protocol example",
+    "marker": "Q7ZK3M",
+    "raw": "\"<|Q7ZK3N|call name=\\\"read\\\">{\\\"input\\\":{\\\"path\\\":\\\"a.txt\\\"}}</|Q7ZK3N|call>\"",
+    "visible": "\"<|Q7ZK3N|call name=\\\"read\\\">{\\\"input\\\":{\\\"path\\\":\\\"a.txt\\\"}}</|Q7ZK3N|call>\"",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "comment protocol example",
+    "marker": "Q7ZK3M",
+    "raw": "<!-- <|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call> -->",
+    "visible": "<!-- <|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call> -->",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "CDATA protocol example",
+    "marker": "Q7ZK3M",
+    "raw": "<![CDATA[<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>]]>",
+    "visible": "<![CDATA[<|Q7ZK3N|call name=\"read\">{\"input\":{\"path\":\"a.txt\"}}</|Q7ZK3N|call>]]>",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "unconfirmed token prefix",
+    "marker": "Q7ZK3M",
+    "raw": "<｜System",
+    "visible": "<｜System",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "ordinary special token",
+    "marker": "Q7ZK3M",
+    "raw": "a<|custom_token|>b",
+    "visible": "a<|custom_token|>b",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "meta tokens",
+    "marker": "Q7ZK3M",
+    "raw": "a<|assistant|>b<|end_of_sentence|>c",
+    "visible": "abc",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "wire array example",
+    "marker": "Q7ZK3M",
+    "raw": "```json\n[{\"id\":\"call_demo\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]\n```",
+    "visible": "```json\n[{\"id\":\"call_demo\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]\n```",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "wire array outside literal",
+    "marker": "Q7ZK3M",
+    "raw": "before[{\"id\":\"call_demo\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]after",
+    "visible": "beforeafter",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "agent XML example",
+    "marker": "Q7ZK3M",
+    "raw": "~~~xml\n<attempt_completion><result>example</result></attempt_completion>\n~~~",
+    "visible": "~~~xml\n<attempt_completion><result>example</result></attempt_completion>\n~~~",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "normal HTML",
+    "marker": "Q7ZK3M",
+    "raw": "<section data-x=\"<tag>\">text</section>",
+    "visible": "<section data-x=\"<tag>\">text</section>",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "long marker without leading pipe",
+    "marker": "Q7ZK3M",
+    "raw": "<XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|tool_calls><XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|invoke name=\"read\"><XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|parameter name=\"path\"><![CDATA[a.txt]]></XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|parameter></XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|invoke></XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|tool_calls>",
+    "visible": "",
+    "calls": [
+      {
+        "name": "read",
+        "input": {
+          "path": "a.txt"
+        }
+      }
+    ],
+    "invalid": false
+  },
+  {
+    "name": "long ordinary HTML name",
+    "marker": "Q7ZK3M",
+    "raw": "<xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx>text</xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx>",
+    "visible": "<xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx>text</xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx>",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "Unicode in display wrapper",
+    "marker": "Q7ZK3M",
+    "raw": "<think>İ你好</think>after",
+    "visible": "İ你好after",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "nested display wrapper",
+    "marker": "Q7ZK3M",
+    "raw": "<think>outer<think>inner</think>tail</think>after",
+    "visible": "outerinnertailafter",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "quoted fake wrapper close",
+    "marker": "Q7ZK3M",
+    "raw": "<think>\"literal </think>\" hidden",
+    "visible": "",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "inline fake wrapper close",
+    "marker": "Q7ZK3M",
+    "raw": "<attempt_completion><result>Example: `</attempt_completion>` end</result></attempt_completion>",
+    "visible": "Example: `</attempt_completion>` end",
+    "calls": [],
+    "invalid": false
+  },
+  {
+    "name": "fenced fake wrapper close",
+    "marker": "Q7ZK3M",
+    "raw": "<think>before\n~~~xml\n</think>\n~~~\nafter</think>end",
+    "visible": "before\n~~~xml\n</think>\n~~~\nafterend",
+    "calls": [],
+    "invalid": false
+  }
+]

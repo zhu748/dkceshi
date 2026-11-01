@@ -2,10 +2,10 @@ package openai
 
 import "testing"
 
-func TestSanitizeLeakedOutputRemovesEmptyJSONFence(t *testing.T) {
+func TestSanitizeLeakedOutputPreservesEmptyJSONFence(t *testing.T) {
 	raw := "before\n```json\n```\nafter"
 	got := sanitizeLeakedOutput(raw)
-	if got != "before\n\nafter" {
+	if got != raw {
 		t.Fatalf("unexpected sanitized empty json fence: %q", got)
 	}
 }

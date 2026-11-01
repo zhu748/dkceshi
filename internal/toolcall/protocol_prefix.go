@@ -54,6 +54,17 @@ func toolProtocolPrefixAt(text string, start int) string {
 			}
 		}
 	}
+	if protocolEnvelopeAt(text, start, false) {
+		return "envelope"
+	}
+	if protocolEnvelopeAt(text, start, true) {
+		return "envelope_partial"
+	}
+	// Move long undecided names into the capture buffer (with incremental
+	// progress tracking), rather than releasing them or rescanning pending.
+	if len(text)-start > 128 && unfinishedToolTagName(text[start:]) {
+		return "envelope_partial"
+	}
 	return ""
 }
 
@@ -69,7 +80,7 @@ func HasUnresolvedToolMarkup(text string) bool {
 		if idx < 0 {
 			break
 		}
-		if protocol == "epse" {
+		if protocol != "dsml" && protocol != "envelope_partial" {
 			if tag, ok := scanToolMarkupTagAt(text, idx); !ok || !tag.Closing {
 				if _, closing := consumeToolMarkupClosingSlash(text, idx+xmlTagStartDelimiterLenAt(text, idx)); !closing {
 					return true

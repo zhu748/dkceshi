@@ -121,7 +121,7 @@ func newChatStreamRuntime(
 		searchEnabled:         searchEnabled,
 		stripReferenceMarkers: stripReferenceMarkers,
 		bufferToolContent:     bufferToolContent,
-		toolSieve:             toolstream.State{DeferMalformed: true},
+		toolSieve:             toolstream.State{CleanVisible: true, DeferMalformed: true},
 		streamToolCallIDs:     map[int]string{},
 		accumulator: assistantturn.StreamAccumulator{
 			Prompt:                finalPrompt,
@@ -290,7 +290,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 			if evt.Deferred {
 				content = toolstream.FilterVisible(content, "")
 			}
-			cleaned := cleanVisibleOutput(content, s.stripReferenceMarkers)
+			cleaned := cleanVisibleDelta(content, s.stripReferenceMarkers)
 			if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 				continue
 			}
@@ -383,7 +383,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 					if s.toolCallsEmitted || s.toolCallsPending {
 						continue
 					}
-					cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)
+					cleaned := cleanVisibleDelta(evt.Content, s.stripReferenceMarkers)
 					if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 						continue
 					}

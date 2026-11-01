@@ -12,10 +12,9 @@ function emptyToolMarkupGap(text) {
   return true;
 }
 
-// Mirror partial_marker.go: hold a short unfinished tag name even when the
-// model misspelled the caller marker. Attributes/bodies use the normal scanner.
+// Mirror partial_marker.go: length cannot turn an undecided name into prose.
 function unfinishedToolTagName(raw) {
-  return Buffer.byteLength(raw, 'utf8') <= 128 && /^[<＜﹤〈]+[/／∕⁄⧸]?[\p{L}\p{N}_\-|｜！!、\p{Cf}]*$/u.test(raw);
+  return /^[<＜﹤〈]+[/／∕⁄⧸]?[\p{L}\p{N}_\-|｜！!、\p{Cf}]*$/u.test(raw);
 }
 
 function includeDuplicateLeadingLessThan(text, idx) {
