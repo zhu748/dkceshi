@@ -1,9 +1,10 @@
 package toolstream
 
 import (
+	"strings"
+
 	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
-	"strings"
 )
 
 type State struct {
@@ -13,6 +14,7 @@ type State struct {
 	DeferMalformed         bool
 	DisplayOnly            bool // suppress bare calls in display channels without executing them
 	pending                strings.Builder
+	literalWait            *pendingLiteral
 	capture                strings.Builder
 	capturing              bool
 	captureProgress        captureProgress
@@ -35,34 +37,6 @@ type State struct {
 	// ProcessChunk 会先把流入文本里的标识归一化回 EPSE，再交给 sieve 解析。
 	Marker     string
 	normalizer *toolcall.MarkerNormalizer
-}
-
-func (s *State) ensureNormalizer() *toolcall.MarkerNormalizer {
-	if s.Marker == "" {
-		return nil
-	}
-	if s.normalizer == nil {
-		s.normalizer = toolcall.NewMarkerNormalizer(s.Marker)
-	}
-	return s.normalizer
-}
-
-// normalizeIncoming 把新流入的文本从调用者标识翻译回 EPSE，并在必要时保留
-// 可能跨越分片的标识前缀。
-func (s *State) normalizeIncoming(chunk string) string {
-	n := s.ensureNormalizer()
-	if n == nil {
-		return chunk
-	}
-	return n.Write(chunk)
-}
-
-// flushNormalizer 在流结束时释放被保留的标识残片。
-func (s *State) flushNormalizer() string {
-	if s.normalizer == nil {
-		return ""
-	}
-	return s.normalizer.Flush()
 }
 
 type Event struct {

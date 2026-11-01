@@ -28,7 +28,6 @@ const {
 const { createChatCompletionEmitter, createDeltaCoalescer } = require('./stream_emitter');
 const {
   asString,
-  isAbortError,
   fetchStreamPrepare,
   fetchStreamPow,
   fetchStreamSwitch,
@@ -132,7 +131,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           status: pow.status || 0,
         });
       } catch (err) {
-        if (lifecycle.closed || isAbortError(err)) {
+        if (lifecycle.closed || lifecycle.signal.aborted) {
           return '';
         }
         console.warn('[vercel_stream_pow] refresh failed, reusing previous PoW', {
@@ -164,7 +163,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         }
         return response;
       } catch (err) {
-        if (lifecycle.closed || isAbortError(err)) {
+        if (lifecycle.closed || lifecycle.signal.aborted) {
           return null;
         }
         throw err;
@@ -173,11 +172,16 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const fetchCompletion = (bodyPayload) => fetchDeepSeekStream(DEEPSEEK_COMPLETION_URL, bodyPayload, currentPowHeader);
     let activeDeepSeekSessionID = responseID;
     const fetchContinue = async (messageID) => {
-      return fetchDeepSeekStream(DEEPSEEK_CONTINUE_URL, {
-        chat_session_id: activeDeepSeekSessionID,
-        message_id: messageID,
-        fallback_to_resume: true,
-      }, '');
+      try {
+        return await fetchDeepSeekStream(DEEPSEEK_CONTINUE_URL, {
+          chat_session_id: activeDeepSeekSessionID,
+          message_id: messageID,
+          fallback_to_resume: true,
+        }, '');
+      } catch (err) {
+        console.warn('[vercel_stream] continuation failed', err.message);
+        return null;
+      }
     };
     // applySwitchedPayload 把 __stream_switch 返回的新账号 payload / token / PoW
     // / session 应用到当前流式请求，供首包与重试阶段的临时上游故障切号复用。
@@ -306,7 +310,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let thinkingGuard = createVisibleGuard(prep.body.tool_marker, true, finalPrompt);
     // Monotonic "has any non-whitespace char" flags: replaces per-line
     // outputText.trim() scans, which are O(total) per SSE line (O(n^2) per stream).
-    let hasVisibleThinking = false;
     let detectionThinkingText = '';
     const rawReasoning = () => mergeReasoningForUsage(rawThinkingText, detectionThinkingText, thinkingText);
     let outputText = '';
@@ -584,6 +587,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                 continue;
               }
               currentType = parsed.newType;
+              if (parsed.detectionThinking || parsed.parts.some(part => part.text)) continueState.sawContent = true;
               if (parsed.errorMessage) {
                 // 临时上游错误（如“服务器暂时不可用”）可重试：交给外层重试/切号
                 // 循环处理，而不是伪装成 content_filter 直接终止。
@@ -620,9 +624,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                       continue;
                     }
                     thinkingText += trimmed;
-                    if (!hasVisibleThinking) {
-                      hasVisibleThinking = trimmed.trim() !== '';
-                    }
                     deltaCoalescer.append('reasoning_content', trimmed);
                   }
                 } else {
@@ -695,29 +696,14 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
             await finishStreamFailure(res, releaseLease, { status: 502, message: err.message, code: err.code });
             return { terminal: true, retryable: false };
           }
-          if (lifecycle.closed || isAbortError(err)) {
+          if (lifecycle.closed || lifecycle.signal.aborted) {
             await finish('stop');
             return { terminal: true, retryable: false, interrupted: false };
           }
-          // Upstream stream interrupted mid-body (RST / EOF without terminal
-          // status). If the response already produced visible content and the
-          // upstream had not signalled completion with [DONE], try to resume
-          // the same message via the continue endpoint instead of silently
-          // delivering a truncated response.
-          if ((hasVisibleOutput || hasVisibleThinking) && !continueState.sawDone && shouldAutoContinue(continueState) && continueRounds < AUTO_CONTINUE_MAX_ROUNDS) {
-            continueRounds += 1;
-            const nextRes = await fetchContinue(continueState.responseMessageID);
-            if (nextRes !== null && nextRes.ok && nextRes.body) {
-              continueState = prepareContinueStateForNextRound(continueState);
-              currentResponse = nextRes;
-              continue;
-            }
-          }
-          if (hasVisibleOutput || hasVisibleThinking) {
-            return { terminal: false, retryable: false, interrupted: true, responseMessageID: continueState.responseMessageID };
-          }
-          // No partial output: fall through to the normal empty-output path.
-          break;
+          // Hidden reasoning and held protocol prefixes are partial output too.
+          // Never finalize executable calls from a stream without a terminal.
+          continueState.sawContent ||= outputText.length > 0 || rawThinkingText.length > 0 || detectionThinkingText.length > 0;
+          if (!continueState.sawContent) break;
         } finally {
           // Release the old upstream stream before retrying or waiting for a
           // different account. Otherwise an error event can leave its HTTP
@@ -740,10 +726,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (shouldAutoContinue(continueState) && continueRounds < AUTO_CONTINUE_MAX_ROUNDS) {
           continueRounds += 1;
           const nextRes = await fetchContinue(continueState.responseMessageID);
-          if (nextRes === null) {
+          if (lifecycle.closed || lifecycle.signal.aborted) {
             return { terminal: true, retryable: false };
           }
-          if (!nextRes.ok || !nextRes.body) {
+          if (!nextRes || !nextRes.ok || !nextRes.body) {
+            try { await nextRes?.body?.cancel(); }
+            catch (err) { console.warn('[vercel_stream] failed continuation cancel failed', err.message); }
             return { terminal: false, retryable: false, interrupted: true, responseMessageID: continueState.responseMessageID };
           }
           continueState = prepareContinueStateForNextRound(continueState);

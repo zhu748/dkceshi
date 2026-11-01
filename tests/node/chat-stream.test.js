@@ -190,6 +190,7 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
       return jsonResponse(prepareOverrides.switch_result || { error: 'no alternate account' }, prepareOverrides.switch_result ? 200 : 429);
     }
     if (textURL.includes('__stream_pow=1')) {
+      if (prepareOverrides.pow_error) throw prepareOverrides.pow_error;
       return jsonResponse({ pow_header: 'pow-header-refreshed' });
     }
     if (textURL.includes('__stream_release=1')) {
@@ -198,6 +199,7 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
     if (textURL.includes('/continue')) {
       const idx = Math.min(continueCalls + 1, upstreamSequences.length - 1);
       continueCalls += 1;
+      if (upstreamSequences[idx] instanceof Error) throw upstreamSequences[idx];
       return upstreamSequences[idx] instanceof Response ? upstreamSequences[idx] : sseResponse(upstreamSequences[idx]);
     }
     const idx = Math.min(completionCalls, upstreamSequences.length - 1);
@@ -2584,4 +2586,101 @@ test('second round metadata cannot consume initial snapshot provenance', () => {
     for(const part of parsed.parts) if(part.type==='text')text+=part.text;
   }
   assert.equal(text,'body!');
+});
+
+
+test('CDATA text before calls cannot leak or discard calls at any partition', async () => {
+  for (const fixture of require('../compat/fixtures/visibility/stream.json').filter(f => f.name.startsWith('CDATA literal followed'))) {
+    for (const size of [1, 7, fixture.raw.length]) {
+      const lines = [];
+      for (let i = 0; i < fixture.raw.length; i += size) lines.push('data: ' + JSON.stringify({p:'response/content',v:fixture.raw.slice(i,i+size)}) + '\n\n');
+      lines.push('data: [DONE]\n\n');
+      const result = await runMockVercelStream(lines, { tool_marker:fixture.marker, validate_tools:true, tool_names:['read'] });
+      const frames = result.frames.filter(f => f !== '[DONE]').map(JSON.parse);
+      assert.equal(frames.map(f => f.choices?.[0]?.delta?.content || '').join(''), fixture.visible);
+      const calls = frames.flatMap(f => f.choices?.[0]?.delta?.tool_calls || []);
+      assert.equal(calls.length, 1);
+      assert.deepEqual(JSON.parse(calls[0].function.arguments), {path:'private-path'});
+      assert.equal(frames.some(f => f.error), false);
+    }
+  }
+});
+
+test('interrupted reasoning calls wait for continuation even when all protocol is hidden', async () => {
+  const a = '<tool_calls><invoke name="read"></invoke></tool_calls>';
+  const b = '<tool_calls><invoke name="write"></invoke></tool_calls>';
+  for (const thinking_enabled of [false, true]) {
+    for (const failure of [new Error('RST'), Object.assign(new Error('transport aborted'), {name:'AbortError'})]) {
+      const interrupted = erroringSSEResponse(['data: ' + JSON.stringify({response_message_id:42,p:'response/thinking_content',v:a}) + '\n\n'], failure);
+      const result = await runMockVercelStreamSequence([interrupted, ['data: ' + JSON.stringify({p:'response/thinking_content',v:b}) + '\n\n', 'data: [DONE]\n\n']], {thinking_enabled, validate_tools:true, tool_names:['read','write']});
+      const frames = result.frames.filter(f => f !== '[DONE]').map(JSON.parse);
+      assert.equal(result.fetchURLs.filter(u => u.endsWith('/continue')).length, 1);
+      const validateIndex = result.fetchURLs.findIndex(u => u.includes('__stream_validate'));
+      assert.ok(validateIndex > result.fetchURLs.findIndex(u => u.endsWith('/continue')));
+      assert.deepEqual(frames.flatMap(f => f.choices?.[0]?.delta?.tool_calls || []).map(c => c.function.name), ['read','write']);
+      assert.equal(frames.some(f => f.error || f.choices?.[0]?.delta?.reasoning_content), false);
+    }
+  }
+});
+
+test('unresumable hidden reasoning never becomes executable calls', async () => {
+  const call = '<tool_calls><invoke name="read"></invoke></tool_calls>';
+  for (const thinking_enabled of [false, true]) {
+    const interrupted = erroringSSEResponse(['data: ' + JSON.stringify({p:'response/thinking_content',v:call}) + '\n\n'], new Error('RST'));
+    const result = await runMockVercelStreamSequence([interrupted], {thinking_enabled,validate_tools:true,tool_names:['read']});
+    const frames = result.frames.filter(f => f !== '[DONE]').map(JSON.parse);
+    assert.ok(frames.some(f => f.error?.code === 'upstream_interrupted'));
+    assert.equal(frames.flatMap(f => f.choices?.[0]?.delta?.tool_calls || []).length,0);
+    assert.equal(result.fetchURLs.some(u => u.includes('__stream_validate') || u.includes('__stream_switch')),false);
+  }
+});
+
+test('hidden reasoning snapshot envelopes resume on EOF before validation', async () => {
+  const call = '<tool_calls><invoke name="read"></invoke></tool_calls>';
+  const line = 'data: ' + JSON.stringify({v:{response:{message_id:42,fragments:[{id:1,type:'THINK',content:call}]}}}) + '\n\n';
+  const result = await runMockVercelStreamSequence([[line],['data: [DONE]\n\n']], {validate_tools:true,tool_names:['read']});
+  assert.equal(result.fetchURLs.filter(u => u.endsWith('/continue')).length,1);
+  const frames = result.frames.filter(f => f !== '[DONE]').map(JSON.parse);
+  assert.equal(frames.flatMap(f => f.choices?.[0]?.delta?.tool_calls || []).length,1);
+});
+
+test('failed or empty continuations cannot finalize a hidden partial call', async () => {
+  const line = 'data: ' + JSON.stringify({response_message_id:42,p:'response/thinking_content',v:'<tool_calls><invoke name="read"></invoke></tool_calls>'}) + '\n\n';
+  for (const interrupted of [false, true]) {
+    for (const failure of ['empty', 'http', 'network', 'abort']) {
+      const initial = interrupted ? erroringSSEResponse([line], new Error('RST')) : [line];
+      let canceled = false;
+      const next = failure === 'empty' ? [] : failure === 'http' ? new Response(new ReadableStream({cancel() { canceled = true; }}), {status:503})
+        : Object.assign(new Error('continue failed'), {name:failure === 'abort' ? 'AbortError' : 'Error'});
+      const result = await runMockVercelStreamSequence([initial,next], {validate_tools:true,tool_names:['read']});
+      const frames = result.frames.filter(f => f !== '[DONE]').map(JSON.parse);
+      assert.ok(frames.some(f => f.error?.code === 'upstream_interrupted'), `${interrupted}/${failure}`);
+      assert.equal(frames.some(f => f.choices?.[0]?.delta?.tool_calls || f.choices?.[0]?.finish_reason === 'tool_calls'),false);
+      assert.equal(result.fetchURLs.some(u => u.includes('__stream_validate') || u.includes('__stream_switch')),false);
+      assert.equal(result.res.writableEnded,true);
+      assert.equal(result.frames.filter(f => f === '[DONE]').length,1);
+      assert.ok(result.fetchBodies.some(body => body.finish_reason === 'upstream_interrupted'));
+      if (failure === 'http') assert.equal(canceled,true);
+    }
+  }
+});
+
+test('empty continuation preserves the current answer for a subsequent resume', async () => {
+  const a = '<tool_calls><invoke name="read"></invoke></tool_calls>';
+  const b = '<tool_calls><invoke name="write"></invoke></tool_calls>';
+  const line = v => 'data: ' + JSON.stringify({response_message_id:42,p:'response/thinking_content',v}) + '\n\n';
+  const result = await runMockVercelStreamSequence([[line(a)],[],[line(b),'data: [DONE]\n\n']], {validate_tools:true,tool_names:['read','write']});
+  const frames = result.frames.filter(f => f !== '[DONE]').map(JSON.parse);
+  assert.equal(result.fetchURLs.filter(u => u.endsWith('/continue')).length,2);
+  assert.deepEqual(frames.flatMap(f => f.choices?.[0]?.delta?.tool_calls || []).map(c => c.function.name),['read','write']);
+  assert.equal(frames.some(f => f.error),false);
+});
+
+test('PoW transport AbortError does not impersonate a client disconnect', async () => {
+  const result = await runMockVercelStreamSequence([['data: [DONE]\n\n'], ['data: {"p":"response/content","v":"recovered"}\n\n', 'data: [DONE]\n\n']], {
+    pow_error: Object.assign(new Error('transport aborted'), {name:'AbortError'}),
+  });
+  const frames = result.frames.filter(f => f !== '[DONE]').map(JSON.parse);
+  assert.equal(frames.map(f => f.choices?.[0]?.delta?.content || '').join(''),'recovered');
+  assert.equal(result.res.writableEnded,true);
 });

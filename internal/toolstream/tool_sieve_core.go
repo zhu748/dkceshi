@@ -8,8 +8,8 @@ func processChunk(state *State, chunk string, toolNames []string) []Event {
 	if state == nil {
 		return nil
 	}
-	if chunk != "" {
-		state.pending.WriteString(state.normalizeIncoming(chunk))
+	if state.appendPendingText(chunk) {
+		return nil
 	}
 	events := make([]Event, 0, 2)
 	if len(state.pendingToolCalls) > 0 {
@@ -63,19 +63,11 @@ func processChunk(state *State, chunk string, toolNames []string) []Event {
 			break
 		}
 		start := findToolSegmentStart(state, pending)
-		if state.DeferMalformed {
-			literal := toolcall.FindUnfinishedToolLiteralStart(pending)
-			partial := findPartialXMLToolTagStart(pending)
-			if literal >= 0 && !insideCodeFenceWithState(state, pending[:literal]) && (start < 0 || literal < start) && (partial < 0 || literal < partial) {
-				prefix := pending[:literal]
-				state.pending.Reset()
-				state.pending.WriteString(pending[literal:])
-				state.noteText(prefix)
-				if prefix != "" {
-					events = append(events, Event{Content: prefix})
-				}
-				break
+		if prefix, held := state.holdUnfinishedDisplayLiteral(pending, start); held {
+			if prefix != "" {
+				events = append(events, Event{Content: prefix})
 			}
+			break
 		}
 		if start == holdToolSegmentStart {
 			break
@@ -193,5 +185,6 @@ func flush(state *State, toolNames []string) []Event {
 		events = append(events, Event{Content: content, Deferred: state.DeferMalformed})
 		state.pending.Reset()
 	}
+	state.literalWait = nil
 	return events
 }

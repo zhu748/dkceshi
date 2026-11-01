@@ -55,9 +55,9 @@ internal/toolcall/toolcalls_deduct.go	248
 internal/toolcall/toolcalls_intent.go	463
 internal/toolcall/toolcalls_llm_repair.go	358
 internal/toolcall/toolcalls_parse.go	369
-internal/toolcall/toolcalls_parse_markup.go	788
+internal/toolcall/toolcalls_parse_markup.go	625
 internal/toolcall/toolcalls_scan.go	676
-internal/toolstream/tool_sieve_core.go	197
+internal/toolstream/tool_sieve_core.go	190
 internal/usagestats/store.go	439
 internal/webui/handler.go	468
 start.mjs	569

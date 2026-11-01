@@ -22,7 +22,7 @@ function prepareContinueStateForNextRound(state) {
     ...state,
     lastStatus: '',
     finished: false,
-    sawContent: false,
+    // Resume the same answer: an empty continuation cannot erase prior output.
     sawDone: false,
   };
 }

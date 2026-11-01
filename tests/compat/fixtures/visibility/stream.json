@@ -281,5 +281,35 @@
       }
     ],
     "invalid": false
+  },
+  {
+    "name": "CDATA literal followed by call canonical",
+    "marker": "",
+    "raw": "<![CDATA[example]]> <tool_calls><invoke name=\"read\"><parameter name=\"path\"><![CDATA[private-path]]></parameter></invoke></tool_calls>",
+    "visible": "<![CDATA[example]]> ",
+    "calls": [
+      {
+        "name": "read",
+        "input": {
+          "path": "private-path"
+        }
+      }
+    ],
+    "invalid": false
+  },
+  {
+    "name": "CDATA literal followed by call Q7ZK3M",
+    "marker": "Q7ZK3M",
+    "raw": "<![CDATA[example]]> <|Q7ZK3M|tool_calls><|Q7ZK3M|invoke name=\"read\"><|Q7ZK3M|parameter name=\"path\"><![CDATA[private-path]]></|Q7ZK3M|parameter></|Q7ZK3M|invoke></|Q7ZK3M|tool_calls>",
+    "visible": "<![CDATA[example]]> ",
+    "calls": [
+      {
+        "name": "read",
+        "input": {
+          "path": "private-path"
+        }
+      }
+    ],
+    "invalid": false
   }
 ]

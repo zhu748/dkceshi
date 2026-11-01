@@ -94,9 +94,27 @@ function toolCDATACloseLenAt(text, idx) {
   return gtLen ? (pos + gtLen) - idx : 0;
 }
 
+function cdataInParameter(text, from) {
+  const prefix = text.slice(0, from);
+  const open = Math.max(...['<', '＜', '﹤', '〈'].map(ch => prefix.lastIndexOf(ch)));
+  if (open < 0) return false;
+  const head = text.slice(0, open).replace(/[ \t\r\n]+$/, '');
+  const start = Math.max(...['<', '＜', '﹤', '〈'].map(ch => head.lastIndexOf(ch)));
+  if (start < 0) return false;
+  // Resolve lazily: markup_scan imports the ignored-section scanner.
+  const { scanToolMarkupTagAt } = require('./markup_scan');
+  const tag = scanToolMarkupTagAt(head, start);
+  return !!tag && !tag.closing && tag.name === 'parameter' && tag.end + 1 === head.length;
+}
+
 function findToolCDATAEnd(text, from) {
   const raw = toRawString(text);
   if (from < 0 || from >= raw.length) {
+    return -1;
+  }
+  // Ordinary literals cannot borrow a later parameter's CDATA close.
+  if (!cdataInParameter(raw, from)) {
+    for (let i = from; i < raw.length; i += 1) if (toolCDATACloseLenAt(raw, i)) return i;
     return -1;
   }
   let firstNonFenceEnd = -1;

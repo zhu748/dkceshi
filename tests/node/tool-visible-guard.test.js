@@ -79,3 +79,25 @@ test('display markers are filtered after classification and preserve literal exa
     }
   }
 });
+
+
+test('large held literals preserve escapes and resume filtering at the boundary', () => {
+  const text = 'a\\"b'.repeat(16384);
+  const call = '<tool_calls><invoke name="read"><parameter name="path"><![CDATA[secret]]></parameter></invoke></tool_calls>';
+  for (const literal of [JSON.stringify(text), '<!--'+text+'-->', '<![CDATA['+text+']]>', '<![CDATA['+text+']]＞']) {
+    for (const size of [1, 17, 4096]) {
+      const guard = createVisibleGuard();
+      const raw = literal + call + 'after'; let result = '';
+      for (let i=0;i<raw.length;i+=size) result += guard.write(raw.slice(i,i+size));
+      result += guard.flush();
+      assert.equal(result, literal+'after');
+    }
+  }
+});
+
+test('held literals flush at EOF and invalid quotes resume scanning', () => {
+  for (const raw of ['"unclosed', '"escaped\\"', '<!--unclosed', '<![CDATA[unclosed', '"invalid\nquote']) {
+    const guard = createVisibleGuard();
+    assert.equal(Array.from(raw, ch => guard.write(ch)).join('') + guard.flush(), raw);
+  }
+});

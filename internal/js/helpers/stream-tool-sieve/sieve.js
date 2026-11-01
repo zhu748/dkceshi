@@ -1,4 +1,5 @@
 'use strict';
+const { pendingLiteral, appendPendingText } = require('./pending_literal');
 const { cleanVisibleEvents } = require('./visible_events');
 const { appendCapture, captureReady } = require('./capture_progress');
 const { findToolProtocolPrefixOutsideIgnored } = require('./protocol_prefix');
@@ -27,9 +28,7 @@ function processToolSieveChunk(state, chunk, toolNames) {
   if (!state) {
     return [];
   }
-  if (chunk) {
-    state.pending += chunk;
-  }
+  if (appendPendingText(state, chunk)) return [];
   const events = [];
   while (true) {
     if (Array.isArray(state.pendingToolCalls) && state.pendingToolCalls.length > 0) {
@@ -85,6 +84,7 @@ function processToolSieveChunk(state, chunk, toolNames) {
     const literal = holdUnfinishedDisplayLiteral(state, pending, start);
     if (literal) {
       state.pending = literal.tail;
+      state.literalWait = pendingLiteral(literal.tail);
       noteText(state, literal.prefix);
       if (literal.prefix) events.push({ type: 'text', text: literal.prefix });
       break;
@@ -191,6 +191,7 @@ function flushToolSieve(state, toolNames) {
     events.push({ type: 'text', text: content, deferred: !!state.deferMalformed });
     state.pending = '';
   }
+  state.literalWait = null;
   return events;
 }
 
