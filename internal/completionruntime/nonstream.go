@@ -499,7 +499,7 @@ func collectAttempt(ctx context.Context, resp *http.Response, a *auth.RequestAut
 	// this build and another in the terminal build, doubling cost, latency and
 	// leaked sessions. Build without the repair invoker so repair runs only in
 	// the single terminal build.
-	turn := assistantturn.BuildTurnFromCollected(result, buildOptionsWithoutRepair(stdReq, usagePrompt, opts))
+	turn := assistantturn.BuildTurnFromCollected(result, collectedBuildOptions(ctx, stdReq, usagePrompt, opts, result.ReadError))
 	if result.ReadError != nil {
 		return turn, turn.Error
 	}

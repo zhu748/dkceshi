@@ -15,6 +15,7 @@ import (
 	streamengine "ds2api/internal/stream"
 	"ds2api/internal/streamwriter"
 	"ds2api/internal/toolcall"
+	"ds2api/internal/tooldiagnostics"
 	"ds2api/internal/toolstream"
 )
 
@@ -140,6 +141,7 @@ func newResponsesStreamRuntime(
 }
 
 func (s *responsesStreamRuntime) failResponse(status int, message, code string) {
+	tooldiagnostics.Failure(s.toolCallRepairCtx, code, message)
 	s.failed = true
 	s.finalErrorStatus = status
 	s.finalErrorMessage = message

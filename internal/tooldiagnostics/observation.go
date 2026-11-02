@@ -42,7 +42,7 @@ func Observe(ctx context.Context, o Observation) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.record.CompletedAt != 0 || !o.Relevant && !r.active {
+	if !r.matchesAttempt(ctx) || r.record.CompletedAt != 0 || !o.Relevant && !r.active {
 		return
 	}
 	r.active = true

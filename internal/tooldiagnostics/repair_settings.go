@@ -200,3 +200,10 @@ func (s *Store) PreviewRepairSettings(next RepairSettings) (RepairSettings, erro
 	}
 	return *value, nil
 }
+
+// Return normalized public settings and their revision under one lock.
+func (s *Store) SettingsSnapshot() (Settings, int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return PublicSettings(s.state.Settings), s.state.Revision
+}

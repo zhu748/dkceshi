@@ -40,6 +40,7 @@ func (h *Handler) handleResponsesStreamWithRetry(w http.ResponseWriter, r *http.
 		CurrentInputFile:    h.Store,
 		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
+		DiagnosticOutput: streamRuntime.accumulator.DiagnosticOutput,
 		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 			return h.consumeResponsesStreamAttempt(r, currentResp, streamRuntime, initialType, thinkingEnabled, allowDeferEmpty)
 		},

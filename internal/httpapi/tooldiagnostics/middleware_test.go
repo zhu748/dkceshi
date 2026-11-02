@@ -77,3 +77,24 @@ func TestCustomRepairSettingsApplyWithCaptureDisabled(t *testing.T) {
 	}))
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
 }
+
+func TestPublicQueryCannotBypassRepairConfiguration(t *testing.T) {
+	for _, q := range []string{"__stream_unused=1", "__stream_prepare=0", "__stream_validate=", "__stream_pow=false"} {
+		t.Run(q, func(t *testing.T) {
+			s := tooldiagnostics.New(filepath.Join(t.TempDir(), "diag.json"))
+			if err := s.SetRepairSettings(tooldiagnostics.RepairSettings{Mode: "custom", BaseURL: "https://example.test/v1", Model: "repair"}); err != nil {
+				t.Fatal(err)
+			}
+			handler := Middleware(s)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if cfg := tooldiagnostics.RepairSettingsFromContext(r.Context()); cfg.Mode != "custom" || cfg.Model != "repair" {
+					t.Fatal("lost repair settings")
+				}
+				assistantturn.BuildTurnFromCollected(sse.CollectResult{Text: `<tool_calls><invoke name="read"></invoke></tool_calls>`}, assistantturn.BuildOptions{DiagnosticContext: r.Context()})
+			}))
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/chat/completions?"+q, nil))
+			if s.List(tooldiagnostics.Query{}).Total != 1 {
+				t.Fatal("query bypassed capture")
+			}
+		})
+	}
+}

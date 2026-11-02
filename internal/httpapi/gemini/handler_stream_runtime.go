@@ -160,6 +160,7 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 		CurrentInputFile:    h.Store,
 		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
+		DiagnosticOutput: runtime.accumulator.DiagnosticOutput,
 		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 			return h.consumeGeminiStreamAttempt(r.Context(), currentResp, runtime, thinkingEnabled, allowDeferEmpty)
 		},
@@ -178,8 +179,8 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 		OnRetryPrompt: func(prompt string) {
 			runtime.finalPrompt = prompt
 		},
-		OnRetryFailure: func(status int, message, _ string) {
-			runtime.sendErrorChunk(status, strings.TrimSpace(message))
+		OnRetryFailure: func(status int, message, code string) {
+			runtime.sendErrorChunk(status, strings.TrimSpace(message), code)
 		},
 		EmptyOutputError: func() *assistantturn.OutputError {
 			if runtime.finalErrorCode == "" {
@@ -247,7 +248,7 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 		// Partial output but no resumable message id: surface the truncation and
 		// close the history entry like the chat surface does, so it does not stay
 		// in "streaming" forever.
-		runtime.sendErrorChunk(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.")
+		runtime.sendErrorChunk(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.", "upstream_interrupted")
 		if runtime.history != nil {
 			rawText, text, rawThinking, thinking, detectionThinking := runtime.accumulator.Snapshot()
 			runtime.history.Error(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.", "upstream_interrupted",
@@ -350,10 +351,14 @@ func (s *geminiStreamRuntime) promptTokenCountFor(prompt string) (int, bool) {
 	return s.countInputTokens(prompt), true
 }
 
-func (s *geminiStreamRuntime) sendErrorChunk(status int, message string) {
+func (s *geminiStreamRuntime) sendErrorChunk(status int, message string, codes ...string) {
 	msg := strings.TrimSpace(message)
 	if msg == "" {
 		msg = http.StatusText(status)
+	}
+	s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = status, msg, "upstream_error"
+	if len(codes) > 0 && codes[0] != "" {
+		s.finalErrorCode = codes[0]
 	}
 	errorStatus := "INVALID_ARGUMENT"
 	switch status {
@@ -424,7 +429,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 		if s.history != nil {
 			s.history.Error(outcome.Error.Status, outcome.Error.Message, outcome.Error.Code, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text))
 		}
-		s.sendErrorChunk(outcome.Error.Status, outcome.Error.Message)
+		s.sendErrorChunk(outcome.Error.Status, outcome.Error.Message, outcome.Error.Code)
 		return true
 	}
 	if s.history != nil {

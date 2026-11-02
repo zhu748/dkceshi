@@ -39,7 +39,7 @@ export default function RepairSettingsPanel({ settings, ready, busy, mutate, aut
         } catch { setError(t('toolDiagnostics.repair.invalidExtra')); return }
         const { extra: _extra, ...body } = draft
         const saved = await mutate('/repair-settings', 'PUT', { ...body, extra_body: extra })
-        if (saved) { setDraft(previous => ({ ...previous, api_key: '', clear_api_key: false })); setDirty(false) }
+        if (saved?.settings?.repair) { setDraft(toDraft(saved.settings.repair)); setDirty(false) }
     }
 
     return <details className="rounded-xl border border-border bg-card/70 p-4">

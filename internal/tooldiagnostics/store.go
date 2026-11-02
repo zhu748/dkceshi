@@ -49,9 +49,13 @@ func (s *Store) Put(record Record) error {
 		s.lastError = err
 		return err
 	}
+	before := s.state
+	s.state.Items = append([]Summary(nil), s.state.Items...)
 	found := false
+	reorder := false
 	for i := range s.state.Items {
 		if s.state.Items[i].ID == record.ID {
+			reorder = s.state.Items[i].CreatedAt != record.CreatedAt
 			s.state.Items[i] = record.Summary
 			found = true
 			break
@@ -59,15 +63,22 @@ func (s *Store) Put(record Record) error {
 	}
 	if !found {
 		s.state.Items = append(s.state.Items, record.Summary)
+		reorder = true
 	}
-	sort.Slice(s.state.Items, func(i, j int) bool {
-		a, b := s.state.Items[i], s.state.Items[j]
-		if a.CreatedAt == b.CreatedAt {
-			return a.ID > b.ID
-		}
-		return a.CreatedAt > b.CreatedAt
-	})
-	return s.commitLocked(s.trimLocked())
+	if reorder {
+		sort.Slice(s.state.Items, func(i, j int) bool {
+			a, b := s.state.Items[i], s.state.Items[j]
+			if a.CreatedAt == b.CreatedAt {
+				return a.ID > b.ID
+			}
+			return a.CreatedAt > b.CreatedAt
+		})
+	}
+	if err := s.commitLocked(s.trimLocked()); err != nil {
+		s.state = before
+		return err
+	}
+	return nil
 }
 
 func (s *Store) trimLocked() []string {
@@ -233,8 +244,13 @@ func (s *Store) Delete(id string) error {
 }
 
 func (s *Store) saveIndexLocked() error {
-	s.state.Revision = time.Now().UnixNano()
-	return atomicJSON(s.path, s.state)
+	next := s.state
+	next.Revision = time.Now().UnixNano()
+	if err := atomicJSON(s.path, next); err != nil {
+		return err
+	}
+	s.state.Revision = next.Revision
+	return nil
 }
 func (s *Store) commitLocked(removed []string) error {
 	if err := s.saveIndexLocked(); err != nil {

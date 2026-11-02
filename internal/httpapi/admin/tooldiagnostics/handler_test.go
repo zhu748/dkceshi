@@ -115,3 +115,22 @@ func TestModelDiscoveryBeforeSaveThenPersistsSelectedProtocolAndModel(t *testing
 		t.Fatal("selected model or protocol did not persist")
 	}
 }
+
+func TestSettingsMutationReturnsNormalizedPublicSnapshot(t *testing.T) {
+	s := tooldiagnostics.New(filepath.Join(t.TempDir(), "diag.json"))
+	router := chi.NewRouter()
+	RegisterRoutes(router, &Handler{Store: s})
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodPut, "/tool-call-records/repair-settings", strings.NewReader(`{"mode":"custom","base_url":"https://example.test/v1","model":" normalized ","api_key":"private-snapshot-key"}`)))
+	var saved struct {
+		Success  bool                     `json:"success"`
+		Settings tooldiagnostics.Settings `json:"settings"`
+		Revision int64                    `json:"revision"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || !saved.Success || saved.Revision == 0 || saved.Settings.Repair == nil || saved.Settings.Repair.Protocol != "openai" || saved.Settings.Repair.Model != "normalized" || !saved.Settings.Repair.HasAPIKey || saved.Settings.Repair.APIKey != "" || strings.Contains(w.Body.String(), "private-snapshot-key") || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("bad saved snapshot: %s", w.Body.String())
+	}
+}

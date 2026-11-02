@@ -79,7 +79,11 @@ func (h *Handler) settings(w http.ResponseWriter, r *http.Request) {
 		adminshared.WriteJSON(w, 400, map[string]any{"detail": "invalid settings"})
 		return
 	}
-	h.result(w, h.Store.SetSettings(tooldiagnostics.Settings{Enabled: body.Enabled, Limit: body.Limit}))
+	if err := h.Store.SetSettings(tooldiagnostics.Settings{Enabled: body.Enabled, Limit: body.Limit}); err != nil {
+		h.respondError(w, err)
+		return
+	}
+	h.savedSettings(w)
 }
 
 func (h *Handler) repairSettings(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +96,11 @@ func (h *Handler) repairSettings(w http.ResponseWriter, r *http.Request) {
 		adminshared.WriteJSON(w, 400, map[string]any{"detail": "invalid repair settings"})
 		return
 	}
-	h.result(w, h.Store.SetRepairSettings(body))
+	if err := h.Store.SetRepairSettings(body); err != nil {
+		h.respondError(w, err)
+		return
+	}
+	h.savedSettings(w)
 }
 func (h *Handler) result(w http.ResponseWriter, err error) {
 	if err != nil {
@@ -131,4 +139,10 @@ func (h *Handler) repairModels(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	adminshared.WriteJSON(w, 200, models)
+}
+
+func (h *Handler) savedSettings(w http.ResponseWriter) {
+	settings, revision := h.Store.SettingsSnapshot()
+	w.Header().Set("Cache-Control", "no-store")
+	adminshared.WriteJSON(w, 200, map[string]any{"success": true, "settings": settings, "revision": revision})
 }

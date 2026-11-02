@@ -54,6 +54,7 @@ type StreamRetryHooks struct {
 	OnTerminal       func(attempts int)
 	EmptyOutputError func() *assistantturn.OutputError
 	RejectedOutput   func() string
+	DiagnosticOutput func() (text, thinking, detection string)
 }
 
 // continueResumer is implemented by DeepSeek callers that can resume a
@@ -93,12 +94,15 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 	currentResp := initialResp
 	currentPayload := clonePayload(payload)
 	usagePrompt := opts.UsagePrompt
+	var terminalFailure *assistantturn.OutputError
+	defer func() { recordStreamFailure(ctx, opts.Request, usagePrompt, hooks, terminalFailure) }()
 	failed := false
 	fail := func(err *assistantturn.OutputError) {
 		if failed {
 			return
 		}
 		failed = true
+		terminalFailure = err
 		tooldiagnostics.Failure(ctx, err.Code, err.Message)
 		if ctx.Err() == nil && hooks.OnRetryFailure != nil {
 			hooks.OnRetryFailure(err.Status, err.Message, err.Code)

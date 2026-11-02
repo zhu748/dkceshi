@@ -37,6 +37,7 @@ func leaseDiagnosticContext(ctx context.Context, lease streamLease, req map[stri
 		number = util.IntFrom(n)
 	}
 	tooldiagnostics.SelectAttempt(ctx, number, asString(req["diagnostic_retry_reason"]), account)
+	ctx = tooldiagnostics.WithAttempt(ctx, number)
 	tooldiagnostics.Configure(ctx, lease.Standard.ResponseModel, caller, account, true, lease.Standard.ToolsRaw, lease.Standard.ToolChoice)
 	return ctx
 }

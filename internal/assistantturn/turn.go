@@ -35,19 +35,20 @@ type OutputError struct {
 }
 
 type Turn struct {
-	Model             string
-	Prompt            string
-	RawText           string
-	RawThinking       string
-	DetectionThinking string
-	Text              string
-	Thinking          string
-	ToolCalls         []toolcall.ParsedToolCall
-	ParsedToolCalls   toolcall.ToolCallParseResult
-	CitationLinks     map[int]string
-	ContentFilter     bool
-	UpstreamError     string
-	ResponseMessageID int
+	Model                  string
+	Prompt                 string
+	RawText                string
+	RawThinking            string
+	DetectionThinking      string
+	Text                   string
+	Thinking               string
+	ToolCalls              []toolcall.ParsedToolCall
+	ToolArgumentValidation []toolcall.ArgumentValidation
+	ParsedToolCalls        toolcall.ToolCallParseResult
+	CitationLinks          map[int]string
+	ContentFilter          bool
+	UpstreamError          string
+	ResponseMessageID      int
 	// FirstResponseMessageID is the id the completion started with. It differs
 	// from ResponseMessageID when auto-continue appended segments; TTS reads
 	// the original assistant message and must use this one.
@@ -266,7 +267,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) (built 
 	}
 	discardEchoTools(&turn)
 	turn.Usage = buildTurnUsage(opts, turn)
-	turn.Error = validateToolOutput(turn, opts, repairCompleted)
+	turn.Error = validateToolOutput(&turn, opts, repairCompleted)
 	if result.ReadError != nil {
 		turn.Error = readOutputError(result.ReadError)
 	}
@@ -353,7 +354,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) (bu
 	discardEchoTools(&turn)
 	turn.Usage = buildTurnUsage(opts, turn)
 	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw {
-		turn.Error = validateToolOutput(turn, opts, repairCompleted)
+		turn.Error = validateToolOutput(&turn, opts, repairCompleted)
 	} else {
 		turn.Error = terminalOutputError(turn)
 	}

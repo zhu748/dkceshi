@@ -10,8 +10,8 @@ import (
 
 // Validate before rendering on every protocol. A known client invocation that
 // still has broken syntax is not an answer and must not execute partially.
-func validateToolOutput(turn Turn, opts BuildOptions, repaired bool) *OutputError {
-	if err := terminalOutputError(turn); err != nil {
+func validateToolOutput(turn *Turn, opts BuildOptions, repaired bool) *OutputError {
+	if err := terminalOutputError(*turn); err != nil {
 		return err
 	}
 	if turn.ContentCut == sse.CutPromptEcho {
@@ -42,10 +42,12 @@ func validateToolOutput(turn Turn, opts BuildOptions, repaired bool) *OutputErro
 			}
 		}
 	}
-	if err := ValidateTurn(turn, opts.ToolChoice); err != nil {
+	if err := ValidateTurn(*turn, opts.ToolChoice); err != nil {
 		return err
 	}
-	if err := toolcall.ValidateToolArguments(turn.ToolCalls, opts.ToolsRaw); err != nil {
+	var err error
+	turn.ToolArgumentValidation, err = toolcall.ValidateToolArgumentsDetailed(turn.ToolCalls, opts.ToolsRaw)
+	if err != nil {
 		return &OutputError{Status: http.StatusUnprocessableEntity, Message: err.Error(), Code: "invalid_tool_arguments"}
 	}
 	return nil

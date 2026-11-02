@@ -34,19 +34,14 @@ func repairBaseURL(base, protocol string) (*url.URL, error) {
 		return nil, errors.New("repair API URL must be HTTP(S), without credentials, query or fragment")
 	}
 	path := strings.TrimRight(u.Path, "/")
-	for _, suffix := range []string{"/chat/completions", "/messages"} {
-		path = strings.TrimSuffix(path, suffix)
-	}
-	if index := strings.LastIndex(path, "/models"); index >= 0 && (len(path) == index+7 || path[index+7] == '/') {
-		path = path[:index]
-	}
-	if path == "" {
+	path, complete := repairEndpointBasePath(path, protocol)
+	if path == "" && !complete {
 		if protocol == "gemini" {
 			path = "/v1beta"
 		} else {
 			path = "/v1"
 		}
-	} else if protocol != "openai" {
+	} else if protocol != "openai" && !complete {
 		parts := strings.Split(path, "/")
 		if !repairVersionPath.MatchString(parts[len(parts)-1]) {
 			if protocol == "gemini" {

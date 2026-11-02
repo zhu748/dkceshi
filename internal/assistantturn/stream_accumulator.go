@@ -212,3 +212,7 @@ func (a *StreamAccumulator) appendTextPart(rawTrimmed string) StreamPartDelta {
 func (a *StreamAccumulator) allowOutput(n int) bool {
 	return a.policy.AllowOutputSize(a.RawText.Len() + a.RawThinking.Len() + a.ToolDetectionThinking.Len() + n)
 }
+
+func (a *StreamAccumulator) DiagnosticOutput() (text, thinking, detection string) {
+	return a.RawText.String(), a.RawThinking.String(), a.ToolDetectionThinking.String()
+}

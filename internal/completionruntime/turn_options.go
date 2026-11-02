@@ -1,6 +1,7 @@
 package completionruntime
 
 import (
+	"context"
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/promptcompat"
 )
@@ -28,4 +29,14 @@ func buildOptionsWithoutRepair(stdReq promptcompat.StandardRequest, prompt strin
 		ToolChoice:            stdReq.ToolChoice,
 		ToolMarker:            stdReq.ToolMarker,
 	}
+}
+
+// Interrupted collection exits before the terminal build; retain it once,
+// without executing repair on truncated output.
+func collectedBuildOptions(ctx context.Context, req promptcompat.StandardRequest, prompt string, opts Options, readError error) assistantturn.BuildOptions {
+	built := buildOptionsWithoutRepair(req, prompt, opts)
+	if readError != nil {
+		built.DiagnosticContext = ctx
+	}
+	return built
 }

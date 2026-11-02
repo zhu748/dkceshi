@@ -50,3 +50,7 @@ func (s *claudeStreamRuntime) resetContentPolicy() {
 func (s *claudeStreamRuntime) allowOutput(n int) bool {
 	return s.policy.AllowOutputSize(s.rawText.Len() + s.rawThinking.Len() + s.toolDetectionThinking.Len() + n)
 }
+
+func (s *claudeStreamRuntime) diagnosticOutput() (text, thinking, detection string) {
+	return s.rawText.String(), s.rawThinking.String(), s.toolDetectionThinking.String()
+}

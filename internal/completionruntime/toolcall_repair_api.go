@@ -53,9 +53,12 @@ func parseOpenAIRepairOutput(data []byte, key string) (repairOutput, error) {
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
 			Message      struct {
-				Content          json.RawMessage `json:"content"`
-				ReasoningContent string          `json:"reasoning_content"`
-				Reasoning        string          `json:"reasoning"`
+				Content          json.RawMessage   `json:"content"`
+				ReasoningContent string            `json:"reasoning_content"`
+				Reasoning        string            `json:"reasoning"`
+				ToolCalls        []json.RawMessage `json:"tool_calls"`
+				FunctionCall     json.RawMessage   `json:"function_call"`
+				Refusal          *string           `json:"refusal"`
 			} `json:"message"`
 		} `json:"choices"`
 		Error *struct {
@@ -75,6 +78,12 @@ func parseOpenAIRepairOutput(data []byte, key string) (repairOutput, error) {
 		return repairOutput{}, fmt.Errorf("custom repair API did not complete normally: %s", reason)
 	}
 	message := result.Choices[0].Message
+	if len(message.ToolCalls) > 0 || len(message.FunctionCall) > 0 && string(message.FunctionCall) != "null" {
+		return repairOutput{}, errors.New("custom repair API returned structured tool output")
+	}
+	if message.Refusal != nil && strings.TrimSpace(*message.Refusal) != "" {
+		return repairOutput{}, errors.New("custom repair API refused the repair request")
+	}
 	text, err := repairAPIContent(message.Content)
 	if err != nil {
 		return repairOutput{}, err

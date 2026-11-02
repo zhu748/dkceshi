@@ -11,11 +11,15 @@ import (
 func Middleware(store *tooldiagnostics.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost || !completionPath(r.URL.Path) || internalRequest(r) {
+			if r.Method != http.MethodPost || !completionPath(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
 			r = r.WithContext(tooldiagnostics.WithRepairSettings(r.Context(), store.RepairSettings()))
+			if internalRequest(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			recorder := tooldiagnostics.NewRecorder(store, r.URL.Path, false)
 			if recorder == nil {
 				next.ServeHTTP(w, r)
@@ -34,8 +38,8 @@ func Middleware(store *tooldiagnostics.Store) func(http.Handler) http.Handler {
 }
 
 func internalRequest(r *http.Request) bool {
-	for key := range r.URL.Query() {
-		if strings.HasPrefix(key, "__stream_") {
+	for _, key := range []string{"__stream_prepare", "__stream_validate", "__stream_release", "__stream_pow", "__stream_switch"} {
+		if r.URL.Query().Get(key) == "1" {
 			return true
 		}
 	}

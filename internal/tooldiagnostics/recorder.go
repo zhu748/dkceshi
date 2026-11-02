@@ -3,7 +3,6 @@ package tooldiagnostics
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -13,11 +12,13 @@ import (
 type contextKey struct{}
 
 type Recorder struct {
-	mu     sync.Mutex
-	store  *Store
-	record Record
-	active bool
-	number int
+	mu           sync.Mutex
+	store        *Store
+	record       Record
+	active       bool
+	number       int
+	flushTimer   *time.Timer
+	flushVersion uint64
 }
 
 func NewRecorder(store *Store, surface string, stream bool) *Recorder {
@@ -49,6 +50,9 @@ func Configure(ctx context.Context, model, caller, account string, stream bool, 
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if !r.matchesAttempt(ctx) || r.record.CompletedAt != 0 {
+		return
+	}
 	r.record.Model, r.record.CallerID, r.record.Stream = model, caller, stream
 	r.current().AccountID = account
 	if tools != nil {
@@ -66,17 +70,6 @@ func Configure(ctx context.Context, model, caller, account string, stream bool, 
 }
 
 func (r *Recorder) current() *Attempt { return &r.record.Attempts[len(r.record.Attempts)-1] }
-func (r *Recorder) persistLocked() {
-	if !r.active {
-		return
-	}
-	r.record.UpdatedAt = time.Now().UnixMilli()
-	r.record.Revision++
-	r.record.AttemptCount = len(r.record.Attempts)
-	if err := r.store.Put(r.record); err != nil {
-		slog.Warn("[tool_diagnostics] persistence failed", "id", r.record.ID, "error", err)
-	}
-}
 
 func AddStep(ctx context.Context, step Step) {
 	r := FromContext(ctx)
@@ -85,9 +78,10 @@ func AddStep(ctx context.Context, step Step) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.record.CompletedAt != 0 {
+	if !r.matchesAttempt(ctx) || r.record.CompletedAt != 0 {
 		return
 	}
+	first := !r.active
 	r.active = true
 	if step.At == 0 {
 		step.At = time.Now().UnixMilli()
@@ -96,7 +90,11 @@ func AddStep(ctx context.Context, step Step) {
 	if len(a.Steps) < 64 {
 		a.Steps = append(a.Steps, step)
 	}
-	r.persistLocked()
+	if first {
+		r.persistLocked()
+	} else {
+		r.schedulePersistLocked()
+	}
 }
 
 func NextAttempt(ctx context.Context, kind, code, reason, account string) {
@@ -106,7 +104,7 @@ func NextAttempt(ctx context.Context, kind, code, reason, account string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.record.CompletedAt != 0 || len(r.record.Attempts) >= 32 {
+	if !r.matchesAttempt(ctx) || r.record.CompletedAt != 0 || len(r.record.Attempts) >= 32 {
 		return
 	}
 	r.advanceLocked(kind, code, reason, account)
@@ -136,10 +134,13 @@ func Failure(ctx context.Context, code, message string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.active || r.record.CompletedAt != 0 {
+	if !r.matchesAttempt(ctx) || !r.active || r.record.CompletedAt != 0 {
 		return
 	}
 	a := r.current()
+	if a.Result == "failed" && a.ErrorCode == code && a.Error == message {
+		return
+	}
 	a.Result, a.ErrorCode, a.Error = "failed", code, message
 	a.CompletedAt = time.Now().UnixMilli()
 	r.record.Pinned = true
@@ -154,11 +155,11 @@ func RetryDecision(ctx context.Context, decision, reason string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.active || r.record.CompletedAt != 0 {
+	if !r.matchesAttempt(ctx) || !r.active || r.record.CompletedAt != 0 {
 		return
 	}
 	r.current().RetryDecision, r.current().RetryReason = decision, reason
-	r.persistLocked()
+	r.schedulePersistLocked()
 }
 
 func (r *Recorder) Finish(status int, deliveryError error, stopped bool) {
@@ -178,14 +179,21 @@ func (r *Recorder) Finish(status int, deliveryError error, stopped bool) {
 	}
 	switch {
 	case stopped:
+		a.Result = "interrupted"
 		r.record.Status, r.record.Delivery, r.record.Pinned = "interrupted", "unknown", true
 		if a.RetryDecision == "" {
 			a.RetryDecision = "cancelled"
 		}
 	case deliveryError != nil:
+		a.Result, a.ErrorCode, a.Error = "failed", "response_write_failed", deliveryError.Error()
 		r.record.Status, r.record.Delivery, r.record.Pinned = "failed", "write_failed", true
 		r.record.ErrorCode, r.record.Error = "response_write_failed", deliveryError.Error()
 	case status >= 400 || a.Result == "failed" || a.Result == "running":
+		a.Result = "failed"
+		if a.ErrorCode == "" {
+			a.ErrorCode, a.Error = "request_incomplete", "Request ended before tool delivery completed."
+		}
+		r.record.ErrorCode, r.record.Error = a.ErrorCode, a.Error
 		r.record.Status, r.record.Delivery, r.record.Pinned = "failed", "not_delivered", true
 		if a.RetryDecision == "" {
 			a.RetryDecision = "not_retried"
@@ -205,6 +213,12 @@ func (r *Recorder) Finish(status int, deliveryError error, stopped bool) {
 
 func (r *Recorder) advanceLocked(kind, code, reason, account string) {
 	a := r.current()
+	if a.CompletedAt == 0 {
+		a.CompletedAt = time.Now().UnixMilli()
+		a.Result, a.ErrorCode, a.Error = "failed", code, reason
+		r.record.Pinned = true
+		r.record.ErrorCode, r.record.Error = code, reason
+	}
 	a.RetryDecision = "started"
 	a.RetryReason = reason
 	if code != "" {
@@ -214,5 +228,5 @@ func (r *Recorder) advanceLocked(kind, code, reason, account string) {
 	next := newAttempt(r.number, kind)
 	next.AccountID = account
 	r.record.Attempts = append(r.record.Attempts, next)
-	r.persistLocked()
+	r.schedulePersistLocked()
 }

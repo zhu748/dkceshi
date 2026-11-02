@@ -469,6 +469,7 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		CurrentInputFile:    h.Store,
 		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
+		DiagnosticOutput: streamRuntime.diagnosticOutput,
 		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 			return h.consumeClaudeStreamAttempt(r, currentResp, streamRuntime, thinkingEnabled, allowDeferEmpty)
 		},
