@@ -2,6 +2,8 @@ package assistantturn
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -74,7 +76,7 @@ func TestQuestionArrayRecoveryRejectsIncompleteOrInvalidItems(t *testing.T) {
 		`[{"id":"q","question":"unfinished}`,
 		`[{"id":"q","question":"x"`,
 		`[{"id":"q","question":"x"},`,
-		`[{"id":"q","question":"x","options":[{"label":"x"}`,
+		`[{"id":"q","question":"x","options":[{"label":"unfinished}`,
 		`[{"id":"q"}`,
 		`[{"id":"q","question":"x","multi_select":"true"}`,
 		`[{"id":"q","question":"x","options":[{}]}`,
@@ -83,6 +85,37 @@ func TestQuestionArrayRecoveryRejectsIncompleteOrInvalidItems(t *testing.T) {
 		for i, turn := range buildQuestionArrayTurns(t, value) {
 			if turn.Error == nil || turn.Error.Code != "invalid_tool_arguments" {
 				t.Fatalf("path=%d: invalid questions accepted: %q, error=%+v", i, value, turn.Error)
+			}
+		}
+	}
+}
+
+func TestQuestionArrayNestedEOFRecovery(t *testing.T) {
+	data, err := os.ReadFile("../../tests/compat/fixtures/schema_recovery/array_nested_eof.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Raw      string
+		Expected json.RawMessage
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	var want any
+	if err := jsonvalue.Unmarshal(fixture.Expected, &want); err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{fixture.Raw, fixture.Raw + `]}]`, " \r\n" + fixture.Raw + "\t "} {
+		for i, turn := range buildQuestionArrayTurns(t, raw) {
+			if turn.Error != nil || len(turn.ToolCalls) != 1 {
+				t.Fatalf("path=%d: nested closure recovery failed: %+v", i, turn.Error)
+			}
+			if !reflect.DeepEqual(turn.ToolCalls[0].Input["questions"], want) {
+				t.Fatalf("path=%d: question or option data changed", i)
+			}
+			if turn.Text != "" {
+				t.Fatalf("path=%d: tool markup leaked: %q", i, turn.Text)
 			}
 		}
 	}

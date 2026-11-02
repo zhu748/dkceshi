@@ -1,0 +1,57 @@
+{
+  "prefix": "分析已完成，接下来需要确认两个问题。\n\n",
+  "raw": "[{\"id\":\"guidance\",\"header\":\"讲解方式\",\"question\":\"希望讲解多细？\",\"options\":[{\"label\":\"熟练\",\"description\":\"保留路径 C:\\\\demo\\\\file.txt、实体 &amp; 和括号 [x]。\"},{\"label\":\"入门\",\"description\":\"按阶段解释。\"},{\"label\":\"新人\",\"description\":\"逐步说明。\"},{\"label\":\"老手\",\"description\":\"说明结论。\"}]},{\"id\":\"focus\",\"header\":\"优先方向\",\"question\":\"先处理哪些问题？\",\"multi_select\":true,\"options\":[{\"label\":\"全面检查\",\"description\":\"按影响排序。\"},{\"label\":\"减少冗余\",\"description\":\"保留必要信息。\"},{\"label\":\"修复冲突\",\"description\":\"统一约束。\"},{\"label\":\"增加示例\",\"description\":\"保留字面量 ] } 和引号 \\\" 的示例。\"},{\"label\":\"其他问题\",\"description\":\"补充现象。\"}",
+  "expected": [
+    {
+      "id": "guidance",
+      "header": "讲解方式",
+      "question": "希望讲解多细？",
+      "options": [
+        {
+          "label": "熟练",
+          "description": "保留路径 C:\\demo\\file.txt、实体 &amp; 和括号 [x]。"
+        },
+        {
+          "label": "入门",
+          "description": "按阶段解释。"
+        },
+        {
+          "label": "新人",
+          "description": "逐步说明。"
+        },
+        {
+          "label": "老手",
+          "description": "说明结论。"
+        }
+      ]
+    },
+    {
+      "id": "focus",
+      "header": "优先方向",
+      "question": "先处理哪些问题？",
+      "multi_select": true,
+      "options": [
+        {
+          "label": "全面检查",
+          "description": "按影响排序。"
+        },
+        {
+          "label": "减少冗余",
+          "description": "保留必要信息。"
+        },
+        {
+          "label": "修复冲突",
+          "description": "统一约束。"
+        },
+        {
+          "label": "增加示例",
+          "description": "保留字面量 ] } 和引号 \" 的示例。"
+        },
+        {
+          "label": "其他问题",
+          "description": "补充现象。"
+        }
+      ]
+    }
+  ]
+}
