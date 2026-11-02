@@ -24,7 +24,7 @@ func TestToolRetryIncludesBoundedValidationFeedback(t *testing.T) {
 	if !ok || json.Unmarshal([]byte(feedback), &decoded) != nil || !utf8.ValidString(feedback) {
 		t.Fatalf("feedback is not valid UTF-8 JSON: %q", feedback)
 	}
-	if decoded["code"] != failure.Code || len([]rune(decoded["message"])) != 2049 || !strings.Contains(decoded["message"], "'/queries'") || !strings.HasSuffix(decoded["message"], "…") {
+	if decoded["code"] != failure.Code || len([]rune(decoded["message"])) != 513 || !strings.Contains(decoded["message"], "'/queries'") || !strings.HasSuffix(decoded["message"], "…") {
 		t.Fatalf("missing diagnostic or unbounded feedback: %#v", decoded)
 	}
 	if original["prompt"] != "original" || original["parent_message_id"] != 1 || payload["parent_message_id"] != 7 || payload["search_enabled"] != true {
@@ -32,6 +32,36 @@ func TestToolRetryIncludesBoundedValidationFeedback(t *testing.T) {
 	}
 	if got := toolOutputRetryInstruction(&assistantturn.OutputError{Code: "upstream_error", Message: "permanent"}); got != ToolOutputRetrySuffix {
 		t.Fatal("non-tool failure was injected as corrective feedback")
+	}
+}
+
+func TestToolOnlyBodyInstructionAppliesOnlyToRejectedToolRetry(t *testing.T) {
+	request := map[string]any{
+		"model":    "deepseek-v4.1-flash",
+		"messages": []any{map[string]any{"role": "user", "content": "Read a file."}},
+		"tools":    []any{map[string]any{"type": "function", "function": map[string]any{"name": "read", "parameters": map[string]any{"type": "object"}}}},
+	}
+	std, err := promptcompat.NormalizeOpenAIChatRequest(nil, request, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const retryOnly = "the final body must be one complete tool_calls block"
+	if !strings.Contains(std.FinalPrompt, "可以在工具块之前给出简短、必要的用户可见说明") || strings.Contains(std.FinalPrompt, retryOnly) || strings.Contains(std.FinalPrompt, "最终正文只能包含一个完整工具块") {
+		t.Fatal("retry-only constraint leaked into the initial prompt")
+	}
+	initial := map[string]any{"prompt": std.FinalPrompt}
+	for _, failure := range []*assistantturn.OutputError{
+		{Code: "invalid_tool_arguments", Message: "missing path"},
+		{Code: "tool_choice_violation", Message: "wrong tool"},
+	} {
+		retry := ClonePayloadForOutputRetry(initial, 1, failure)
+		if !strings.Contains(retry["prompt"].(string), retryOnly) || initial["prompt"] != std.FinalPrompt {
+			t.Fatal("tool retry lost its constraint or mutated the initial prompt")
+		}
+	}
+	emptyRetry := ClonePayloadForEmptyOutputRetry(initial, 1)
+	if strings.Contains(emptyRetry["prompt"].(string), retryOnly) {
+		t.Fatal("ordinary empty-output retry acquired a tool-only constraint")
 	}
 }
 
@@ -87,12 +117,15 @@ func TestToolRetryIncludesExactRejectedOutputAndBoundsLargeUnicodeValues(t *test
 		if !ok || json.Unmarshal([]byte(data), &decoded) != nil || !utf8.ValidString(data) {
 			t.Fatal("feedback is not valid JSON/UTF-8")
 		}
+		if strings.Contains(data, `\u003c`) {
+			t.Fatal("feedback needlessly escaped readable tool markup")
+		}
 		got, _ := decoded["invalid_output"].(string)
-		if len([]rune(raw)) <= 8192 {
+		if len([]rune(raw)) <= 2048 {
 			if got != raw || decoded["invalid_output_truncated"] != nil {
 				t.Fatal("rejected call was altered")
 			}
-		} else if len([]rune(got)) != 8192 || decoded["invalid_output_truncated"] != true || !strings.HasPrefix(raw, strings.Split(got, "\n…[truncated]…\n")[0]) {
+		} else if len([]rune(got)) != 2048 || decoded["invalid_output_truncated"] != true || !strings.HasPrefix(raw, strings.Split(got, "\n…[truncated]…\n")[0]) {
 			t.Fatal("large rejected output was not bounded")
 		}
 	}

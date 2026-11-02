@@ -20,10 +20,11 @@ import (
 )
 
 type responsesStreamRuntime struct {
-	output   streamwriter.Writer
-	w        http.ResponseWriter
-	rc       *http.ResponseController
-	canFlush bool
+	diagnosticProgress assistantturn.DiagnosticProgress
+	output             streamwriter.Writer
+	w                  http.ResponseWriter
+	rc                 *http.ResponseController
+	canFlush           bool
 
 	responseID    string
 	model         string
@@ -243,6 +244,7 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 	}
 
 	batch.flush()
+	s.diagnosticProgress.Update(s.toolCallRepairCtx, s.sieve.Marker, s.accumulator.RawText.String(), s.accumulator.RawThinking.String(), s.accumulator.ToolDetectionThinking.String())
 	if s.history != nil {
 		s.history.Progress(
 			responsehistory.ThinkingForArchive(s.accumulator.RawThinking.String(), s.accumulator.ToolDetectionThinking.String(), s.accumulator.Thinking.String()),

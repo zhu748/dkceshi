@@ -22,6 +22,7 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 	r.Put("/tool-call-records/settings", h.settings)
 	r.Put("/tool-call-records/repair-settings", h.repairSettings)
 	r.Post("/tool-call-records/repair-models", h.repairModels)
+	r.Post("/tool-call-records/repair-test", h.repairTest)
 }
 
 func (h *Handler) available(w http.ResponseWriter) bool {

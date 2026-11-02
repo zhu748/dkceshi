@@ -58,7 +58,9 @@ func doRepairAPIRequest(ctx context.Context, settings tooldiagnostics.RepairSett
 		}
 	}()
 	if limit <= 0 {
-		limit = streambudget.Value("max_output_bytes")
+		// Repair is a small isolated format operation. Bound the JSON envelope
+		// (including thinking) independently of the main completion's output.
+		limit = min(streambudget.Value("max_output_bytes"), 4*streambudget.Value("max_repair_bytes"))
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
 	if err != nil {

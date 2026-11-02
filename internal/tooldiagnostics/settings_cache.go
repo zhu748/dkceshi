@@ -1,0 +1,17 @@
+package tooldiagnostics
+
+// Publish immutable settings only after a successful save. Completion setup
+// must not wait behind another request's detail serialization or disk sync.
+func (s *Store) publishSettingsLocked() {
+	value := s.state.Settings
+	if s.loadError != nil {
+		value.Enabled = false
+		value.Repair = nil
+	}
+	if value.Repair != nil {
+		repair := *value.Repair
+		repair.ExtraBody = append([]byte(nil), repair.ExtraBody...)
+		value.Repair = &repair
+	}
+	s.settingsCache.Store(&value)
+}

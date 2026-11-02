@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createDiagnosticRequests, readDiagnosticResponse } from './diagnosticRequests'
 import { createDiagnosticPoll } from './diagnosticPoll'
 
@@ -7,6 +7,9 @@ const ENDPOINT = '/admin/tool-call-records'
 export function useToolDiagnostics(authFetch, onMessage) {
     const [requests] = useState(createDiagnosticRequests)
     const [query, setQuery] = useState({ page: 1, status: '', search: '', pinned: false })
+    const [search, setSearch] = useState('')
+    useEffect(() => { const timer = setTimeout(() => setSearch(query.search), 250); return () => clearTimeout(timer) }, [query.search])
+    const requestQuery = useMemo(() => ({ page: query.page, status: query.status, pinned: query.pinned, search }), [query.page, query.status, query.pinned, search])
     const [data, setData] = useState(null)
     const [selected, setSelected] = useState('')
     const [detail, setDetail] = useState(null)
@@ -25,11 +28,11 @@ export function useToolDiagnostics(authFetch, onMessage) {
     useEffect(() => {
         const controller = new AbortController()
         const load = async () => {
-            const body = await requests.list(authFetch, query, controller.signal)
+            const body = await requests.list(authFetch, requestQuery, controller.signal)
             if (!body) return
             setData(body)
             setListError('')
-            if (!body.items.length && query.page > 1) {
+            if (!body.items.length && requestQuery.page > 1) {
                 setQuery(previous => ({ ...previous, page: previous.page - 1 }))
             } else {
                 setSelected(previous => body.items.some(item => item.id === previous) ? previous : body.items[0]?.id || '')
@@ -39,7 +42,7 @@ export function useToolDiagnostics(authFetch, onMessage) {
         poll.start()
         document.addEventListener('visibilitychange', poll.visibilityChanged)
         return () => { controller.abort(); poll.stop(); document.removeEventListener('visibilitychange', poll.visibilityChanged) }
-    }, [authFetch, query, revision, requests])
+    }, [authFetch, requestQuery, revision, requests])
 
     const selectedRevision = data?.items.find(item => item.id === selected)?.revision
     useEffect(() => {

@@ -137,6 +137,10 @@ func Failure(ctx context.Context, code, message string) {
 	if !r.matchesAttempt(ctx) || !r.active || r.record.CompletedAt != 0 {
 		return
 	}
+	r.failLocked(code, message)
+}
+
+func (r *Recorder) failLocked(code, message string) {
 	a := r.current()
 	if a.Result == "failed" && a.ErrorCode == code && a.Error == message {
 		return

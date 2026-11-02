@@ -12,6 +12,11 @@ func atomicJSON(path string, value any) (retErr error) {
 	if err != nil {
 		return err
 	}
+	return atomicData(path, data)
+}
+
+func atomicData(path string, data []byte) (retErr error) {
+	var err error
 	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}

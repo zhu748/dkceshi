@@ -45,6 +45,13 @@ func Observe(ctx context.Context, o Observation) {
 	if !r.matchesAttempt(ctx) || r.record.CompletedAt != 0 || !o.Relevant && !r.active {
 		return
 	}
+	if !o.Relevant && o.ErrorCode != "" && r.current().Source != "" {
+		r.failLocked(o.ErrorCode, o.Error)
+		return
+	}
+	if !o.Relevant && o.ErrorCode == "" && r.discardCandidateLocked() {
+		return
+	}
 	r.active = true
 	r.record.Model = o.Model
 	a := r.current()

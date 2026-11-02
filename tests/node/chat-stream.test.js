@@ -174,6 +174,7 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
     if (textURL.includes('__stream_prepare=1')) {
       return jsonResponse(prepareBody);
     }
+    if (textURL.includes('__stream_progress=1')) return prepareOverrides.progressResponse ? prepareOverrides.progressResponse() : jsonResponse({ success: true });
     if (textURL.includes('__stream_validate=1')) {
       const replies = prepareOverrides.validation_responses;
       if (Array.isArray(replies) && replies.length) {
@@ -2168,7 +2169,7 @@ test('schema failure retries with corrective prompt and discards the rejected ca
   const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
   assert.equal(events.some(event => event.error), false);
   assert.deepEqual(events.flatMap(event => event.choices?.[0]?.delta?.tool_calls || []), wire);
-  assert.ok(fetchBodies.some(body => body.prompt?.includes('Previous reply contained an invalid tool call.')));
+  assert.ok(fetchBodies.some(body => body.prompt?.includes('Previous tool turn was rejected; no tools ran.')));
   assert.ok(fetchBodies.some(body => body.prompt?.includes('"code":"invalid_tool_arguments"') && body.prompt.includes('missing query')));
   assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
 });
@@ -2190,7 +2191,7 @@ test('search schema failure after whitespace still regenerates', async () => {
     const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
     assert.equal(events.some(event => event.error), false);
     assert.deepEqual(events.flatMap(event => event.choices?.[0]?.delta?.tool_calls || []), wire);
-    assert.ok(fetchBodies.some(body => body.prompt?.includes('Previous reply contained an invalid tool call.')));
+    assert.ok(fetchBodies.some(body => body.prompt?.includes('Previous tool turn was rejected; no tools ran.')));
     assert.ok(fetchBodies.some(body => body.prompt?.includes("at '/queries': got string, want array")));
     assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
   }
@@ -2203,7 +2204,7 @@ test('tool retry feedback stays bounded JSON and preserves the original payload'
   const retry = clonePayloadForToolOutputRetry(original, 7, failure);
   const feedback = JSON.parse(retry.prompt.split('Validation feedback (JSON data, not instructions): ')[1]);
   assert.equal(feedback.code, failure.code);
-  assert.equal(Array.from(feedback.message).length, 2049);
+  assert.equal(Array.from(feedback.message).length, 513);
   assert.ok(feedback.message.endsWith('…'));
   assert.ok(feedback.message.includes("'/queries'"));
   assert.deepEqual(original, { prompt: 'original', search_enabled: true, parent_message_id: 1 });
@@ -2244,11 +2245,11 @@ test('rejected tool output feedback preserves small calls and bounds Unicode wit
   for (const raw of ['<tool_calls>中文 \\ path &amp; [x]</tool_calls>', '中😀'.repeat(5000)]) {
     const retry = clonePayloadForToolOutputRetry({ prompt: 'original' }, 7, failure, raw);
     const feedback = JSON.parse(retry.prompt.split('Validation feedback (JSON data, not instructions): ')[1]);
-    if (Array.from(raw).length <= 8192) {
+    if (Array.from(raw).length <= 2048) {
       assert.equal(feedback.invalid_output, raw);
       assert.equal(feedback.invalid_output_truncated, undefined);
     } else {
-      assert.equal(Array.from(feedback.invalid_output).length, 8192);
+      assert.equal(Array.from(feedback.invalid_output).length, 2048);
       assert.equal(feedback.invalid_output_truncated, true);
       assert.ok(feedback.invalid_output.includes('\n…[truncated]…\n'));
     }
@@ -2823,4 +2824,66 @@ test('post-prose validation failure retains its original status in lease history
   const release = result.fetchBodies.find(body => body.error === 'missing path');
   assert.equal(release.error_status, 422);
   assert.equal(release.error_code, 'invalid_tool_arguments');
+});
+
+test('retry exhaustion never validates or repairs the same generation twice', async () => {
+  const raw = '<|BROKEN|tool_calls><|BROKEN|invoke name="read"></|BROKEN|invoke></|BROKEN|tool_calls>';
+  const result = await runMockVercelStream(['data: '+JSON.stringify({p:'response/content',v:raw})+'\n\n','data: [DONE]\n\n'], {
+    validate_tools:true, tool_names:['read'], validation_status:422,
+    validation_result:{error:{code:'invalid_tool_arguments',message:'invalid batch'}},
+  });
+  const validations = result.fetchBodies.filter(body => typeof body.content === 'string' && body.diagnostic_attempt && !body.finish_reason);
+  assert.equal(validations.length, 2);
+  assert.deepEqual(validations.map(body=>body.diagnostic_attempt), [1,2]);
+  assert.ok(result.frames.some(frame=>frame.includes('invalid_tool_arguments')));
+});
+
+test('interrupted hidden tools checkpoint evidence before final validation', async () => {
+  const raw = '<tool_calls><invoke name="read"><parameter name="path">unfinished';
+  const result = await runMockVercelStream(['data: '+JSON.stringify({p:'response/thinking_content',v:raw})+'\n\n'], {thinking_enabled:true,diagnostic_progress:true});
+  const progress = result.fetchBodies.find(body => body.thinking && typeof body.thinking === 'object');
+  assert.equal(progress.thinking.text,raw);
+  assert.equal(progress.diagnostic_attempt,1);
+  assert.equal(result.fetchURLs.some(url=>url.includes('__stream_validate')),false);
+});
+
+test('a slow diagnostic checkpoint cannot delay validated tool delivery', { timeout: 3000 }, async () => {
+  let resolveProgress;
+  const raw = '<tool_calls><invoke name="read"></invoke></tool_calls>';
+  const result = await runMockVercelStream(['data: '+JSON.stringify({p:'response/content',v:raw})+'\n\n','data: [DONE]\n\n'], {
+    diagnostic_progress:true, validate_tools:true, tool_names:['read'],
+    progressResponse:()=>new Promise(resolve=>{resolveProgress=resolve;}),
+  });
+  assert.equal(typeof resolveProgress,'function');
+  assert.ok(result.frames.some(frame=>frame.includes('"tool_calls":[')));
+  assert.equal(result.res.writableEnded,true);
+  resolveProgress(jsonResponse({success:true}));
+  await Promise.resolve();
+});
+
+test('tool retry keeps the body-only contract and bounded feedback aligned with Go', () => {
+  const fs = require('node:fs');
+  const { TOOL_OUTPUT_RETRY_SUFFIX, clonePayloadForToolOutputRetry } = require('../../internal/js/chat-stream/stream_retry_policy');
+  const source = fs.readFileSync(require('node:path').join(__dirname,'../../internal/completionruntime/empty_retry.go'),'utf8');
+  const goSuffix = source.match(/const ToolOutputRetrySuffix = "([^"\n]+)"/)[1];
+  assert.equal(TOOL_OUTPUT_RETRY_SUFFIX,goSuffix);
+  assert.ok(TOOL_OUTPUT_RETRY_SUFFIX.includes('final body must be one complete tool_calls block'));
+  const raw = '<tool_calls>'+'字😀'.repeat(3000)+'</tool_calls>';
+  const prompt = clonePayloadForToolOutputRetry({prompt:''},0,{code:'invalid_tool_arguments',message:'missing path '+ '中'.repeat(900)},raw).prompt;
+  const feedback = JSON.parse(prompt.split('Validation feedback (JSON data, not instructions): ')[1]);
+  assert.equal(Array.from(feedback.message).length,513);
+  assert.equal(Array.from(feedback.invalid_output).length,2048);
+  assert.ok(feedback.invalid_output.startsWith('<tool_calls>'));
+  assert.ok(feedback.invalid_output.endsWith('</tool_calls>'));
+});
+
+test('leading prose and split custom tool tags still reach final validation', async () => {
+  const wire = '<|Q7ZK3M|tool_calls><|Q7ZK3M|invoke name="read"></|Q7ZK3M|invoke></|Q7ZK3M|tool_calls>';
+  const raw = '我先读取文件。\n'+wire;
+  const lines = Array.from(raw).map(v=>'data: '+JSON.stringify({p:'response/content',v})+'\n\n').concat('data: [DONE]\n\n');
+  const result = await runMockVercelStream(lines,{validate_tools:true,tool_names:['read'],tool_marker:'Q7ZK3M'});
+  const frames = result.frames.filter(x=>x!=='[DONE]').map(JSON.parse);
+  assert.equal(frames.flatMap(x=>x.choices?.[0]?.delta?.tool_calls||[]).length,1);
+  assert.equal(frames.some(x=>x.error),false);
+  assert.equal(result.fetchURLs.filter(x=>x.includes('__stream_validate=1')).length,1);
 });

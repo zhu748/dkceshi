@@ -38,7 +38,7 @@ func Middleware(store *tooldiagnostics.Store) func(http.Handler) http.Handler {
 }
 
 func internalRequest(r *http.Request) bool {
-	for _, key := range []string{"__stream_prepare", "__stream_validate", "__stream_release", "__stream_pow", "__stream_switch"} {
+	for _, key := range []string{"__stream_prepare", "__stream_validate", "__stream_release", "__stream_pow", "__stream_switch", "__stream_progress"} {
 		if r.URL.Query().Get(key) == "1" {
 			return true
 		}

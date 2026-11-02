@@ -84,6 +84,8 @@ func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 			}
 		}
 	}
+	raw, reasoning, detection := s.accumulator.DiagnosticOutput()
+	s.diagnosticProgress.Update(s.toolCallRepairCtx, s.toolMarker, raw, reasoning, detection)
 	if s.history != nil {
 		rawText, text, rawThinking, thinking, detectionThinking := s.accumulator.Snapshot()
 		s.history.Progress(

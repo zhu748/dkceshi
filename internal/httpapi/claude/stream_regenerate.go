@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"ds2api/internal/assistantturn"
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
@@ -12,6 +13,7 @@ func (s *claudeStreamRuntime) rejectedOutput() string {
 }
 
 func (s *claudeStreamRuntime) resetForRegeneration() {
+	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.toolCallsPending = false
 	s.rawText.Reset()
 	s.text.Reset()

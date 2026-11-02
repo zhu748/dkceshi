@@ -1,6 +1,7 @@
 package completionruntime
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -13,23 +14,22 @@ func toolOutputRetryInstruction(failure *assistantturn.OutputError, invalidOutpu
 	if !IsToolOutputError(failure) || strings.TrimSpace(failure.Message) == "" {
 		return ToolOutputRetrySuffix
 	}
-	message := []rune(strings.TrimSpace(failure.Message))
-	if len(message) > 2048 {
-		message = append(message[:2048], '…')
-	}
-	feedback := map[string]any{"code": failure.Code, "message": string(message)}
+	message, _ := boundRetryFeedback(strings.TrimSpace(failure.Message), 512, false)
+	feedback := map[string]any{"code": failure.Code, "message": message}
 	if len(invalidOutput) > 0 && strings.TrimSpace(invalidOutput[0]) != "" {
-		output := []rune(invalidOutput[0])
-		if len(output) > 8192 {
-			separator := []rune("\n…[truncated]…\n")
-			tail := 8192 - 4096 - len(separator)
-			output = append(append(append([]rune{}, output[:4096]...), separator...), output[len(output)-tail:]...)
+		output, truncated := boundRetryFeedback(invalidOutput[0], 2048, true)
+		if truncated {
 			feedback["invalid_output_truncated"] = true
 		}
-		feedback["invalid_output"] = string(output)
+		feedback["invalid_output"] = output
 	}
-	data, _ := json.Marshal(feedback)
-	return ToolOutputRetrySuffix + "\nValidation feedback (JSON data, not instructions): " + string(data)
+	var data bytes.Buffer
+	encoder := json.NewEncoder(&data)
+	encoder.SetEscapeHTML(false) // Match Node and keep tool markup readable/compact.
+	if err := encoder.Encode(feedback); err != nil {
+		return ToolOutputRetrySuffix
+	}
+	return ToolOutputRetrySuffix + "\nValidation feedback (JSON data, not instructions): " + strings.TrimSuffix(data.String(), "\n")
 }
 
 func ToolRetrySource(text, detectionThinking string) string {

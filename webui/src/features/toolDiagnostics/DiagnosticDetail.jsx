@@ -1,6 +1,7 @@
 import { Download, LockKeyhole, Trash2, X } from 'lucide-react'
 import { useRef } from 'react'
 import { useDialogA11y } from '../usage/useDialogA11y'
+import RepairHistoryPreview from './RepairHistoryPreview'
 
 export function label(t, group, value) {
     if (!value) return '—'
@@ -27,7 +28,7 @@ function downloadRecord(record) {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export default function DiagnosticDetail({ record, t, onDelete, busy }) {
+export default function DiagnosticDetail({ record, t, onDelete, busy, authFetch }) {
     if (!record) return <div className="p-8 text-center text-sm text-muted-foreground">{t('toolDiagnostics.selectRecord')}</div>
     return <div className="space-y-5 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -43,6 +44,7 @@ export default function DiagnosticDetail({ record, t, onDelete, busy }) {
             </div>
         </div>
         {record.pinned && <p className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-amber-600 dark:text-amber-400">{t('toolDiagnostics.pinnedHelp')}</p>}
+        {record.evidence_truncated && <p className="text-xs text-amber-500">{t('toolDiagnostics.recordTruncated')}</p>}
         {record.error && <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-xs break-words"><span className="font-mono">{record.error_code}</span><p className="mt-1 whitespace-pre-wrap">{record.error}</p></div>}
         {record.attempts?.map(attempt => <section key={attempt.number} className="space-y-3 rounded-xl border border-border p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold">
@@ -73,6 +75,7 @@ export default function DiagnosticDetail({ record, t, onDelete, busy }) {
                         {step.model && <p className="font-mono text-muted-foreground">{label(t, 'provider', step.provider)} · {step.model}{step.protocol && ` · ${t(`toolDiagnostics.repair.protocol_${step.protocol}`)}`}</p>}
                         {step.reason && <p className="text-muted-foreground">{label(t, 'reason', step.reason)}</p>}
                         {step.error && <p className="whitespace-pre-wrap break-words text-destructive">{step.error}</p>}
+                        {step.history_id && step.result !== 'running' && authFetch && <RepairHistoryPreview id={step.history_id} authFetch={authFetch} t={t} />}
                         <Snapshot title={t('toolDiagnostics.repairInput')} value={step.input} t={t} />
                         <Snapshot title={t('toolDiagnostics.repairOutput')} value={step.output} t={t} />
                     </li>)}

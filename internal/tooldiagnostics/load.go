@@ -9,6 +9,7 @@ import (
 
 func New(path string) *Store {
 	s := &Store{path: path, state: Index{Version: 1, Settings: Settings{Enabled: true, Limit: 20}, Items: []Summary{}}}
+	defer s.publishSettingsLocked()
 	raw, err := os.ReadFile(path)
 	if err == nil {
 		err = json.Unmarshal(raw, &s.state)

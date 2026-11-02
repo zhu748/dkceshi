@@ -1,13 +1,13 @@
 'use strict';
 const { createLeadingText } = require('./leading_text');
+const { createFinalValidation } = require('./final_validation');
+const { createDiagnosticProgress } = require('./diagnostic_progress');
 const { createStreamWatch } = require('./stream_limits');
 const { startHeartbeat, waitForDrain } = require('./response_flow');
 const { explicitSnapshotDelta } = require('./dedupe');
 const { flushThinkingState } = require('./sse_thinking');
 const { createVisibleGuard, filterVisible } = require('../helpers/stream-tool-sieve/visible_guard');
 const { needsToolFinalization, validatedToolText } = require('./tool_output');
-
-// Coordinate one prepared stream; policy, continuation and probes live in dedicated modules.
 
 const {
   createToolSieveState,
@@ -337,6 +337,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let lastEmptyDetail = null;
     let answerDelivered = false;
     const leadingText = createLeadingText();
+    const finalValidation = createFinalValidation();
+    const diagnosticProgress = createDiagnosticProgress({ enabled: prep.body.diagnostic_progress === true, req, leaseID, deadline: watch.finalDeadline, signal: lifecycle.signal, diagnostic: report.diagnostic, read: () => ({ content: outputText, thinking: rawReasoning() }) });
     const holdToolText = () => toolPolicy.holdText;
     const { sendFrame, sendDeltaFrame: emitDeltaFrame } = createChatCompletionEmitter({
       res,
@@ -358,6 +360,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
     const resetForRegeneration = () => {
       report.regenerate(lastEmptyDetail);
+      finalValidation.reset();
+      diagnosticProgress.reset();
       leadingText.reset();
       currentType = thinkingEnabled ? 'thinking' : 'text';
       contentPolicy = createContentPolicy(finalPrompt);
@@ -435,7 +439,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       let validatedCalls = null, validatedUsage = null, validatedText = null;
       if ((detected.length || needsToolFinalization(outputText, detectionThinkingText, prep.body, toolSieveState)) && (hasVisibleOutput || detected.length || detectionThinkingText)) {
         try {
-          const validation = await report.measure('validation_ms', () => fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal, watch.finalDeadline, report.diagnostic(), prep.body.tool_repair_timeout_ms));
+          const validation = await finalValidation.run(() => report.measure('validation_ms', () => fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal, watch.finalDeadline, report.diagnostic(), prep.body.tool_repair_timeout_ms)));
           if (!validation.ok) {
             const error = validation.body.error || {};
             if (options.deferEmpty && !answerDelivered && ['invalid_tool_arguments', 'tool_choice_violation', 'upstream_empty_output', 'upstream_unavailable'].includes(error.code)) {
@@ -462,8 +466,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           await releaseLease(); if (!res.writableEnded && !res.destroyed) res.end(); return true;
         }
       }
-      // An empty upstream result must retain its retry/error path. Required
-      // tool policy applies to actual answers, not a missing response.
       const violation = (detected.length > 0 || toolCallsEmitted || hasVisibleOutput)
         ? toolChoiceViolation(detected, toolPolicy.choice) : '';
       if (violation) {
@@ -550,7 +552,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       let continueState = createContinueState(activeDeepSeekSessionID);
       let continueRounds = 0;
       let contentCut = CUT_NONE;
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         // Continuations retain delimiter/CDATA state; regeneration resets it.
         lifecycle.reader = currentResponse.body.getReader();
@@ -682,6 +683,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                   }
                 }
               }
+              diagnosticProgress.observe(outputText, detectionThinkingText, toolSieveState);
               if (parsed.finished) {
                 streamEnded = true;
                 break;
@@ -763,7 +765,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let retryAttempts = 0;
     let accountSwitchAttempted = false;
     let transientSwitchAttempts = 0;
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       if (!completionRes.ok || !completionRes.body) {
         const status = completionRes.ok ? 502 : completionRes.status || 502;
@@ -786,14 +787,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       const isUpstreamUnavailable = lastEmptyDetail && lastEmptyDetail.code === 'upstream_unavailable';
       const isAccountUnauthorized = lastEmptyDetail && lastEmptyDetail.code === 'account_unauthorized';
       const isInputContentBlocked = lastEmptyDetail && lastEmptyDetail.code === 'input_content_blocked';
-      const isToolOutputError = lastEmptyDetail && ['invalid_tool_arguments', 'tool_choice_violation'].includes(lastEmptyDetail.code);
       if (processed.terminal) {
         return;
       }
       if (processed.interrupted) {
-        // The upstream stream was cut after partial output and the in-stream
-        // continue resume did not recover it: surface the interruption instead
-        // of finishing with a truncated "complete" response.
+        // A failed continuation cannot finalize an executable partial batch.
         deltaCoalescer.flush();
         ended = true;
         leaseCompletion = { finish_reason: 'upstream_interrupted', usage: null, thinking: rawReasoning(), content: outputText, error: 'Upstream stream interrupted before completion.' };

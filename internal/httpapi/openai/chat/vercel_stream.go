@@ -123,6 +123,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		"search_enabled":          stdReq.Search,
 		"tool_choice":             stdReq.ToolChoice,
 		"tool_repair_timeout_ms":  h.leaseRepairTimeoutMS(leaseID),
+		"diagnostic_progress":     h.leaseDiagnosticProgressEnabled(leaseID),
 		"validate_tools":          len(stdReq.ToolNames) > 0 || stdReq.ToolChoice.Constrained() || stdReq.SystemTextToolsApply(),
 		"tool_names":              stdReq.ToolNames,
 		"tool_marker":             stdReq.ToolMarker,

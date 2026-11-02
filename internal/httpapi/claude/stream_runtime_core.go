@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"ds2api/internal/assistantturn"
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
@@ -19,11 +20,12 @@ import (
 )
 
 type claudeStreamRuntime struct {
-	output      streamwriter.Writer
-	leadingText completionruntime.LeadingText
-	w           http.ResponseWriter
-	rc          *http.ResponseController
-	canFlush    bool
+	diagnosticProgress assistantturn.DiagnosticProgress
+	output             streamwriter.Writer
+	leadingText        completionruntime.LeadingText
+	w                  http.ResponseWriter
+	rc                 *http.ResponseController
+	canFlush           bool
 
 	model           string
 	toolNames       []string
@@ -279,6 +281,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		}
 	}
 
+	s.diagnosticProgress.Update(s.toolCallRepairCtx, s.sieve.Marker, s.rawText.String(), s.rawThinking.String(), s.toolDetectionThinking.String())
 	if s.history != nil {
 		s.history.Progress(
 			responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()),

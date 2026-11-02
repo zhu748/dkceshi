@@ -1,8 +1,12 @@
 package responses
 
-import "ds2api/internal/toolstream"
+import (
+	"ds2api/internal/assistantturn"
+	"ds2api/internal/toolstream"
+)
 
 func (s *responsesStreamRuntime) resetForRegeneration() {
+	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.toolCallsPending = false
 	s.accumulator.RawText.Reset()
 	s.accumulator.Text.Reset()

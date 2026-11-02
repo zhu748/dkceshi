@@ -33,6 +33,7 @@ func Capture(value string) Text {
 }
 
 type Step struct {
+	HistoryID string `json:"history_id,omitempty"`
 	Protocol  string `json:"protocol,omitempty"`
 	Provider  string `json:"provider,omitempty"`
 	Model     string `json:"model,omitempty"`
@@ -95,10 +96,11 @@ type Summary struct {
 
 type Record struct {
 	Summary
-	CallerID string    `json:"caller_id,omitempty"`
-	Tools    Text      `json:"tools"`
-	Policy   Text      `json:"policy"`
-	Attempts []Attempt `json:"attempts"`
+	EvidenceTruncated bool      `json:"evidence_truncated,omitempty"`
+	CallerID          string    `json:"caller_id,omitempty"`
+	Tools             Text      `json:"tools"`
+	Policy            Text      `json:"policy"`
+	Attempts          []Attempt `json:"attempts"`
 }
 
 type Settings struct {

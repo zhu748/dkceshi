@@ -1029,7 +1029,8 @@
       "llm_repair": "Model format repair and integrity checks",
       "local_recovery": "Local recovery",
       "retry": "Regeneration",
-      "repair_request": "Repair model request"
+      "repair_request": "Repair model request",
+      "candidate": "Tool candidate captured"
     },
     "result": {
       "success": "Succeeded",
@@ -1093,7 +1094,7 @@
       "clearKey": "Clear the saved API key",
       "extra": "Extra request parameters (optional JSON)",
       "extraHelp": "Configure reasoning according to the selected API and model. Claude can use thinking, and Gemini generationConfig.thinkingConfig. Reasoning is not forcibly disabled. Model, context, tools and output protocol cannot be overridden.",
-      "invalidExtra": "Extra parameters must be a valid JSON object.",
+      "invalidExtra": "Extra parameters must be a valid JSON object of at most 8192 encoded bytes.",
       "independent": "Applies even when diagnostic capture is paused. Client and platform deadlines still take priority.",
       "save": "Save repair settings",
       "protocol": "API format",
@@ -1109,11 +1110,20 @@
       "selectModel": "Select a model ({count})",
       "chooseModel": "Choose a model",
       "noModels": "The endpoint returned no usable models. You can enter a model ID manually.",
-      "modelsTruncated": "Only part of the model list is shown. You can enter other model IDs manually."
+      "modelsTruncated": "Only part of the model list is shown. You can enter other model IDs manually.",
+      "test": "Test repair",
+      "testing": "Testing…",
+      "testHelp": "Send a small repair example using this draft and the selected API. Testing does not save settings.",
+      "testSuccess": "Model {model} passed repair validation in {ms} ms."
     },
     "provider": {
       "original": "Original model",
       "custom_api": "Custom API"
-    }
+    },
+    "openArchive": "View repair response archive",
+    "closeArchive": "Close response archive",
+    "archiveUnavailable": "The archive may have been cleared; diagnostic evidence is retained.",
+    "archiveThinking": "Repair model thinking",
+    "recordTruncated": "This record reached its evidence budget. Some text was truncated; original byte counts are retained."
   }
 }

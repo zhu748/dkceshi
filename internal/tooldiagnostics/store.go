@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,25 +18,30 @@ var ErrNotFound = errors.New("tool diagnostic record not found")
 // Only summaries reside in the store; retained failures' bodies are loaded on
 // demand. mu serializes disk commits as well as retention decisions.
 type Store struct {
-	mu        sync.Mutex
-	path      string
-	state     Index
-	lastError error
-	loadError error
+	settingsCache atomic.Pointer[Settings]
+	mu            sync.Mutex
+	path          string
+	state         Index
+	lastError     error
+	loadError     error
 }
 
 func (s *Store) Enabled() bool {
 	if s == nil {
 		return false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loadError == nil && s.state.Settings.Enabled
+	settings := s.settingsCache.Load()
+	return settings != nil && settings.Enabled
 }
 
 func (s *Store) Put(record Record) error {
 	if s == nil {
 		return nil
+	}
+	record = boundRecord(record)
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -45,7 +51,7 @@ func (s *Store) Put(record Record) error {
 	if !validID(record.ID) {
 		return errors.New("invalid diagnostic id")
 	}
-	if err := atomicJSON(s.detailPath(record.ID), record); err != nil {
+	if err := atomicData(s.detailPath(record.ID), data); err != nil {
 		s.lastError = err
 		return err
 	}
@@ -182,6 +188,7 @@ func (s *Store) SetSettings(settings Settings) error {
 		s.state = before
 		return err
 	}
+	s.publishSettingsLocked()
 	return nil
 }
 

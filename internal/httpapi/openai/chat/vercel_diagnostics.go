@@ -5,6 +5,7 @@ import (
 	"ds2api/internal/util"
 	"net/http"
 
+	"ds2api/internal/assistantturn"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/tooldiagnostics"
 )
@@ -48,16 +49,21 @@ func finishLeaseDiagnostics(r *http.Request, lease streamLease, req map[string]a
 	}
 	ctx := leaseDiagnosticContext(r.Context(), lease, req)
 	message := asString(req["error"])
+	stopped := asString(req["finish_reason"]) == "stopped"
 	status := 200
-	if message != "" {
+	if message != "" || stopped {
 		code := asString(req["error_code"])
+		if stopped && message == "" {
+			code, message = "request_cancelled", "Request cancelled before tool delivery completed."
+		}
 		if code == "" {
 			code = "stream_error"
 		}
-		tooldiagnostics.TransportFailure(ctx, tooldiagnostics.Observation{Relevant: len(lease.Standard.ToolNames) > 0, Model: lease.Standard.ResponseModel, Raw: asString(req["content"]), ErrorCode: code, Error: message})
+		std := lease.Standard
+		assistantturn.ObserveFailedOutput(asString(req["content"]), asString(req["thinking"]), asString(req["detection_thinking"]), assistantturn.BuildOptions{Model: std.ResponseModel, Prompt: std.PromptTokenText, ToolNames: std.ToolNames, ToolsRaw: std.ToolsRaw, ToolChoice: std.ToolChoice, ToolMarker: std.ToolMarker, DiagnosticContext: ctx}, &assistantturn.OutputError{Status: 502, Code: code, Message: message})
 		status = 502
 	}
-	lease.Diagnostics.Finish(status, nil, asString(req["finish_reason"]) == "stopped")
+	lease.Diagnostics.Finish(status, nil, stopped)
 }
 
 func (h *Handler) leaseRepairTimeoutMS(id string) int {

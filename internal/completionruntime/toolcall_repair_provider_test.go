@@ -97,6 +97,9 @@ func TestCustomRepairAPIUsesConfiguredModelAndRecordsProvider(t *testing.T) {
 	found := false
 	for _, step := range entry.Attempts[0].Steps {
 		if step.Stage == "repair_request" && step.Provider == "custom_api" && step.Model == "custom-reasoner" {
+			if step.HistoryID != repairEntries(t, history)[0].ID {
+				t.Fatal("repair archive link missing")
+			}
 			found = true
 		}
 	}

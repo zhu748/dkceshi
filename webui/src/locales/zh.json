@@ -1029,7 +1029,8 @@
       "llm_repair": "模型格式修复与保真检查",
       "local_recovery": "本地恢复",
       "retry": "重新生成",
-      "repair_request": "修复模型请求"
+      "repair_request": "修复模型请求",
+      "candidate": "已捕获工具候选"
     },
     "result": {
       "success": "成功",
@@ -1093,7 +1094,7 @@
       "clearKey": "清除已保存的 API Key",
       "extra": "额外请求参数（JSON，可选）",
       "extraHelp": "按所选协议和模型的要求配置思考参数。Claude 可使用 thinking，Gemini 可使用 generationConfig.thinkingConfig；默认不会强制关闭思考。不能覆盖模型、上下文、工具目录或输出协议。",
-      "invalidExtra": "额外参数必须是有效的 JSON 对象。",
+      "invalidExtra": "额外参数必须是有效的 JSON 对象，编码后不超过 8192 字节。",
       "independent": "此配置在关闭诊断采集时仍生效；超时受客户端与平台剩余期限约束。",
       "save": "保存修复配置",
       "protocol": "API 格式",
@@ -1109,11 +1110,20 @@
       "selectModel": "选择模型（{count} 个）",
       "chooseModel": "请选择模型",
       "noModels": "接口未返回可用模型，可以手动填写模型名。",
-      "modelsTruncated": "列表较长，仅展示部分模型；需要的模型也可手动填写。"
+      "modelsTruncated": "列表较长，仅展示部分模型；需要的模型也可手动填写。",
+      "test": "测试修复",
+      "testing": "正在测试…",
+      "testHelp": "使用当前表单发送一个小型修复示例，会调用所选 API；测试不会保存配置。",
+      "testSuccess": "模型 {model} 修复校验通过，用时 {ms} ms。"
     },
     "provider": {
       "original": "原请求模型",
       "custom_api": "自定义 API"
-    }
+    },
+    "openArchive": "查看修复响应归档",
+    "closeArchive": "收起响应归档",
+    "archiveUnavailable": "归档可能已被清理；诊断证据仍保留。",
+    "archiveThinking": "修复模型思考",
+    "recordTruncated": "本条记录已达到证据总量上限，部分文本已截断；原始字节数仍保留。"
   }
 }

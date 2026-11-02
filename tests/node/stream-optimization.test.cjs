@@ -119,3 +119,30 @@ test('validation uses configured repair timeout and honors the remaining request
   await fetchStreamValidation(req, 'lease', 'tool', '', '', undefined, Date.now() + 100, {}, 60000);
   assert.ok(delay >= 1 && delay <= 100);
 });
+
+test('bounded diagnostic snapshots preserve candidate openers and Unicode byte counts', () => {
+  const { captureProgressText } = require('../../internal/js/chat-stream/diagnostic_progress');
+  const raw = 'ordinary prose '.repeat(30000) + '<tool_calls><invoke name="write">' + '字'.repeat(200000);
+  const snapshot = captureProgressText(raw);
+  assert.equal(snapshot.bytes,Buffer.byteLength(raw));
+  assert.equal(snapshot.truncated,true);
+  assert.ok(snapshot.text.startsWith('<tool_calls>'));
+  assert.equal(snapshot.text.includes('\uFFFD'),false);
+  assert.ok(Buffer.byteLength(snapshot.text)<263000);
+});
+
+test('diagnostic progress is serialized and cannot change stream outcomes on failure', async () => {
+  const { createDiagnosticProgress } = require('../../internal/js/chat-stream/diagnostic_progress');
+  let clock=0, resolve, calls=0;
+  const progress=createDiagnosticProgress({enabled:true,signal:new AbortController().signal,now:()=>clock,diagnostic:()=>({diagnostic_attempt:1}),read:()=>({content:'<tool_calls>',thinking:''}),send:()=>{calls++;return new Promise(done=>{resolve=done;});}});
+  progress.observe('<tool_calls>','',{});
+  await Promise.resolve();
+  clock=2000;
+  progress.observe('<tool_calls>more','',{});
+  assert.equal(calls,1);
+  resolve(); await progress.settle();
+  progress.observe('<tool_calls>more','',{});
+  await Promise.resolve();
+  assert.equal(calls,2);
+  resolve(); await progress.settle();
+});

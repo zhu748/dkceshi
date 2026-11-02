@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Settings2, Save, RefreshCcw } from 'lucide-react'
 import { useRepairModels } from './useRepairModels'
+import { useRepairTest } from './useRepairTest'
+import { repairDraftBody } from './repairDraft'
 
 const input = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-50'
 
@@ -22,9 +24,11 @@ export default function RepairSettingsPanel({ settings, ready, busy, mutate, aut
     const [dirty, setDirty] = useState(false)
     const [error, setError] = useState('')
     const modelList = useRepairModels(authFetch)
+    const repairTest = useRepairTest(authFetch)
     const signature = JSON.stringify(settings || {})
-    useEffect(() => { if (!dirty) { modelList.invalidate(); setDraft(toDraft(settings)) } }, [signature, dirty])
+    useEffect(() => { if (!dirty) { modelList.invalidate(); repairTest.invalidate(); setDraft(toDraft(settings)) } }, [signature, dirty])
     const change = patch => {
+        repairTest.invalidate()
         if (['protocol', 'base_url', 'api_key', 'clear_api_key', 'mode'].some(key => Object.hasOwn(patch, key))) modelList.invalidate()
         setDraft(previous => ({ ...previous, ...patch })); setDirty(true); setError('')
     }
@@ -32,13 +36,11 @@ export default function RepairSettingsPanel({ settings, ready, busy, mutate, aut
 
     const save = async event => {
         event.preventDefault()
-        let extra
-        try {
-            extra = draft.extra.trim() ? JSON.parse(draft.extra) : undefined
-            if (extra !== undefined && (!extra || Array.isArray(extra) || typeof extra !== 'object')) throw new Error()
-        } catch { setError(t('toolDiagnostics.repair.invalidExtra')); return }
-        const { extra: _extra, ...body } = draft
-        const saved = await mutate('/repair-settings', 'PUT', { ...body, extra_body: extra })
+        let body
+        try { body = repairDraftBody(draft) }
+        catch { setError(t('toolDiagnostics.repair.invalidExtra')); return }
+        repairTest.invalidate()
+        const saved = await mutate('/repair-settings', 'PUT', body)
         if (saved?.settings?.repair) { setDraft(toDraft(saved.settings.repair)); setDirty(false) }
     }
 
@@ -65,6 +67,12 @@ export default function RepairSettingsPanel({ settings, ready, busy, mutate, aut
                     {modelList.error && <p role="alert" className="break-words text-xs text-destructive">{modelList.error}</p>}
                 </div>
                 <p className="text-xs text-muted-foreground">{t('toolDiagnostics.repair.keyHelp')}</p>
+                <div className="space-y-2 rounded-lg border border-border p-3">
+                    <button type="button" disabled={busy || !ready || repairTest.loading || modelList.loading || !draft.base_url.trim() || !draft.model.trim()} onClick={() => repairTest.run(draft)} className="rounded-lg border border-border px-3 py-2 text-xs disabled:opacity-40">{t(repairTest.loading ? 'toolDiagnostics.repair.testing' : 'toolDiagnostics.repair.test')}</button>
+                    <p className="text-xs text-muted-foreground">{t('toolDiagnostics.repair.testHelp')}</p>
+                    {repairTest.result && <p role="status" className="text-xs text-primary">{t('toolDiagnostics.repair.testSuccess', { model: repairTest.result.model, ms: repairTest.result.elapsed_ms })}</p>}
+                    {repairTest.error && <p role="alert" className="break-words text-xs text-destructive">{repairTest.error === 'invalidExtra' ? t('toolDiagnostics.repair.invalidExtra') : repairTest.error}</p>}
+                </div>
                 {settings?.has_api_key && <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={draft.clear_api_key} disabled={busy} onChange={event => change({ clear_api_key: event.target.checked, api_key: '' })} />{t('toolDiagnostics.repair.clearKey')}</label>}
                 <details className="text-xs"><summary className="cursor-pointer">{t('toolDiagnostics.repair.extra')}</summary><textarea className={`${input} mt-2 min-h-28 font-mono text-xs`} maxLength={8192} value={draft.extra} disabled={busy || !ready} placeholder={draft.protocol === 'claude' ? '{"thinking":{"type":"adaptive"}}' : draft.protocol === 'gemini' ? '{"generationConfig":{"thinkingConfig":{"includeThoughts":true}}}' : '{"reasoning_effort":"high"}'} onChange={event => change({ extra: event.target.value })} /><p className="mt-2 leading-relaxed text-muted-foreground">{t('toolDiagnostics.repair.extraHelp')}</p></details>
             </div>}

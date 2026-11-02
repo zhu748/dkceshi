@@ -4,7 +4,7 @@ import { createRepairModelResource, emptyRepairModelState } from './repairModelR
 export function useRepairModels(authFetch) {
     const resource = useRef(createRepairModelResource()).current
     const [state, setState] = useState(emptyRepairModelState)
-    useEffect(() => () => resource.cancel(), [resource])
+    useEffect(() => { resource.cancel(); setState(emptyRepairModelState()); return resource.cancel }, [authFetch, resource])
     return {
         ...state,
         invalidate() { resource.cancel(); setState(emptyRepairModelState()) },

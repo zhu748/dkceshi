@@ -20,6 +20,10 @@ import (
 )
 
 func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("__stream_progress") == "1" {
+		h.handleVercelStreamProgress(w, r)
+		return
+	}
 	if r.URL.Query().Get("__stream_validate") == "1" {
 		h.handleVercelStreamValidate(w, r)
 		return

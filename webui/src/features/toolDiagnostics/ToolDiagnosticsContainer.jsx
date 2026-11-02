@@ -56,7 +56,7 @@ export default function ToolDiagnosticsContainer({ authFetch, onMessage }) {
                     <button type="button" disabled={!data || query.page * 20 >= data.total} className="rounded p-2 hover:bg-secondary disabled:opacity-30" aria-label={t('toolDiagnostics.next')} onClick={() => setQuery(previous => ({ ...previous, page: previous.page + 1 }))}><ChevronRight className="h-4 w-4" /></button>
                 </div>
             </div>
-            <div className="min-w-0 rounded-xl border border-border bg-card/70"><DiagnosticDetail record={detail} t={t} busy={busy} onDelete={() => setConfirmation({ path: `/${encodeURIComponent(selected)}`, title: t('toolDiagnostics.delete'), message: t('toolDiagnostics.deleteConfirm') })} /></div>
+            <div className="min-w-0 rounded-xl border border-border bg-card/70"><DiagnosticDetail record={detail} t={t} busy={busy} authFetch={authFetch} onDelete={() => setConfirmation({ path: `/${encodeURIComponent(selected)}`, title: t('toolDiagnostics.delete'), message: t('toolDiagnostics.deleteConfirm') })} /></div>
         </div>
         {confirmation && <DiagnosticConfirm {...confirmation} t={t} busy={busy} onClose={() => setConfirmation(null)} onConfirm={async () => { await mutate(confirmation.path, 'DELETE'); setConfirmation(null) }} />}
     </div>

@@ -102,12 +102,11 @@ func (s *Store) RepairSettings() RepairSettings {
 	if s == nil {
 		return DefaultRepairSettings()
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.loadError != nil || s.state.Settings.Repair == nil {
+	settings := s.settingsCache.Load()
+	if settings == nil || settings.Repair == nil {
 		return DefaultRepairSettings()
 	}
-	value := *s.state.Settings.Repair
+	value := *settings.Repair
 	value.ExtraBody = append(json.RawMessage(nil), value.ExtraBody...)
 	return value
 }
@@ -128,6 +127,7 @@ func (s *Store) SetRepairSettings(next RepairSettings) error {
 		s.state.Settings.Repair = previous
 		return err
 	}
+	s.publishSettingsLocked()
 	return nil
 }
 
@@ -206,4 +206,20 @@ func (s *Store) SettingsSnapshot() (Settings, int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return PublicSettings(s.state.Settings), s.state.Revision
+}
+
+// PreviewRepairGeneration validates a complete unsaved draft and resolves only
+// credentials belonging to the same protocol and origin, without saving it.
+func (s *Store) PreviewRepairGeneration(next RepairSettings) (RepairSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loadError != nil {
+		return RepairSettings{}, s.loadError
+	}
+	next.Mode = "custom"
+	value, err := resolveRepairSettings(s.state.Settings.Repair, &next, true)
+	if err != nil {
+		return RepairSettings{}, err
+	}
+	return *value, nil
 }

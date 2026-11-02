@@ -40,12 +40,21 @@ func (r *Recorder) schedulePersistLocked() {
 	})
 }
 func (r *Recorder) writeLocked() {
+	r.cancelPersistLocked()
+	bounded := boundRecord(r.record)
+	// Preserve immutable identity fields when the timer compacts evidence.
+	r.record.Attempts = bounded.Attempts
+	r.record.Tools, r.record.Policy = bounded.Tools, bounded.Policy
+	r.record.Error, r.record.EvidenceTruncated = bounded.Error, bounded.EvidenceTruncated
+	if err := r.store.Put(r.record); err != nil {
+		slog.Warn("[tool_diagnostics] persistence failed", "id", r.record.ID, "error", err)
+	}
+}
+
+func (r *Recorder) cancelPersistLocked() {
 	if r.flushTimer != nil {
 		r.flushTimer.Stop()
 		r.flushTimer = nil
 	}
 	r.flushVersion++
-	if err := r.store.Put(r.record); err != nil {
-		slog.Warn("[tool_diagnostics] persistence failed", "id", r.record.ID, "error", err)
-	}
 }

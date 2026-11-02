@@ -75,11 +75,12 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 
 //nolint:unused // retained for native Gemini stream handling path.
 type geminiStreamRuntime struct {
-	output      streamwriter.Writer
-	leadingText completionruntime.LeadingText
-	w           http.ResponseWriter
-	rc          *http.ResponseController
-	canFlush    bool
+	diagnosticProgress assistantturn.DiagnosticProgress
+	output             streamwriter.Writer
+	leadingText        completionruntime.LeadingText
+	w                  http.ResponseWriter
+	rc                 *http.ResponseController
+	canFlush           bool
 
 	model       string
 	finalPrompt string
@@ -270,6 +271,7 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 // answer; keep the buffers clean so the new answer is not appended to the old
 // one. Mirrors chat/claude stream_regenerate.go.
 func (s *geminiStreamRuntime) resetForRegeneration() {
+	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.accumulator.ResetForRegeneration()
 	s.toolSieve = toolstream.State{CleanVisible: true, DeferMalformed: true, Marker: s.toolMarker, StripReferenceMarkers: s.stripReferenceMarkers}
 	s.deferredText.Reset()

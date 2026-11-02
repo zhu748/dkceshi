@@ -77,9 +77,12 @@ func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *c
 		if provider == "custom_api" {
 			step.Protocol = tooldiagnostics.RepairProtocol(settings.Protocol)
 		}
+		record := startRepairHistory(history, a, prompt, model)
+		if record != nil {
+			step.HistoryID = record.entryID
+		}
 		tooldiagnostics.AddStep(ctx, step)
 		config.Logger.Info("[toolcall_repair] starting", "provider", provider, "model", model)
-		record := startRepairHistory(history, a, prompt, model)
 		var output repairOutput
 		defer func() {
 			step.ElapsedMS = time.Since(started).Milliseconds()

@@ -1,11 +1,15 @@
 package chat
 
-import "ds2api/internal/toolstream"
+import (
+	"ds2api/internal/assistantturn"
+	"ds2api/internal/toolstream"
+)
 
 // Only called after the runtime deferred an error with no delivered answer.
 // Preserve reasoning already streamed, but discard malformed tool fragments,
 // old message IDs and error state before parsing a replacement generation.
 func (s *chatStreamRuntime) resetForRegeneration() {
+	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.toolCallsPending = false
 	s.accumulator.RawText.Reset()
 	s.accumulator.Text.Reset()

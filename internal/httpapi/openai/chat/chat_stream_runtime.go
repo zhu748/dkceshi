@@ -17,11 +17,12 @@ import (
 )
 
 type chatStreamRuntime struct {
-	output      streamwriter.Writer
-	leadingText completionruntime.LeadingText
-	w           http.ResponseWriter
-	rc          *http.ResponseController
-	canFlush    bool
+	diagnosticProgress assistantturn.DiagnosticProgress
+	output             streamwriter.Writer
+	leadingText        completionruntime.LeadingText
+	w                  http.ResponseWriter
+	rc                 *http.ResponseController
+	canFlush           bool
 
 	completionID  string
 	created       int64
@@ -405,6 +406,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 	}
 	batch.flush()
 	// 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）在此统一收口：
+	s.diagnosticProgress.Update(s.toolCallRepairCtx, s.toolSieve.Marker, s.accumulator.RawText.String(), s.accumulator.RawThinking.String(), s.accumulator.ToolDetectionThinking.String())
 	// 结束读取，把已生成内容交给正常收尾（tool 筛分 / 修复 / finish 帧），
 	// 仍返回 200。
 	return streamengine.StopForWrite(s.output.Err(), streamengine.StopForCut(accumulated.Cut, "openai_chat_stream", "chat.completions", accumulated.ContentSeen))
