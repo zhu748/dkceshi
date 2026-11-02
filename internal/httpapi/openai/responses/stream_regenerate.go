@@ -11,8 +11,13 @@ func (s *responsesStreamRuntime) resetForRegeneration() {
 	s.accumulator.ResetThinkingGuard()
 	s.accumulator.ResetContentPolicy()
 	s.deferredText.Reset()
+	s.leadingText.Reset()
 	s.sieve = toolstream.State{CleanVisible: true, DeferMalformed: true, StripReferenceMarkers: s.stripReferenceMarkers, Marker: s.sieve.Marker}
 	s.responseMessageID = 0
 	s.upstreamErr = ""
 	s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = 0, "", ""
+}
+
+func (s *responsesStreamRuntime) prepareAnswerText(content string) string {
+	return s.leadingText.Write(content)
 }

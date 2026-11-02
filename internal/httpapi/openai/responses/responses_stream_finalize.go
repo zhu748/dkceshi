@@ -90,6 +90,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		return true
 	}
 	obj := s.buildCompletedResponseObject(turn.Thinking, turn.Text, detected)
+	obj["usage"] = assistantturn.OpenAIResponsesUsage(turn)
 	if s.persistResponse != nil && !s.persistResponse(obj) {
 		s.failResponse(http.StatusInsufficientStorage, responseStorageMessage, responseStorageCode)
 		return true

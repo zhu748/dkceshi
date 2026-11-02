@@ -94,9 +94,11 @@ func normalizeResponsesInputArray(items []any) []any {
 					continue
 				}
 				if isAssistantToolCallMessage(msg) && pendingAssistantReasoning != "" {
-					if strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"])) == "" {
-						msg["reasoning_content"] = pendingAssistantReasoning
+					reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
+					if reasoning != "" {
+						reasoning = "\n" + reasoning
 					}
+					msg["reasoning_content"] = pendingAssistantReasoning + reasoning
 					pendingAssistantReasoning = ""
 				} else {
 					flushPendingReasoning()
@@ -159,6 +161,13 @@ func isAssistantToolCallMessage(msg map[string]any) bool {
 func mergeResponsesAssistantToolCalls(prev any, next map[string]any) bool {
 	prevMsg, ok := prev.(map[string]any)
 	if !ok || !isAssistantToolCallMessage(prevMsg) || !isAssistantToolCallMessage(next) {
+		return false
+	}
+	// Explicit message bodies, including empty bodies, retain their boundaries.
+	if _, present := prevMsg["content"]; present {
+		return false
+	}
+	if _, present := next["content"]; present {
 		return false
 	}
 	prevCalls, _ := prevMsg["tool_calls"].([]any)

@@ -173,6 +173,9 @@ func (s *responsesStreamRuntime) emitTextDelta(content string) {
 	if content == "" {
 		return
 	}
+	if content = s.prepareAnswerText(content); content == "" {
+		return
+	}
 	s.closeReasoningItem()
 	s.ensureMessageContentPartAdded()
 	s.visibleText.WriteString(content)

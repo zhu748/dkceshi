@@ -29,27 +29,27 @@ func TestRequestBodyHasTools(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "system message mentions tool keyword (singular)",
+			name: "tool permission without catalog is not a declaration",
 			req: map[string]any{"messages": []any{
 				map[string]any{"role": "system", "content": "You may invoke a Tool when needed."},
 			}},
-			want: true,
+			want: false,
 		},
 		{
-			name: "system message mentions functions keyword",
+			name: "availability statement without definitions is not a catalog",
 			req: map[string]any{"messages": []any{
 				map[string]any{"role": "system", "content": "The following FUNCTIONS are available."},
 			}},
-			want: true,
+			want: false,
 		},
 		{
-			name: "system message content parts mention tools",
+			name: "content parts with ordinary tool instructions",
 			req: map[string]any{"messages": []any{
 				map[string]any{"role": "system", "content": []any{
 					map[string]any{"type": "text", "text": "Use the available tools to help."},
 				}},
 			}},
-			want: true,
+			want: false,
 		},
 		{
 			name: "system message without tool keyword",
@@ -67,14 +67,14 @@ func TestRequestBodyHasTools(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "empty tools array falls back to system scan hit",
+			name: "explicit empty tools array disables system scan",
 			req: map[string]any{
 				"tools": []any{},
 				"messages": []any{
 					map[string]any{"role": "system", "content": "Available tools: read_file"},
 				},
 			},
-			want: true,
+			want: false,
 		},
 	}
 	for _, c := range cases {

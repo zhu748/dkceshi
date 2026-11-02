@@ -28,8 +28,8 @@ import "strings"
 //  2. Some clients (e.g. the RikkaHub workspace app) do not send a `tools`
 //     array at all; instead they embed the tool catalog inside a system message
 //     (e.g. "Available tools: workspace_read_file ..."). To route those to the
-//     tools pool we also scan `role=system` message text for the keywords
-//     "tools", "tool", and "functions" (case-insensitive).
+//     tools pool we scan system/developer text for explicit catalog headings
+//     and definitions. An explicit empty array disables this fallback.
 func RequestBodyHasTools(req map[string]any) bool {
 	if len(req) == 0 {
 		return false
@@ -37,19 +37,14 @@ func RequestBodyHasTools(req map[string]any) bool {
 	if ToolsForceDisabledInRequest(req) {
 		return false
 	}
-	if tools, ok := req["tools"].([]any); ok && len(tools) > 0 {
-		return true
+	if tools, ok := req["tools"].([]any); ok && tools != nil {
+		return len(tools) > 0
 	}
 	return systemMessagesMentionTools(req)
 }
 
-// toolMentionKeywords are the case-insensitive substrings that, when present in
-// a system message, indicate the caller is exposing tools to the model even
-// though no top-level `tools` array was supplied.
-var toolMentionKeywords = []string{"tools", "tool", "functions"}
-
 // systemMessagesMentionTools scans the request body's `messages` array for any
-// `role=system` message whose text content mentions a tool-related keyword.
+// `role=system` message whose text content declares a tool catalog.
 func systemMessagesMentionTools(req map[string]any) bool {
 	messages, ok := req["messages"].([]any)
 	if !ok {
@@ -58,9 +53,8 @@ func systemMessagesMentionTools(req map[string]any) bool {
 	return MessagesDeclareToolsInSystemText(messages)
 }
 
-// MessagesDeclareToolsInSystemText reports whether any `role=system` message in
-// the given messages slice mentions a tool-related keyword ("tools" / "tool" /
-// "functions", case-insensitive). It is the message-level counterpart to
+// MessagesDeclareToolsInSystemText checks system/developer messages for a
+// recognizable catalog. It is the message-level counterpart to
 // RequestBodyHasTools' system scan and is the single source of truth used by the
 // prompt builder to decide whether to inject the tool-call format spec for
 // requests that expose tools via system text rather than a top-level `tools`
@@ -108,17 +102,4 @@ func systemMessageText(content any) string {
 	default:
 		return ""
 	}
-}
-
-func textMentionsTools(text string) bool {
-	if strings.TrimSpace(text) == "" {
-		return false
-	}
-	lower := strings.ToLower(text)
-	for _, kw := range toolMentionKeywords {
-		if strings.Contains(lower, kw) {
-			return true
-		}
-	}
-	return false
 }

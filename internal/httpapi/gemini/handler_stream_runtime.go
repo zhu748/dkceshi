@@ -49,8 +49,7 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 
 	rc := http.NewResponseController(w)
 	_, canFlush := w.(http.Flusher)
-	// Without a normalized request, catalog-backed turns use whole-turn
-	// buffering and all other turns use incremental tool interception.
+	// Without a normalized request, stream prose through tool interception.
 	runtime := newGeminiStreamRuntime(w, rc, canFlush, model, finalPrompt, thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw, false, historySession)
 
 	initialType := "text"
@@ -75,9 +74,10 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 
 //nolint:unused // retained for native Gemini stream handling path.
 type geminiStreamRuntime struct {
-	w        http.ResponseWriter
-	rc       *http.ResponseController
-	canFlush bool
+	leadingText completionruntime.LeadingText
+	w           http.ResponseWriter
+	rc          *http.ResponseController
+	canFlush    bool
 
 	model       string
 	finalPrompt string
@@ -88,9 +88,8 @@ type geminiStreamRuntime struct {
 
 	thinkingEnabled bool
 	searchEnabled   bool
-	// Catalog-backed requests retain whole-turn rendering. Other requests use
-	// the incremental sieve so ordinary prose streams while tool batches wait
-	// for shared final validation, including schema-less agent continuations.
+	// Prose streams through the sieve; required/forced policies alone hold it.
+	// Every tool batch waits for shared final validation.
 	toolSieve             toolstream.State
 	deferredText          strings.Builder
 	toolCallsPending      bool
@@ -138,8 +137,8 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 
 	rc := http.NewResponseController(w)
 	_, canFlush := w.(http.Flusher)
-	// Explicit or system-text catalogs retain whole-turn buffering. The
-	// remaining requests still intercept tool markup incrementally.
+	// Catalogs and history retain incremental prose delivery; only a required
+	// tool policy holds the entire answer until final validation.
 	runtime := newGeminiStreamRuntime(w, rc, canFlush, model, finalPrompt, thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw, stdReq.SystemTextToolsApply(), historySession)
 	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
 	runtime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)
@@ -147,7 +146,7 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 	runtime.toolMarker = a.ToolMarker
 	runtime.toolSieve.Marker = a.ToolMarker
 	runtime.toolChoice = stdReq.ToolChoice
-	runtime.bufferContent = runtime.bufferContent || stdReq.ToolChoice.Constrained()
+	runtime.bufferContent = completionruntime.HoldToolOutput(toolNames, toolsRaw, stdReq.ToolChoice)
 
 	completionruntime.ExecuteStreamWithRetry(r.Context(), h.DS, a, resp, payload, pow, completionruntime.StreamRetryOptions{
 		Surface:             "gemini.generate_content",
@@ -270,6 +269,7 @@ func (s *geminiStreamRuntime) resetForRegeneration() {
 	s.accumulator.ResetForRegeneration()
 	s.toolSieve = toolstream.State{CleanVisible: true, DeferMalformed: true, Marker: s.toolMarker, StripReferenceMarkers: s.stripReferenceMarkers}
 	s.deferredText.Reset()
+	s.leadingText.Reset()
 	s.toolCallsPending = false
 	s.answerDelivered = false
 	s.contentFilter = false
@@ -290,7 +290,7 @@ func newGeminiStreamRuntime(
 	stripReferenceMarkers bool,
 	toolNames []string,
 	toolsRaw any,
-	systemTextTools bool,
+	_ bool, // catalogs do not delay ordinary prose
 	history *responsehistory.Session,
 ) *geminiStreamRuntime {
 	return &geminiStreamRuntime{
@@ -301,7 +301,7 @@ func newGeminiStreamRuntime(
 		finalPrompt:           finalPrompt,
 		thinkingEnabled:       thinkingEnabled,
 		searchEnabled:         searchEnabled,
-		bufferContent:         len(toolNames) > 0 || systemTextTools,
+		bufferContent:         false,
 		toolSieve:             toolstream.State{CleanVisible: true, DeferMalformed: true, StripReferenceMarkers: stripReferenceMarkers},
 		stripReferenceMarkers: stripReferenceMarkers,
 		toolNames:             toolNames,
@@ -436,13 +436,13 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 		)
 	}
 
+	turn.Thinking = "" // Visible thinking has already streamed on every path.
 	if s.bufferContent {
+		s.emitStreamText(completionruntime.ValidatedToolText(turn, s.toolNames, s.toolMarker, s.stripReferenceMarkers))
+	}
+	if len(turn.ToolCalls) > 0 {
 		s.sendParts(buildGeminiPartsFromTurn(turn))
-	} else if len(turn.ToolCalls) > 0 {
-		// Reasoning has already streamed on this path.
-		turn.Thinking = ""
-		s.sendParts(buildGeminiPartsFromTurn(turn))
-	} else {
+	} else if !s.bufferContent {
 		s.emitStreamText(toolstream.FilterVisible(s.deferredText.String(), ""))
 		s.deferredText.Reset()
 		for _, event := range toolstream.Flush(&s.toolSieve, s.toolNames) {

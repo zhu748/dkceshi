@@ -55,11 +55,7 @@ function processToolSieveChunk(state, chunk, toolNames) {
           noteText(state, consumed.prefix);
           events.push({ type: 'text', text: consumed.prefix, deferred: shouldDeferText(state, consumed.prefix) });
         }
-        // Emit the completed tool call immediately so the runtime can mark the
-        // turn as tool-call emitting before the capture suffix (tail prose after
-        // the tool block) is released as content. Deferring to the next
-        // processToolSieveChunk call would let same-chunk tail text slip through
-        // as visible content in the same stream pass.
+        // Mark the call before releasing same-chunk suffix prose.
         events.push({ type: 'tool_calls', calls: consumed.calls });
         state.pendingToolRaw = '';
         if (consumed.suffix) {
@@ -408,6 +404,10 @@ function consumeToolCapture(state, toolNames, final) {
 }
 
 module.exports = {
+  textBeforeToolBoundary: (text) => {
+    const start = findToolSegmentStart({ deferMalformed: true }, text);
+    return start >= 0 ? text.slice(0, start) : '';
+  },
   processToolSieveChunk: (state, chunk, names) => cleanVisibleEvents(state, processToolSieveChunk(state, chunk, names)),
   flushToolSieve: (state, names) => cleanVisibleEvents(state, flushToolSieve(state, names), true),
 };

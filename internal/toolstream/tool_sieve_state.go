@@ -40,6 +40,7 @@ type State struct {
 }
 
 type Event struct {
+	ToolBoundary   bool // hidden protocol awaiting final recovery; not executable
 	Deferred       bool
 	Content        string
 	ToolCalls      []toolcall.ParsedToolCall

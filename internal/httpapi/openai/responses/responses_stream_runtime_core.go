@@ -43,6 +43,7 @@ type responsesStreamRuntime struct {
 	deferredText         strings.Builder
 	sieve                toolstream.State
 	accumulator          assistantturn.StreamAccumulator
+	leadingText          completionruntime.LeadingText
 	visibleText          strings.Builder
 	visibleReasoning     strings.Builder
 	responseMessageID    int

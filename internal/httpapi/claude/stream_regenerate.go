@@ -19,6 +19,7 @@ func (s *claudeStreamRuntime) resetForRegeneration() {
 	s.thinkingGuard = toolstream.VisibleGuard{Marker: s.sieve.Marker}
 	s.toolDetectionThinking.Reset()
 	s.deferredText.Reset()
+	s.leadingText.Reset()
 	s.resetContentPolicy()
 	s.sieve = toolstream.State{CleanVisible: true, DeferMalformed: true, StripReferenceMarkers: s.stripReferenceMarkers, Marker: s.sieve.Marker}
 	s.responseMessageID = 0

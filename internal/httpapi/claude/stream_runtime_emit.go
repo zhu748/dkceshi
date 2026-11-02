@@ -82,7 +82,7 @@ func (s *claudeStreamRuntime) sendMessageStart() {
 }
 
 func (s *claudeStreamRuntime) emitDeferredText() {
-	text := cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers)
+	text := s.leadingText.Write(cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers))
 	s.deferredText.Reset()
 	if text == "" {
 		return

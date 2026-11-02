@@ -17,9 +17,10 @@ import (
 )
 
 type chatStreamRuntime struct {
-	w        http.ResponseWriter
-	rc       *http.ResponseController
-	canFlush bool
+	leadingText completionruntime.LeadingText
+	w           http.ResponseWriter
+	rc          *http.ResponseController
+	canFlush    bool
 
 	completionID  string
 	created       int64
@@ -151,6 +152,12 @@ func (s *chatStreamRuntime) sendChunk(v any) {
 }
 
 func (s *chatStreamRuntime) sendDelta(delta map[string]any) {
+	if content, ok := delta["content"].(string); ok {
+		delta["content"] = s.leadingText.Write(content)
+		if delta["content"] == "" {
+			delete(delta, "content")
+		}
+	}
 	if len(delta) == 0 {
 		return
 	}
@@ -283,7 +290,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		}
 		batch := chatDeltaBatch{runtime: s}
 		for _, evt := range toolstream.Flush(&s.toolSieve, s.toolNames) {
-			if len(evt.ToolCalls) > 0 {
+			if evt.ToolBoundary || len(evt.ToolCalls) > 0 {
 				continue
 			}
 			if evt.Content == "" || s.toolCallsEmitted {
@@ -376,7 +383,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 					s.deferredText.WriteString(evt.Content)
 					continue
 				}
-				if len(evt.ToolCalls) > 0 || len(evt.ToolCallDeltas) > 0 {
+				if evt.ToolBoundary || len(evt.ToolCalls) > 0 || len(evt.ToolCallDeltas) > 0 {
 					s.toolCallsPending = true
 					continue
 				}

@@ -17,16 +17,11 @@ import (
 // 锁定的是「收窄是按出口」而不是把分支整个删掉——RikkaHub 一类把工具目录写进 system
 // 文本的客户端仍然由该分支服务。
 //
-// 已知边界（有意留在这里）：Gemini 的原始 body 用 `contents` / `systemInstruction`，
-// `RequestBodyHasTools` 扫原始 body 时看不到 system 轮，因此「路由判无工具、组装却注入
-// 格式规范」的错配在路由侧仍然存在——这类请求会走到无工具号池。prompt 侧的错配已由
-// 流式筛分闸门补上：既然 prompt 要求模型按 EPSE 输出工具调用，出口就必须筛分，否则
-// 模型照做的输出会作为可见正文漏给客户端（见下方流式测试，以及 OpenAI 出口为同一
-// 原因无条件开启筛分的 empty_retry_runtime.go）。
+// 原生路由在归一化后识别 systemInstruction 目录，与提示词及输出暂存一致。
 func TestNormalizeGeminiRequestKeepsFormatSpecForSystemInstructionTools(t *testing.T) {
 	req := map[string]any{
 		"systemInstruction": map[string]any{
-			"parts": []any{map[string]any{"text": "You are a helpful agent with access to these tools."}},
+			"parts": []any{map[string]any{"text": "You are a helpful agent with access to these tools.\nAvailable tools: read_file"}},
 		},
 		"contents": []any{
 			map[string]any{
@@ -84,7 +79,7 @@ func TestGeminiStreamSievesToolCallsDeclaredInSystemInstruction(t *testing.T) {
 		ResponseModel:   "gemini-2.5-pro",
 		PromptTokenText: "prompt",
 		Messages: []any{
-			map[string]any{"role": "system", "content": "You are a helpful agent with access to these tools."},
+			map[string]any{"role": "system", "content": "You are a helpful agent with access to these tools.\nAvailable tools: read_file"},
 			map[string]any{"role": "user", "content": "read the readme"},
 		},
 	}

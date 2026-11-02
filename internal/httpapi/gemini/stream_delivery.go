@@ -26,7 +26,7 @@ func (s *geminiStreamRuntime) sendParts(parts []map[string]any) {
 }
 
 func (s *geminiStreamRuntime) emitStreamText(text string) {
-	text = cleanVisibleOutput(text, s.stripReferenceMarkers)
+	text = s.leadingText.Write(cleanVisibleOutput(text, s.stripReferenceMarkers))
 	if text == "" || s.searchEnabled && sse.IsCitation(text) {
 		return
 	}
@@ -57,16 +57,13 @@ func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 	s.accumulator.SetToolMarker(s.toolSieve.Marker)
 	accumulated := s.accumulator.Apply(parsed)
 	for _, p := range accumulated.Parts {
-		if s.bufferContent {
-			continue
-		}
 		if p.Type == "thinking" {
 			if p.VisibleText != "" {
 				s.sendParts([]map[string]any{{"text": p.VisibleText, "thought": true}})
 			}
 			continue
 		}
-		if p.RawText == "" || p.CitationOnly {
+		if s.bufferContent || p.RawText == "" || p.CitationOnly {
 			continue
 		}
 		for _, event := range toolstream.ProcessChunk(&s.toolSieve, p.RawText, s.toolNames) {
@@ -74,7 +71,7 @@ func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 				s.deferredText.WriteString(event.Content)
 				continue
 			}
-			if len(event.ToolCalls) > 0 || len(event.ToolCallDeltas) > 0 {
+			if event.ToolBoundary || len(event.ToolCalls) > 0 || len(event.ToolCallDeltas) > 0 {
 				s.toolCallsPending = true
 				continue
 			}

@@ -1,4 +1,5 @@
 'use strict';
+const { createLeadingText } = require('./leading_text');
 const { createStreamWatch } = require('./stream_limits');
 const { startHeartbeat, waitForDrain } = require('./response_flow');
 const { explicitSnapshotDelta } = require('./dedupe');
@@ -337,7 +338,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let ended = false;
     let lastEmptyDetail = null;
     let answerDelivered = false;
-    const holdToolText = () => toolPolicy.constrained || toolNames.length > 0;
+    const leadingText = createLeadingText();
+    const holdToolText = () => toolPolicy.holdText;
     const { sendFrame, sendDeltaFrame: emitDeltaFrame } = createChatCompletionEmitter({
       res,
       sessionID: responseID,
@@ -346,11 +348,17 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       isClosed: () => lifecycle.closed,
     });
     const sendDeltaFrame = (delta) => {
+      if (typeof delta.content === 'string') {
+        delta.content = leadingText.write(delta.content);
+        if (!delta.content) delete delta.content;
+      }
+      if (!Object.keys(delta).length) return;
       if (asString(delta.content).trim() || delta.tool_calls?.length) answerDelivered = true;
       emitDeltaFrame(delta);
     };
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
     const resetForRegeneration = () => {
+      leadingText.reset();
       currentType = thinkingEnabled ? 'thinking' : 'text';
       contentPolicy = createContentPolicy(finalPrompt);
       outputText = '';

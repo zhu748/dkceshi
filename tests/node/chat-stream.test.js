@@ -209,6 +209,7 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
   try {
     const req = new MockStreamRequest();
     const res = new MockStreamResponse();
+    prepareOverrides.observeResponse?.(res);
     const payload = { model: 'gpt-test', stream: true };
     await handleVercelStream(req, res, Buffer.from(JSON.stringify(payload)), payload);
     return { res, frames: parseSSEDataFrames(res.bodyText()), fetchURLs, fetchBodies, fetchRequests };
@@ -2211,7 +2212,7 @@ test('tool retry feedback stays bounded JSON and preserves the original payload'
   assert.equal(usagePromptWithRetryPayload('original', retry), 'original\n' + retry.prompt);
 });
 
-test('tool failure after a prose answer feeds back the rejected format and delivers only the corrected turn', async () => {
+test('required tool failure after a prose answer feeds back the rejected format and delivers only the corrected turn', async () => {
   const line = value => `data: ${JSON.stringify({ p: 'response/content', v: value })}\n\n`;
   const bad = '<tool_calls><invoke name="ask_user_question"><parameter name="questions"><![CDATA[not-an-array]]></parameter></invoke></tool_calls>';
   const good = '<tool_calls><invoke name="ask_user_question"><parameter name="questions">[{"id":"target","question":"Where?"}]</parameter></invoke></tool_calls>';
@@ -2219,7 +2220,7 @@ test('tool failure after a prose answer feeds back the rejected format and deliv
   const { frames, fetchBodies } = await runMockVercelStreamSequence([
     [line('STALE: previous explanation\n'), line(bad), 'data: [DONE]\n\n'],
     [line('Corrected explanation\n'), line(good), 'data: [DONE]\n\n'],
-  ], { validate_tools: true, tool_names: ['ask_user_question'], validation_responses: [
+  ], { validate_tools: true, tool_names: ['ask_user_question'], tool_choice: { Mode: 'required' }, validation_responses: [
     { status: 422, body: { error: { code: 'invalid_tool_arguments', message: "at '/questions': got string, want array" } } },
     { status: 200, body: { tool_calls: wire, content: 'Corrected explanation\n' } },
   ] });
@@ -2726,4 +2727,79 @@ test('PoW transport AbortError does not impersonate a client disconnect', async 
   const frames = result.frames.filter(f => f !== '[DONE]').map(JSON.parse);
   assert.equal(frames.map(f => f.choices?.[0]?.delta?.content || '').join(''),'recovered');
   assert.equal(result.res.writableEnded,true);
+});
+
+
+test('tool contexts stream prose before upstream EOF while executable calls still wait', async () => {
+  const line = (type, text) => 'data: ' + JSON.stringify({p: 'response/' + type, v: text}) + '\n\n';
+  const call = '<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="read"></｜｜DSML｜｜ invoke></｜｜DSML｜｜ calls>';
+  const wire = [{index: 0, id: 'call_read', type: 'function', function: {name: 'read', arguments: '{}'}}];
+  for (const kind of ['catalog', 'text_catalog', 'history', 'none', 'required', 'dsml']) {
+    let controller, response, signalRead;
+    const consumed = new Promise(resolve => { signalRead = resolve; });
+    let pulls = 0;
+    const first = 'First answer segment is now visible.';
+    const upstream = new Response(new ReadableStream({
+      start(c) { controller = c; },
+      pull(c) {
+        if (pulls++ === 0) {
+          const text = first + (kind === 'dsml' ? call + ' FAKE_RESULT' : '');
+          c.enqueue(new TextEncoder().encode(line('thinking_content', 'Checking the details carefully.') + line('content', text)));
+        }
+      },
+    }, {highWaterMark: 0}), {headers: {'content-type': 'text/event-stream'}});
+    const prepared = {
+      thinking_enabled: true,
+      tool_names: ['text_catalog', 'history'].includes(kind) ? [] : ['read'],
+      validate_tools: kind !== 'history',
+      tool_choice: {Mode: kind === 'required' ? 'required' : kind === 'none' ? 'none' : 'auto', HoldOutput: true},
+      observeResponse(res) {
+        response = res;
+        const write = res.write.bind(res);
+        res.write = chunk => {
+          const result = write(chunk);
+          if (res.bodyText().includes('Checking the details carefully.') && (kind === 'required' || res.bodyText().includes(first))) signalRead();
+          return result;
+        };
+      },
+    };
+    if (kind === 'dsml') prepared.validation_result = {tool_calls: wire};
+    const running = runMockVercelStreamSequence([upstream], prepared);
+    let timer, result;
+    try {
+      await Promise.race([consumed, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('stream read timed out')), 2000); })]);
+      const before = response.bodyText();
+      assert.ok(before.includes('Checking the details carefully.'), kind);
+      assert.equal(before.includes(first), kind !== 'required', kind);
+      assert.equal(before.includes('FAKE_RESULT'), false, kind);
+      assert.equal(before.includes('"tool_calls":'), false, kind);
+    } finally {
+      clearTimeout(timer);
+      const tail = kind === 'required' ? line('content', '<tool_calls><invoke name="read"></invoke></tool_calls>') : '';
+      controller.enqueue(new TextEncoder().encode(tail + 'data: [DONE]\n\n'));
+      controller.close();
+      result = await running;
+    }
+    const events = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+    assert.equal(events.some(event => event.error), false, kind);
+    const deltas = events.flatMap(event => event.choices?.map(choice => choice.delta || {}) || []);
+    assert.equal(deltas.map(delta => delta.content || '').join(''), first, kind);
+    assert.equal(deltas.flatMap(delta => delta.tool_calls || []).length, ['dsml', 'required'].includes(kind) ? 1 : 0, kind);
+    assert.equal(result.frames.filter(frame => frame === '[DONE]').length, 1);
+  }
+});
+
+test('auto prose is never silently replaced after a subsequent tool validation failure', async () => {
+  const line = text => 'data: ' + JSON.stringify({p: 'response/content', v: text}) + '\n\n';
+  const result = await runMockVercelStreamSequence([
+    [line('Visible explanation has already been delivered.'), line('<tool_calls><invoke name="read"></invoke></tool_calls>'), 'data: [DONE]\n\n'],
+    [line('Replacement must not appear.'), 'data: [DONE]\n\n'],
+  ], {validate_tools: true, tool_names: ['read'], validation_status: 422, validation_result: {error: {code: 'invalid_tool_arguments', message: 'missing path'}}});
+  const events = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  const deltas = events.flatMap(event => event.choices?.map(choice => choice.delta || {}) || []);
+  assert.equal(deltas.map(delta => delta.content || '').join(''), 'Visible explanation has already been delivered.');
+  assert.equal(events.some(event => event.error?.code === 'invalid_tool_arguments'), true);
+  assert.equal(deltas.some(delta => delta.tool_calls), false);
+  assert.equal(result.fetchURLs.some(url => url.includes('__stream_pow=1')), false);
+  assert.equal(result.fetchURLs.some(url => url.includes('__stream_switch=1')), false);
 });

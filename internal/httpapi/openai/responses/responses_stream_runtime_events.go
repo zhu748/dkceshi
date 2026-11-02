@@ -55,7 +55,7 @@ func (s *responsesStreamRuntime) processToolStreamEvents(events []toolstream.Eve
 				s.emitTextDelta(cleaned)
 			}
 		}
-		if len(evt.ToolCallDeltas) > 0 || len(evt.ToolCalls) > 0 {
+		if len(evt.ToolCallDeltas) > 0 || evt.ToolBoundary || len(evt.ToolCalls) > 0 {
 			s.toolCallsPending = true
 		}
 	}

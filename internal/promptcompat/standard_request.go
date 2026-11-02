@@ -84,14 +84,14 @@ func (r StandardRequest) BuildPromptFromMessages(messages []any) (string, []stri
 }
 
 // SystemTextToolsApply 报告本请求是否适用「system 文本声明工具」分支：出口允许该
-// 形态、请求未被强制禁用工具、没有顶层 `tools` 数组，且某条 system 消息的文本命中了
-// 工具关键词。prompt 组装与该分支的续写路径（current input file 的
+// 形态、请求未被强制禁用工具、没有顶层 `tools` 数组，且某条 system/developer 消息包含明确的
+// 工具目录结构。prompt 组装与该分支的续写路径（current input file 的
 // BuildOpenAIPromptWithForcedFormatSpec）共用这一个判定，两处不会各判一次而漂移。
 func (r StandardRequest) SystemTextToolsApply() bool {
-	if r.ToolsDisabled || r.SystemTextToolsDisabled {
+	if r.ToolsDisabled || r.SystemTextToolsDisabled || r.ToolChoice.IsNone() {
 		return false
 	}
-	if tools, ok := r.ToolsRaw.([]any); ok && len(tools) > 0 {
+	if tools, ok := r.ToolsRaw.([]any); ok && tools != nil {
 		return false
 	}
 	return MessagesDeclareToolsInSystemText(r.Messages)
@@ -184,7 +184,7 @@ func (r StandardRequest) CompletionPayloadWithParentAndPrompt(sessionID string, 
 	return payload
 }
 
-// Constrained calls are buffered until the complete result can be validated.
+// Constrained reports policies that require final tool validation.
 func (p ToolChoicePolicy) Constrained() bool {
 	return p.RestrictAllowed || p.DisableParallel || (p.Mode != "" && p.Mode != ToolChoiceAuto)
 }

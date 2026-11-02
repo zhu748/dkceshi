@@ -154,7 +154,7 @@ func TestApplyThinkingInjectionKeepsSurfaceSystemTextToolsOptOut(t *testing.T) {
 	req := StandardRequest{
 		Surface: "anthropic_messages",
 		Messages: []any{
-			map[string]any{"role": "system", "content": "You are Claude Code, Anthropic's official CLI tool."},
+			map[string]any{"role": "system", "content": "You are Claude Code, Anthropic's official CLI tool.\nAvailable tools: read_file"},
 			map[string]any{"role": "user", "content": "hello"},
 		},
 		Thinking:                true,

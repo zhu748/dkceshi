@@ -16,6 +16,7 @@ function resolveToolcallPolicy(prepBody, payloadTools) {
   const constrained = !!(prepBody && prepBody.validate_tools) || !!choice.RestrictAllowed || !!choice.DisableParallel || (!!choice.Mode && choice.Mode !== 'auto');
   return {
     choice, constrained,
+    holdText: choice.Mode === 'required' || choice.Mode === 'forced',
     toolNames,
     // 无论客户端是否传 tools，都启用 toolSieve 流式拦截（与 Go 侧一致）：
     // 模型在提示词中被要求使用 <|EPSE|tool_calls> 格式输出工具调用，若客户端

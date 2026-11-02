@@ -8,10 +8,12 @@ import (
 	"testing"
 
 	"ds2api/internal/auth"
+	"ds2api/internal/promptcompat"
 )
 
-func TestToolSchemaFailureAfterProseRegeneratesWithRejectedOutput(t *testing.T) {
+func TestRequiredToolFailureAfterProseRegeneratesWithRejectedOutput(t *testing.T) {
 	std := questionArrayRequest(t)
+	std.ToolChoice.Mode = promptcompat.ToolChoiceRequired
 	bad := "STALE: previous installation explanation\n" + questionArrayMarkup("not-an-array")
 	good := "Corrected explanation\n" + questionArrayMarkup(questionArrayMissingClose+`]`)
 	response := func(value string) *http.Response {

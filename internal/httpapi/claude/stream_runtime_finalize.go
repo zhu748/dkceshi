@@ -78,12 +78,12 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 				s.deferredText.WriteString(evt.Content)
 				continue
 			}
-			if len(evt.ToolCalls) > 0 {
+			if evt.ToolBoundary || len(evt.ToolCalls) > 0 {
 				s.toolCallsPending = true
 				continue
 			}
 			if evt.Content != "" && !s.toolCallsPending {
-				cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)
+				cleaned := s.leadingText.Write(cleanVisibleOutput(evt.Content, s.stripReferenceMarkers))
 				if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 					continue
 				}

@@ -36,11 +36,8 @@ func processChunk(state *State, chunk string, toolNames []string) []Event {
 					state.noteText(prefix)
 					events = append(events, Event{Content: prefix, Deferred: shouldDeferToolText(state, prefix)})
 				}
-				// Emit the completed tool call immediately so the runtime can mark
-				// the turn as tool-call emitting before the capture suffix (tail
-				// prose after the tool block) is released as content. Deferring
-				// to the next ProcessChunk call would let same-chunk tail text
-				// slip through as visible content in the same onParsed pass.
+				// Mark the call before releasing its suffix, including same-chunk
+				// trailing prose. Runtimes suppress text after this boundary.
 				events = append(events, Event{ToolCalls: calls})
 				state.pendingToolRaw = ""
 				if suffix != "" {
@@ -131,6 +128,8 @@ func flush(state *State, toolNames []string) []Event {
 			}
 			if len(consumedCalls) > 0 {
 				events = append(events, Event{ToolCalls: consumedCalls})
+			} else if _, ok := toolcall.FindDSMLTagOutsideIgnored(state.capture.String(), 0); ok {
+				events = append(events, Event{ToolBoundary: true})
 			}
 			if consumedSuffix != "" {
 				state.noteText(consumedSuffix)

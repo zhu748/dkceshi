@@ -81,6 +81,9 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 		writeGeminiError(w, http.StatusBadRequest, err.Error())
 		return true
 	}
+	if stdReq.SystemTextToolsApply() {
+		r = r.WithContext(auth.WithToolsPresent(r.Context(), true))
+	}
 	a, err := h.Auth.Determine(r)
 	if err != nil {
 		writeGeminiError(w, auth.RequestErrorStatus(err), err.Error())
@@ -99,11 +102,8 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 	}
 	stdReq.ToolMarker = a.ToolMarker
 	stdReq.FinalPrompt, stdReq.ToolNames = stdReq.BuildPromptFromMessages(stdReq.Messages)
-	// Usage 口径必须等于实际发送的那份 prompt：OpenAI 出口在
-	// NormalizeOpenAIChatRequest / NormalizeOpenAIResponsesRequest 内把
-	// PromptTokenText 与出口替换后的 FinalPrompt 一起赋值，这里同步一次，
-	// 否则同一个设置（思考注入 / input_file 续写）开与不开会让 Gemini 的
-	// prompt 计数分别按两种形态计算。
+	// 与 OpenAI 出口保持一致：usage 按实际发送的 prompt 计数，
+	// 包括思考注入和 input_file 续写对 prompt 的改写。
 	stdReq.PromptTokenText = stdReq.FinalPrompt
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {

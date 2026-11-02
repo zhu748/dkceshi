@@ -121,7 +121,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		"thinking_enabled": stdReq.Thinking,
 		"search_enabled":   stdReq.Search,
 		"tool_choice":      stdReq.ToolChoice,
-		"validate_tools":   stdReq.ToolChoice.Constrained() || len(stdReq.ToolNames) > 0 || stdReq.SystemTextToolsApply(),
+		"validate_tools":   len(stdReq.ToolNames) > 0 || stdReq.ToolChoice.Constrained() || stdReq.SystemTextToolsApply(),
 		"tool_names":       stdReq.ToolNames,
 		// The Node stream mirror performs the tool sieve itself, so it needs the
 		// caller-specific marker to normalize the model's output back to EPSE

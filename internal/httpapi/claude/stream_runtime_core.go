@@ -17,9 +17,10 @@ import (
 )
 
 type claudeStreamRuntime struct {
-	w        http.ResponseWriter
-	rc       *http.ResponseController
-	canFlush bool
+	leadingText completionruntime.LeadingText
+	w           http.ResponseWriter
+	rc          *http.ResponseController
+	canFlush    bool
 
 	model           string
 	toolNames       []string
@@ -199,6 +200,10 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		}
 
 		if !s.bufferToolContent {
+			cleanedText = s.leadingText.Write(cleanedText)
+			if cleanedText == "" {
+				continue
+			}
 			s.closeThinkingBlock()
 			if !s.textBlockOpen {
 				s.textBlockIndex = s.nextBlockIndex
@@ -231,14 +236,14 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 				s.deferredText.WriteString(evt.Content)
 				continue
 			}
-			if len(evt.ToolCalls) > 0 {
+			if evt.ToolBoundary || len(evt.ToolCalls) > 0 {
 				s.toolCallsPending = true
 				continue
 			}
 			if evt.Content == "" || s.toolCallsPending {
 				continue
 			}
-			cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)
+			cleaned := s.leadingText.Write(cleanVisibleOutput(evt.Content, s.stripReferenceMarkers))
 			if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 				continue
 			}

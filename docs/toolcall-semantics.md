@@ -6,8 +6,8 @@
 
 ## 1) 当前可执行格式
 
-本节的格式规则只约束客户端工具。搜索模型另行注入上游原生 search/open 提示词，
-不会把这两个内置工具加入客户端工具目录。客户端同名工具仍按自身 schema 和下述格式调用。
+本节的格式规则只约束客户端工具。搜索模型通过上游能力开关启用原生 search/open，
+不会额外注入搜索提示词，也不会把这两个内置工具加入客户端工具目录。客户端同名工具仍按自身 schema 和下述格式调用。
 注入条件、历史续写和 Vercel 接线见 `docs/prompt-compatibility.md` 的搜索模型说明。
 
 当前版本推荐模型输出半角管道符 EPSE 外壳：
@@ -70,7 +70,7 @@
 - 如果流里直接从 invoke 开始，但后面补上了 closing wrapper，Go 流式筛分也会按缺失 opening wrapper 的修复路径尝试恢复
 - 已识别成功的工具调用不会再次回流到普通文本
 - 底层 sieve 默认模式可返回无法解析的文本事件；生产路径启用 `DeferMalformed`，明确的工具协议残片在共享收尾失败时返回 `invalid_tool_arguments`，不作为成功正文透传。该规则也覆盖尚无工具名的未闭合 EPSE 外壳、未知 EPSE 标签及截断 canonical 调用。
-- 如果一个 confusable / 漂移过的工具壳在 candidate-span canonicalization + repair 后仍能形成有效工具调用，wrapper 后面的 suffix prose 会继续按普通文本输出；如果 canonicalization 后仍不满足 wrapper-confidence 或 XML 语义，底层 sieve 可返回文本事件，生产路径仍由共享残余校验决定是否拒绝，不能先发送原始代码。
+- 如果一个 confusable / 漂移过的工具壳在 candidate-span canonicalization + repair 后仍能形成有效工具调用，底层筛分会产生 suffix 文本事件，但生产交付仅保留第一次真实调用之前的正文，DSML/最终修复同样适用；如果 canonicalization 后仍不满足 wrapper-confidence 或 XML 语义，底层 sieve 可返回文本事件，生产路径仍由共享残余校验决定是否拒绝，不能先发送原始代码。
 - fenced code block（反引号 `` ``` `` 和波浪线 `~~~`）以及 Markdown inline code span（例如 `` `<tool_calls>...</tool_calls>` ``）中的 XML 示例始终按普通文本处理
 - 支持嵌套围栏（如 4 反引号嵌套 3 反引号）和 CDATA 内围栏保护
 - 对 `command` / `content` 等长文本参数，CDATA 内部如果包含 Markdown fenced EPSE / XML 示例，即使示例里出现 `]]></parameter>` / `</tool_calls>` 这类看起来像外层结束标签的片段，也会继续按参数原文保留，直到真正位于围栏外的外层结束标签
@@ -247,3 +247,7 @@ Markdown 示例的上下文判定优先于其内部 CDATA；外层未闭合围�
 已声明 string 类型和 custom input 的 CDATA 保留字节，不先转 JSON 再转回字符串。旧式结构化参数可继续按 Schema 校验；字符串枚举不匹配时应拒绝调用，不能通过去掉字符串原文中的引号使其匹配。
 
 流式安全状态的生命周期为“一次生成”，跨 continue/resume 连接保留，重新生成时清空。正文和思考通道均执行与实际生成提示词绑定的回显过滤；最终工具校验还包括显式空目录、批次数量和输出资源限制。预算、严格目录开关和 Node 心跳/背压行为详见 `docs/prompt-compatibility.md` 的“工具安全与 Agent 续接补充”。
+
+### 工具上下文中的替代生成
+
+正式目录、明确的纯文本目录和工具历史续轮都允许普通正文增量输出。仅 required/forced 策略暂存整轮正文；工具调用块始终隔离到完整批次校验完成。尚未交付非空白正文或调用时，有界重试可携带具体校验错误和失败输出重新生成；已经交付正文后不再整轮重放。纯文本目录必须有可识别的声明结构；仅提及 tool/functions 不代表声明工具。实现与兼容输入示例见 `prompt-compatibility.md` 的 2026-11-02 补充。

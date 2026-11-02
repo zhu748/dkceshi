@@ -58,9 +58,6 @@ func TestStreamDeliveryUsesVisibilityContract(t *testing.T) {
 					}
 				}
 				want := f.Visible
-				if f.Invalid {
-					want = "" // Rejected tool turns keep their answer text held.
-				}
 				if got := visible.String(); got != want {
 					t.Fatalf("size=%d got=%q want=%q body=%s", size, got, want, rec.Body.String())
 				}

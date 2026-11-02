@@ -65,3 +65,20 @@ test('heartbeat emits SSE comments and stops on cleanup', async t => {
   const before = writes; assert.ok(before > 0);
   await new Promise(resolve => setTimeout(resolve, 15)); assert.equal(writes, before);
 });
+
+test('validated tool text cuts recovered DSML tail and preserves examples', () => {
+  const { validatedToolText } = require('../../internal/js/chat-stream/tool_output');
+  const dsml = '<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="read"></｜｜DSML｜｜ invoke></｜｜DSML｜｜ calls>';
+  for (const prefix of ['before ', `Example: \`${dsml}\`\n`, `~~~xml\n${dsml}\n~~~\n`]) {
+    assert.equal(validatedToolText(prefix + dsml + ' FAKE_RESULT', ['read'], true), prefix);
+  }
+});
+
+test('legacy history flags cannot stall auto prose or change allowed tools', () => {
+  const { resolveToolcallPolicy } = require('../../internal/js/chat-stream/toolcall_policy');
+  const policy = resolveToolcallPolicy({tool_choice: {Mode: 'auto', HoldOutput: true}}, []);
+  assert.equal(policy.constrained, false);
+  assert.equal(policy.holdText, false);
+  assert.deepEqual(policy.toolNames, []);
+  assert.equal(policy.choice.RestrictAllowed, undefined);
+});
