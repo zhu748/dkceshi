@@ -10,7 +10,7 @@ import (
 	"ds2api/internal/promptcompat"
 )
 
-func TestSearchToolFailureAfterWhitespaceCanRegenerate(t *testing.T) {
+func TestSearchToolFailureAfterProseCanRegenerate(t *testing.T) {
 	tools := []any{map[string]any{"name": "web_search", "parameters": map[string]any{
 		"type": "object", "required": []any{"queries"},
 		"properties": map[string]any{"queries": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}},
@@ -35,12 +35,8 @@ func TestSearchToolFailureAfterWhitespaceCanRegenerate(t *testing.T) {
 				bad := `<|ZBBZUX|tool_calls><|ZBBZUX|invoke name="` + name + `"><|ZBBZUX|parameter name="queries"><![CDATA[first||second]]></|ZBBZUX|parameter></|ZBBZUX|invoke></|ZBBZUX|tool_calls>`
 				req := httptest.NewRequest(http.MethodPost, "/", nil)
 				result := (&Handler{}).consumeChatStreamAttempt(req, content(prefix, bad), runtime, "text", false, nil, true)
-				delivered := strings.TrimSpace(prefix) != ""
-				if result.Terminal != delivered || result.Retryable == delivered {
+				if result.Terminal || !result.Retryable || rec.Body.Len() != 0 {
 					t.Fatalf("incorrect delivery boundary: result=%+v code=%s body=%s", result, runtime.finalErrorCode, rec.Body.String())
-				}
-				if delivered {
-					return
 				}
 				runtime.resetForRegeneration()
 				good := `<|ZBBZUX|tool_calls><|ZBBZUX|invoke name="web_search"><|ZBBZUX|parameter name="queries">["first","second"]</|ZBBZUX|parameter></|ZBBZUX|invoke></|ZBBZUX|tool_calls>`

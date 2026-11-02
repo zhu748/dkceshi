@@ -65,6 +65,9 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		return true
 	}
 
+	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
+		s.emitTextDelta(completionruntime.ValidatedToolText(turn, s.toolNames, s.sieve.Marker, s.stripReferenceMarkers))
+	}
 	if len(detected) == 0 && s.deferredText.Len() > 0 {
 		s.emitTextDelta(cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers))
 		s.deferredText.Reset()

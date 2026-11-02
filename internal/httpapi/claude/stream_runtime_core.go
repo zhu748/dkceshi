@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"ds2api/internal/completionruntime"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
@@ -193,6 +194,9 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 			continue
 		}
 		s.text.WriteString(cleanedText)
+		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
+			continue
+		}
 
 		if !s.bufferToolContent {
 			s.closeThinkingBlock()

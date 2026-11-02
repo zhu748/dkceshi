@@ -67,7 +67,7 @@ func ToolCallFormatSpecForMarker(marker string) string {
 4) 所有字符串类型的参数值都必须通过 <![CDATA[...]]> 进行包裹，即使内容极其简短也不例外；这涵盖了代码段、脚本、文件内容、提示词、路径、名称和查询语句等。
 5) 每一个顶层参数都必须体现为 <|EPSE|parameter name="ARG_NAME">...</|EPSE|parameter> 节点形式。
 5a) 不得把参数开标签简写为 <|EPSE|ARG_NAME">；description、old_string、new_string 等字段也必须使用完整的 parameter name="..." 外壳。
-6) 对象和数组可在参数主体内使用 JSON 字面量以完整保留类型，也兼容嵌套 XML 元素和重复的 <item> 子元素。
+6) 对象和数组优先在参数主体内直接使用完整 JSON 字面量，不要包裹 CDATA；数组的结束方括号 ] 不能与 CDATA 的结束符 ]]> 混用。也兼容嵌套 XML 元素和重复的 <item> 子元素。
 7) 数字、布尔值和 null 保持为纯文本。
 8) 仅使用工具架构(schema)中定义的参数名称。请勿自行创建字段。
 9) 使用本次调用所需的实际值填充参数。请勿输出占位符或捏造参数；schema 和任务允许的空字符串、空对象、空数组和 null 都是有效值，应保留其类型。
@@ -88,8 +88,8 @@ func ToolCallFormatSpecForMarker(marker string) string {
 
 参数格式：
 - string => <|EPSE|parameter name="x"><![CDATA[value]]></|EPSE|parameter>
-- object => <|EPSE|parameter name="x"><field>...</field></|EPSE|parameter>
-- array => <|EPSE|parameter name="x"><item>...</item><item>...</item></|EPSE|parameter>
+- object => <|EPSE|parameter name="x">{"field":"value"}</|EPSE|parameter>
+- array => <|EPSE|parameter name="x">[{"field":"value"}]</|EPSE|parameter>
 - number/bool/null => <|EPSE|parameter name="x">plain_text</|EPSE|parameter>
 
 【Wrong — 请勿这样操作】:

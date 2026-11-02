@@ -4,7 +4,7 @@ const { startHeartbeat, waitForDrain } = require('./response_flow');
 const { explicitSnapshotDelta } = require('./dedupe');
 const { flushThinkingState } = require('./sse_thinking');
 const { createVisibleGuard, filterVisible } = require('../helpers/stream-tool-sieve/visible_guard');
-const { needsToolFinalization } = require('./tool_output');
+const { needsToolFinalization, validatedToolText } = require('./tool_output');
 
 // Coordinate one prepared stream; policy, continuation and probes live in dedicated modules.
 
@@ -337,6 +337,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let ended = false;
     let lastEmptyDetail = null;
     let answerDelivered = false;
+    const holdToolText = () => toolPolicy.constrained || toolNames.length > 0;
     const { sendFrame, sendDeltaFrame: emitDeltaFrame } = createChatCompletionEmitter({
       res,
       sessionID: responseID,
@@ -422,7 +423,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         const normalizer = createMarkerNormalizer(prep.body.tool_marker);
         detected = parseStandaloneToolCalls(normalizer.write(detectionThinkingText) + normalizer.flush(), toolNames);
       }
-      let validatedCalls = null, validatedUsage = null;
+      let validatedCalls = null, validatedUsage = null, validatedText = null;
       if ((detected.length || needsToolFinalization(outputText, detectionThinkingText, prep.body, toolSieveState)) && (hasVisibleOutput || detected.length || detectionThinkingText)) {
         try {
           const validation = await fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal);
@@ -439,6 +440,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           }
           validatedCalls = validation.body.tool_calls || [];
           validatedUsage = validation.body.usage;
+          validatedText = typeof validation.body.content === 'string' ? validation.body.content : null;
           detected = validatedCalls.map(call => ({ name: call.function.name }));
         } catch (error) {
           if (lifecycle.closed) {
@@ -467,12 +469,13 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (!res.writableEnded && !res.destroyed) res.end();
         return true;
       }
-      if (!detected.length && !toolCallsEmitted && deferredToolText) { deltaCoalescer.append('content', filterVisible(deferredToolText)); deferredToolText = ''; }
+      if (holdToolText()) { deltaCoalescer.append('content', validatedText ?? validatedToolText(outputText, toolNames, detected.length > 0)); deltaCoalescer.flush(); }
+      if (!holdToolText() && !detected.length && !toolCallsEmitted && deferredToolText) { deltaCoalescer.append('content', filterVisible(deferredToolText)); deferredToolText = ''; }
       if (detected.length > 0 && !toolCallsDoneEmitted) {
         toolCallsEmitted = true;
         toolCallsDoneEmitted = true;
         sendDeltaFrame({ tool_calls: validatedCalls });
-      } else if (toolSieveEnabled) {
+      } else if (toolSieveEnabled && !holdToolText()) {
         const tailEvents = markerTail
           ? processToolSieveChunk(toolSieveState, markerTail, toolNames).concat(flushToolSieve(toolSieveState, toolNames))
           : flushToolSieve(toolSieveState, toolNames);
@@ -648,6 +651,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                   if (!hasVisibleOutput) {
                     hasVisibleOutput = safeText.trim() !== '';
                   }
+                  if (holdToolText()) continue;
                   if (!toolSieveEnabled) {
                     deltaCoalescer.append('content', safeText);
                     continue;
@@ -846,7 +850,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         retry_attempt: retryAttempts,
         parent_message_id: processed.responseMessageID || 0,
       });
-      const retryPayload = clonePayloadForOutputRetry(completionPayload, processed.responseMessageID, lastEmptyDetail);
+      const retryPayload = clonePayloadForOutputRetry(completionPayload, processed.responseMessageID, lastEmptyDetail, outputText || detectionThinkingText);
       usagePrompt = usagePromptWithRetryPayload(usagePrompt, retryPayload);
       const retryPowHeader = await refreshPowHeader('retry');
       if (!retryPowHeader) {

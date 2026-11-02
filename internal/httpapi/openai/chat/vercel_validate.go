@@ -43,5 +43,5 @@ func (h *Handler) handleVercelStreamValidate(w http.ResponseWriter, r *http.Requ
 		writeOpenAIErrorWithCode(w, turn.Error.Status, turn.Error.Message, turn.Error.Code)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"tool_calls": openaifmt.FormatValidatedChatToolCalls(turn.ToolCalls, std.ToolsRaw), "usage": assistantturn.OpenAIChatUsage(turn)})
+	writeJSON(w, 200, map[string]any{"tool_calls": openaifmt.FormatValidatedChatToolCalls(turn.ToolCalls, std.ToolsRaw), "content": completionruntime.ValidatedToolText(turn, std.ToolNames, std.ToolMarker, false), "usage": assistantturn.OpenAIChatUsage(turn)})
 }

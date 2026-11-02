@@ -57,8 +57,12 @@ func TestStreamDeliveryUsesVisibilityContract(t *testing.T) {
 						calls += len(choice.Delta.Calls)
 					}
 				}
-				if got := visible.String(); got != f.Visible {
-					t.Fatalf("size=%d got=%q want=%q body=%s", size, got, f.Visible, rec.Body.String())
+				want := f.Visible
+				if f.Invalid {
+					want = "" // Rejected tool turns keep their answer text held.
+				}
+				if got := visible.String(); got != want {
+					t.Fatalf("size=%d got=%q want=%q body=%s", size, got, want, rec.Body.String())
 				}
 				if f.Invalid {
 					if rt.finalErrorCode != "invalid_tool_arguments" || calls != 0 {

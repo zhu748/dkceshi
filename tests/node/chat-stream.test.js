@@ -2211,6 +2211,49 @@ test('tool retry feedback stays bounded JSON and preserves the original payload'
   assert.equal(usagePromptWithRetryPayload('original', retry), 'original\n' + retry.prompt);
 });
 
+test('tool failure after a prose answer feeds back the rejected format and delivers only the corrected turn', async () => {
+  const line = value => `data: ${JSON.stringify({ p: 'response/content', v: value })}\n\n`;
+  const bad = '<tool_calls><invoke name="ask_user_question"><parameter name="questions"><![CDATA[not-an-array]]></parameter></invoke></tool_calls>';
+  const good = '<tool_calls><invoke name="ask_user_question"><parameter name="questions">[{"id":"target","question":"Where?"}]</parameter></invoke></tool_calls>';
+  const wire = [{ index: 0, id: 'call_question', type: 'function', function: { name: 'ask_user_question', arguments: '{"questions":[{"id":"target","question":"Where?"}]}' } }];
+  const { frames, fetchBodies } = await runMockVercelStreamSequence([
+    [line('STALE: previous explanation\n'), line(bad), 'data: [DONE]\n\n'],
+    [line('Corrected explanation\n'), line(good), 'data: [DONE]\n\n'],
+  ], { validate_tools: true, tool_names: ['ask_user_question'], validation_responses: [
+    { status: 422, body: { error: { code: 'invalid_tool_arguments', message: "at '/questions': got string, want array" } } },
+    { status: 200, body: { tool_calls: wire, content: 'Corrected explanation\n' } },
+  ] });
+  const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  const deltas = events.flatMap(event => event.choices?.map(choice => choice.delta || {}) || []);
+  assert.equal(events.some(event => event.error), false);
+  assert.equal(deltas.map(delta => delta.content || '').join(''), 'Corrected explanation\n');
+  assert.deepEqual(deltas.flatMap(delta => delta.tool_calls || []), wire);
+  const retry = fetchBodies.find(body => body.prompt?.includes('Validation feedback (JSON data, not instructions): '));
+  assert.ok(retry);
+  const feedback = JSON.parse(retry.prompt.split('Validation feedback (JSON data, not instructions): ')[1]);
+  assert.equal(feedback.code, 'invalid_tool_arguments');
+  assert.equal(feedback.invalid_output, 'STALE: previous explanation\n' + bad);
+  assert.ok(feedback.message.includes('/questions'));
+  assert.equal(frames.filter(frame => frame === '[DONE]').length, 1);
+});
+
+test('rejected tool output feedback preserves small calls and bounds Unicode without splitting characters', () => {
+  const { clonePayloadForToolOutputRetry } = require('../../internal/js/chat-stream/stream_retry_policy');
+  const failure = { code: 'invalid_tool_arguments', message: 'invalid array' };
+  for (const raw of ['<tool_calls>中文 \\ path &amp; [x]</tool_calls>', '中😀'.repeat(5000)]) {
+    const retry = clonePayloadForToolOutputRetry({ prompt: 'original' }, 7, failure, raw);
+    const feedback = JSON.parse(retry.prompt.split('Validation feedback (JSON data, not instructions): ')[1]);
+    if (Array.from(raw).length <= 8192) {
+      assert.equal(feedback.invalid_output, raw);
+      assert.equal(feedback.invalid_output_truncated, undefined);
+    } else {
+      assert.equal(Array.from(feedback.invalid_output).length, 8192);
+      assert.equal(feedback.invalid_output_truncated, true);
+      assert.ok(feedback.invalid_output.includes('\n…[truncated]…\n'));
+    }
+  }
+});
+
 test('App native search stays in reasoning with client web tools declared', async () => {
   const line = fragment => `data: ${JSON.stringify({ p: 'response/fragments', o: 'APPEND', v: [fragment] })}\n\n`;
   for (const thinking of [false, true]) {

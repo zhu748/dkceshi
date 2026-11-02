@@ -18,6 +18,9 @@ func normalizeCompiledToolValue(value any, schema *jsonschema.Schema, depth int)
 		if parsed, ok := parseJSONLiteralValue(text); ok && schema.Validate(parsed) == nil {
 			return parsed, true
 		}
+		if parsed, ok := parseArrayMissingClose(text); ok && schema.Validate(parsed) == nil {
+			return parsed, true
+		}
 	}
 	changed := false
 	apply := func(child *jsonschema.Schema) {

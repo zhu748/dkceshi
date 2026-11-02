@@ -52,6 +52,7 @@ type StreamRetryHooks struct {
 	OnAccountSwitch  func(sessionID string)
 	OnTerminal       func(attempts int)
 	EmptyOutputError func() *assistantturn.OutputError
+	RejectedOutput   func() string
 }
 
 // continueResumer is implemented by DeepSeek callers that can resume a
@@ -203,7 +204,11 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			continue
 		}
 		config.Logger.Info("[completion_runtime_output_retry] regenerating undelivered output", "surface", surface, "retry_attempt", attempts, "error_code", pendingErr.Code)
-		retryPayload := ClonePayloadForOutputRetry(currentPayload, parentMessageID, pendingErr)
+		rejectedOutput := ""
+		if IsToolOutputError(pendingErr) && hooks.RejectedOutput != nil {
+			rejectedOutput = hooks.RejectedOutput()
+		}
+		retryPayload := ClonePayloadForOutputRetry(currentPayload, parentMessageID, pendingErr, rejectedOutput)
 		next, callErr := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		var outErr *assistantturn.OutputError
 		if callErr != nil {

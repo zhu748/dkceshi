@@ -316,7 +316,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			config.Logger.Warn("[completion_runtime_empty_retry] retry PoW fetch failed, falling back to original PoW", "surface", stdReq.Surface, "retry_attempt", attempts, "error", powErr)
 			retryPow = pow
 		}
-		retryPayload := ClonePayloadForOutputRetry(payload, parentMessageID, turn.Error)
+		retryPayload := ClonePayloadForOutputRetry(payload, parentMessageID, turn.Error, ToolRetrySource(turn.RawText, turn.DetectionThinking))
 		nextResp, err := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		if err != nil {
 			callErr := completionCallOutputError(ctx, err)

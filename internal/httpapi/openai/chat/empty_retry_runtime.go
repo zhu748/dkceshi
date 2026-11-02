@@ -107,6 +107,9 @@ func (h *Handler) handleStreamWithRetry(w http.ResponseWriter, r *http.Request, 
 			return streamRuntime.responseMessageID
 		},
 		OnRegenerate: streamRuntime.resetForRegeneration,
+		RejectedOutput: func() string {
+			return completionruntime.ToolRetrySource(streamRuntime.accumulator.RawText.String(), streamRuntime.accumulator.ToolDetectionThinking.String())
+		},
 		OnRetryPrompt: func(prompt string) {
 			streamRuntime.finalPrompt = prompt
 		},

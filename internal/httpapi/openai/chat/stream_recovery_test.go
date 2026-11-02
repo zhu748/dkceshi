@@ -42,7 +42,7 @@ func TestTransientStreamErrorDefersButDeliveredAnswerDoesNot(t *testing.T) {
 	for _, partial := range []bool{false, true} {
 		var tools any
 		rec := httptest.NewRecorder()
-		runtime := newChatStreamRuntime(rec, http.NewResponseController(rec), true, "id", 1, "model", "prompt", false, false, true, []string{"lookup"}, tools, promptcompat.DefaultToolChoicePolicy(), true, true)
+		runtime := newChatStreamRuntime(rec, http.NewResponseController(rec), true, "id", 1, "model", "prompt", false, false, true, nil, tools, promptcompat.DefaultToolChoicePolicy(), true, true)
 		req := httptest.NewRequest(http.MethodPost, "/", nil)
 		lines := []string{}
 		if partial {

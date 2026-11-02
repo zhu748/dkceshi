@@ -161,7 +161,10 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		return true
 	}
 
-	if len(turn.ToolCalls) == 0 && !s.toolCallsDetected {
+	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
+		s.deferredText.WriteString(completionruntime.ValidatedToolText(turn, s.toolNames, s.sieve.Marker, s.stripReferenceMarkers))
+		s.emitDeferredText()
+	} else if len(turn.ToolCalls) == 0 && !s.toolCallsDetected {
 		s.emitDeferredText()
 	}
 	s.ended = true

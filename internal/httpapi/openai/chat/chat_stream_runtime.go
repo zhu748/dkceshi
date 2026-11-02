@@ -265,6 +265,11 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	}
 	s.finalThinking = turn.Thinking
 	s.finalText = turn.Text
+	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
+		if text := completionruntime.ValidatedToolText(turn, s.toolNames, s.toolSieve.Marker, s.stripReferenceMarkers); text != "" {
+			s.sendDelta(map[string]any{"content": text})
+		}
+	}
 	if len(turn.ToolCalls) > 0 && !s.toolCallsDoneEmitted {
 		s.sendDelta(map[string]any{
 			"tool_calls": formatFinalStreamToolCallsWithStableIDs(turn.ToolCalls, s.streamToolCallIDs, s.toolsRaw),
@@ -357,6 +362,9 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 			continue
 		}
 		if p.CitationOnly {
+			continue
+		}
+		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
 			continue
 		}
 		if !s.bufferToolContent {

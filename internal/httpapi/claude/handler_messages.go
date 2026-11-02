@@ -479,7 +479,8 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		ParentMessageID: func() int {
 			return streamRuntime.responseMessageID
 		},
-		OnRegenerate: streamRuntime.resetForRegeneration,
+		OnRegenerate:   streamRuntime.resetForRegeneration,
+		RejectedOutput: streamRuntime.rejectedOutput,
 		OnRetryPrompt: func(prompt string) {
 			streamRuntime.promptTokenText = prompt
 		},

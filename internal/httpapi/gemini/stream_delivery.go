@@ -3,11 +3,17 @@ package gemini
 import (
 	"strings"
 
+	"ds2api/internal/completionruntime"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
 	"ds2api/internal/toolstream"
 )
+
+func (s *geminiStreamRuntime) rejectedOutput() string {
+	text, _, _, _, thinking := s.accumulator.Snapshot()
+	return completionruntime.ToolRetrySource(text, thinking)
+}
 
 func (s *geminiStreamRuntime) sendParts(parts []map[string]any) {
 	s.sendChunk(map[string]any{

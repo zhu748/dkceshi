@@ -1,10 +1,15 @@
 package claude
 
 import (
+	"ds2api/internal/completionruntime"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolstream"
 )
+
+func (s *claudeStreamRuntime) rejectedOutput() string {
+	return completionruntime.ToolRetrySource(s.rawText.String(), s.toolDetectionThinking.String())
+}
 
 func (s *claudeStreamRuntime) resetForRegeneration() {
 	s.toolCallsPending = false

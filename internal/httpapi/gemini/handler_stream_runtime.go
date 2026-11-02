@@ -172,7 +172,8 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 		// answer to the previous attempt's raw buffers, and tool-call
 		// detection would run over the concatenated text of both rounds
 		// (chat and claude already reset; see their resetForRegeneration).
-		OnRegenerate: runtime.resetForRegeneration,
+		OnRegenerate:   runtime.resetForRegeneration,
+		RejectedOutput: runtime.rejectedOutput,
 		OnRetryPrompt: func(prompt string) {
 			runtime.finalPrompt = prompt
 		},

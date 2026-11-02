@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"ds2api/internal/assistantturn"
+	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
 	openaifmt "ds2api/internal/format/openai"
 	"ds2api/internal/promptcompat"
@@ -220,6 +221,9 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 			continue
 		}
 		if p.CitationOnly {
+			continue
+		}
+		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
 			continue
 		}
 		if !s.bufferToolContent {

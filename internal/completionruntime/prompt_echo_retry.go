@@ -13,9 +13,9 @@ func isPromptEchoError(err *assistantturn.OutputError) bool {
 }
 
 // Give the same corrective feedback in streamed and collected regeneration.
-func ClonePayloadForOutputRetry(payload map[string]any, parentMessageID int, failure *assistantturn.OutputError) map[string]any {
+func ClonePayloadForOutputRetry(payload map[string]any, parentMessageID int, failure *assistantturn.OutputError, invalidOutput ...string) map[string]any {
 	if IsToolOutputError(failure) {
-		return ClonePayloadForToolOutputRetry(payload, parentMessageID, failure)
+		return ClonePayloadForToolOutputRetry(payload, parentMessageID, failure, invalidOutput...)
 	}
 	clone := ClonePayloadForEmptyOutputRetry(payload, parentMessageID)
 	if isPromptEchoError(failure) {
