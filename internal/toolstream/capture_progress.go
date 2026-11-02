@@ -15,6 +15,7 @@ type captureProgress struct {
 	offset   int
 	tagStart int
 	literal  toolcall.LiteralState
+	root     string
 }
 
 func (p *captureProgress) ready(text string) bool {
@@ -28,7 +29,6 @@ func (p *captureProgress) ready(text string) bool {
 		pos := p.offset
 		p.offset += size
 		if !p.literal.Feed(r) {
-			p.tagStart = 0
 			continue
 		}
 		switch r {
@@ -48,8 +48,11 @@ func (p *captureProgress) ready(text string) bool {
 				continue
 			}
 			tagText := text[p.tagStart-1 : p.offset]
-			if tag, ok := toolcall.FindToolMarkupTagOutsideIgnored(tagText, 0); ok && tag.Closing {
-				ready = true
+			if tag, ok := toolcall.FindToolMarkupTagOutsideIgnored(tagText, 0); ok {
+				if !tag.Closing && p.root == "" {
+					p.root = tag.Name
+				}
+				ready = ready || tag.Closing && (p.root == "" || tag.Name == p.root || tag.Name == "tool_calls")
 			}
 			if tag, ok := toolcall.FindDSMLTagOutsideIgnored(tagText, 0); ok && tag.Closing {
 				ready = true

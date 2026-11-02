@@ -32,14 +32,14 @@ async function readRawBody(req) {
   return Buffer.concat(chunks);
 }
 
-async function requestStreamControl(req, flag, body) {
+async function requestStreamControl(req, flag, body, signal, deadline) {
   const url = buildInternalGoURL(req);
   url.searchParams.set(flag, '1');
   const upstream = await fetch(url.toString(), {
     method: 'POST',
     headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),
     body,
-    signal: AbortSignal.timeout(streamLimit(flag === '__stream_pow' ? 'connect_timeout_ms' : 'max_duration_ms')),
+    signal: controlSignal(flag, signal, deadline),
   });
   const text = await upstream.text();
   let decoded = {};
@@ -51,15 +51,21 @@ async function requestStreamControl(req, flag, body) {
   };
 }
 
-function fetchStreamPrepare(req, rawBody) {
-  return requestStreamControl(req, '__stream_prepare', rawBody);
+function controlSignal(flag, signal, deadline) {
+  const limit = streamLimit(flag === '__stream_pow' ? 'connect_timeout_ms' : 'max_duration_ms');
+  const timeout = AbortSignal.timeout(Math.max(1, Math.min(limit, deadline === undefined ? limit : deadline - Date.now())));
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-function fetchStreamPow(req, leaseID) {
-  return requestStreamControl(req, '__stream_pow', Buffer.from(JSON.stringify({ lease_id: leaseID })));
+function fetchStreamPrepare(req, rawBody, signal, deadline) {
+  return requestStreamControl(req, '__stream_prepare', rawBody, signal, deadline);
 }
 
-async function fetchStreamSwitch(req, leaseID, options = {}) {
+function fetchStreamPow(req, leaseID, signal, deadline) {
+  return requestStreamControl(req, '__stream_pow', Buffer.from(JSON.stringify({ lease_id: leaseID })), signal, deadline);
+}
+
+async function fetchStreamSwitch(req, leaseID, options = {}, signal, deadline) {
   const switchBody = { lease_id: leaseID };
   if (options.disable) {
     switchBody.disable = true;
@@ -74,15 +80,15 @@ async function fetchStreamSwitch(req, leaseID, options = {}) {
     }
   }
   if (options.auth_failed === true) switchBody.auth_failed = true;
-  return requestStreamControl(req, '__stream_switch', Buffer.from(JSON.stringify(switchBody)));
+  return requestStreamControl(req, '__stream_switch', Buffer.from(JSON.stringify(switchBody)), signal, deadline);
 }
 
-async function fetchStreamValidation(req, leaseID, content, thinking, detectionThinking, signal) {
+async function fetchStreamValidation(req, leaseID, content, thinking, detectionThinking, signal, deadline) {
   const url = buildInternalGoURL(req);
   url.pathname = '/v1/chat/completions';
   url.searchParams.set('__stream_validate', '1');
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, Math.min(15000, deadline === undefined ? 15000 : deadline - Date.now())));
   try {
     const response = await fetch(url.toString(), {
       method: 'POST', headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),

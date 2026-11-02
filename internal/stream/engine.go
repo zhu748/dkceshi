@@ -55,6 +55,7 @@ type ParsedDecision struct {
 }
 
 type ConsumeHooks struct {
+	OutputError   func() error
 	OnParsed      func(parsed sse.LineResult) ParsedDecision
 	OnKeepAlive   func()
 	OnFinalize    func(reason StopReason, scannerErr error)
@@ -146,6 +147,10 @@ func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 			if hooks.OnKeepAlive != nil {
 				hooks.OnKeepAlive()
 			}
+			if hooks.OutputError != nil && hooks.OutputError() != nil {
+				finalize(StopReason("client_write_error"), nil)
+				return
+			}
 		case parsed, ok := <-parsedLines:
 			if contextDone() {
 				return
@@ -158,6 +163,9 @@ func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 				continue
 			}
 			decision := hooks.OnParsed(parsed)
+			if hooks.OutputError != nil {
+				decision = StopForWrite(hooks.OutputError(), decision)
+			}
 			if decision.ContentSeen {
 				hasContent = true
 				lastContent = time.Now()

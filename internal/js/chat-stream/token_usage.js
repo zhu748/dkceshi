@@ -26,6 +26,16 @@ function buildUsage(prompt, thinking, output, outputTokens = 0, providedPromptTo
   };
 }
 
+function buildFinalUsage(prompt, thinking, output, validated) {
+  if (validated && Number.isSafeInteger(validated.prompt_tokens) && validated.prompt_tokens >= 0 &&
+      Number.isSafeInteger(validated.completion_tokens) && validated.completion_tokens >= 0) {
+    return { ...validated, total_tokens: validated.prompt_tokens + validated.completion_tokens };
+  }
+  const usage = buildUsage(prompt, thinking, output, validated?.completion_tokens);
+  if (validated?.completion_tokens_details) usage.completion_tokens_details = validated.completion_tokens_details;
+  return usage;
+}
+
 function estimateTokens(text) {
   const t = asTokenString(text);
   if (!t) {
@@ -59,6 +69,7 @@ function asTokenString(v) {
 
 module.exports = {
   buildUsage,
+  buildFinalUsage,
   estimateTokens,
   mergeReasoningForUsage,
 };

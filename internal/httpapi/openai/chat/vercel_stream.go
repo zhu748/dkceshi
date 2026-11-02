@@ -21,6 +21,7 @@ import (
 )
 
 func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
 	if !config.IsVercel() {
 		http.NotFound(w, r)
 		return
@@ -107,25 +108,21 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	leaseID := h.holdStreamLease(a, stdReq, sessionID)
+	leaseID := h.holdStreamLease(a, stdReq, sessionID, startedAt)
 	if leaseID == "" {
 		writeOpenAIError(w, http.StatusInternalServerError, "failed to create stream lease")
 		return
 	}
-	leased = true
-	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id":       sessionID,
-		"lease_id":         leaseID,
-		"model":            stdReq.ResponseModel,
-		"final_prompt":     stdReq.FinalPrompt,
-		"thinking_enabled": stdReq.Thinking,
-		"search_enabled":   stdReq.Search,
-		"tool_choice":      stdReq.ToolChoice,
-		"validate_tools":   len(stdReq.ToolNames) > 0 || stdReq.ToolChoice.Constrained() || stdReq.SystemTextToolsApply(),
-		"tool_names":       stdReq.ToolNames,
-		// The Node stream mirror performs the tool sieve itself, so it needs the
-		// caller-specific marker to normalize the model's output back to EPSE
-		// before parsing (the Go path does the same inside toolstream.State).
+	leased = h.writePreparedLease(w, r, leaseID, map[string]any{
+		"session_id":              sessionID,
+		"lease_id":                leaseID,
+		"model":                   stdReq.ResponseModel,
+		"final_prompt":            stdReq.FinalPrompt,
+		"thinking_enabled":        stdReq.Thinking,
+		"search_enabled":          stdReq.Search,
+		"tool_choice":             stdReq.ToolChoice,
+		"validate_tools":          len(stdReq.ToolNames) > 0 || stdReq.ToolChoice.Constrained() || stdReq.SystemTextToolsApply(),
+		"tool_names":              stdReq.ToolNames,
 		"tool_marker":             stdReq.ToolMarker,
 		"deepseek_token":          a.DeepSeekToken,
 		"pow_header":              powHeader,
@@ -170,7 +167,7 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 	if lease.Auth != nil {
 		h.autoDeleteRemoteSession(r.Context(), lease.Auth, lease.SessionID)
 	}
-	h.recordVercelStreamCompletion(r, lease.Auth, lease.Standard, req)
+	h.recordVercelStreamCompletion(r, lease.Auth, lease.Standard, req, lease.StartedAt)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
@@ -380,11 +377,15 @@ func vercelInternalSecret() string {
 	return strings.TrimSpace(os.Getenv("DS2API_ADMIN_KEY"))
 }
 
-func (h *Handler) holdStreamLease(a *auth.RequestAuth, stdReq promptcompat.StandardRequest, sessionID string) string {
+func (h *Handler) holdStreamLease(a *auth.RequestAuth, stdReq promptcompat.StandardRequest, sessionID string, originalStart ...time.Time) string {
 	if a == nil {
 		return ""
 	}
 	now := time.Now()
+	startedAt := now
+	if len(originalStart) > 0 {
+		startedAt = originalStart[0]
+	}
 	ttl := streamLeaseTTL()
 	if ttl <= 0 {
 		ttl = 15 * time.Minute
@@ -397,6 +398,7 @@ func (h *Handler) holdStreamLease(a *auth.RequestAuth, stdReq promptcompat.Stand
 	}
 	leaseID := newLeaseID()
 	h.streamLeases[leaseID] = streamLease{
+		StartedAt: startedAt,
 		Auth:      a,
 		Standard:  stdReq,
 		SessionID: sessionID,

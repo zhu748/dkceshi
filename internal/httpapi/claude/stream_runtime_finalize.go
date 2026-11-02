@@ -5,6 +5,7 @@ import (
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
+	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
 	"encoding/json"
@@ -72,6 +73,11 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 	if s.policy.Cut() == sse.CutNone {
 		s.onParsed(sse.LineResult{Parsed: true, Flush: true})
 	}
+	if s.output.Err() != nil {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+		s.ended = true
+		return true
+	}
 	if s.bufferToolContent {
 		for _, evt := range toolstream.Flush(&s.sieve, s.toolNames) {
 			if evt.Deferred {
@@ -83,7 +89,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 				continue
 			}
 			if evt.Content != "" && !s.toolCallsPending {
-				cleaned := s.leadingText.Write(cleanVisibleOutput(evt.Content, s.stripReferenceMarkers))
+				cleaned := s.leadingText.Write(textclean.CleanVisibleDelta(evt.Content, s.stripReferenceMarkers))
 				if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 					continue
 				}
@@ -114,6 +120,11 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 	}
 
 	s.closeTextBlock()
+	if s.output.Err() != nil {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+		s.ended = true
+		return true
+	}
 
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
 		ContentCut:            s.policy.Cut(),

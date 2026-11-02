@@ -23,11 +23,15 @@ func (s *Store) Start(params StartParams) (Entry, error) {
 		return Entry{}, ErrDisabled
 	}
 	now := time.Now().UnixMilli()
+	createdAt := now
+	if params.CreatedAt > 0 && params.CreatedAt <= now {
+		createdAt = params.CreatedAt
+	}
 	revision := s.nextRevisionLocked()
 	entry := Entry{
 		ID:          "chat_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		Revision:    revision,
-		CreatedAt:   now,
+		CreatedAt:   createdAt,
 		UpdatedAt:   now,
 		Status:      "streaming",
 		CallerID:    strings.TrimSpace(params.CallerID),

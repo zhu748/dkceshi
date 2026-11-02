@@ -405,11 +405,10 @@ func (h *Handler) handleClaudeStreamRealtime(w http.ResponseWriter, r *http.Requ
 		IdleTimeout:         claudeStreamIdleTimeout,
 		MaxKeepAliveNoInput: claudeStreamMaxKeepaliveCnt,
 	}, streamengine.ConsumeHooks{
-		OnKeepAlive: func() {
-			streamRuntime.sendPing()
-		},
-		OnParsed:   streamRuntime.onParsed,
-		OnFinalize: streamRuntime.onFinalize,
+		OutputError: streamRuntime.output.Err,
+		OnKeepAlive: streamRuntime.sendPing,
+		OnParsed:    streamRuntime.onParsed,
+		OnFinalize:  streamRuntime.onFinalize,
 	})
 }
 

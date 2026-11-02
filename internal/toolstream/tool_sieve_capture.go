@@ -174,7 +174,7 @@ func consumeToolCapture(state *State, toolNames []string, final bool) (prefix st
 	if captured == "" {
 		return "", nil, "", false
 	}
-	if !final && len(captured) > 4096 && !state.captureProgress.ready(captured) {
+	if !final && !state.captureProgress.ready(captured) {
 		return "", nil, "", false
 	}
 	// Real blocks consume their closes atomically. A fresh leading close is

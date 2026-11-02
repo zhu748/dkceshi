@@ -2803,3 +2803,24 @@ test('auto prose is never silently replaced after a subsequent tool validation f
   assert.equal(result.fetchURLs.some(url => url.includes('__stream_pow=1')), false);
   assert.equal(result.fetchURLs.some(url => url.includes('__stream_switch=1')), false);
 });
+
+test('authoritative usage reaches the final frame and lease report unchanged', async () => {
+  const usage = {prompt_tokens: 1234, completion_tokens: 20, total_tokens: 1254, completion_tokens_details: {reasoning_tokens: 2}};
+  const tool_calls = [{index: 0, id: 'read_1', type: 'function', function: {name: 'read', arguments: '{}'}}];
+  const result = await runMockVercelStream(['data: ' + JSON.stringify({p: 'response/content', v: '<tool_calls><invoke name="read"></invoke></tool_calls>'}) + '\n\n', 'data: [DONE]\n\n'], {validate_tools: true, tool_names: ['read'], validation_result: {tool_calls, usage, content: ''}});
+  const events = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.deepEqual(events.find(event => event.usage).usage, usage);
+  const release = result.fetchBodies.find(body => body.finish_reason === 'tool_calls');
+  assert.deepEqual(release.usage, usage);
+  assert.equal(typeof release.started_at_ms, 'number');
+  assert.ok(release.elapsed_ms >= 0);
+  assert.ok(release.timings.validation_ms >= 0);
+});
+
+test('post-prose validation failure retains its original status in lease history', async () => {
+  const line = text => 'data: ' + JSON.stringify({p: 'response/content', v: text}) + '\n\n';
+  const result = await runMockVercelStream([line('Visible explanation is already delivered.'), line('<tool_calls><invoke name="read"></invoke></tool_calls>'), 'data: [DONE]\n\n'], {validate_tools: true, tool_names: ['read'], validation_status: 422, validation_result: {error: {code: 'invalid_tool_arguments', message: 'missing path'}}});
+  const release = result.fetchBodies.find(body => body.error === 'missing path');
+  assert.equal(release.error_status, 422);
+  assert.equal(release.error_code, 'invalid_tool_arguments');
+});

@@ -2,7 +2,6 @@ package gemini
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +17,7 @@ import (
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
+	"ds2api/internal/streamwriter"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
 	"ds2api/internal/util"
@@ -65,7 +65,8 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 		IdleTimeout:         time.Duration(dsprotocol.StreamIdleTimeout) * time.Second,
 		MaxKeepAliveNoInput: dsprotocol.MaxKeepaliveCount,
 	}, streamengine.ConsumeHooks{
-		OnParsed: runtime.onParsed,
+		OutputError: runtime.output.Err,
+		OnParsed:    runtime.onParsed,
 		OnFinalize: func(_ streamengine.StopReason, _ error) {
 			runtime.finalize(false)
 		},
@@ -74,6 +75,7 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 
 //nolint:unused // retained for native Gemini stream handling path.
 type geminiStreamRuntime struct {
+	output      streamwriter.Writer
 	leadingText completionruntime.LeadingText
 	w           http.ResponseWriter
 	rc          *http.ResponseController
@@ -203,7 +205,8 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 		IdleTimeout:         time.Duration(dsprotocol.StreamIdleTimeout) * time.Second,
 		MaxKeepAliveNoInput: dsprotocol.MaxKeepaliveCount,
 	}, streamengine.ConsumeHooks{
-		OnParsed: runtime.onParsed,
+		OutputError: runtime.output.Err,
+		OnParsed:    runtime.onParsed,
 		OnFinalize: func(reason streamengine.StopReason, err error) {
 			stopReason = reason
 			scannerErr = err
@@ -318,13 +321,7 @@ func newGeminiStreamRuntime(
 
 //nolint:unused // retained for native Gemini stream handling path.
 func (s *geminiStreamRuntime) sendChunk(payload map[string]any) {
-	b, _ := json.Marshal(payload)
-	_, _ = s.w.Write([]byte("data: "))
-	_, _ = s.w.Write(b)
-	_, _ = s.w.Write([]byte("\n\n"))
-	if s.canFlush {
-		_ = s.rc.Flush()
-	}
+	s.output.JSON(s.w, s.rc, s.canFlush, "", payload)
 }
 
 // countInputTokens memoizes util.CountPromptTokens per prompt text within
@@ -386,6 +383,10 @@ func (s *geminiStreamRuntime) sendErrorChunk(status int, message string) {
 func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	if s.accumulator.Cut() == sse.CutNone {
 		s.onParsed(sse.LineResult{Parsed: true, Flush: true})
+	}
+	if s.output.Err() != nil {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+		return true
 	}
 	s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = 0, "", ""
 	rawText, text, rawThinking, thinking, detectionThinking := s.accumulator.Snapshot()

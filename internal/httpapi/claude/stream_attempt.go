@@ -28,6 +28,7 @@ func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Respons
 		Context: r.Context(), Body: resp.Body, ThinkingEnabled: thinkingEnabled, InitialType: initialType,
 		KeepAliveInterval: claudeStreamPingInterval, IdleTimeout: claudeStreamIdleTimeout, MaxKeepAliveNoInput: claudeStreamMaxKeepaliveCnt,
 	}, streamengine.ConsumeHooks{
+		OutputError: s.output.Err,
 		OnKeepAlive: s.sendPing,
 		OnParsed:    s.onParsed,
 		OnFinalize:  func(reason streamengine.StopReason, err error) { finalReason, scannerErr = reason, err },

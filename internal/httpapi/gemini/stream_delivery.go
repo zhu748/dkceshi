@@ -7,6 +7,7 @@ import (
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
+	"ds2api/internal/textclean"
 	"ds2api/internal/toolstream"
 )
 
@@ -26,7 +27,7 @@ func (s *geminiStreamRuntime) sendParts(parts []map[string]any) {
 }
 
 func (s *geminiStreamRuntime) emitStreamText(text string) {
-	text = s.leadingText.Write(cleanVisibleOutput(text, s.stripReferenceMarkers))
+	text = s.leadingText.Write(textclean.CleanVisibleDelta(text, s.stripReferenceMarkers))
 	if text == "" || s.searchEnabled && sse.IsCitation(text) {
 		return
 	}
@@ -38,6 +39,9 @@ func (s *geminiStreamRuntime) emitStreamText(text string) {
 
 //nolint:unused // retained for native Gemini stream handling path.
 func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedDecision {
+	if s.output.Err() != nil {
+		return streamengine.StopForWrite(s.output.Err(), streamengine.ParsedDecision{})
+	}
 	if !parsed.Parsed {
 		return streamengine.ParsedDecision{}
 	}
@@ -89,5 +93,5 @@ func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 	}
 	// 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）在此统一收口：
 	// 结束读取，保留已生成内容走正常收尾。
-	return streamengine.StopForCut(accumulated.Cut, "gemini_stream", "gemini", accumulated.ContentSeen)
+	return streamengine.StopForWrite(s.output.Err(), streamengine.StopForCut(accumulated.Cut, "gemini_stream", "gemini", accumulated.ContentSeen))
 }

@@ -1,7 +1,10 @@
+import { createToolCallStream } from './toolCallStream.js'
+
 // Consume complete SSE events, including CRLF, multiline data and an EOF tail.
 export async function readChatStream(body, signal, onDelta) {
     const reader = body.getReader()
     const decoder = new TextDecoder()
+    const tools = createToolCallStream()
     let pending = '', data = [], content = '', thinking = '', finishReason = null, done = false
     const event = () => {
         const value = data.join('\n')
@@ -24,7 +27,7 @@ export async function readChatStream(body, signal, onDelta) {
         if (delta) {
             content += delta.content || ''
             thinking += delta.reasoning_content || ''
-            onDelta(delta)
+            onDelta(delta, tools.append(delta.tool_calls))
         }
     }
     const line = raw => {
@@ -55,7 +58,7 @@ export async function readChatStream(body, signal, onDelta) {
             }
         }
         if (!done && !finishReason) throw new Error('Upstream stream ended before completion')
-        return { content, thinking, finishReason: finishReason || 'stop' }
+        return { content, thinking, finishReason: finishReason || 'stop', toolCalls: tools.snapshot() }
     } finally {
         signal.removeEventListener('abort', cancel)
         try { await reader.cancel() } catch (error) { console.warn('Stream cleanup failed:', error) }

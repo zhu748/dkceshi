@@ -74,7 +74,7 @@ func ToolCallFormatSpecForMarker(marker string) string {
 10) 如果必需参数值未知，请询问用户或正常回答；无参数工具可以使用没有 parameter 节点的 invoke。
 10a) 每一个 invoke 都必须逐项包含当前 schema 声明的全部必填参数；同一批次中的多个调用也各自填写完整，不得省略。
 11) 参数名称以当前工具 schema 为准；不同工具可能使用 command、cmd 或其他名称，不要根据工具名猜测字段。
-12) 请勿使用 Markdown 代码块标记包裹 XML。请勿输出解释、角色标识或内心独白。
+12) 请勿使用 Markdown 代码块标记包裹 XML。可以在工具块之前给出简短、必要的用户可见说明；工具块内部不要加入解释、角色标识或内心独白。
 13) 如果调用工具，该工具代码块的第一个非空白字符必须严格为 <|EPSE|tool_calls>。
 14) 切勿省略起始标签 <|EPSE|tool_calls>，即使你打算随后使用 </|EPSE|tool_calls> 闭合标签。
 15) 工具标签只有上述带 EPSE 前缀的一种格式：<|EPSE|tool_calls> / <|EPSE|invoke> / <|EPSE|parameter>。请始终完整输出 <|EPSE| 前缀，不要省略前缀或使用无前缀的标签写法。

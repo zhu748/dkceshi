@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -12,11 +11,13 @@ import (
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
+	"ds2api/internal/streamwriter"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
 )
 
 type chatStreamRuntime struct {
+	output      streamwriter.Writer
 	leadingText completionruntime.LeadingText
 	w           http.ResponseWriter
 	rc          *http.ResponseController
@@ -134,21 +135,13 @@ func newChatStreamRuntime(
 }
 
 func (s *chatStreamRuntime) sendKeepAlive() {
-	if !s.canFlush {
-		return
+	if s.canFlush {
+		s.output.Write(s.w, s.rc, true, []byte(": keep-alive\n\n"))
 	}
-	_, _ = s.w.Write([]byte(": keep-alive\n\n"))
-	_ = s.rc.Flush()
 }
 
-func (s *chatStreamRuntime) sendChunk(v any) {
-	b, _ := json.Marshal(v)
-	_, _ = s.w.Write([]byte("data: "))
-	_, _ = s.w.Write(b)
-	_, _ = s.w.Write([]byte("\n\n"))
-	if s.canFlush {
-		_ = s.rc.Flush()
-	}
+func (s *chatStreamRuntime) sendChunk(v any) bool {
+	return s.output.JSON(s.w, s.rc, s.canFlush, "", v)
 }
 
 func (s *chatStreamRuntime) sendDelta(delta map[string]any) {
@@ -161,27 +154,26 @@ func (s *chatStreamRuntime) sendDelta(delta map[string]any) {
 	if len(delta) == 0 {
 		return
 	}
-	if content, _ := delta["content"].(string); strings.TrimSpace(content) != "" {
-		s.visibleTextEmitted = true
-	}
 	if !s.firstChunkSent {
 		delta["role"] = "assistant"
-		s.firstChunkSent = true
 	}
-	s.sendChunk(openaifmt.BuildChatStreamChunk(
+	delivered := s.sendChunk(openaifmt.BuildChatStreamChunk(
 		s.completionID,
 		s.created,
 		s.model,
 		[]map[string]any{openaifmt.BuildChatStreamDeltaChoice(0, delta)},
 		nil,
 	))
+	if delivered {
+		s.firstChunkSent = true
+		if content, _ := delta["content"].(string); strings.TrimSpace(content) != "" {
+			s.visibleTextEmitted = true
+		}
+	}
 }
 
 func (s *chatStreamRuntime) sendDone() {
-	_, _ = s.w.Write([]byte("data: [DONE]\n\n"))
-	if s.canFlush {
-		_ = s.rc.Flush()
-	}
+	s.output.Write(s.w, s.rc, s.canFlush, []byte("data: [DONE]\n\n"))
 }
 
 func (s *chatStreamRuntime) sendFailedChunk(status int, message, code string) {
@@ -230,6 +222,10 @@ func (s *chatStreamRuntime) historyThinking() string {
 func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool) bool {
 	if s.accumulator.Cut() == sse.CutNone {
 		s.onParsed(sse.LineResult{Parsed: true, Flush: true})
+	}
+	if s.output.Err() != nil {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+		return true
 	}
 	s.finalErrorStatus = 0
 	s.finalErrorMessage = ""
@@ -340,6 +336,9 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 }
 
 func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedDecision {
+	if s.output.Err() != nil {
+		return streamengine.StopForWrite(s.output.Err(), streamengine.ParsedDecision{})
+	}
 	if !parsed.Parsed {
 		return streamengine.ParsedDecision{}
 	}
@@ -408,5 +407,5 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 	// 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）在此统一收口：
 	// 结束读取，把已生成内容交给正常收尾（tool 筛分 / 修复 / finish 帧），
 	// 仍返回 200。
-	return streamengine.StopForCut(accumulated.Cut, "openai_chat_stream", "chat.completions", accumulated.ContentSeen)
+	return streamengine.StopForWrite(s.output.Err(), streamengine.StopForCut(accumulated.Cut, "openai_chat_stream", "chat.completions", accumulated.ContentSeen))
 }

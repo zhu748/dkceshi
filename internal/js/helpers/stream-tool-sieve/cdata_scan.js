@@ -129,7 +129,6 @@ function findToolCDATAEnd(text, from) {
   // the conservative fence-aware path so a mid-stream buffer does not mistake
   // an example `]]>` for the real close.
   let firstStructuralEnd = -1;
-  const bodyHasToolMarkup = toolMarkupPresent(raw.slice(from));
   for (let i = from; i < raw.length; i += 1) {
     const closeLen = toolCDATACloseLenAt(raw, i);
     if (!closeLen) {
@@ -155,7 +154,7 @@ function findToolCDATAEnd(text, from) {
   if (firstNonFenceEnd >= 0) {
     return firstNonFenceEnd;
   }
-  if (!bodyHasToolMarkup) {
+  if (!toolMarkupPresent(raw.slice(from))) {
     return firstStructuralEnd;
   }
   return -1;

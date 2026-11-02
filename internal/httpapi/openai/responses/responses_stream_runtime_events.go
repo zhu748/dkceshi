@@ -1,8 +1,6 @@
 package responses
 
 import (
-	"encoding/json"
-
 	openaifmt "ds2api/internal/format/openai"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolstream"
@@ -20,14 +18,7 @@ func (s *responsesStreamRuntime) sendEvent(event string, payload map[string]any)
 	if _, ok := payload["sequence_number"]; !ok {
 		payload["sequence_number"] = s.nextSequence()
 	}
-	b, _ := json.Marshal(payload)
-	_, _ = s.w.Write([]byte("event: " + event + "\n"))
-	_, _ = s.w.Write([]byte("data: "))
-	_, _ = s.w.Write(b)
-	_, _ = s.w.Write([]byte("\n\n"))
-	if s.canFlush {
-		_ = s.rc.Flush()
-	}
+	s.output.JSON(s.w, s.rc, s.canFlush, event, payload)
 }
 
 func (s *responsesStreamRuntime) sendCreated() {
@@ -35,10 +26,7 @@ func (s *responsesStreamRuntime) sendCreated() {
 }
 
 func (s *responsesStreamRuntime) sendDone() {
-	_, _ = s.w.Write([]byte("data: [DONE]\n\n"))
-	if s.canFlush {
-		_ = s.rc.Flush()
-	}
+	s.output.Write(s.w, s.rc, s.canFlush, []byte("data: [DONE]\n\n"))
 }
 
 func (s *responsesStreamRuntime) processToolStreamEvents(events []toolstream.Event, emitContent bool, _ bool) {

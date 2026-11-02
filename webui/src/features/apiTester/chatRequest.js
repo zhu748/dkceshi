@@ -58,15 +58,18 @@ export function createChatRequest(state, fetcher = globalThis.fetch) {
             }
             if (streamingMode) {
                 state.setResponse({ success: true, status_code: response.status })
-                const result = await readChatStream(response.body, request.signal, delta => {
+                const result = await readChatStream(response.body, request.signal, (delta, toolCalls) => {
                     if (!request.isCurrent()) return
                     if (delta.content) state.setStreamingContent(previous => previous + delta.content)
                     if (delta.reasoning_content) state.setStreamingThinking(previous => previous + delta.reasoning_content)
+                    if (toolCalls?.length) state.setResponse({ success: true, status_code: response.status,
+                        choices: [{ message: { role: 'assistant', tool_calls: toolCalls } }] })
                 })
                 if (!request.isCurrent()) return
                 state.setResponse({ success: true, status_code: response.status, choices: [{
                     index: 0, finish_reason: result.finishReason,
-                    message: { role: 'assistant', content: result.content, reasoning_content: result.thinking },
+                    message: { role: 'assistant', content: result.content, reasoning_content: result.thinking,
+                        ...(result.toolCalls.length ? { tool_calls: result.toolCalls } : {}) },
                 }] })
             } else {
                 const data = await response.json()
@@ -76,8 +79,6 @@ export function createChatRequest(state, fetcher = globalThis.fetch) {
             if (request.isCurrent()) onMessage('success', t('apiTester.requestSuccess', { account: account || 'Auto', time: Date.now() - started }))
         } catch (error) {
             if (!request.isCurrent()) return
-            state.setStreamingContent('')
-            state.setStreamingThinking('')
             state.setResponse({ success: false, error: error.message, status_code: error.statusCode, code: error.code, type: error.type })
             onMessage('error', error.message)
         } finally {

@@ -10,7 +10,13 @@ function appendCapture(state, chunk) {
   const progress = state.captureProgress || (state.captureProgress = { ready: true, tag: '', oversized: false });
   progress.literal ||= new LiteralState();
   for (const ch of chunk) {
-    if (!progress.literal.feed(ch)) { progress.tag = ''; continue; }
+    if (!progress.literal.feed(ch)) {
+      if (progress.tag) {
+        if (progress.tag.length < 256) progress.tag += ch;
+        else progress.oversized = true;
+      }
+      continue;
+    }
     if ('<＜﹤〈'.includes(ch)) {
       progress.tag = ch;
       progress.oversized = false;
@@ -21,7 +27,11 @@ function appendCapture(state, chunk) {
     else progress.oversized = true;
     if (!'>＞﹥〉|｜！、'.includes(ch)) continue;
     const terminator = '>＞﹥〉'.includes(ch);
-    if (progress.oversized ? terminator : findToolMarkupTagOutsideIgnored(progress.tag, 0)?.closing || findDSMLTagOutsideIgnored(progress.tag, 0)?.closing) progress.ready = true;
+    const tag = progress.oversized ? null : findToolMarkupTagOutsideIgnored(progress.tag, 0) || findDSMLTagOutsideIgnored(progress.tag, 0);
+    if (tag && !tag.closing && !progress.root) progress.root = tag.name;
+    // Inner parameter/invoke closes cannot finish a well-formed batch. Keep
+    // compatibility captures conservative and let EOF run the full parser.
+    if (progress.oversized ? terminator : tag?.closing && (!progress.root || tag.name === progress.root || tag.name === 'tool_calls')) progress.ready = true;
     if (terminator) progress.tag = '';
   }
 }

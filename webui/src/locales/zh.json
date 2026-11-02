@@ -376,6 +376,7 @@
     "authProxyCount": "带认证节点"
   },
   "apiTester": {
+    "toolCall": "工具调用",
     "defaultMessage": "你好，请用一句话介绍你自己。",
     "models": {
       "flash": "v4 Flash（默认开启思考）",

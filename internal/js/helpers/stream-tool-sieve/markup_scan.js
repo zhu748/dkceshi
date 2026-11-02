@@ -46,7 +46,6 @@ function scanToolMarkupTagAt(text, start) {
   if (!raw || start < 0 || start >= raw.length || !startDelimLen) {
     return null;
   }
-  const lower = raw.toLowerCase();
   let i = start + startDelimLen;
   while (i < raw.length) {
     i = skipToolMarkupIgnorables(raw, i);
@@ -59,7 +58,7 @@ function scanToolMarkupTagAt(text, start) {
   const slash = consumeToolMarkupClosingSlash(raw, i);
   let closing = slash.closing;
   i = slash.next;
-  const prefix = consumeToolMarkupNamePrefix(raw, lower, i);
+  const prefix = consumeToolMarkupNamePrefix(raw, raw, i);
   const prefixStart = i;
   i = prefix.next;
   let epseLike = prefix.epseLike;
@@ -238,7 +237,6 @@ function isPartialToolMarkupTagPrefix(text) {
     return true;
   }
   if (unfinishedToolTagName(raw)) return true;
-  const lower = raw.toLowerCase();
   let i = 1;
   while (i < raw.length && isXmlTagStartDelimiter(raw[i])) {
     i += 1;
@@ -263,7 +261,7 @@ function isPartialToolMarkupTagPrefix(text) {
     if (hasPartialToolMarkupNameAfterArbitraryPrefix(raw, i)) {
       return true;
     }
-    const next = consumeToolMarkupNamePrefixOnce(raw, lower, i);
+    const next = consumeToolMarkupNamePrefixOnce(raw, raw, i);
     if (!next.ok) {
       return false;
     }

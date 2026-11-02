@@ -92,6 +92,7 @@ type File struct {
 }
 
 type StartParams struct {
+	CreatedAt   int64 // original request time; zero starts a new clock
 	CallerID    string
 	UserAgent   string
 	AccountID   string

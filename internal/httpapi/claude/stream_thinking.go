@@ -1,7 +1,6 @@
 package claude
 
 func (s *claudeStreamRuntime) emitThinking(text string) {
-	text = cleanVisibleOutput(text, s.stripReferenceMarkers)
 	trimmed := text
 	if trimmed == "" {
 		return

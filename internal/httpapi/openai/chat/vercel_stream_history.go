@@ -3,15 +3,18 @@ package chat
 import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
+	"ds2api/internal/config"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/util"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // recordVercelStreamCompletion 在 Vercel Node 流式路径收尾（release）时
 // 把最终结果回填到聊天历史并记录 Token 用量。Node 侧会在 release 请求里
 // 携带 finish_reason/usage/thinking/content/error。
-func (h *Handler) recordVercelStreamCompletion(r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, req map[string]any) {
+func (h *Handler) recordVercelStreamCompletion(r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, req map[string]any, started ...time.Time) {
 	if a == nil {
 		return
 	}
@@ -30,16 +33,24 @@ func (h *Handler) recordVercelStreamCompletion(r *http.Request, a *auth.RequestA
 		return
 	}
 
-	session := startChatHistoryWithUsage(h.ChatHistory, h.Usage, r, a, stdReq)
+	config.Logger.Info("[vercel_stream_metrics] completed", "elapsed_ms", req["elapsed_ms"], "timings", req["timings"], "error_code", req["error_code"])
+	session := startChatHistoryWithUsage(h.ChatHistory, h.Usage, r, a, stdReq, started...)
 	if session == nil {
 		return
 	}
 	if errorMessage != "" {
-		if asString(req["error_code"]) == assistantturn.OutputCodePromptEcho {
-			session.error(http.StatusBadGateway, errorMessage, assistantturn.OutputCodePromptEcho, thinking, content)
-			return
+		code := asString(req["error_code"])
+		status := util.IntFrom(req["error_status"])
+		if status < 400 || status > 599 {
+			status = http.StatusInternalServerError
+			if code == assistantturn.OutputCodePromptEcho {
+				status = http.StatusBadGateway
+			}
 		}
-		session.error(http.StatusInternalServerError, errorMessage, finishReason, thinking, content)
+		if code == "" {
+			code = finishReason
+		}
+		session.error(status, errorMessage, code, thinking, content)
 		return
 	}
 	if finishReason == "stopped" {

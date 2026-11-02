@@ -41,7 +41,6 @@ function findXmlElementBlocks(text, tag) {
 }
 
 function findXmlStartTagOutsideCDATA(text, tag, from) {
-  const lower = text.toLowerCase();
   const target = `<${tag}`;
   for (let i = Math.max(0, from || 0); i < text.length;) {
     const skipped = skipXmlIgnoredSection(text, i);
@@ -52,7 +51,7 @@ function findXmlStartTagOutsideCDATA(text, tag, from) {
       i = skipped.next;
       continue;
     }
-    if (lower.startsWith(target, i) && hasXmlTagBoundary(text, i + target.length)) {
+    if (prefixFoldAt(text, target, i) && hasXmlTagBoundary(text, i + target.length)) {
       const tagEnd = findXmlTagEnd(text, i + target.length);
       if (tagEnd < 0) {
         return null;
@@ -69,7 +68,6 @@ function findXmlStartTagOutsideCDATA(text, tag, from) {
 }
 
 function findMatchingXmlEndTagOutsideCDATA(text, tag, from) {
-  const lower = text.toLowerCase();
   const openTarget = `<${tag}`;
   const closeTarget = `</${tag}`;
   let depth = 1;
@@ -82,7 +80,7 @@ function findMatchingXmlEndTagOutsideCDATA(text, tag, from) {
       i = skipped.next;
       continue;
     }
-    if (lower.startsWith(closeTarget, i) && hasXmlTagBoundary(text, i + closeTarget.length)) {
+    if (prefixFoldAt(text, closeTarget, i) && hasXmlTagBoundary(text, i + closeTarget.length)) {
       const tagEnd = findXmlTagEnd(text, i + closeTarget.length);
       if (tagEnd < 0) {
         return null;
@@ -94,7 +92,7 @@ function findMatchingXmlEndTagOutsideCDATA(text, tag, from) {
       i = tagEnd + 1;
       continue;
     }
-    if (lower.startsWith(openTarget, i) && hasXmlTagBoundary(text, i + openTarget.length)) {
+    if (prefixFoldAt(text, openTarget, i) && hasXmlTagBoundary(text, i + openTarget.length)) {
       const tagEnd = findXmlTagEnd(text, i + openTarget.length);
       if (tagEnd < 0) {
         return null;
@@ -153,7 +151,6 @@ function findGenericXmlElementBlocks(text) {
 }
 
 function findGenericXmlStartTagOutsideCDATA(text, from) {
-  const lower = text.toLowerCase();
   for (let i = Math.max(0, from || 0); i < text.length;) {
     const skipped = skipXmlIgnoredSection(text, i);
     if (skipped.blocked) {
@@ -196,7 +193,6 @@ function findGenericXmlStartTagOutsideCDATA(text, from) {
 }
 
 function findMatchingGenericXmlEndTagOutsideCDATA(text, name, from) {
-  const lower = text.toLowerCase();
   const needle = toRawString(name).trim().toLowerCase();
   if (!needle) {
     return null;
@@ -213,7 +209,7 @@ function findMatchingGenericXmlEndTagOutsideCDATA(text, name, from) {
       i = skipped.next;
       continue;
     }
-    if (lower.startsWith(closeTarget, i) && hasXmlTagBoundary(text, i + closeTarget.length)) {
+    if (prefixFoldAt(text, closeTarget, i) && hasXmlTagBoundary(text, i + closeTarget.length)) {
       const tagEnd = findXmlTagEnd(text, i + closeTarget.length);
       if (tagEnd < 0) {
         return null;
@@ -225,7 +221,7 @@ function findMatchingGenericXmlEndTagOutsideCDATA(text, name, from) {
       i = tagEnd + 1;
       continue;
     }
-    if (lower.startsWith(openTarget, i) && hasXmlTagBoundary(text, i + openTarget.length)) {
+    if (prefixFoldAt(text, openTarget, i) && hasXmlTagBoundary(text, i + openTarget.length)) {
       const tagEnd = findXmlTagEnd(text, i + openTarget.length);
       if (tagEnd < 0) {
         return null;
@@ -239,6 +235,11 @@ function findMatchingGenericXmlEndTagOutsideCDATA(text, name, from) {
     i += 1;
   }
   return null;
+}
+
+// Match only the small tag name; never lowercase the entire document per tag.
+function prefixFoldAt(text, target, i) {
+  return text[i] === '<' && text.slice(i, i + target.length).toLowerCase() === target;
 }
 
 module.exports = {

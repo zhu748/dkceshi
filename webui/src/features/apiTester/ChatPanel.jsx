@@ -139,11 +139,17 @@ export default function ChatPanel({
                             )}
 
                             <div className="text-sm leading-7 text-foreground whitespace-pre-wrap">
-                                {response?.success === false
-                                    ? <span className="text-destructive font-medium">{response.error || t('apiTester.requestFailed')}</span>
-                                    : (streamingContent || response?.choices?.[0]?.message?.content || (loading && <span className="text-muted-foreground italic">{t('apiTester.generating')}</span>))}
+                                {streamingContent || response?.choices?.[0]?.message?.content || (loading && <span className="text-muted-foreground italic">{t('apiTester.generating')}</span>)}
                                 {isStreaming && <span className="inline-block w-1.5 h-4 bg-primary ml-1 align-middle animate-pulse" />}
                             </div>
+                            {response?.success === false && <div role="alert" className="text-destructive text-sm font-medium">{response.error || t('apiTester.requestFailed')}</div>}
+                            {response?.choices?.[0]?.message?.tool_calls?.map((call, index) => (
+                                <details key={call.id || index} className="border border-border rounded-lg p-3 text-xs">
+                                    <summary className="cursor-pointer font-medium">{t('apiTester.toolCall')}: {call.function?.name || '…'}</summary>
+                                    {call.id && <div className="mt-2 text-muted-foreground break-all">{call.id}</div>}
+                                    <pre className="mt-2 whitespace-pre-wrap break-all font-mono">{typeof call.function?.arguments === 'string' ? call.function.arguments : JSON.stringify(call.function?.arguments, null, 2)}</pre>
+                                </details>
+                            ))}
                         </div>
                     </div>
                 )}

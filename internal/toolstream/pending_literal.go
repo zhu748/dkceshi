@@ -10,9 +10,12 @@ import (
 // scanned while its boundary is absent. Full parsing resumes at a possible
 // close (including invalid JSON controls), and EOF always examines all input.
 type pendingLiteral struct {
-	mode    byte
-	escaped bool
-	tail    string
+	mode             byte
+	escaped          bool
+	tail             string
+	preview          string
+	previewAccounted int
+	previewBlocked   bool
 }
 
 func newPendingLiteral(raw string) *pendingLiteral {
@@ -21,6 +24,7 @@ func newPendingLiteral(raw string) *pendingLiteral {
 	switch {
 	case strings.HasPrefix(raw, "\""):
 		p.mode, start = 'q', 1
+		p.preview = raw
 	case strings.HasPrefix(raw, "<!--"):
 		p.mode, start = 'c', 4
 	case len(raw) >= 9 && strings.EqualFold(raw[:9], "<![CDATA["):
@@ -73,8 +77,13 @@ func (s *State) appendPendingText(chunk string) bool {
 	if chunk != "" {
 		chunk = s.normalizeIncoming(chunk)
 		s.pending.WriteString(chunk)
-		if s.literalWait != nil && !s.literalWait.feed(chunk) {
-			return true
+		if s.literalWait != nil {
+			if s.literalWait.mode == 'q' && !s.literalWait.previewBlocked {
+				s.literalWait.preview += chunk
+			}
+			if !s.literalWait.feed(chunk) {
+				return true
+			}
 		}
 	}
 	// An empty chunk explicitly flushes the full parser.

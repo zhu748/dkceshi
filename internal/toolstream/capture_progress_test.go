@@ -32,6 +32,25 @@ func TestCaptureProgressOnlyProbesNewStructuralCloses(t *testing.T) {
 	}
 }
 
+func TestBatchCaptureDoesNotReparseEveryInnerClose(t *testing.T) {
+	for _, open := range []string{`<tool_calls>`, `<tool_calls version="1">`} {
+		var progress captureProgress
+		raw := open
+		if !progress.ready(raw) {
+			t.Fatal("missing initial probe")
+		}
+		for range 64 {
+			raw += `<invoke name="read"><parameter name="path"><![CDATA[a.txt]]></parameter></invoke>`
+			if progress.ready(raw) {
+				t.Fatal("inner close rescanned the entire batch")
+			}
+		}
+		if !progress.ready(raw + "</tool_calls>") {
+			t.Fatal("batch close missed")
+		}
+	}
+}
+
 func TestLongCaptureKeepsArgumentsAndFollowingCall(t *testing.T) {
 	value := strings.Repeat("abc|def\n", 8192)
 	raw := `<tool_calls><invoke name="write"><parameter name="content"><![CDATA[` + value + `]]></parameter></invoke></tool_calls><tool_calls><invoke name="next"></invoke></tool_calls>`

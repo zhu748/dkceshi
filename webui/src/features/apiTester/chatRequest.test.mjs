@@ -99,3 +99,37 @@ test('request groups reject duplicates and isolate old completion after reopen',
     current.finish()
     assert.equal(group.size, 0)
 })
+
+test('a late tool validation error preserves the explanation already displayed', async () => {
+    const h = harness()
+    let controller
+    const body = new ReadableStream({ start(c) { controller = c } })
+    const running = h.client.run({ ...h.options, streamingMode: true })
+    h.calls[0].resolve(new Response(body))
+    const encoder = new TextEncoder()
+    controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"已显示的说明。","reasoning_content":"checking"}}]}\n\n'))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(h.state.StreamingContent, '已显示的说明。')
+    controller.enqueue(encoder.encode('data: {"status_code":422,"error":{"code":"invalid_tool_arguments","message":"missing path"}}\n\n'))
+    controller.close()
+    await running
+    assert.equal(h.state.StreamingContent, '已显示的说明。')
+    assert.equal(h.state.StreamingThinking, 'checking')
+    assert.equal(h.state.Response.code, 'invalid_tool_arguments')
+    assert.equal(h.state.Loading, false)
+})
+
+test('tool fragments assemble by index and arrive before the terminal event', async () => {
+    const wire = deltas => deltas.map(delta => 'data: ' + JSON.stringify({ choices: [{ delta }] }) + '\n\n').join('')
+    const text = wire([
+        { tool_calls: [{ index: 1, id: 'second', type: 'function', function: { name: 'read', arguments: '{"path":' } }] },
+        { content: '先说明。', tool_calls: [{ index: 0, id: 'first', function: { name: 'list', arguments: '{}' } }] },
+        { tool_calls: [{ index: 1, function: { name: '_file', arguments: '"a.txt"}' } }] },
+    ]) + 'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\ndata: [DONE]\n\n'
+    const snapshots = []
+    const result = await readChatStream(stream([new TextEncoder().encode(text)]), new AbortController().signal, (_delta, tools) => { if (tools) snapshots.push(tools) })
+    assert.equal(result.finishReason, 'tool_calls')
+    assert.equal(result.content, '先说明。')
+    assert.deepEqual(result.toolCalls.map(call => [call.id, call.function.name, call.function.arguments]), [['first', 'list', '{}'], ['second', 'read_file', '{"path":"a.txt"}']])
+    assert.equal(snapshots[0][0].function.name, 'read')
+})

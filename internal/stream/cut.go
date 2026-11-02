@@ -5,6 +5,14 @@ import (
 	"ds2api/internal/sse"
 )
 
+// StopForWrite prevents further upstream work after the downstream socket fails.
+func StopForWrite(err error, decision ParsedDecision) ParsedDecision {
+	if err != nil {
+		return ParsedDecision{Stop: true, StopReason: StopReason("client_write_error")}
+	}
+	return decision
+}
+
 // stopReasonForCut maps a content-policy cut to the stop reason reported to the
 // caller. Usable content before a boundary cut is retained. Prompt echoes are
 // rejected by shared turn validation and may be regenerated before delivery.

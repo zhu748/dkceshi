@@ -336,3 +336,24 @@ fi
 - Go regressions cover filename collisions, safe legacy migration, failed-reset preservation, config-write rollback, concurrent generation limits, cancellation and stale account incarnations.
 - Transport regressions retain raw HAR header ordering and upload flow-control tests, and add connection reuse, identity isolation, pool reset and sibling cancellation checks.
 - API tester regressions use delayed fetch/JSON and SSE streams to verify ownership after stop/retry/unmount; they do not require a real account.
+
+## 工具流优化回归与基准
+
+`tests/node/stream-optimization.test.cjs` 已接入 Node 全量入口，覆盖批次级解析调度、未闭合
+普通引文提前展示、完整 Go usage（含零值）、内部控制请求取消传播、Vercel 预算和阶段记录。
+API tester 的回归覆盖错误后保留正文及乱序多工具片段的 index/ID/参数组装。
+
+Go 回归覆盖四协议断连后禁止修复、无上游数据时心跳失败立即结束、写入期限清理、短写与
+Flush 失败、prepare 租约回收、原始耗时/错误记录，以及 Schema 并发冷编译合并。
+Claude/Gemini 另验证分类后的引文与引用字面值不被二次清洗。
+
+可复现纯 Node 筛分 CPU 基准（无网络、每调用约 1 KiB 参数、256 字节分片、预热后五次中位数）：
+
+```bash
+node tests/tools/bench-toolstream.cjs
+# 可选：同一脚本测量另一份 checkout，保持样本完全相同。
+node tests/tools/bench-toolstream.cjs /path/to/baseline
+go test -race ./internal/toolcall ./internal/toolstream ./internal/streamwriter
+```
+
+基准检查调用数量完整性，但不使用机器相关的毫秒阈值作为单测断言，也不代表线上端到端延迟。

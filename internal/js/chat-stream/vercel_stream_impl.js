@@ -21,7 +21,7 @@ const { fetchAppStream } = require('../shared/app-transport');
 const { createStreamLifecycle } = require('./stream_lifecycle');
 const { writeOpenAIError, writeOpenAIErrorWithCode } = require('./error_shape');
 const { parseChunkForContent } = require('./sse_parse');
-const { buildUsage, mergeReasoningForUsage } = require('./token_usage');
+const { buildUsage, buildFinalUsage, mergeReasoningForUsage } = require('./token_usage');
 const {
   resolveToolcallPolicy,
   toolChoiceViolation,
@@ -65,7 +65,8 @@ const {
   AUTO_CONTINUE_MAX_ROUNDS,
   prepareContinueStateForNextRound,
 } = require('./stream_continue');
-const { sendFailedChunk, upstreamEmptyOutputDetail, finishStreamFailure } = require('./stream_failure');
+const { upstreamEmptyOutputDetail } = require('./stream_failure');
+const { createStreamReport } = require('./stream_report');
 const { detectMutedOrBannedResponse } = require('./upstream_inspect');
 
 const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
@@ -73,13 +74,15 @@ const DEEPSEEK_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
 
 async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAppStream) {
   let leaseCompletion = {};
-  const lifecycle = createStreamLifecycle(req, res, () => leaseCompletion);
+  const report = createStreamReport();
+  const { fail: sendFailedChunk, finishFailure: finishStreamFailure } = report;
+  const lifecycle = createStreamLifecycle(req, res, () => report.snapshot(leaseCompletion));
   const releaseLease = lifecycle.release;
   const watch = createStreamWatch();
   let stopHeartbeat = () => {};
   try {
     if (lifecycle.closed) return;
-    const prep = await fetchStreamPrepare(req, rawBody);
+    const prep = await fetchStreamPrepare(req, rawBody, lifecycle.signal, watch.deadline);
     prep.body = prep.body && typeof prep.body === 'object' ? prep.body : {};
     lifecycle.trackLease(asString(prep.body.lease_id));
     if (lifecycle.closed) return;
@@ -120,7 +123,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const refreshPowHeader = async (roundType) => {
       if (lifecycle.closed) return '';
       try {
-        const pow = await fetchStreamPow(req, leaseID);
+        const pow = await fetchStreamPow(req, leaseID, lifecycle.signal, watch.deadline);
         if (lifecycle.closed) return '';
         const nextPowHeader = asString(pow.body && pow.body.pow_header);
         if (pow.ok && nextPowHeader) {
@@ -198,7 +201,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     // but do not start a new one or replay completion after disconnect.
     const switchAccount = async (options) => {
       if (lifecycle.closed) return null;
-      const switched = await fetchStreamSwitch(req, leaseID, options);
+      const switched = await fetchStreamSwitch(req, leaseID, options, lifecycle.signal, watch.deadline);
       return lifecycle.closed ? null : switched;
     };
 
@@ -309,17 +312,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let thinkingText = '';
     let rawThinkingText = '';
     let thinkingGuard = createVisibleGuard(prep.body.tool_marker, true, finalPrompt);
-    // Monotonic "has any non-whitespace char" flags: replaces per-line
-    // outputText.trim() scans, which are O(total) per SSE line (O(n^2) per stream).
     let detectionThinkingText = '';
     const rawReasoning = () => mergeReasoningForUsage(rawThinkingText, detectionThinkingText, thinkingText);
     let outputText = '';
     let hasVisibleOutput = false;
     let deferredToolText = '';
-    // 上游正文通道的内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）统一由
-    // 该策略持有，与 Go 侧 sse.ContentPolicy 语义一致；新增规则只需改策略本身。
-    // 每个上游轮次在 processStream 的轮循环顶部重建一次（见下），因为规则状态
-    // 属于一条上游流：上一轮命中的截断不能继续吞掉这一轮的正文。
+    // Content policy is shared with Go; regeneration resets attempt-local state.
     let contentPolicy = createContentPolicy(finalPrompt);
     let usagePrompt = finalPrompt;
     const toolSieveEnabled = toolPolicy.toolSieveEnabled;
@@ -354,6 +352,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       }
       if (!Object.keys(delta).length) return;
       if (asString(delta.content).trim() || delta.tool_calls?.length) answerDelivered = true;
+      if (asString(delta.content).trim()) report.mark('first_visible_ms');
       emitDeltaFrame(delta);
     };
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
@@ -375,6 +374,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     };
 
     const finish = async (reason, options = {}) => {
+      report.mark('upstream_done_ms', true);
       if (ended) {
         return true;
       }
@@ -434,7 +434,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       let validatedCalls = null, validatedUsage = null, validatedText = null;
       if ((detected.length || needsToolFinalization(outputText, detectionThinkingText, prep.body, toolSieveState)) && (hasVisibleOutput || detected.length || detectionThinkingText)) {
         try {
-          const validation = await fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal);
+          const validation = await report.measure('validation_ms', () => fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal, watch.finalDeadline));
           if (!validation.ok) {
             const error = validation.body.error || {};
             if (options.deferEmpty && !answerDelivered && ['invalid_tool_arguments', 'tool_choice_violation', 'upstream_empty_output', 'upstream_unavailable'].includes(error.code)) {
@@ -518,8 +518,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         return true;
       }
       ended = true;
-      const finalUsage = buildUsage(usagePrompt, rawReasoning(), outputText, validatedUsage?.completion_tokens);
-      if (validatedUsage?.completion_tokens_details) finalUsage.completion_tokens_details = validatedUsage.completion_tokens_details;
+      const finalUsage = buildFinalUsage(usagePrompt, rawReasoning(), outputText, validatedUsage);
       sendFrame({
         id: responseID,
         object: 'chat.completion.chunk',
@@ -670,7 +669,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
                     if (evt.type === 'tool_call_deltas') continue;
                     // Deliver only Go-finalized calls. This also covers
                     // continuation requests without a formal tools catalog.
-                    if (evt.type === 'tool_calls') { toolCallsDetected = true; continue; }
+                    if (evt.type === 'tool_calls') { report.mark('tool_detected_ms'); toolCallsDetected = true; continue; }
                     if (evt.text) {
                       // 已发出 tool_calls 后，工具调用块之后追加的尾巴正文不再透传
                       // （OpenAI 规范中 tool_calls 回合的 content 应为空）。

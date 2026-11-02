@@ -35,6 +35,7 @@ type Handler struct {
 }
 
 type streamLease struct {
+	StartedAt time.Time
 	Auth      *auth.RequestAuth
 	Standard  promptcompat.StandardRequest
 	SessionID string

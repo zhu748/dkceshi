@@ -376,6 +376,7 @@
     "authProxyCount": "Authenticated nodes"
   },
   "apiTester": {
+    "toolCall": "Tool call",
     "defaultMessage": "Hello, please introduce yourself in one sentence.",
     "models": {
       "flash": "v4 Flash (thinking on by default)",

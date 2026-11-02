@@ -1,15 +1,18 @@
 package claude
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
+	"ds2api/internal/textclean"
 	"ds2api/internal/toolstream"
 	"ds2api/internal/util"
 )
 
 func (s *claudeStreamRuntime) send(event string, v any) {
+	if !s.output.JSON(s.w, s.rc, s.canFlush, event, v) {
+		return
+	}
 	// textEmitted also tracks whitespace-only blocks for rendering. Recovery
 	// must instead know whether a visible answer has reached the client.
 	if event == "content_block_delta" && !s.visibleTextEmitted {
@@ -18,16 +21,7 @@ func (s *claudeStreamRuntime) send(event string, v any) {
 		text, _ := delta["text"].(string)
 		s.visibleTextEmitted = strings.TrimSpace(text) != ""
 	}
-	b, _ := json.Marshal(v)
-	_, _ = s.w.Write([]byte("event: "))
-	_, _ = s.w.Write([]byte(event))
-	_, _ = s.w.Write([]byte("\n"))
-	_, _ = s.w.Write([]byte("data: "))
-	_, _ = s.w.Write(b)
-	_, _ = s.w.Write([]byte("\n\n"))
-	if s.canFlush {
-		_ = s.rc.Flush()
-	}
+
 }
 
 func (s *claudeStreamRuntime) sendError(message string) {
@@ -82,7 +76,7 @@ func (s *claudeStreamRuntime) sendMessageStart() {
 }
 
 func (s *claudeStreamRuntime) emitDeferredText() {
-	text := s.leadingText.Write(cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers))
+	text := s.leadingText.Write(textclean.CleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers))
 	s.deferredText.Reset()
 	if text == "" {
 		return

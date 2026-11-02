@@ -202,6 +202,7 @@ func (h *Handler) consumeChatStreamAttempt(r *http.Request, resp *http.Response,
 		IdleTimeout:         time.Duration(dsprotocol.StreamIdleTimeout) * time.Second,
 		MaxKeepAliveNoInput: dsprotocol.MaxKeepaliveCount,
 	}, streamengine.ConsumeHooks{
+		OutputError: streamRuntime.output.Err,
 		OnKeepAlive: streamRuntime.sendKeepAlive,
 		OnParsed: func(parsed sse.LineResult) streamengine.ParsedDecision {
 			decision := streamRuntime.onParsed(parsed)

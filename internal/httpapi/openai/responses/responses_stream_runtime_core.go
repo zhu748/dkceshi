@@ -13,11 +13,13 @@ import (
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
+	"ds2api/internal/streamwriter"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
 )
 
 type responsesStreamRuntime struct {
+	output   streamwriter.Writer
 	w        http.ResponseWriter
 	rc       *http.ResponseController
 	canFlush bool
@@ -193,6 +195,9 @@ func (s *responsesStreamRuntime) logToolPolicyRejections(textParsed toolcall.Too
 }
 
 func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedDecision {
+	if s.output.Err() != nil {
+		return streamengine.StopForWrite(s.output.Err(), streamengine.ParsedDecision{})
+	}
 	if !parsed.Parsed {
 		return streamengine.ParsedDecision{}
 	}
@@ -244,5 +249,5 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 	}
 	// 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）在此统一收口：
 	// 结束读取，保留已生成内容走正常收尾。
-	return streamengine.StopForCut(accumulated.Cut, "responses", "responses", accumulated.ContentSeen)
+	return streamengine.StopForWrite(s.output.Err(), streamengine.StopForCut(accumulated.Cut, "responses", "responses", accumulated.ContentSeen))
 }

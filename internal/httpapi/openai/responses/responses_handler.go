@@ -269,7 +269,8 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		IdleTimeout:         time.Duration(dsprotocol.StreamIdleTimeout) * time.Second,
 		MaxKeepAliveNoInput: dsprotocol.MaxKeepaliveCount,
 	}, streamengine.ConsumeHooks{
-		OnParsed: streamRuntime.onParsed,
+		OutputError: streamRuntime.output.Err,
+		OnParsed:    streamRuntime.onParsed,
 		OnFinalize: func(reason streamengine.StopReason, _ error) {
 			if string(reason) == "content_filter" {
 				streamRuntime.finalize("content_filter", false)

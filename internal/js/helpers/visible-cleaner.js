@@ -9,6 +9,7 @@ const { contentFilterSuffix, referenceDisplayUnit } = require('./visible-content
 // stable results across chunk partitions, and immediate fenced-code delivery.
 class VisibleCleaner {
   constructor(stripReferences = false) { this.pending = ''; this.fence = ''; this.notLineStart = false; this.stripReferences = stripReferences; }
+  canPreviewLiteral() { return !this.filtered && !this.pending && !this.waiting && !this.fence; }
   write(text) {
     if (this.filtered) return '';
     if (this.waiting) {

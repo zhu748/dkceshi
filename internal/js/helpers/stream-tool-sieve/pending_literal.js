@@ -27,13 +27,17 @@ function pendingLiteral(raw) {
   else if (raw.slice(0, 9).toUpperCase() === '<![CDATA[') { mode = 'd'; start = 9; }
   else return null;
   const progress = new PendingLiteral(mode);
+  if (mode === 'q') progress.preview = raw;
   return progress.feed(raw.slice(start)) ? null : progress;
 }
 
 function appendPendingText(state, chunk) {
   if (chunk) {
     state.pending += chunk;
-    if (state.literalWait && !state.literalWait.feed(chunk)) return true;
+    if (state.literalWait) {
+      if (state.literalWait.mode === 'q' && !state.literalWait.previewBlocked) state.literalWait.preview += chunk;
+      if (!state.literalWait.feed(chunk)) return true;
+    }
   }
   // An empty chunk is an explicit flush and must run the full parser.
   state.literalWait = null;

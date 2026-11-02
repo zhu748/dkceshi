@@ -39,7 +39,6 @@ func findToolCDATAEnd(text string, from int) int {
 	// fence-aware path so a mid-stream buffer does not mistake an example `]]>`
 	// for the real close.
 	firstStructuralEnd := -1
-	bodyHasToolMarkup := toolMarkupPresent(text[from:])
 	for searchFrom := from; searchFrom < len(text); {
 		end := indexToolCDATAClose(text, searchFrom)
 		if end < 0 {
@@ -64,7 +63,7 @@ func findToolCDATAEnd(text string, from int) int {
 	if firstNonFenceEnd >= 0 {
 		return firstNonFenceEnd
 	}
-	if !bodyHasToolMarkup {
+	if !toolMarkupPresent(text[from:]) {
 		return firstStructuralEnd
 	}
 	return -1

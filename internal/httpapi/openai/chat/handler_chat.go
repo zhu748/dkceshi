@@ -282,9 +282,8 @@ func (h *Handler) handleStream(w http.ResponseWriter, r *http.Request, resp *htt
 		IdleTimeout:         time.Duration(dsprotocol.StreamIdleTimeout) * time.Second,
 		MaxKeepAliveNoInput: dsprotocol.MaxKeepaliveCount,
 	}, streamengine.ConsumeHooks{
-		OnKeepAlive: func() {
-			streamRuntime.sendKeepAlive()
-		},
+		OutputError: streamRuntime.output.Err,
+		OnKeepAlive: streamRuntime.sendKeepAlive,
 		OnParsed: func(parsed sse.LineResult) streamengine.ParsedDecision {
 			decision := streamRuntime.onParsed(parsed)
 			if historySession != nil {

@@ -1,5 +1,6 @@
 'use strict';
 const { pendingLiteral, appendPendingText } = require('./pending_literal');
+const { previewQuotedText } = require('./quoted_preview');
 const { cleanVisibleEvents } = require('./visible_events');
 const { appendCapture, captureReady } = require('./capture_progress');
 const { findToolProtocolPrefixOutsideIgnored } = require('./protocol_prefix');
@@ -356,11 +357,9 @@ function consumeToolCapture(state, toolNames, final) {
     return { ready: false, prefix: '', calls: [], suffix: '' };
   }
   const progress = captureReady(state);
-  if (!final && captured.length > 4096 && !progress) {
+  if (!final && !progress) {
     return { ready: false, prefix: '', calls: [], suffix: '' };
   }
-  // Real blocks consume their closes atomically. A fresh leading close is an
-  // orphan, not malformed invocation text awaiting the repair pass.
   const first = findToolMarkupTagOutsideIgnored(captured, 0);
   if (first && first.start === 0 && first.closing) return { ready: true, prefix: '', calls: [], suffix: captured.slice(first.end + 1) };
   const firstDSML = findDSMLTagOutsideIgnored(captured, 0);
@@ -370,14 +369,12 @@ function consumeToolCapture(state, toolNames, final) {
     if (close) return { ready: true, prefix: '', calls: [], suffix: captured.slice(close.end + 1) };
   }
 
-  // XML-only tool call extraction.
   const xmlResult = consumeXMLToolCaptureImpl(captured, toolNames, trimWrappingJSONFence);
   if (xmlResult.ready) {
     if (state.deferMalformed && !final && !xmlResult.calls.length) return { ready: false };
     return xmlResult;
   }
   if (state.deferMalformed && !final && findToolProtocolPrefixOutsideIgnored(captured)) return { ready: false };
-  // If XML tags are present but block is incomplete, keep buffering.
   if (hasOpenXMLToolTag(captured)) {
     return { ready: false, prefix: '', calls: [], suffix: '' };
   }
@@ -394,7 +391,6 @@ function consumeToolCapture(state, toolNames, final) {
     return { ready: false, prefix: '', calls: [], suffix: '' };
   }
 
-  // No XML tool tags detected — release captured content as text.
   return {
     ready: true,
     prefix: captured,
@@ -408,6 +404,10 @@ module.exports = {
     const start = findToolSegmentStart({ deferMalformed: true }, text);
     return start >= 0 ? text.slice(0, start) : '';
   },
-  processToolSieveChunk: (state, chunk, names) => cleanVisibleEvents(state, processToolSieveChunk(state, chunk, names)),
+  processToolSieveChunk: (state, chunk, names) => {
+    const events = cleanVisibleEvents(state, processToolSieveChunk(state, chunk, names));
+    if (chunk && state?.cleanVisible && state.visibleCleaner?.canPreviewLiteral()) events.push(...previewQuotedText(state));
+    return events;
+  },
   flushToolSieve: (state, names) => cleanVisibleEvents(state, flushToolSieve(state, names), true),
 };

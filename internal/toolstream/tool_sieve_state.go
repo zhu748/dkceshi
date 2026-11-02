@@ -15,6 +15,8 @@ type State struct {
 	DisplayOnly            bool // suppress bare calls in display channels without executing them
 	pending                strings.Builder
 	literalWait            *pendingLiteral
+	previewEmitted         int
+	previewSkip            int
 	capture                strings.Builder
 	capturing              bool
 	captureProgress        captureProgress
@@ -40,6 +42,7 @@ type State struct {
 }
 
 type Event struct {
+	preview        bool // ordinary quoted prefix, not yet sent through cleanup
 	ToolBoundary   bool // hidden protocol awaiting final recovery; not executable
 	Deferred       bool
 	Content        string

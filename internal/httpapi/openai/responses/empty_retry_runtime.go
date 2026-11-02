@@ -141,7 +141,8 @@ func (h *Handler) consumeResponsesStreamAttempt(r *http.Request, resp *http.Resp
 		IdleTimeout:         time.Duration(dsprotocol.StreamIdleTimeout) * time.Second,
 		MaxKeepAliveNoInput: dsprotocol.MaxKeepaliveCount,
 	}, streamengine.ConsumeHooks{
-		OnParsed: streamRuntime.onParsed,
+		OutputError: streamRuntime.output.Err,
+		OnParsed:    streamRuntime.onParsed,
 		OnFinalize: func(reason streamengine.StopReason, err error) {
 			stopReason = reason
 			scannerErr = err

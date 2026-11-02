@@ -15,12 +15,20 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	if s.accumulator.Cut() == sse.CutNone {
 		s.onParsed(sse.LineResult{Parsed: true, Flush: true})
 	}
+	if s.output.Err() != nil {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+		return true
+	}
 	s.failed = false
 	s.finalErrorStatus = 0
 	s.finalErrorMessage = ""
 	s.finalErrorCode = ""
 	if s.bufferToolContent {
 		s.processToolStreamEvents(toolstream.Flush(&s.sieve, s.toolNames), true, true)
+	}
+	if s.output.Err() != nil {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+		return true
 	}
 
 	finalThinking := s.accumulator.Thinking.String()

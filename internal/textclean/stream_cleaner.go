@@ -14,6 +14,12 @@ type StreamCleaner struct {
 	filtered              bool
 }
 
+// A quote nested in a pending HTML/JSON/Markdown unit cannot be previewed:
+// the enclosing unit may still be hidden by authoritative classification.
+func (c *StreamCleaner) CanPreviewLiteral() bool {
+	return !c.filtered && c.pending == "" && c.waiting == nil && c.fence == ""
+}
+
 func (c *StreamCleaner) Write(text string) string {
 	if c.filtered {
 		return ""

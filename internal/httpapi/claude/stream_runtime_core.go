@@ -12,11 +12,14 @@ import (
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
+	"ds2api/internal/streamwriter"
+	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
 )
 
 type claudeStreamRuntime struct {
+	output      streamwriter.Writer
 	leadingText completionruntime.LeadingText
 	w           http.ResponseWriter
 	rc          *http.ResponseController
@@ -117,6 +120,9 @@ func newClaudeStreamRuntime(
 }
 
 func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedDecision {
+	if s.output.Err() != nil {
+		return streamengine.StopForWrite(s.output.Err(), streamengine.ParsedDecision{})
+	}
 	if !parsed.Parsed {
 		return streamengine.ParsedDecision{}
 	}
@@ -194,7 +200,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 		if cleanedText == "" && !s.bufferToolContent {
 			continue
 		}
-		s.text.WriteString(cleanedText)
+		s.text.WriteString(rawTrimmed)
 		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
 			continue
 		}
@@ -243,7 +249,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 			if evt.Content == "" || s.toolCallsPending {
 				continue
 			}
-			cleaned := s.leadingText.Write(cleanVisibleOutput(evt.Content, s.stripReferenceMarkers))
+			cleaned := s.leadingText.Write(textclean.CleanVisibleDelta(evt.Content, s.stripReferenceMarkers))
 			if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 				continue
 			}
@@ -281,5 +287,5 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 	}
 	// 上游内容规则（复读死循环 / 编造的 `[Tool]:` 角色标记）在此统一收口：
 	// 结束读取，保留已生成内容走正常收尾。
-	return streamengine.StopForCut(s.policy.Cut(), "claude_stream", "claude.messages", contentSeen)
+	return streamengine.StopForWrite(s.output.Err(), streamengine.StopForCut(s.policy.Cut(), "claude_stream", "claude.messages", contentSeen))
 }

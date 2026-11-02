@@ -31,7 +31,7 @@ func startChatHistory(store *chathistory.Store, r *http.Request, a *auth.Request
 	return startChatHistoryWithUsage(store, nil, r, a, stdReq)
 }
 
-func startChatHistoryWithUsage(store *chathistory.Store, usage *usagestats.Store, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) *chatHistorySession {
+func startChatHistoryWithUsage(store *chathistory.Store, usage *usagestats.Store, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, originalStart ...time.Time) *chatHistorySession {
 	if r == nil || a == nil || !shouldCaptureChatHistory(r) {
 		return nil
 	}
@@ -51,6 +51,10 @@ func startChatHistoryWithUsage(store *chathistory.Store, usage *usagestats.Store
 		FinalPrompt: stdReq.FinalPrompt,
 	}
 	startedAt := time.Now()
+	if len(originalStart) > 0 && !originalStart[0].IsZero() && originalStart[0].Before(startedAt) {
+		startedAt = originalStart[0]
+	}
+	startParams.CreatedAt = startedAt.UnixMilli()
 	session := &chatHistorySession{
 		store:        store,
 		usage:        usagestats.NewRequestRecorder(usage, a, usagestats.ModelForRequest(stdReq.ResolvedModel, stdReq.ResponseModel), startedAt),
