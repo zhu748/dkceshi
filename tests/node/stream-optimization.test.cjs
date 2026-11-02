@@ -8,7 +8,7 @@ const { appendCapture, captureReady } = require('../../internal/js/helpers/strea
 const { buildFinalUsage } = require('../../internal/js/chat-stream/token_usage');
 const { createStreamReport } = require('../../internal/js/chat-stream/stream_report');
 const { createStreamWatch } = require('../../internal/js/chat-stream/stream_limits');
-const { fetchStreamPrepare, fetchStreamPow, fetchStreamSwitch } = require('../../internal/js/chat-stream/http_internal');
+const { fetchStreamPrepare, fetchStreamPow, fetchStreamSwitch, fetchStreamValidation } = require('../../internal/js/chat-stream/http_internal');
 
 test('ordinary quoted prose streams before closure without duplicating its source', () => {
   const guard = createVisibleGuard();
@@ -92,4 +92,30 @@ test('request reports retain stage times and original terminal error', async () 
   assert.deepEqual(record.timings, { first_visible_ms: 50, upstream_done_ms: 80, validation_ms: 20 });
   assert.equal(record.error_status, 422);
   assert.equal(record.error_code, 'invalid_tool_arguments');
+});
+
+test('tool diagnostic attempt metadata survives Node regeneration and release', () => {
+  const report = createStreamReport();
+  assert.equal(report.diagnostic().diagnostic_attempt, 1);
+  report.regenerate({ code: 'invalid_tool_arguments', message: 'missing path' });
+  assert.deepEqual(report.diagnostic(), { diagnostic_attempt: 2, diagnostic_retry_reason: 'missing path' });
+  const release = report.snapshot({ finish_reason: 'tool_calls' });
+  assert.equal(release.diagnostic_attempt, 2);
+  assert.equal(release.diagnostic_retry_reason, 'missing path');
+});
+
+
+test('validation uses configured repair timeout and honors the remaining request deadline', async t => {
+  const oldFetch = global.fetch, oldTimeout = global.setTimeout;
+  t.after(() => { global.fetch = oldFetch; global.setTimeout = oldTimeout; });
+  let delay, body;
+  global.setTimeout = (fn, ms, ...args) => { delay = ms; return oldTimeout(fn, 120000, ...args); };
+  global.fetch = async (_url, init) => { body = JSON.parse(init.body); return { ok: true, status: 200, json: async () => ({ tool_calls: [] }) }; };
+  const req = { headers: { host: 'example.test' }, url: '/v1/chat/completions' };
+  await fetchStreamValidation(req, 'lease', 'tool', '', '', undefined, Date.now() + 120000, { diagnostic_attempt: 2 }, 60000);
+  assert.equal(delay, 65000);
+  assert.equal(body.diagnostic_attempt, 2);
+  assert.equal(body.content, 'tool');
+  await fetchStreamValidation(req, 'lease', 'tool', '', '', undefined, Date.now() + 100, {}, 60000);
+  assert.ok(delay >= 1 && delay <= 100);
 });

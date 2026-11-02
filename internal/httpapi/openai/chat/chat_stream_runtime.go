@@ -260,7 +260,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	})
 	if turn.Error != nil {
 		s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = turn.Error.Status, turn.Error.Message, turn.Error.Code
-		if completionruntime.CanDeferOutputError(turn.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
+		if completionruntime.CanDeferOutputError(turn.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
 			return false
 		}
 		s.sendFailedChunk(turn.Error.Status, turn.Error.Message, turn.Error.Code)
@@ -312,7 +312,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	})
 	if outcome.ShouldFail {
 		status, message, code := outcome.Error.Status, outcome.Error.Message, outcome.Error.Code
-		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsEmitted || s.toolCallsDoneEmitted) {
+		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
 			s.finalErrorStatus = status
 			s.finalErrorMessage = message
 			s.finalErrorCode = code

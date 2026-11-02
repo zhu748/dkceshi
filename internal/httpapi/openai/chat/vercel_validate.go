@@ -37,8 +37,9 @@ func (h *Handler) handleVercelStreamValidate(w http.ResponseWriter, r *http.Requ
 		writeOpenAIError(w, 404, "stream lease not found")
 		return
 	}
+	r = r.WithContext(leaseDiagnosticContext(r.Context(), lease, req))
 	std := lease.Standard
-	turn := assistantturn.BuildTurnFromCollected(sse.CollectResult{Text: asString(req["content"]), Thinking: asString(req["thinking"]), ToolDetectionThinking: asString(req["detection_thinking"])}, assistantturn.BuildOptions{Model: std.ResponseModel, Prompt: std.PromptTokenText, ToolNames: std.ToolNames, ToolsRaw: std.ToolsRaw, ToolChoice: std.ToolChoice, ToolMarker: std.ToolMarker, ToolCallRepair: completionruntime.NewToolCallRepairInvoker(h.DS, lease.Auth, h.ChatHistory), ToolCallRepairCtx: r.Context()})
+	turn := assistantturn.BuildTurnFromCollected(sse.CollectResult{Text: asString(req["content"]), Thinking: asString(req["thinking"]), ToolDetectionThinking: asString(req["detection_thinking"])}, assistantturn.BuildOptions{Model: std.ResponseModel, Prompt: std.PromptTokenText, ToolNames: std.ToolNames, ToolsRaw: std.ToolsRaw, ToolChoice: std.ToolChoice, ToolMarker: std.ToolMarker, ToolCallRepair: completionruntime.NewToolCallRepairInvoker(h.DS, lease.Auth, h.ChatHistory, std), ToolCallRepairCtx: r.Context()})
 	if turn.Error != nil {
 		writeOpenAIErrorWithCode(w, turn.Error.Status, turn.Error.Message, turn.Error.Code)
 		return

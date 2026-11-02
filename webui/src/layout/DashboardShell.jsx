@@ -13,6 +13,7 @@ import {
     Globe,
     Network,
     History,
+    ScanLine,
     Loader2,
     ChevronRight,
     ChartNoAxesCombined,
@@ -29,6 +30,7 @@ const AccountManagerContainer = lazy(() => import('../features/account/AccountMa
 const ApiTesterContainer = lazy(() => import('../features/apiTester/ApiTesterContainer'))
 const TtsTesterContainer = lazy(() => import('../features/tts/TtsTesterContainer'))
 const ChatHistoryContainer = lazy(() => import('../features/chatHistory/ChatHistoryContainer'))
+const ToolDiagnosticsContainer = lazy(() => import('../features/toolDiagnostics/ToolDiagnosticsContainer'))
 const BatchImport = lazy(() => import('../components/BatchImport'))
 const VercelSyncContainer = lazy(() => import('../features/vercel/VercelSyncContainer'))
 const SettingsContainer = lazy(() => import('../features/settings/SettingsContainer'))
@@ -78,6 +80,7 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
         { id: 'test', label: t('nav.test.label'), icon: Server, description: t('nav.test.desc') },
         { id: 'tts', label: t('nav.tts.label'), icon: Volume2, description: t('nav.tts.desc') },
         { id: 'history', label: t('nav.history.label'), icon: History, description: t('nav.history.desc') },
+        { id: 'tool-diagnostics', label: t('nav.toolDiagnostics.label'), icon: ScanLine, description: t('nav.toolDiagnostics.desc') },
         { id: 'usage', label: t('nav.usage.label'), icon: ChartNoAxesCombined, description: t('nav.usage.desc') },
         { id: 'import', label: t('nav.import.label'), icon: Upload, description: t('nav.import.desc') },
         { id: 'vercel', label: t('nav.vercel.label'), icon: Cloud, description: t('nav.vercel.desc') },
@@ -131,6 +134,8 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
                 return <TtsTesterContainer config={config} onMessage={showMessage} authFetch={authFetch} />
             case 'history':
                 return <ChatHistoryContainer onMessage={showMessage} authFetch={authFetch} />
+            case 'tool-diagnostics':
+                return <ToolDiagnosticsContainer onMessage={showMessage} authFetch={authFetch} />
             case 'usage':
                 return <TokenUsageContainer onMessage={showMessage} authFetch={authFetch} />
             case 'import':

@@ -1,6 +1,8 @@
 package completionruntime
 
 import (
+	"context"
+	"ds2api/internal/tooldiagnostics"
 	"net/http"
 
 	"ds2api/internal/assistantturn"
@@ -29,6 +31,17 @@ func IsRetryableOutputError(err *assistantturn.OutputError) bool {
 // CanDeferOutputError only allows regeneration before text or a tool call has
 // been delivered. Reasoning and whitespace alone are not a completed answer;
 // adapters must not mark them as outputDelivered.
-func CanDeferOutputError(err *assistantturn.OutputError, retryEnabled, outputDelivered bool) bool {
-	return retryEnabled && !outputDelivered && IsRetryableOutputError(err)
+func CanDeferOutputError(err *assistantturn.OutputError, retryEnabled, outputDelivered bool, contexts ...context.Context) bool {
+	allowed := retryEnabled && !outputDelivered && IsRetryableOutputError(err)
+	if !allowed && err != nil && len(contexts) > 0 {
+		reason := "not_retryable"
+		if !retryEnabled {
+			reason = "retry_disabled_or_exhausted"
+		}
+		if outputDelivered {
+			reason = "output_already_delivered"
+		}
+		tooldiagnostics.RetryDecision(contexts[0], reason, err.Message)
+	}
+	return allowed
 }

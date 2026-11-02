@@ -90,6 +90,7 @@ type BuildOptions struct {
 	// ToolCallRepairCtx scopes the repair invocation; defaults to
 	// context.Background() when nil.
 	ToolCallRepairCtx context.Context
+	DiagnosticContext context.Context
 	// ToolMarker is the caller-specific tool-call marker used by the model.
 	// Raw model output is normalized from ToolMarker back to EPSE before
 	// parsing/repair so the internal tool-call model only ever sees EPSE.
@@ -137,6 +138,9 @@ func maybeRepairToolCalls(parsed toolcall.ToolCallParseResult, rawText string, o
 		return nil, ""
 	}
 	ctx := opts.ToolCallRepairCtx
+	if ctx == nil {
+		ctx = opts.DiagnosticContext
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -196,7 +200,12 @@ type StreamSnapshot struct {
 	AlreadyEmittedToolRaw bool
 }
 
-func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
+func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) (built Turn) {
+	originalText, originalThinking := result.Text, result.ToolDetectionThinking
+	if originalThinking == "" {
+		originalThinking = result.Thinking
+	}
+	defer func() { observeToolDiagnostics(built, opts, originalText, originalThinking) }()
 	result.Text, result.Cut = rejectPromptEcho(result.Text, opts.Prompt, result.Cut)
 	result.Thinking, result.Cut = rejectReasoningEcho(result.Thinking, opts.Prompt, result.Cut)
 	result.ToolDetectionThinking, result.Cut = rejectReasoningEcho(result.ToolDetectionThinking, opts.Prompt, result.Cut)
@@ -267,7 +276,12 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	return turn
 }
 
-func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Turn {
+func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) (built Turn) {
+	originalText, originalThinking := snapshot.RawText, snapshot.DetectionThinking
+	if originalThinking == "" {
+		originalThinking = snapshot.RawThinking
+	}
+	defer func() { observeToolDiagnostics(built, opts, originalText, originalThinking) }()
 	snapshot.RawText, snapshot.ContentCut = rejectPromptEcho(snapshot.RawText, opts.Prompt, snapshot.ContentCut)
 	snapshot.RawThinking, snapshot.ContentCut = rejectReasoningEcho(snapshot.RawThinking, opts.Prompt, snapshot.ContentCut)
 	snapshot.DetectionThinking, snapshot.ContentCut = rejectReasoningEcho(snapshot.DetectionThinking, opts.Prompt, snapshot.ContentCut)

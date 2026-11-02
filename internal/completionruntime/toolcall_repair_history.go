@@ -10,8 +10,8 @@ import (
 )
 
 // repairHistoryRecord tracks the response-history entry opened for a single
-// proactive tool-call repair sub-request. The repair pass fires its own DeepSeek
-// completion on a throwaway session, so it needs its own record: it is not part
+// proactive tool-call repair sub-request. Each repair pass has an isolated
+// native session or external API call, so it needs its own record: it is not part
 // of the main request's turn and would otherwise leave no trace in 响应记录.
 //
 // It is intentionally a thin wrapper over chathistory.Store rather than
@@ -27,7 +27,7 @@ type repairHistoryRecord struct {
 // startRepairHistory opens a "toolcall.repair" record for one repair
 // completion. It returns nil when history is unavailable or disabled, so all
 // call sites can treat recording as best effort.
-func startRepairHistory(store *chathistory.Store, a *auth.RequestAuth, prompt string) *repairHistoryRecord {
+func startRepairHistory(store *chathistory.Store, a *auth.RequestAuth, prompt string, model string) *repairHistoryRecord {
 	if store == nil || a == nil || !store.Enabled() {
 		return nil
 	}
@@ -36,7 +36,7 @@ func startRepairHistory(store *chathistory.Store, a *auth.RequestAuth, prompt st
 		UserAgent: strings.TrimSpace(a.UserAgent),
 		AccountID: strings.TrimSpace(a.AccountID),
 		Surface:   toolCallRepairSurface,
-		Model:     toolCallRepairModel,
+		Model:     model,
 		Stream:    false,
 		UserInput: strings.TrimSpace(prompt),
 		Messages: []chathistory.Message{{
@@ -57,20 +57,22 @@ func startRepairHistory(store *chathistory.Store, a *auth.RequestAuth, prompt st
 	return &repairHistoryRecord{store: store, entryID: entry.ID, startedAt: time.Now()}
 }
 
-// success finalizes the record with the raw repair output.
-func (r *repairHistoryRecord) success(content string) {
+// success keeps reasoning in the admin archive, separate from the final text
+// returned to the format parser.
+func (r *repairHistoryRecord) success(content, thinking string) {
 	r.finish(chathistory.UpdateParams{
-		Status:       "success",
-		Content:      content,
-		StatusCode:   200,
-		ElapsedMs:    r.elapsedMs(),
-		FinishReason: "stop",
-		Completed:    true,
+		Status:           "success",
+		ReasoningContent: thinking,
+		Content:          content,
+		StatusCode:       200,
+		ElapsedMs:        r.elapsedMs(),
+		FinishReason:     "stop",
+		Completed:        true,
 	})
 }
 
 // failure finalizes the record with the reason the repair pass did not produce
-// usable output (upstream error, non-200, or the 10s timeout).
+// usable output (upstream error, non-200, or the configured timeout).
 func (r *repairHistoryRecord) failure(statusCode int, err error) {
 	message := ""
 	if err != nil {

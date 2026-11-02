@@ -5,7 +5,16 @@ import (
 	"strings"
 )
 
-func parseLooseJSONArrayValue(raw, paramName string) ([]any, bool) {
+func parseLooseJSONArrayValue(raw, paramName string, sinks ...*[]string) (values []any, accepted bool) {
+	var applied []string
+	recovery := []*[]string{&applied}
+	defer func() {
+		if accepted {
+			for _, reason := range applied {
+				appendRecovery(sinks, reason)
+			}
+		}
+	}()
 	if preservesCDATAStringParameter(paramName) {
 		return nil, false
 	}
@@ -14,7 +23,7 @@ func parseLooseJSONArrayValue(raw, paramName string) ([]any, bool) {
 		return nil, false
 	}
 
-	if parsed, ok := parseLooseJSONArrayCandidate(trimmed, paramName); ok {
+	if parsed, ok := parseLooseJSONArrayCandidate(trimmed, paramName, recovery...); ok {
 		return parsed, true
 	}
 
@@ -25,7 +34,7 @@ func parseLooseJSONArrayValue(raw, paramName string) ([]any, bool) {
 
 	out := make([]any, 0, len(segments))
 	for _, segment := range segments {
-		parsed, ok := parseLooseArrayElementValue(segment)
+		parsed, ok := parseLooseArrayElementValue(segment, recovery...)
 		if !ok {
 			return nil, false
 		}
@@ -34,15 +43,15 @@ func parseLooseJSONArrayValue(raw, paramName string) ([]any, bool) {
 	return out, true
 }
 
-func parseLooseJSONArrayCandidate(raw, paramName string) ([]any, bool) {
-	parsed, ok := parseLooseArrayElementValue(raw)
+func parseLooseJSONArrayCandidate(raw, paramName string, recovery ...*[]string) ([]any, bool) {
+	parsed, ok := parseLooseArrayElementValue(raw, recovery...)
 	if !ok {
 		return nil, false
 	}
 	return coerceArrayValue(parsed, paramName)
 }
 
-func parseLooseArrayElementValue(raw string) (any, bool) {
+func parseLooseArrayElementValue(raw string, recovery ...*[]string) (any, bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return nil, false
@@ -56,6 +65,7 @@ func parseLooseArrayElementValue(raw string) (any, bool) {
 	repairedBackslashes := repairInvalidJSONBackslashes(trimmed)
 	if repairedBackslashes != trimmed {
 		if err := jsonvalue.Unmarshal([]byte(repairedBackslashes), &parsed); err == nil {
+			appendRecovery(recovery, "json_backslash")
 			return parsed, true
 		}
 	}
@@ -63,6 +73,7 @@ func parseLooseArrayElementValue(raw string) (any, bool) {
 	repairedLoose := RepairLooseJSON(trimmed)
 	if repairedLoose != trimmed {
 		if err := jsonvalue.Unmarshal([]byte(repairedLoose), &parsed); err == nil {
+			appendRecovery(recovery, "loose_json")
 			return parsed, true
 		}
 	}

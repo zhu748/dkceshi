@@ -60,11 +60,13 @@ func parseToolCallsDetailedXMLOnly(text string) ToolCallParseResult {
 	// used to decide which wrappers parsed successfully (by ordinal index).
 	parseSource := normalized
 	parsed := parseXMLToolCalls(normalized)
+	result.RecoverySteps = syntaxRecoverySteps(original, normalized, parsed)
 	if len(parsed) == 0 && indexToolCDATAOpen(normalized, 0) >= 0 {
 		recovered := SanitizeLooseCDATA(normalized)
 		if recovered != normalized {
 			if recoveredParsed := parseXMLToolCalls(recovered); len(recoveredParsed) > 0 {
 				parsed = recoveredParsed
+				result.RecoverySteps = append(result.RecoverySteps, "loose_cdata")
 				parseSource = recovered
 			}
 		}
@@ -75,6 +77,7 @@ func parseToolCallsDetailedXMLOnly(text string) ToolCallParseResult {
 	// boundary and keep the result only when it parses strictly better.
 	if boundaryParsed, boundarySource, ok := reparseWithCDATAElementBoundaries(parsed, original); ok {
 		parsed = boundaryParsed
+		result.RecoverySteps = append(result.RecoverySteps, "cdata_element_boundary")
 		parseSource = boundarySource
 	}
 

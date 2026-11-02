@@ -143,7 +143,7 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 	// tool policy holds the entire answer until final validation.
 	runtime := newGeminiStreamRuntime(w, rc, canFlush, model, finalPrompt, thinkingEnabled, searchEnabled, stripReferenceMarkersEnabled(), toolNames, toolsRaw, stdReq.SystemTextToolsApply(), historySession)
 	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
-	runtime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)
+	runtime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory, stdReq)
 	runtime.toolCallRepairCtx = r.Context()
 	runtime.toolMarker = a.ToolMarker
 	runtime.toolSieve.Marker = a.ToolMarker
@@ -415,7 +415,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	})
 	outcome := assistantturn.FinalizeTurn(turn, assistantturn.FinalizeOptions{})
 	if outcome.ShouldFail {
-		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.answerDelivered) {
+		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.answerDelivered, s.toolCallRepairCtx) {
 			s.finalErrorStatus = outcome.Error.Status
 			s.finalErrorMessage = outcome.Error.Message
 			s.finalErrorCode = outcome.Error.Code

@@ -24,6 +24,9 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 		}
 		input := restoreLiteralInput(call, schema, IsCustomTool(toolsRaw, call.Name))
 		normalized, changed := normalizeToolValueWithSchema(input, schema)
+		if changed {
+			out[i].RecoverySteps = append(append([]string{}, call.RecoverySteps...), "schema_normalization")
+		}
 		changed = changed || len(call.StringLiterals) > 0
 		if !changed {
 			continue

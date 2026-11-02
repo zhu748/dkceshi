@@ -8,6 +8,7 @@ import (
 
 func DetectAssistantToolCalls(rawText, visibleText, exposedThinking, detectionThinking string, toolNames []string, allowReasoningProse ...bool) toolcall.ToolCallParseResult {
 	textParsed := toolcall.ParseStandaloneToolCallsDetailed(rawText, toolNames)
+	textParsed.SourceChannel = "content"
 	if len(textParsed.Calls) > 0 || textParsed.SawToolCallIntent || textParsed.SawToolCallSyntax {
 		return textParsed
 	}
@@ -22,6 +23,7 @@ func DetectAssistantToolCalls(rawText, visibleText, exposedThinking, detectionTh
 		return textParsed
 	}
 	thinkingParsed := toolcall.ParseStandaloneToolCallsDetailed(thinking, toolNames)
+	thinkingParsed.SourceChannel = "reasoning"
 	if len(thinkingParsed.Calls) > 0 || thinkingParsed.SawToolCallIntent || thinkingParsed.SawToolCallSyntax {
 		return thinkingParsed
 	}

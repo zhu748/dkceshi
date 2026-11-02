@@ -31,8 +31,10 @@ import (
 	"ds2api/internal/httpapi/openai/responses"
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/httpapi/requestbody"
+	diagnosticapi "ds2api/internal/httpapi/tooldiagnostics"
 	"ds2api/internal/keepalive"
 	"ds2api/internal/mihomo"
+	"ds2api/internal/tooldiagnostics"
 	"ds2api/internal/usagestats"
 	"ds2api/internal/webui"
 )
@@ -65,6 +67,7 @@ func NewApp() (*App, error) {
 	} else {
 		config.Logger.Info("[PoW] pure Go solver ready")
 	}
+	diagnosticStore := tooldiagnostics.New(config.ToolDiagnosticsPath())
 	chatHistoryStore := chathistory.New(config.ChatHistoryPath())
 	if err := chatHistoryStore.Err(); err != nil {
 		config.Logger.Warn("[chat_history] unavailable", "path", chatHistoryStore.Path(), "error", err)
@@ -80,7 +83,7 @@ func NewApp() (*App, error) {
 	contentStore := files.NewMemoryContentStore(100<<20, 30*time.Minute)
 
 	modelsHandler := &shared.ModelsHandler{Store: store}
-	chatHandler := &chat.Handler{Store: store, Auth: resolver, DS: dsClient, ChatHistory: chatHistoryStore, Usage: usageStatsStore, ContentStore: contentStore}
+	chatHandler := &chat.Handler{ToolDiagnostics: diagnosticStore, Store: store, Auth: resolver, DS: dsClient, ChatHistory: chatHistoryStore, Usage: usageStatsStore, ContentStore: contentStore}
 	responsesHandler := &responses.Handler{Store: store, Auth: resolver, DS: dsClient, ChatHistory: chatHistoryStore, Usage: usageStatsStore, ContentStore: contentStore}
 	filesHandler := &files.Handler{Store: store, Auth: resolver, DS: dsClient, ChatHistory: chatHistoryStore, ContentStore: contentStore}
 	embeddingsHandler := &embeddings.Handler{Store: store, Auth: resolver, DS: dsClient, ChatHistory: chatHistoryStore}
@@ -94,7 +97,7 @@ func NewApp() (*App, error) {
 	dsClient.SetNodeFailureReporter(mihomoMgr.ReportUpstreamResult)
 	dsClient.SetAccountPoolChanged(mihomoMgr.RequestReconcile)
 	pool.SetStateChanged(mihomoMgr.RequestReconcile)
-	adminHandler := &admin.Handler{Store: store, Pool: pool, DS: dsClient, OpenAI: chatHandler, ChatHistory: chatHistoryStore, Usage: usageStatsStore, Mihomo: mihomoMgr, ResetProxyClients: dsClient.ResetProxyClients, WebUIFallback: webuiHandler.HandleAdminFallback}
+	adminHandler := &admin.Handler{ToolDiagnostics: diagnosticStore, Store: store, Pool: pool, DS: dsClient, OpenAI: chatHandler, ChatHistory: chatHistoryStore, Usage: usageStatsStore, Mihomo: mihomoMgr, ResetProxyClients: dsClient.ResetProxyClients, WebUIFallback: webuiHandler.HandleAdminFallback}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -104,6 +107,7 @@ func NewApp() (*App, error) {
 	r.Use(cors)
 	r.Use(requestbody.ValidateJSONUTF8)
 	r.Use(timeout(0))
+	r.Use(diagnosticapi.Middleware(diagnosticStore))
 
 	healthzHandler := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -170,26 +174,6 @@ func NewApp() (*App, error) {
 	mihomoMgr.StartIfEnabled()
 
 	return &App{Store: store, Pool: pool, Resolver: resolver, DS: dsClient, Mihomo: mihomoMgr, KeepAlive: keepAliveMgr, Usage: usageStatsStore, Router: r}, nil
-}
-
-func timeout(d time.Duration) func(http.Handler) http.Handler {
-	if d <= 0 {
-		return func(next http.Handler) http.Handler { return next }
-	}
-	return middleware.Timeout(d)
-}
-
-// probedMethods lists the HTTP methods we re-probe against the routing tree to
-// rebuild the Allow header, because overriding chi's MethodNotAllowed handler
-// drops the method list chi would otherwise have attached.
-var probedMethods = []string{
-	http.MethodGet,
-	http.MethodHead,
-	http.MethodPost,
-	http.MethodPut,
-	http.MethodPatch,
-	http.MethodDelete,
-	http.MethodOptions,
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter, req *http.Request, routes chi.Routes) {

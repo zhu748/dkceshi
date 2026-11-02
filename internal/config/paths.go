@@ -57,6 +57,13 @@ func RawStreamSampleRoot() string {
 	return ResolvePath("DS2API_RAW_STREAM_SAMPLE_ROOT", "tests/raw_stream_samples")
 }
 
+func ToolDiagnosticsPath() string {
+	if IsVercel() && strings.TrimSpace(os.Getenv("DS2API_TOOL_DIAGNOSTICS_PATH")) == "" {
+		return "/tmp/tool_diagnostics.json"
+	}
+	return ResolvePath("DS2API_TOOL_DIAGNOSTICS_PATH", "data/tool_diagnostics.json")
+}
+
 func ChatHistoryPath() string {
 	// On Vercel, /var/task is read-only at runtime. If no explicit path is set,
 	// default to /tmp/chat_history.json (the only writable directory).

@@ -375,6 +375,8 @@ Gemini 路由还可以使用 `x-goog-api-key`，或在没有认证头时使用 `
 
 ## Tool Call 适配
 
+管理面板的 **工具调用诊断** 可查看最近 20/50 条工具解析、修复和重试过程；失败现场自动锁定保留；格式修复默认跟随原请求模型，也可配置 OpenAI、Claude 或 Gemini 格式的自定义 API，并拉取模型、选择后保存。详见 [工具调用诊断](docs/tool-call-diagnostics.md)。
+
 DS2API 对工具输出进行显示隔离、格式恢复和结构化转译；无正式工具目录的历史续轮也经过相同的防泄漏与收尾校验：
 
 1. 只在**非 Markdown 代码上下文**启用执行型 toolcall 识别（fenced code block 和行内 code span 中的示例默认不触发）

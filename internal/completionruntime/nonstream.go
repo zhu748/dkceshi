@@ -14,6 +14,7 @@ import (
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolcall"
+	"ds2api/internal/tooldiagnostics"
 )
 
 type DeepSeekCaller interface {
@@ -32,7 +33,7 @@ type Options struct {
 	ExpertPromptSegment   ExpertPromptSegmentConfigReader
 	// ToolCallRepairEnabled turns on the phase-3 finalize-only LLM tool-call
 	// repair pass. When enabled, the runtime builds a repair invoker bound to
-	// the request's account (expert mode, thinking off, new session, 10s) and
+	// originating model or configured repair API, with an isolated prompt, and
 	// hands it to the finalize turn builder so residual bad tool-call code can
 	// be repaired. It is never wired into the streaming sieve.
 	ToolCallRepairEnabled bool
@@ -45,6 +46,7 @@ type Options struct {
 	// the finalize turn build options.
 	toolCallRepair    toolcall.ToolCallRepairInvoker
 	toolCallRepairCtx context.Context
+	diagnosticCtx     context.Context
 }
 
 type NonStreamResult struct {
@@ -63,6 +65,7 @@ type StartResult struct {
 }
 
 func StartCompletion(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options) (StartResult, *assistantturn.OutputError) {
+	configureDiagnostics(ctx, a, stdReq)
 	start, outErr := startCompletionForRequest(ctx, ds, a, stdReq, opts)
 	// 弹性号池/多账号场景下，上游封号（禁言/停用）会让当前账号在开跑阶段直接
 	// 失败。此时立即切换到下一个可调度账号重试本次请求，而不是把错误透传给
@@ -201,7 +204,7 @@ func currentInputFileOutputError(err error) *assistantturn.OutputError {
 }
 
 func ExecuteNonStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options) (NonStreamResult, *assistantturn.OutputError) {
-	opts = withToolCallRepair(ctx, ds, a, opts)
+	opts = withToolCallRepair(ctx, ds, a, opts, stdReq)
 	start, startErr := StartCompletion(ctx, ds, a, stdReq, opts)
 	if startErr != nil {
 		return NonStreamResult{SessionID: start.SessionID, Payload: start.Payload}, startErr
@@ -213,17 +216,24 @@ func ExecuteNonStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.R
 // request account) and scopes it to ctx, but only when repair is enabled and
 // not already configured. The repair pass is finalize-only; the streaming sieve
 // must never receive an invoker (plan §5.1).
-func withToolCallRepair(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, opts Options) Options {
+func withToolCallRepair(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, opts Options, req promptcompat.StandardRequest) Options {
 	if !opts.ToolCallRepairEnabled || opts.toolCallRepair != nil {
 		return opts
 	}
-	opts.toolCallRepair = NewToolCallRepairInvoker(ds, a, opts.ChatHistory)
+	opts.toolCallRepair = NewToolCallRepairInvoker(ds, a, opts.ChatHistory, req)
 	opts.toolCallRepairCtx = ctx
 	return opts
 }
 
-func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, start StartResult, opts Options) (NonStreamResult, *assistantturn.OutputError) {
-	opts = withToolCallRepair(ctx, ds, a, opts)
+func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, start StartResult, opts Options) (finalResult NonStreamResult, finalError *assistantturn.OutputError) {
+	opts.diagnosticCtx = ctx
+	configureDiagnostics(ctx, a, start.Request)
+	defer func() {
+		if finalError != nil {
+			tooldiagnostics.Failure(ctx, finalError.Code, finalError.Message)
+		}
+	}()
+	opts = withToolCallRepair(ctx, ds, a, opts, start.Request)
 	stdReq := start.Request
 	maxAttempts := opts.MaxAttempts
 	if maxAttempts <= 0 {
@@ -249,6 +259,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, switchErr
 				}
 				if switched.Response != nil {
+					diagnosticRetry(ctx, a, "account_switch", outErr)
 					config.Logger.Info("[completion_runtime_account_switch_retry] retrying after 429", "surface", stdReq.Surface, "stream", false, "account", a.AccountID)
 					sessionID = switched.SessionID
 					payload = switched.Payload
@@ -293,6 +304,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, switchErr
 				}
 				if switched.Response != nil {
+					diagnosticRetry(ctx, a, "account_switch", turn.Error)
 					config.Logger.Info("[completion_runtime_account_switch_retry] retrying after 429", "surface", stdReq.Surface, "stream", false, "account", a.AccountID)
 					sessionID = switched.SessionID
 					payload = switched.Payload
@@ -305,10 +317,21 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					continue
 				}
 			}
+			if turn.Error != nil {
+				reason := "retry_exhausted"
+				if !IsRetryableOutputError(turn.Error) {
+					reason = "not_retryable"
+				}
+				if !opts.RetryEnabled {
+					reason = "retry_disabled"
+				}
+				tooldiagnostics.RetryDecision(ctx, reason, turn.Error.Message)
+			}
 			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, turn.Error
 		}
 
 		attempts++
+		diagnosticRetry(ctx, a, "regeneration", turn.Error)
 		parentMessageID := retryParentMessageID(turn.ResponseMessageID, payload)
 		config.Logger.Info("[completion_runtime_empty_retry] attempting synthetic retry", "surface", stdReq.Surface, "stream", false, "retry_attempt", attempts, "parent_message_id", parentMessageID)
 		retryPow, powErr := ds.GetPow(ctx, a, maxAttempts)
@@ -326,6 +349,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, switchErr
 				}
 				if switched.Response != nil {
+					diagnosticRetry(ctx, a, "account_switch", callErr)
 					config.Logger.Info("[completion_runtime_account_switch_retry] retrying after retry request failure", "surface", stdReq.Surface, "stream", false, "account", a.AccountID, "error_code", callErr.Code)
 					sessionID = switched.SessionID
 					payload = switched.Payload
@@ -480,30 +504,6 @@ func collectAttempt(ctx context.Context, resp *http.Response, a *auth.RequestAut
 		return turn, turn.Error
 	}
 	return turn, nil
-}
-
-func buildOptions(stdReq promptcompat.StandardRequest, prompt string, opts Options) assistantturn.BuildOptions {
-	built := buildOptionsWithoutRepair(stdReq, prompt, opts)
-	built.ToolCallRepair = opts.toolCallRepair
-	built.ToolCallRepairCtx = opts.toolCallRepairCtx
-	return built
-}
-
-// buildOptionsWithoutRepair mirrors buildOptions but never attaches the LLM
-// repair invoker. Intermediate builds (per-attempt collection) must use this so
-// a single upstream output triggers at most one LLM repair pass.
-func buildOptionsWithoutRepair(stdReq promptcompat.StandardRequest, prompt string, opts Options) assistantturn.BuildOptions {
-	return assistantturn.BuildOptions{
-		Model:                 stdReq.ResponseModel,
-		Prompt:                prompt,
-		RefFileTokens:         stdReq.RefFileTokens,
-		SearchEnabled:         stdReq.Search,
-		StripReferenceMarkers: opts.StripReferenceMarkers,
-		ToolNames:             stdReq.ToolNames,
-		ToolsRaw:              stdReq.ToolsRaw,
-		ToolChoice:            stdReq.ToolChoice,
-		ToolMarker:            stdReq.ToolMarker,
-	}
 }
 
 // OutputCodeAccountUnauthorized 标记"托管账号的 Token 被上游拒绝"。

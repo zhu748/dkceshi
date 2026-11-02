@@ -15,6 +15,7 @@ import (
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
+	"ds2api/internal/tooldiagnostics"
 	"ds2api/internal/usagestats"
 )
 
@@ -23,23 +24,26 @@ const openAIGeneralMaxSize = shared.GeneralMaxSize
 var writeJSON = shared.WriteJSON
 
 type Handler struct {
-	Usage        *usagestats.Store
-	Store        shared.ConfigReader
-	Auth         shared.AuthResolver
-	DS           shared.DeepSeekCaller
-	ChatHistory  *chathistory.Store
-	ContentStore files.ContentStore
+	ToolDiagnostics *tooldiagnostics.Store
+	Usage           *usagestats.Store
+	Store           shared.ConfigReader
+	Auth            shared.AuthResolver
+	DS              shared.DeepSeekCaller
+	ChatHistory     *chathistory.Store
+	ContentStore    files.ContentStore
 
 	leaseMu      sync.Mutex
 	streamLeases map[string]streamLease
 }
 
 type streamLease struct {
-	StartedAt time.Time
-	Auth      *auth.RequestAuth
-	Standard  promptcompat.StandardRequest
-	SessionID string
-	ExpiresAt time.Time
+	Diagnostics    *tooldiagnostics.Recorder
+	RepairSettings tooldiagnostics.RepairSettings
+	StartedAt      time.Time
+	Auth           *auth.RequestAuth
+	Standard       promptcompat.StandardRequest
+	SessionID      string
+	ExpiresAt      time.Time
 }
 
 func stripReferenceMarkersEnabled() bool {

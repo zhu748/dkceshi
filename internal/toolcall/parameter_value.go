@@ -2,7 +2,7 @@ package toolcall
 
 import "strings"
 
-func parseInvokeParameterValue(paramName, raw string) any {
+func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return ""
@@ -20,7 +20,7 @@ func parseInvokeParameterValue(paramName, raw string) any {
 		if parsed, ok := parseStructuredCDATAParameterValue(paramName, value); ok {
 			return parsed
 		}
-		if parsed, ok := parseLooseJSONArrayValue(value, paramName); ok {
+		if parsed, ok := parseLooseJSONArrayValue(value, paramName, recovery...); ok {
 			return parsed
 		}
 		return value
@@ -67,7 +67,7 @@ func parseInvokeParameterValue(paramName, raw string) any {
 					}
 					return parsedText
 				}
-				if parsedText, ok := parseLooseJSONArrayValue(text, paramName); ok {
+				if parsedText, ok := parseLooseJSONArrayValue(text, paramName, recovery...); ok {
 					return parsedText
 				}
 				return v
@@ -78,7 +78,7 @@ func parseInvokeParameterValue(paramName, raw string) any {
 		if parsed := parseStructuredToolCallInput(decoded); len(parsed) > 0 {
 			if len(parsed) == 1 {
 				if rawValue, ok := parsed["_raw"].(string); ok {
-					if parsedText, ok := parseLooseJSONArrayValue(rawValue, paramName); ok {
+					if parsedText, ok := parseLooseJSONArrayValue(rawValue, paramName, recovery...); ok {
 						return parsedText
 					}
 					return rawValue
@@ -90,7 +90,7 @@ func parseInvokeParameterValue(paramName, raw string) any {
 			return parsed
 		}
 	}
-	if parsed, ok := parseLooseJSONArrayValue(decoded, paramName); ok {
+	if parsed, ok := parseLooseJSONArrayValue(decoded, paramName, recovery...); ok {
 		return parsed
 	}
 	return decoded

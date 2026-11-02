@@ -2,9 +2,11 @@ package toolcall
 
 import (
 	"context"
+	"ds2api/internal/tooldiagnostics"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"ds2api/internal/config"
 	"ds2api/internal/streambudget"
@@ -57,9 +59,9 @@ func ToolCallRepairFixedPromptForMarker(marker string) string {
 const toolCallRepairNoToolSentinel = "NO TOOL"
 
 // ToolCallRepairInvoker sends the fully assembled repair prompt to an LLM and
-// returns its raw text output. Implementations must honor the phase3 §3 hard
-// constraints (same account, expert mode, thinking disabled, brand-new session,
-// 10s timeout). A non-nil error (including timeout) routes the caller to the
+// returns only its final text output. Implementations use the originating
+// model or configured API with an isolated prompt and honor cancellation and
+// the configured timeout. A non-nil error routes the caller to the
 // fallback path (branch ③).
 type ToolCallRepairInvoker func(ctx context.Context, prompt string) (string, error)
 
@@ -166,16 +168,28 @@ func firstRepairToolMarker(markers []string) string {
 // The optional toolMarker renders the repair prompt with the caller-specific
 // tool-call marker and normalizes the model's answer back to EPSE before
 // parsing; when omitted the canonical EPSE keyword is used (legacy behaviour).
-func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCallRepairInvoker, toolMarker ...string) ([]ParsedToolCall, bool) {
+func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCallRepairInvoker, toolMarker ...string) (repairedCalls []ParsedToolCall, repairedOK bool) {
+	started := time.Now()
+	report := tooldiagnostics.Step{Stage: "llm_repair", Result: "failed", Input: tooldiagnostics.Capture(badCode)}
+	defer func() {
+		report.ElapsedMS = time.Since(started).Milliseconds()
+		if repairedOK {
+			report.Result = "success"
+		}
+		tooldiagnostics.AddStep(ctx, report)
+	}()
 	if calls, ok := RecoverDSMLToolCalls(badCode); ok {
+		report.Stage, report.Reason = "local_recovery", "native_dsml"
 		return calls, true
 	}
 	if invoke == nil || strings.TrimSpace(badCode) == "" || repairHasOrphanCDATA(badCode) {
+		report.Result, report.Reason = "skipped", "repair_unavailable_or_ambiguous_cdata"
 		return nil, false
 	}
 	marker := firstRepairToolMarker(toolMarker)
 	plan := buildToolCallRepairPlan(badCode, marker)
 	if len(plan.prompt) > streambudget.Value("max_repair_bytes") {
+		report.Result, report.Reason = "skipped", "repair_prompt_too_large"
 		config.Logger.Warn("[toolcall_repair] skipped oversized repair prompt", "bytes", len(plan.prompt))
 		return nil, false
 	}
@@ -188,19 +202,24 @@ func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCall
 		logAttrs = append(logAttrs, "slot_degrade_reason", plan.degradeReason)
 	}
 
+	tooldiagnostics.AddStep(ctx, tooldiagnostics.Step{Stage: "llm_repair", Result: "running", Input: report.Input})
 	out, err := invoke(ctx, plan.prompt)
+	report.Output = tooldiagnostics.Capture(out)
 	if err != nil {
+		report.Reason, report.Error = "invoke_error", err.Error()
 		// Branch ③: upstream/network error or timeout.
 		config.Logger.Warn("[toolcall_repair] degraded", append([]any{"reason", "invoke_error", "error", err}, logAttrs...)...)
 		return nil, false
 	}
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "" {
+		report.Reason = "empty_output"
 		config.Logger.Warn("[toolcall_repair] degraded", append([]any{"reason", "empty_output"}, logAttrs...)...)
 		return nil, false
 	}
 	// Branch ②: the model declared the fragment is not a tool call.
 	if strings.EqualFold(trimmed, toolCallRepairNoToolSentinel) {
+		report.Reason = "no_tool"
 		config.Logger.Warn("[toolcall_repair] degraded", append([]any{"reason", "no_tool"}, logAttrs...)...)
 		return nil, false
 	}
@@ -225,6 +244,10 @@ func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCall
 			reason = "repair_integrity_failed"
 		} else if errors.Is(errAttr, errIncompleteRepair) {
 			reason = "incomplete_repair"
+		}
+		report.Reason = reason
+		if errAttr != nil {
+			report.Error = errAttr.Error()
 		}
 		attrs := append([]any{"reason", reason}, logAttrs...)
 		if errAttr != nil {
@@ -288,70 +311,4 @@ func restoreAndParseRepairOutput(out string, res cdataSlotResult, promptToken cd
 		return nil, fmt.Errorf("cdata slot: placeholder literal survived into a parsed parameter")
 	}
 	return calls, nil
-}
-
-func toolCallsContainPlaceholderLiteral(calls []ParsedToolCall, token cdataSlotToken) bool {
-	prefix := token.literalPrefix()
-	for _, c := range calls {
-		for _, v := range c.Input {
-			if valueContainsSubstring(v, prefix) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func valueContainsSubstring(value any, needle string) bool {
-	switch v := value.(type) {
-	case string:
-		return strings.Contains(v, needle)
-	case []any:
-		for _, item := range v {
-			if valueContainsSubstring(item, needle) {
-				return true
-			}
-		}
-	case map[string]any:
-		for _, item := range v {
-			if valueContainsSubstring(item, needle) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// pickBetterRepairResult chooses between the two interpretations' parse results:
-// more tool calls wins, then more total populated parameters. Ties go to the
-// primary so the default (greedy) interpretation stays authoritative.
-func pickBetterRepairResult(primary []ParsedToolCall, primaryName string, alternate []ParsedToolCall, alternateName string) ([]ParsedToolCall, string) {
-	if len(alternate) == 0 {
-		return primary, primaryName
-	}
-	if len(primary) == 0 {
-		return alternate, alternateName
-	}
-	if len(alternate) > len(primary) {
-		return alternate, alternateName
-	}
-	if len(alternate) == len(primary) && countToolCallInputs(alternate) > countToolCallInputs(primary) {
-		return alternate, alternateName
-	}
-	return primary, primaryName
-}
-
-func countToolCallInputs(calls []ParsedToolCall) int {
-	total := 0
-	for _, c := range calls {
-		total += len(c.Input)
-	}
-	return total
-}
-
-func alternateInterpretationName(plan toolCallRepairPlan) string {
-	if plan.interpretation == "bounded" {
-		return "greedy"
-	}
-	return "bounded"
 }

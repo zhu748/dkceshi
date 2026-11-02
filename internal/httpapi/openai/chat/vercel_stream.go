@@ -113,6 +113,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		writeOpenAIError(w, http.StatusInternalServerError, "failed to create stream lease")
 		return
 	}
+	h.attachLeaseDiagnostics(leaseID, stdReq)
 	leased = h.writePreparedLease(w, r, leaseID, map[string]any{
 		"session_id":              sessionID,
 		"lease_id":                leaseID,
@@ -121,6 +122,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		"thinking_enabled":        stdReq.Thinking,
 		"search_enabled":          stdReq.Search,
 		"tool_choice":             stdReq.ToolChoice,
+		"tool_repair_timeout_ms":  h.leaseRepairTimeoutMS(leaseID),
 		"validate_tools":          len(stdReq.ToolNames) > 0 || stdReq.ToolChoice.Constrained() || stdReq.SystemTextToolsApply(),
 		"tool_names":              stdReq.ToolNames,
 		"tool_marker":             stdReq.ToolMarker,
@@ -167,6 +169,7 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 	if lease.Auth != nil {
 		h.autoDeleteRemoteSession(r.Context(), lease.Auth, lease.SessionID)
 	}
+	finishLeaseDiagnostics(r, lease, req)
 	h.recordVercelStreamCompletion(r, lease.Auth, lease.Standard, req, lease.StartedAt)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
@@ -475,6 +478,7 @@ func (h *Handler) popExpiredLeasesLocked(now time.Time) []*auth.RequestAuth {
 	expired := make([]*auth.RequestAuth, 0)
 	for leaseID, lease := range h.streamLeases {
 		if now.After(lease.ExpiresAt) {
+			lease.Diagnostics.Finish(504, nil, true)
 			delete(h.streamLeases, leaseID)
 			expired = append(expired, lease.Auth)
 		}

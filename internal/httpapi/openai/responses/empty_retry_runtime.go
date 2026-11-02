@@ -27,7 +27,7 @@ func (h *Handler) handleResponsesStreamWithRetry(w http.ResponseWriter, r *http.
 	}
 	streamRuntime.sieve.Marker = a.ToolMarker
 	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
-	streamRuntime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory)
+	streamRuntime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory, stdReq)
 	streamRuntime.toolCallRepairCtx = r.Context()
 	completionruntime.ExecuteStreamWithRetry(r.Context(), h.DS, a, resp, payload, pow, completionruntime.StreamRetryOptions{
 		Surface:             "responses",

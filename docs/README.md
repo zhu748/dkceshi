@@ -66,3 +66,5 @@ Recommended reading order:
 - Other `docs/*.md`: focused topics, avoid copy-pasting the same section into multiple files.
 
 - [与参考项目的功能对齐及验证边界](function-alignment.md)
+
+- [工具调用诊断与异常保留](./tool-call-diagnostics.md)

@@ -11,6 +11,7 @@ import (
 	"ds2api/internal/contextfile"
 	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/tooldiagnostics"
 )
 
 type StreamRetryOptions struct {
@@ -68,6 +69,7 @@ type continueResumer interface {
 var _ continueResumer = (*dsclient.Client)(nil)
 
 func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, initialResp *http.Response, payload map[string]any, pow string, opts StreamRetryOptions, hooks StreamRetryHooks) {
+	configureDiagnostics(ctx, a, opts.Request)
 	if hooks.ConsumeAttempt == nil {
 		return
 	}
@@ -97,6 +99,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			return
 		}
 		failed = true
+		tooldiagnostics.Failure(ctx, err.Code, err.Message)
 		if ctx.Err() == nil && hooks.OnRetryFailure != nil {
 			hooks.OnRetryFailure(err.Status, err.Message, err.Code)
 		}
@@ -126,6 +129,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			fail(startErr)
 			return false
 		}
+		diagnosticRetry(ctx, a, "account_switch", err)
 		adopt(start)
 		config.Logger.Info("[completion_runtime_account_switch_retry] retrying on alternate account", "surface", surface, "account", a.AccountID, "error_code", err.Code)
 		return true
@@ -171,6 +175,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 				continue
 			}
 			if !failed && hooks.EmptyOutputError != nil && hooks.EmptyOutputError() != nil {
+				tooldiagnostics.RetryDecision(ctx, "retry_exhausted", pendingErr.Message)
 				// Finalization already validated and optionally repaired this
 				// attempt. Report the stored failure without running repair twice.
 				fail(pendingErr)
@@ -209,6 +214,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			rejectedOutput = hooks.RejectedOutput()
 		}
 		retryPayload := ClonePayloadForOutputRetry(currentPayload, parentMessageID, pendingErr, rejectedOutput)
+		diagnosticRetry(ctx, a, "regeneration", pendingErr)
 		next, callErr := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
 		var outErr *assistantturn.OutputError
 		if callErr != nil {

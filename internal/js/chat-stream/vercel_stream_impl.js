@@ -357,6 +357,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     };
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
     const resetForRegeneration = () => {
+      report.regenerate(lastEmptyDetail);
       leadingText.reset();
       currentType = thinkingEnabled ? 'thinking' : 'text';
       contentPolicy = createContentPolicy(finalPrompt);
@@ -434,7 +435,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       let validatedCalls = null, validatedUsage = null, validatedText = null;
       if ((detected.length || needsToolFinalization(outputText, detectionThinkingText, prep.body, toolSieveState)) && (hasVisibleOutput || detected.length || detectionThinkingText)) {
         try {
-          const validation = await report.measure('validation_ms', () => fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal, watch.finalDeadline));
+          const validation = await report.measure('validation_ms', () => fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal, watch.finalDeadline, report.diagnostic(), prep.body.tool_repair_timeout_ms));
           if (!validation.ok) {
             const error = validation.body.error || {};
             if (options.deferEmpty && !answerDelivered && ['invalid_tool_arguments', 'tool_choice_violation', 'upstream_empty_output', 'upstream_unavailable'].includes(error.code)) {

@@ -169,7 +169,7 @@ go test -v -run 'TestParseToolCalls|TestProcessToolSieve' ./internal/toolcall ./
 - 触发范围：非流式 finalize + 所有流式 finalize 定稿（chat / responses / claude / gemini，发送最终帧前触发；若结构化 tool_calls 已在增量阶段流式发出则不再触发）。
 - 部分成功也修复：`SawToolCallIntent=true` 且残余 `ResidualIntentText` 非空时，对去除 Markdown 示例后的完整来源批次进行一次修复。成功结果整批替换；完整性检查保留原调用顺序与每次独立出现，不按 name+input 去重。
 - LLM 输出三路分支：① 完整且通过来源一致性校验的工具调用 → 解析为 tool_calls；② 字面量 `NO TOOL`；③ 无法解析 / 超时 / 一致性校验失败。后两路返回失败状态，由共享交付校验决定是否可作为普通文本保留；明确包含已声明客户端工具调用的坏码返回 invalid_tool_arguments，不能依赖模型自报 NO TOOL 绕过。
-- 修复调用使用 default 模式（`deepseek-v4.1-flash` → `model_type=default`；网页客户端 2.4.0 合并 fast/expert/vision 后已无独立 vision 模式），同账号、关闭思考、新建 session、10 秒超时。
+- 修复调用默认跟随标准请求的实际 `ResolvedModel`，同账号、开启思考、新建 session；当前原生模型映射为 `model_type=default`。管理面板可切换到自定义 OpenAI、Claude 或 Gemini API。超时默认 10 秒，可配置 1–300 秒，服从请求取消及更短期限。思考内容单独归档，仅最终正文进入修复解析与保真检查。
 - 固定提示词里原本要求「如果你认为接下来的内容只是在正常聊天，直接返回 NO TOOL」的那句已暂时移除：实测该提示容易误导模型把坏格式工具调用判成普通聊天，导致该修的调用不修。分支 ② 的判定代码保持不变，最终是否属于普通文本由共享校验判断。
 - 固定提示词的占位符措辞必须与模型实际所见一致。早期版本声称「实际参数已用变量代替」，但未闭合 CDATA 不参与 slot，模型会同时看到占位符和原始长内容，指令与输入自相矛盾，反而诱导模型改写未被替换的部分。现在改为「可能已被替换」，并列出硬性要求：占位符逐字符原样输出、未替换内容逐字节保留、只允许改标签结构、每个 `parameter` 节点及其 `name` 必须保留、缺 `]]>` 要补齐。prompt 末尾还会追加本次占位符清单（`DS_SLOT_0 … DS_SLOT_{N-1}`）作为模型自检锚点。
 - 降级日志（`[toolcall_repair] degraded`）带 `interpretation` / `slot_count` / `skeleton_len` / `slot_degrade_reason`。`repair_integrity_failed` 区分来源节点/值变化，`incomplete_repair` 区分结果仍含坏调用；新增检查的错误消息不记录参数正文。

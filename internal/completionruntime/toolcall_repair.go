@@ -14,6 +14,7 @@ import (
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolcall"
+	"ds2api/internal/tooldiagnostics"
 )
 
 // toolCallRepairSurface tags the response-history record created for a phase-3
@@ -21,14 +22,12 @@ import (
 // 响应记录 list alongside the main request that triggered them.
 const toolCallRepairSurface = "toolcall.repair"
 
-// toolCallRepairModel is the resolved model used for the LLM tool-call repair
-// pass. After the 2.4.0 fast/expert/vision merge there is a single default
-// model series, so the repair pass uses deepseek-v4.1-flash: it is a short,
-// format-only rewrite, and thinking is disabled for the repair pass.
+// toolCallRepairModel is only a compatibility fallback for callers without a
+// normalized request. Production repair follows the request's resolved model.
 const toolCallRepairModel = "deepseek-v4.1-flash"
 
-// toolCallRepairTimeout bounds a single repair completion to 10 seconds
-// (phase3 §3). On timeout the invoker returns an error and the caller falls
+// toolCallRepairTimeout is the default repair deadline; the admin setting can
+// override it. On timeout the invoker returns an error and the caller falls
 // back to shared validation, which rejects unresolved tool protocol.
 const toolCallRepairTimeout = 10 * time.Second
 
@@ -47,94 +46,111 @@ type repairSessionDeleter interface {
 	DeleteSession(ctx context.Context, a *auth.RequestAuth, sessionID string, maxAttempts int) (*dsclient.DeleteSessionResult, error)
 }
 
-// NewToolCallRepairInvoker builds a toolcall.ToolCallRepairInvoker backed by the
-// upstream DeepSeek caller. Each invocation honors the phase3 §3 hard
-// constraints:
-//   - same account (the request's *auth.RequestAuth),
-//   - default mode (deepseek-v4.1-flash → model_type "default"),
-//   - thinking disabled (thinking_enabled=false),
-//   - a brand-new session (CreateSession, no reused context),
-//   - a 10-second timeout.
-//
-// Every invocation also opens its own "toolcall.repair" response-history record
-// (best effort) so the proactive repair sub-request is visible in 响应记录
-// instead of running as an untracked, self-deleting session.
-//
-// It returns nil when ds or a is nil so callers can treat repair as disabled.
-func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *chathistory.Store) toolcall.ToolCallRepairInvoker {
+// NewToolCallRepairInvoker repairs an isolated tool batch using the originating
+// resolved model, or the configured OpenAI-compatible API. Request cancellation
+// and the configured repair deadline apply to both providers.
+func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *chathistory.Store, originals ...promptcompat.StandardRequest) toolcall.ToolCallRepairInvoker {
 	if ds == nil || a == nil {
 		return nil
 	}
-	return func(ctx context.Context, prompt string) (string, error) {
-		// Repair belongs to the request: cancellation and its shorter deadline win.
+	originalModel := toolCallRepairModel
+	if len(originals) > 0 {
+		originalModel = repairModelForRequest(originals[0])
+	}
+	return func(ctx context.Context, prompt string) (text string, retErr error) {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		repairCtx, cancel := context.WithTimeout(ctx, toolCallRepairTimeout)
+		settings := tooldiagnostics.RepairSettingsFromContext(ctx)
+		timeout := toolCallRepairTimeout
+		if settings.TimeoutSeconds > 0 {
+			timeout = time.Duration(settings.TimeoutSeconds) * time.Second
+		}
+		repairCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		startedAt := time.Now()
-
-		stdReq := promptcompat.StandardRequest{
-			Surface:       toolCallRepairSurface,
-			ResolvedModel: toolCallRepairModel,
-			ResponseModel: toolCallRepairModel,
-			FinalPrompt:   prompt,
-			Thinking:      false,
-			Search:        false,
+		provider, model := "original", originalModel
+		if settings.Mode == "custom" {
+			provider, model = "custom_api", settings.Model
 		}
-
-		config.Logger.Info("[toolcall_repair] starting", "surface", toolCallRepairSurface, "model", toolCallRepairModel)
-
-		record := startRepairHistory(history, a, prompt)
-		sessionID, err := ds.CreateSession(repairCtx, a, 1)
-		if err != nil {
-			config.Logger.Warn("[toolcall_repair] create session failed", "error", err, "timeout", errors.Is(err, context.DeadlineExceeded), "elapsed_ms", time.Since(startedAt).Milliseconds())
-			record.failure(http.StatusBadGateway, err)
-			return "", err
+		started := time.Now()
+		step := tooldiagnostics.Step{Stage: "repair_request", Result: "running", Provider: provider, Model: model}
+		if provider == "custom_api" {
+			step.Protocol = tooldiagnostics.RepairProtocol(settings.Protocol)
 		}
-		// The repair session is a throwaway "new conversation" (phase3 §3). It
-		// must not leak on the upstream account, so schedule a best-effort
-		// delete regardless of success/failure/timeout. The delete runs on a
-		// context detached from ctx/repairCtx (via WithoutCancel) so a repair
-		// timeout does not cancel the cleanup, and it does not prolong the main
-		// request.
-		defer enqueueRepairSessionDelete(ds, a, sessionID)
-		pow, err := ds.GetPow(repairCtx, a, 1)
-		if err != nil {
-			config.Logger.Warn("[toolcall_repair] get pow failed", "error", err, "timeout", errors.Is(err, context.DeadlineExceeded), "elapsed_ms", time.Since(startedAt).Milliseconds())
-			record.failure(http.StatusBadGateway, err)
-			return "", err
-		}
-		payload := stdReq.CompletionPayload(sessionID)
-		resp, err := ds.CallCompletion(repairCtx, a, payload, pow, 1)
-		if err != nil {
-			config.Logger.Warn("[toolcall_repair] completion call failed", "error", err, "timeout", errors.Is(err, context.DeadlineExceeded), "elapsed_ms", time.Since(startedAt).Milliseconds())
-			record.failure(http.StatusBadGateway, err)
-			return "", err
-		}
-		if resp.StatusCode != http.StatusOK {
-			if err := resp.Body.Close(); err != nil {
-				config.Logger.Warn("[toolcall_repair] close error response failed", "error", err)
+		tooldiagnostics.AddStep(ctx, step)
+		config.Logger.Info("[toolcall_repair] starting", "provider", provider, "model", model)
+		record := startRepairHistory(history, a, prompt, model)
+		var output repairOutput
+		defer func() {
+			step.ElapsedMS = time.Since(started).Milliseconds()
+			step.Result = "success"
+			if retErr != nil {
+				step.Result, step.Error = "failed", retErr.Error()
+				status := http.StatusBadGateway
+				var apiErr *repairAPIError
+				if errors.As(retErr, &apiErr) {
+					status = apiErr.status
+				}
+				record.failure(status, retErr)
+			} else {
+				record.success(output.Text, output.Thinking)
 			}
-			config.Logger.Warn("[toolcall_repair] upstream non-200", "status_code", resp.StatusCode, "elapsed_ms", time.Since(startedAt).Milliseconds())
-			record.failure(resp.StatusCode, errToolCallRepairUpstream)
-			return "", errToolCallRepairUpstream
-		}
-		result := sse.CollectStreamWithOptions(resp, false, true, sse.CollectOptions{Context: repairCtx})
-		if result.ReadError != nil {
-			record.failure(http.StatusBadGateway, result.ReadError)
-			return "", result.ReadError
-		}
-		if strings.TrimSpace(result.UpstreamError) != "" {
-			config.Logger.Warn("[toolcall_repair] upstream stream error", "error", result.UpstreamError, "elapsed_ms", time.Since(startedAt).Milliseconds())
-			record.failure(http.StatusBadGateway, errors.New(result.UpstreamError))
-			return "", errors.New(result.UpstreamError)
+			tooldiagnostics.AddStep(ctx, step)
+		}()
+		if provider == "custom_api" {
+			output, retErr = callRepairAPI(repairCtx, settings, prompt)
 		} else {
-			config.Logger.Info("[toolcall_repair] succeeded", "output_len", len(result.Text), "elapsed_ms", time.Since(startedAt).Milliseconds())
-			record.success(result.Text)
+			output, retErr = callOriginalRepair(repairCtx, ds, a, model, prompt)
 		}
-		return result.Text, nil
+		return output.Text, retErr
 	}
+}
+
+type repairOutput struct{ Text, Thinking string }
+
+func repairModelForRequest(req promptcompat.StandardRequest) string {
+	if req.ResolvedModel != "" {
+		return req.ResolvedModel
+	}
+	// ResponseModel may be a compatibility alias; prefer known native IDs when
+	// normalized metadata is absent (legacy callers and unit helpers).
+	for _, model := range []string{req.ResponseModel, req.RequestedModel} {
+		if _, ok := config.GetModelType(model); ok {
+			return model
+		}
+	}
+	return toolCallRepairModel
+}
+
+func callOriginalRepair(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, model, prompt string) (repairOutput, error) {
+	sessionID, err := ds.CreateSession(ctx, a, 1)
+	if err != nil {
+		return repairOutput{}, err
+	}
+	defer enqueueRepairSessionDelete(ds, a, sessionID)
+	pow, err := ds.GetPow(ctx, a, 1)
+	if err != nil {
+		return repairOutput{}, err
+	}
+	std := promptcompat.StandardRequest{Surface: toolCallRepairSurface, ResolvedModel: model, ResponseModel: model, FinalPrompt: prompt, Thinking: true}
+	resp, err := ds.CallCompletion(ctx, a, std.CompletionPayload(sessionID), pow, 1)
+	if err != nil {
+		return repairOutput{}, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			config.Logger.Warn("[toolcall_repair] close error response failed", "error", closeErr)
+		}
+		return repairOutput{}, &repairAPIError{status: resp.StatusCode, message: errToolCallRepairUpstream.Error()}
+	}
+	result := sse.CollectStreamWithOptions(resp, true, true, sse.CollectOptions{Context: ctx})
+	if result.ReadError != nil {
+		return repairOutput{}, result.ReadError
+	}
+	if strings.TrimSpace(result.UpstreamError) != "" {
+		return repairOutput{}, errors.New(result.UpstreamError)
+	}
+	return repairOutput{Text: result.Text, Thinking: result.Thinking}, nil
 }
 
 // deleteRepairSession reclaims a repair session on a best-effort basis, wiring

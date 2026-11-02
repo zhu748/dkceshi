@@ -7,11 +7,15 @@ const { sendFailedChunk, finishStreamFailure } = require('./stream_failure');
 function createStreamReport(now = Date.now) {
   const started = now(), timings = {};
   let failure = {};
+  let diagnosticAttempt = 1, diagnosticRetryReason = "";
+  const diagnostic = () => ({ diagnostic_attempt: diagnosticAttempt, diagnostic_retry_reason: diagnosticRetryReason });
   const mark = (name, replace = false) => { if (replace || timings[name] === undefined) timings[name] = Math.max(0, now() - started); };
   const setFailure = detail => { failure = { error_status: detail.status, error_code: detail.code }; };
   return {
     mark,
-    snapshot(meta) { return { ...meta, ...(meta.error ? failure : {}), started_at_ms: started, elapsed_ms: Math.max(0, now() - started), timings: { ...timings } }; },
+    diagnostic,
+    regenerate(detail) { diagnosticAttempt += 1; diagnosticRetryReason = detail?.message || "Replacement generation after account switch"; },
+    snapshot(meta) { return { ...meta, ...diagnostic(), ...(meta.error ? failure : {}), started_at_ms: started, elapsed_ms: Math.max(0, now() - started), timings: { ...timings } }; },
     async measure(name, action) {
       const begin = now();
       try { return await action(); }

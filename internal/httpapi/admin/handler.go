@@ -16,19 +16,22 @@ import (
 	adminrawsamples "ds2api/internal/httpapi/admin/rawsamples"
 	adminsettings "ds2api/internal/httpapi/admin/settings"
 	adminshared "ds2api/internal/httpapi/admin/shared"
+	admindiagnostics "ds2api/internal/httpapi/admin/tooldiagnostics"
 	adminusage "ds2api/internal/httpapi/admin/usage"
 	adminvercel "ds2api/internal/httpapi/admin/vercel"
 	adminversion "ds2api/internal/httpapi/admin/version"
+	"ds2api/internal/tooldiagnostics"
 	"ds2api/internal/usagestats"
 )
 
 type Handler struct {
-	Store       adminshared.ConfigStore
-	Pool        adminshared.PoolController
-	DS          adminshared.DeepSeekCaller
-	OpenAI      adminshared.OpenAIChatCaller
-	ChatHistory *chathistory.Store
-	Usage       *usagestats.Store
+	ToolDiagnostics *tooldiagnostics.Store
+	Store           adminshared.ConfigStore
+	Pool            adminshared.PoolController
+	DS              adminshared.DeepSeekCaller
+	OpenAI          adminshared.OpenAIChatCaller
+	ChatHistory     *chathistory.Store
+	Usage           *usagestats.Store
 	// ResetProxyClients 透传给 /admin/proxies 处理器：代理配置变化后
 	// 清理 DeepSeek client 侧的代理连接池缓存。
 	ResetProxyClients func()
@@ -76,6 +79,7 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		admindevcapture.RegisterRoutes(pr, devCaptureHandler)
 		adminhistory.RegisterRoutes(pr, historyHandler)
 		adminusage.RegisterRoutes(pr, usageHandler)
+		admindiagnostics.RegisterRoutes(pr, &admindiagnostics.Handler{Store: h.ToolDiagnostics})
 		adminversion.RegisterRoutes(pr, versionHandler)
 	})
 }

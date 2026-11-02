@@ -83,16 +83,17 @@ async function fetchStreamSwitch(req, leaseID, options = {}, signal, deadline) {
   return requestStreamControl(req, '__stream_switch', Buffer.from(JSON.stringify(switchBody)), signal, deadline);
 }
 
-async function fetchStreamValidation(req, leaseID, content, thinking, detectionThinking, signal, deadline) {
+async function fetchStreamValidation(req, leaseID, content, thinking, detectionThinking, signal, deadline, diagnostic = {}, repairTimeoutMs = 10000) {
   const url = buildInternalGoURL(req);
   url.pathname = '/v1/chat/completions';
   url.searchParams.set('__stream_validate', '1');
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Math.max(1, Math.min(15000, deadline === undefined ? 15000 : deadline - Date.now())));
+  const budget = Number.isFinite(repairTimeoutMs) && repairTimeoutMs > 0 ? Math.min(repairTimeoutMs, 300000) + 5000 : 15000;
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, Math.min(budget, deadline === undefined ? budget : deadline - Date.now())));
   try {
     const response = await fetch(url.toString(), {
       method: 'POST', headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),
-      body: JSON.stringify({ lease_id: leaseID, content, thinking, detection_thinking: detectionThinking }),
+      body: JSON.stringify({ lease_id: leaseID, content, thinking, detection_thinking: detectionThinking, ...diagnostic }),
       signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
     });
     const body = await response.json();

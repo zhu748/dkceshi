@@ -1,7 +1,6 @@
 package toolcall
 
 import (
-	"ds2api/internal/jsonvalue"
 	"encoding/json"
 	"encoding/xml"
 	"html"
@@ -132,54 +131,6 @@ func lastToolMarkupTagByName(text, name string, closing bool) (ToolMarkupTag, bo
 		return ToolMarkupTag{}, false
 	}
 	return last, true
-}
-
-func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
-	attrs := parseXMLTagAttributes(block.Attrs)
-	name := strings.TrimSpace(html.UnescapeString(attrs["name"]))
-	if name == "" {
-		return ParsedToolCall{}, false
-	}
-
-	inner := strings.TrimSpace(block.Body)
-	if strings.HasPrefix(inner, "{") {
-		var payload map[string]any
-		if err := jsonvalue.Unmarshal([]byte(inner), &payload); err == nil {
-			return parseJSONToolCallEnvelope(name, payload)
-		}
-	}
-
-	input := map[string]any{}
-	literals := map[string]string{}
-	prev := 0
-	for _, paramMatch := range findXMLElementBlocks(inner, "parameter") {
-		if !emptyToolMarkupGap(inner[prev:paramMatch.Start]) {
-			return ParsedToolCall{}, false
-		}
-		paramAttrs := parseXMLTagAttributes(paramMatch.Attrs)
-		paramName := strings.TrimSpace(html.UnescapeString(paramAttrs["name"]))
-		if paramName == "" {
-			return ParsedToolCall{}, false
-		}
-		value := parseInvokeParameterValue(paramName, paramMatch.Body)
-		recordStringLiteral(literals, input, paramName, paramMatch.Body, value)
-		appendMarkupValue(input, paramName, value)
-		prev = paramMatch.End
-	}
-	if !emptyToolMarkupGap(inner[prev:]) {
-		return ParsedToolCall{}, false
-	}
-
-	if len(input) == 0 {
-		if strings.TrimSpace(inner) != "" {
-			return ParsedToolCall{}, false
-		}
-		return ParsedToolCall{Name: name, Input: map[string]any{}}, true
-	}
-	if len(literals) == 0 {
-		literals = nil
-	}
-	return ParsedToolCall{Name: name, Input: input, StringLiterals: literals}, true
 }
 
 type xmlElementBlock struct {

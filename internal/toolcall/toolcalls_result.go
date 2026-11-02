@@ -1,12 +1,15 @@
 package toolcall
 
 type ParsedToolCall struct {
+	RecoverySteps  []string          `json:"-"`
 	Name           string            `json:"name"`
 	Input          map[string]any    `json:"input"`
 	StringLiterals map[string]string `json:"-"`
 }
 
 type ToolCallParseResult struct {
+	SourceChannel     string   `json:"-"`
+	RecoverySteps     []string `json:"-"`
 	Calls             []ParsedToolCall
 	SawToolCallSyntax bool
 	SawToolCallIntent bool
