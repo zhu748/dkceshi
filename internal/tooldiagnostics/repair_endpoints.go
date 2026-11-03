@@ -23,7 +23,20 @@ func sameRepairOrigin(a, b string) bool {
 		return false
 	}
 	right, err := url.Parse(strings.TrimSpace(b))
-	return err == nil && strings.EqualFold(left.Scheme, right.Scheme) && strings.EqualFold(left.Host, right.Host)
+	return err == nil && strings.EqualFold(left.Scheme, right.Scheme) && strings.EqualFold(left.Hostname(), right.Hostname()) && repairOriginPort(left) == repairOriginPort(right)
+}
+
+func repairOriginPort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	if strings.EqualFold(u.Scheme, "http") {
+		return "80"
+	}
+	return ""
 }
 
 // repairBaseURL preserves gateway prefixes and accepts either a base URL or a

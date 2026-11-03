@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"ds2api/internal/config"
 	"ds2api/internal/streambudget"
@@ -67,13 +69,15 @@ func doRepairAPIRequest(ctx context.Context, settings tooldiagnostics.RepairSett
 		return nil, scrubRepairError(err, settings.APIKey)
 	}
 	if len(data) > limit {
-		return nil, errors.New("custom repair API response exceeds output limit")
+		return nil, &repairAPIError{status: 413, message: "custom repair API response exceeds output limit"}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, customRepairResponseError(resp.StatusCode, data, settings.APIKey)
+		err := customRepairResponseError(resp.StatusCode, data, settings.APIKey).(*repairAPIError)
+		err.retryAfter = repairRetryAfter(resp.Header.Get("Retry-After"))
+		return nil, err
 	}
 	if !json.Valid(data) {
-		return nil, errors.New("custom repair API returned invalid JSON")
+		return nil, &repairAPIError{status: 502, message: "custom repair API returned invalid JSON"}
 	}
 	var envelope struct {
 		Error json.RawMessage `json:"error"`
@@ -82,4 +86,14 @@ func doRepairAPIRequest(ctx context.Context, settings tooldiagnostics.RepairSett
 		return nil, customRepairResponseError(http.StatusBadGateway, data, settings.APIKey)
 	}
 	return data, nil
+}
+
+func repairRetryAfter(value string) time.Duration {
+	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+		return time.Duration(min(30, max(0, seconds))) * time.Second
+	}
+	if until, err := http.ParseTime(value); err == nil {
+		return min(30*time.Second, max(0, time.Until(until)))
+	}
+	return 0
 }

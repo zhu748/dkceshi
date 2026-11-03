@@ -11,19 +11,24 @@ import (
 // APIKey is persisted only in the private index. PublicSettings strips it from
 // every admin response; an empty update preserves it unless ClearAPIKey is set.
 type RepairSettings struct {
-	Protocol       string          `json:"protocol"`
-	ExtraBody      json.RawMessage `json:"extra_body,omitempty"`
-	Mode           string          `json:"mode"`
-	BaseURL        string          `json:"base_url,omitempty"`
-	Model          string          `json:"model,omitempty"`
-	APIKey         string          `json:"api_key,omitempty"`
-	TimeoutSeconds int             `json:"timeout_seconds"`
-	HasAPIKey      bool            `json:"has_api_key,omitempty"`
-	ClearAPIKey    bool            `json:"clear_api_key,omitempty"`
+	UnavailableReason string          `json:"-"`
+	RetryCount        *int            `json:"retry_count,omitempty"`
+	ReasoningEffort   string          `json:"reasoning_effort,omitempty"`
+	ThinkingMode      string          `json:"thinking_mode,omitempty"`
+	Protocol          string          `json:"protocol"`
+	ExtraBody         json.RawMessage `json:"extra_body,omitempty"`
+	Mode              string          `json:"mode"`
+	BaseURL           string          `json:"base_url,omitempty"`
+	Model             string          `json:"model,omitempty"`
+	APIKey            string          `json:"api_key,omitempty"`
+	TimeoutSeconds    int             `json:"timeout_seconds"`
+	HasAPIKey         bool            `json:"has_api_key,omitempty"`
+	ClearAPIKey       bool            `json:"clear_api_key,omitempty"`
 }
 
 func DefaultRepairSettings() RepairSettings {
-	return RepairSettings{Mode: "original", Protocol: "openai", TimeoutSeconds: 10}
+	retries := 3
+	return RepairSettings{RetryCount: &retries, Mode: "original", Protocol: "openai", TimeoutSeconds: 10}
 }
 
 func mergeRepairSettings(previous, next *RepairSettings) (*RepairSettings, error) {
@@ -69,6 +74,10 @@ func resolveRepairSettings(previous, next *RepairSettings, requireModel bool) (*
 	if err := validateRepairExtraBody(value.ExtraBody); err != nil {
 		return nil, err
 	}
+	if err := normalizeRepairOptions(&value); err != nil {
+		return nil, err
+	}
+	value.RetryCount = copyRetryCount(value.RetryCount)
 	value.ExtraBody = append(json.RawMessage(nil), value.ExtraBody...)
 	if value.BaseURL != "" {
 		if _, err := repairBaseURL(value.BaseURL, value.Protocol); err != nil {
@@ -92,6 +101,7 @@ func PublicSettings(settings Settings) Settings {
 		value.HasAPIKey = value.APIKey != ""
 		value.APIKey = ""
 		value.ClearAPIKey = false
+		value.RetryCount = copyRetryCount(value.RetryCount)
 		value.ExtraBody = append(json.RawMessage(nil), value.ExtraBody...)
 		settings.Repair = &value
 	}
@@ -107,6 +117,7 @@ func (s *Store) RepairSettings() RepairSettings {
 		return DefaultRepairSettings()
 	}
 	value := *settings.Repair
+	value.RetryCount = copyRetryCount(value.RetryCount)
 	value.ExtraBody = append(json.RawMessage(nil), value.ExtraBody...)
 	return value
 }
@@ -121,10 +132,11 @@ func (s *Store) SetRepairSettings(next RepairSettings) error {
 	if err != nil {
 		return err
 	}
-	previous := s.state.Settings.Repair
+	previous := s.state.Settings
 	s.state.Settings.Repair = merged
+	s.state.Settings.RepairError = ""
 	if err := s.commitLocked(nil); err != nil {
-		s.state.Settings.Repair = previous
+		s.state.Settings = previous
 		return err
 	}
 	s.publishSettingsLocked()
@@ -143,45 +155,6 @@ func RepairSettingsFromContext(ctx context.Context) RepairSettings {
 		}
 	}
 	return DefaultRepairSettings()
-}
-
-func validateRepairExtraBody(raw json.RawMessage) error {
-	if len(raw) == 0 {
-		return nil
-	}
-	if len(raw) > 8192 {
-		return errors.New("repair extra parameters exceed 8192 bytes")
-	}
-	var values map[string]json.RawMessage
-	if json.Unmarshal(raw, &values) != nil || values == nil {
-		return errors.New("repair extra parameters must be a JSON object")
-	}
-	blocked := map[string]bool{"model": true, "messages": true, "prompt": true, "system": true, "input": true, "tools": true, "toolchoice": true, "stream": true, "n": true, "parentmessageid": true, "reffileids": true, "contents": true, "systeminstruction": true, "toolconfig": true, "cachedcontent": true, "candidates": true}
-	for key := range values {
-		if blocked[strings.ReplaceAll(strings.ToLower(key), "_", "")] {
-			return errors.New("repair extra parameters cannot override request context, model or output protocol")
-		}
-	}
-	generationCount := 0
-	for key, generation := range values {
-		if strings.ReplaceAll(strings.ToLower(key), "_", "") != "generationconfig" {
-			continue
-		}
-		generationCount++
-		if generationCount > 1 {
-			return errors.New("duplicate generationConfig aliases")
-		}
-		var config map[string]json.RawMessage
-		if json.Unmarshal(generation, &config) != nil || config == nil {
-			return errors.New("generationConfig must be a JSON object")
-		}
-		for name, count := range config {
-			if strings.ReplaceAll(strings.ToLower(name), "_", "") == "candidatecount" && string(count) != "1" {
-				return errors.New("repair generation must return one candidate")
-			}
-		}
-	}
-	return nil
 }
 
 // PreviewRepairSettings resolves the saved credential for an unsaved draft,

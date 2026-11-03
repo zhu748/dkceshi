@@ -1,3 +1,4 @@
+import { repairInteger } from './repairDraft.js'
 import { createLatestRequest } from '../../utils/latestRequest.js'
 
 export function emptyRepairModelState() {
@@ -15,7 +16,7 @@ export function createRepairModelResource() {
                 const response = await authFetch('/admin/tool-call-records/repair-models', {
                     method: 'POST', signal: request.signal,
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: 'custom', protocol: draft.protocol, base_url: draft.base_url, api_key: draft.api_key, clear_api_key: draft.clear_api_key, timeout_seconds: draft.timeout_seconds }),
+                    body: JSON.stringify({ mode: 'custom', protocol: draft.protocol, base_url: draft.base_url, api_key: draft.api_key, clear_api_key: draft.clear_api_key, timeout_seconds: repairInteger(draft.timeout_seconds, 10, 1, 300, 'invalidTimeout') }),
                 })
                 const body = await response.json()
                 if (!request.isCurrent()) return

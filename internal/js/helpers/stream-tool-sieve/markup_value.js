@@ -2,11 +2,7 @@
 
 const { toRawString } = require('./state');
 const { unescapeHtml } = require('./entities');
-const {
-  findToolCDATAEnd,
-  findTrailingToolCDATACloseStart,
-  toolCDATAOpenLenAt,
-} = require('./cdata_scan');
+const { parseMixedCDATAString, extractStandaloneCDATA } = require('./mixed_cdata');
 const {
   findGenericXmlElementBlocks,
 } = require('./markup_elements');
@@ -81,6 +77,12 @@ function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
     }
     const looseArray = parseLooseJSONArrayValue(cdata.value, paramName);
     return looseArray.ok ? looseArray.value : cdata.value;
+  }
+  const mixed = parseMixedCDATAString(toRawString(raw).trim());
+  if (mixed.ok) {
+    if (literalCDATA || preservesCDATAStringParameter(paramName)) return mixed.value;
+    const literal = parseJSONLiteralValue(mixed.value);
+    return literal.ok ? literal.value : mixed.value;
   }
   const exact = parseJSONLiteralValue(toRawString(raw).trim());
   if (exact.ok) {
@@ -220,23 +222,6 @@ function extractRawTagValue(inner) {
   // 2. Fallback to unescaping standard HTML entities
   // Note: we avoid broad tag stripping here to preserve user content (like < symbols in code)
   return unescapeHtml(inner);
-}
-
-function extractStandaloneCDATA(inner) {
-  const s = toRawString(inner).trim();
-  const openLen = toolCDATAOpenLenAt(s, 0);
-  if (!openLen) {
-    return { ok: false, value: '' };
-  }
-  const closeStart = findTrailingToolCDATACloseStart(s);
-  if (closeStart >= openLen) {
-    return { ok: true, value: s.slice(openLen, closeStart) };
-  }
-  const end = findToolCDATAEnd(s, openLen);
-  if (end >= 0) {
-    return { ok: true, value: s.slice(openLen, end) };
-  }
-  return { ok: true, value: s.slice(openLen) };
 }
 
 function parseLooseJSONArrayValue(raw, paramName = '') {

@@ -1,5 +1,5 @@
 import { Download, LockKeyhole, Trash2, X } from 'lucide-react'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useDialogA11y } from '../usage/useDialogA11y'
 import RepairHistoryPreview from './RepairHistoryPreview'
 
@@ -11,11 +11,12 @@ export function label(t, group, value) {
 }
 
 function Snapshot({ title, value, t }) {
-    if (!value?.text) return null
-    return <details className="rounded-lg border border-border bg-background/60 p-3">
+    const [open, setOpen] = useState(false)
+    if (!value?.text && !value?.truncated) return null
+    return <details onToggle={event => setOpen(event.currentTarget.open)} className="rounded-lg border border-border bg-background/60 p-3">
         <summary className="cursor-pointer text-xs font-medium">{title} <span className="text-muted-foreground">({value.bytes?.toLocaleString()} B)</span></summary>
         {value.truncated && <p className="mt-2 text-xs text-amber-500">{t('toolDiagnostics.truncated')}</p>}
-        <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs leading-relaxed">{value.text}</pre>
+        {open && <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs leading-relaxed">{value.text}</pre>}
     </details>
 }
 
@@ -71,7 +72,7 @@ export default function DiagnosticDetail({ record, t, onDelete, busy, authFetch 
                 <summary className="cursor-pointer font-medium">{t('toolDiagnostics.timeline')}</summary>
                 <ol className="mt-3 space-y-3 border-l border-border pl-4">
                     {attempt.steps?.map((step, index) => <li key={index} className="space-y-2">
-                        <p className="flex flex-wrap gap-2"><strong>{label(t, 'stage', step.stage)}</strong><span>{label(t, 'result', step.result)}</span>{step.elapsed_ms > 0 && <span className="text-muted-foreground">{step.elapsed_ms} ms</span>}</p>
+                        <p className="flex flex-wrap gap-2"><strong>{label(t, 'stage', step.stage)}</strong>{step.request_attempt > 0 && <span>#{step.request_attempt}</span>}<span>{label(t, 'result', step.result)}</span>{step.elapsed_ms > 0 && <span className="text-muted-foreground">{step.elapsed_ms} ms</span>}</p>
                         {step.model && <p className="font-mono text-muted-foreground">{label(t, 'provider', step.provider)} · {step.model}{step.protocol && ` · ${t(`toolDiagnostics.repair.protocol_${step.protocol}`)}`}</p>}
                         {step.reason && <p className="text-muted-foreground">{label(t, 'reason', step.reason)}</p>}
                         {step.error && <p className="whitespace-pre-wrap break-words text-destructive">{step.error}</p>}

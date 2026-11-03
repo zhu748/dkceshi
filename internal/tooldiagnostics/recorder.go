@@ -12,13 +12,14 @@ import (
 type contextKey struct{}
 
 type Recorder struct {
-	mu           sync.Mutex
-	store        *Store
-	record       Record
-	active       bool
-	number       int
-	flushTimer   *time.Timer
-	flushVersion uint64
+	mu              sync.Mutex
+	store           *Store
+	record          Record
+	active          bool
+	number          int
+	flushTimer      *time.Timer
+	flushVersion    uint64
+	persistFailures int
 }
 
 func NewRecorder(store *Store, surface string, stream bool) *Recorder {

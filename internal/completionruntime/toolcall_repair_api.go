@@ -7,20 +7,29 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"ds2api/internal/tooldiagnostics"
 )
 
 type repairAPIError struct {
-	status  int
-	message string
+	status     int
+	message    string
+	retryAfter time.Duration
 }
 
-func (e *repairAPIError) Error() string { return e.message }
+func (e *repairAPIError) Error() string             { return e.message }
+func (e *repairAPIError) RetryDelay() time.Duration { return e.retryAfter }
+func (e *repairAPIError) Retryable() bool {
+	return e.status == 408 || e.status == 409 || e.status == 425 || e.status == 429 || e.status >= 500
+}
 
 // A single isolated user message carries only the format-repair prompt. No
 // original history, file IDs, tools catalog or upstream credentials are sent.
 func callRepairAPI(ctx context.Context, settings tooldiagnostics.RepairSettings, prompt string) (repairOutput, error) {
+	if err := pausedRepairConfiguration(ctx, settings); err != nil {
+		return repairOutput{}, err
+	}
 	endpoint, err := tooldiagnostics.RepairAPIEndpoint(settings)
 	if err != nil {
 		return repairOutput{}, err
@@ -31,6 +40,7 @@ func callRepairAPI(ctx context.Context, settings tooldiagnostics.RepairSettings,
 	}
 	data, err := doRepairAPIRequest(ctx, settings, http.MethodPost, endpoint, payload, 0)
 	if err != nil {
+		rememberRepairConfigurationFailure(ctx, settings, err)
 		return repairOutput{}, err
 	}
 	var output repairOutput
@@ -45,6 +55,7 @@ func callRepairAPI(ctx context.Context, settings tooldiagnostics.RepairSettings,
 	if err != nil {
 		return repairOutput{}, scrubRepairError(err, settings.APIKey)
 	}
+	clearRepairConfigurationFailure(settings)
 	return output, nil
 }
 

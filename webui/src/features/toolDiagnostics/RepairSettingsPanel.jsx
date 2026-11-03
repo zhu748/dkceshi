@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Settings2, Save, RefreshCcw } from 'lucide-react'
 import { useRepairModels } from './useRepairModels'
 import { useRepairTest } from './useRepairTest'
-import { repairDraftBody } from './repairDraft'
+import { repairDraftBody, repairDraftError, canReuseRepairKey, repairThinkingModes } from './repairDraft'
 
 const input = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-50'
 
@@ -15,6 +15,9 @@ function toDraft(settings) {
         api_key: '',
         clear_api_key: false,
         timeout_seconds: settings?.timeout_seconds || 10,
+        retry_count: settings?.retry_count ?? 3,
+        reasoning_effort: settings?.reasoning_effort || '',
+        thinking_mode: settings?.thinking_mode || '',
         extra: settings?.extra_body ? JSON.stringify(settings.extra_body, null, 2) : '',
     }
 }
@@ -26,6 +29,7 @@ export default function RepairSettingsPanel({ settings, ready, busy, mutate, aut
     const modelList = useRepairModels(authFetch)
     const repairTest = useRepairTest(authFetch)
     const signature = JSON.stringify(settings || {})
+    const reusableKey = canReuseRepairKey(settings, draft)
     useEffect(() => { if (!dirty) { modelList.invalidate(); repairTest.invalidate(); setDraft(toDraft(settings)) } }, [signature, dirty])
     const change = patch => {
         repairTest.invalidate()
@@ -38,7 +42,7 @@ export default function RepairSettingsPanel({ settings, ready, busy, mutate, aut
         event.preventDefault()
         let body
         try { body = repairDraftBody(draft) }
-        catch { setError(t('toolDiagnostics.repair.invalidExtra')); return }
+        catch (failure) { setError(repairDraftError(failure.message, t)); return }
         repairTest.invalidate()
         const saved = await mutate('/repair-settings', 'PUT', body)
         if (saved?.settings?.repair) { setDraft(toDraft(saved.settings.repair)); setDirty(false) }
@@ -53,29 +57,35 @@ export default function RepairSettingsPanel({ settings, ready, busy, mutate, aut
                 <label className="space-y-2 text-xs"><span>{t('toolDiagnostics.repair.timeout')}</span><input className={input} type="number" min="1" max="300" required value={draft.timeout_seconds} disabled={busy || !ready} onChange={event => change({ timeout_seconds: event.target.value === '' ? '' : Number(event.target.value) })} /></label>
             </div>
             {draft.mode === 'custom' && <div className="space-y-4 rounded-lg border border-border p-4">
-                <label className="block space-y-2 text-xs"><span>{t('toolDiagnostics.repair.protocol')}</span><select className={input} value={draft.protocol} disabled={busy || !ready} onChange={event => change({ protocol: event.target.value, model: '', extra: '' })}>{['openai', 'claude', 'gemini'].map(protocol => <option key={protocol} value={protocol}>{t(`toolDiagnostics.repair.protocol_${protocol}`)}</option>)}</select></label>
+                <label className="block space-y-2 text-xs"><span>{t('toolDiagnostics.repair.protocol')}</span><select className={input} value={draft.protocol} disabled={busy || !ready} onChange={event => change({ protocol: event.target.value, model: '', extra: '', thinking_mode: '', api_key: '' })}>{['openai', 'claude', 'gemini'].map(protocol => <option key={protocol} value={protocol}>{t(`toolDiagnostics.repair.protocol_${protocol}`)}</option>)}</select></label>
                 <label className="block space-y-2 text-xs"><span>{t('toolDiagnostics.repair.url')}</span><input className={input} type="url" required maxLength={2048} value={draft.base_url} disabled={busy || !ready} placeholder={urlPlaceholder} onChange={event => change({ base_url: event.target.value })} /><span className="block text-muted-foreground">{t(`toolDiagnostics.repair.urlHelp_${draft.protocol}`)}</span></label>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <label className="space-y-2 text-xs"><span>{t('toolDiagnostics.repair.model')}</span><input className={input} required maxLength={256} value={draft.model} disabled={busy || !ready} placeholder="your-repair-model" onChange={event => change({ model: event.target.value })} /></label>
-                    <label className="space-y-2 text-xs"><span>{t('toolDiagnostics.repair.key')}{settings?.has_api_key && <span className="ml-2 text-primary">{t('toolDiagnostics.repair.keySet')}</span>}</span><input className={input} type="password" autoComplete="new-password" maxLength={8192} value={draft.api_key} disabled={busy || !ready} placeholder={settings?.has_api_key ? t('toolDiagnostics.repair.keepKey') : t('toolDiagnostics.repair.optionalKey')} onChange={event => change({ api_key: event.target.value, clear_api_key: false })} /></label>
+                    <label className="space-y-2 text-xs"><span>{t('toolDiagnostics.repair.key')}{reusableKey && <span className="ml-2 text-primary">{t('toolDiagnostics.repair.keySet')}</span>}</span><input className={input} type="password" autoComplete="new-password" maxLength={8192} value={draft.api_key} disabled={busy || !ready} placeholder={reusableKey ? t('toolDiagnostics.repair.keepKey') : t('toolDiagnostics.repair.optionalKey')} onChange={event => change({ api_key: event.target.value, clear_api_key: false })} /></label>
                 </div>
                 <div className="space-y-3 rounded-lg bg-secondary/30 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground">{t('toolDiagnostics.repair.fetchHelp')}</p><button type="button" disabled={busy || !ready || modelList.loading || !draft.base_url.trim()} onClick={() => modelList.load(draft)} className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs disabled:opacity-40"><RefreshCcw className={`h-3.5 w-3.5 ${modelList.loading ? 'animate-spin' : ''}`} />{t(modelList.loading ? 'toolDiagnostics.repair.fetching' : 'toolDiagnostics.repair.fetchModels')}</button></div>
                     {modelList.models.length > 0 && <label className="block space-y-2 text-xs"><span>{t('toolDiagnostics.repair.selectModel', { count: modelList.models.length })}</span><select className={input} value={draft.model} disabled={busy} onChange={event => change({ model: event.target.value })}><option value="">{t('toolDiagnostics.repair.chooseModel')}</option>{draft.model && !modelList.models.some(model => model.id === draft.model) && <option value={draft.model}>{draft.model}</option>}{modelList.models.map(model => <option key={model.id} value={model.id}>{model.name === model.id ? model.id : `${model.name} (${model.id})`}</option>)}</select></label>}
                     {modelList.fetched && modelList.models.length === 0 && <p className="text-xs text-muted-foreground">{t('toolDiagnostics.repair.noModels')}</p>}
                     {modelList.truncated && <p className="text-xs text-amber-500">{t('toolDiagnostics.repair.modelsTruncated')}</p>}
-                    {modelList.error && <p role="alert" className="break-words text-xs text-destructive">{modelList.error}</p>}
+                    {modelList.error && <p role="alert" className="break-words text-xs text-destructive">{repairDraftError(modelList.error, t)}</p>}
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-2 text-xs"><span>{t('toolDiagnostics.repair.retries')}</span><input className={input} type="number" required min="0" max="10" value={draft.retry_count} disabled={busy || !ready} onChange={event => change({ retry_count: event.target.value === '' ? '' : Number(event.target.value) })} /><span className="block text-muted-foreground">{t('toolDiagnostics.repair.retriesHelp')}</span></label>
+                    <label className="space-y-2 text-xs"><span>{t('toolDiagnostics.repair.effort')}</span><select className={input} value={draft.reasoning_effort} disabled={busy || !ready} onChange={event => change({ reasoning_effort: event.target.value })}>{['', 'low', 'medium', 'high'].map(effort => <option key={effort} value={effort}>{t(`toolDiagnostics.repair.effort_${effort || 'default'}`)}</option>)}</select><span className="block text-muted-foreground">{t('toolDiagnostics.repair.effortHelp')}</span></label>
+                    {repairThinkingModes(draft.protocol).length > 0 && <label className="space-y-2 text-xs"><span>{t('toolDiagnostics.repair.thinkingMode')}</span><select className={input} disabled={busy || !ready} value={draft.thinking_mode || 'auto'} onChange={event => change({ thinking_mode: event.target.value === 'auto' ? '' : event.target.value })}>{repairThinkingModes(draft.protocol).map(mode => <option key={mode} value={mode}>{t(`toolDiagnostics.repair.thinking_${mode}`)}</option>)}</select></label>}
                 </div>
                 <p className="text-xs text-muted-foreground">{t('toolDiagnostics.repair.keyHelp')}</p>
                 <div className="space-y-2 rounded-lg border border-border p-3">
                     <button type="button" disabled={busy || !ready || repairTest.loading || modelList.loading || !draft.base_url.trim() || !draft.model.trim()} onClick={() => repairTest.run(draft)} className="rounded-lg border border-border px-3 py-2 text-xs disabled:opacity-40">{t(repairTest.loading ? 'toolDiagnostics.repair.testing' : 'toolDiagnostics.repair.test')}</button>
                     <p className="text-xs text-muted-foreground">{t('toolDiagnostics.repair.testHelp')}</p>
-                    {repairTest.result && <p role="status" className="text-xs text-primary">{t('toolDiagnostics.repair.testSuccess', { model: repairTest.result.model, ms: repairTest.result.elapsed_ms })}</p>}
-                    {repairTest.error && <p role="alert" className="break-words text-xs text-destructive">{repairTest.error === 'invalidExtra' ? t('toolDiagnostics.repair.invalidExtra') : repairTest.error}</p>}
+                    {repairTest.result && <p role="status" className="text-xs text-primary">{t('toolDiagnostics.repair.testSuccess', { model: repairTest.result.model, ms: repairTest.result.elapsed_ms, attempts: repairTest.result.attempts ?? 1 })}</p>}
+                    {repairTest.error && <p role="alert" className="break-words text-xs text-destructive">{repairDraftError(repairTest.error, t)}</p>}
                 </div>
                 {settings?.has_api_key && <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={draft.clear_api_key} disabled={busy} onChange={event => change({ clear_api_key: event.target.checked, api_key: '' })} />{t('toolDiagnostics.repair.clearKey')}</label>}
                 <details className="text-xs"><summary className="cursor-pointer">{t('toolDiagnostics.repair.extra')}</summary><textarea className={`${input} mt-2 min-h-28 font-mono text-xs`} maxLength={8192} value={draft.extra} disabled={busy || !ready} placeholder={draft.protocol === 'claude' ? '{"thinking":{"type":"adaptive"}}' : draft.protocol === 'gemini' ? '{"generationConfig":{"thinkingConfig":{"includeThoughts":true}}}' : '{"reasoning_effort":"high"}'} onChange={event => change({ extra: event.target.value })} /><p className="mt-2 leading-relaxed text-muted-foreground">{t('toolDiagnostics.repair.extraHelp')}</p></details>
             </div>}
+            <button type="button" disabled={busy || !ready} onClick={() => change({ ...toDraft(null), clear_api_key: true })} className="text-xs text-muted-foreground underline underline-offset-2 disabled:opacity-40">{t('toolDiagnostics.repair.resetDraft')}</button>
             {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
             <div className="flex items-center justify-between gap-4"><p className="text-xs text-muted-foreground">{t('toolDiagnostics.repair.independent')}</p><button type="submit" disabled={busy || !ready || !dirty || modelList.loading} className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40"><Save className="h-4 w-4" />{t('toolDiagnostics.repair.save')}</button></div>
         </form>

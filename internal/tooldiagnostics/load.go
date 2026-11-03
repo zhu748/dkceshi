@@ -10,6 +10,7 @@ import (
 func New(path string) *Store {
 	s := &Store{path: path, state: Index{Version: 1, Settings: Settings{Enabled: true, Limit: 20}, Items: []Summary{}}}
 	defer s.publishSettingsLocked()
+	defer s.publishSnapshotLocked()
 	raw, err := os.ReadFile(path)
 	if err == nil {
 		err = json.Unmarshal(raw, &s.state)
@@ -23,13 +24,17 @@ func New(path string) *Store {
 	}
 	repair, repairErr := mergeRepairSettings(nil, s.state.Settings.Repair)
 	if repairErr != nil {
-		s.lastError, s.loadError = repairErr, repairErr
-		return s
+		// A stale repair configuration must not make diagnostic evidence and
+		// unrelated capture settings read-only. Keep it available for editing,
+		// while the runtime explicitly suspends automatic repair.
+		s.state.Settings.RepairError = repairErr.Error()
+	} else {
+		s.state.Settings.Repair, s.state.Settings.RepairError = repair, ""
 	}
-	s.state.Settings.Repair = repair
 	// A process cannot resume old requests. Preserve their last durable stage.
-	for i := range s.state.Items {
-		item := &s.state.Items[i]
+	items := append([]Summary(nil), s.state.Items...)
+	for i := range items {
+		item := &items[i]
 		if item.CompletedAt != 0 {
 			continue
 		}
@@ -48,14 +53,15 @@ func New(path string) *Store {
 			a.ErrorCode, a.Error = record.ErrorCode, record.Error
 			a.CompletedAt = record.CompletedAt
 		}
-		if writeErr := atomicJSON(s.detailPath(record.ID), record); writeErr != nil {
+		if writeErr := s.Put(record); writeErr != nil {
 			s.lastError = writeErr
 			continue
 		}
-		*item = record.Summary
 	}
 	if err := s.saveIndexLocked(); err != nil {
 		s.lastError = err
+	} else {
+		s.cleanupDetailVersions()
 	}
 	return s
 }

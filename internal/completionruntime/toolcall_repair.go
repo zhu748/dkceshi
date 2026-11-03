@@ -62,6 +62,9 @@ func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *c
 			return "", err
 		}
 		settings := tooldiagnostics.RepairSettingsFromContext(ctx)
+		if settings.UnavailableReason != "" {
+			return "", errors.New("repair settings unavailable: " + settings.UnavailableReason)
+		}
 		timeout := toolCallRepairTimeout
 		if settings.TimeoutSeconds > 0 {
 			timeout = time.Duration(settings.TimeoutSeconds) * time.Second
@@ -73,7 +76,7 @@ func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *c
 			provider, model = "custom_api", settings.Model
 		}
 		started := time.Now()
-		step := tooldiagnostics.Step{Stage: "repair_request", Result: "running", Provider: provider, Model: model}
+		step := tooldiagnostics.Step{RequestAttempt: tooldiagnostics.RepairAttempt(ctx), Stage: "repair_request", Result: "running", Provider: provider, Model: model}
 		if provider == "custom_api" {
 			step.Protocol = tooldiagnostics.RepairProtocol(settings.Protocol)
 		}
@@ -104,6 +107,9 @@ func NewToolCallRepairInvoker(ds DeepSeekCaller, a *auth.RequestAuth, history *c
 			output, retErr = callRepairAPI(repairCtx, settings, prompt)
 		} else {
 			output, retErr = callOriginalRepair(repairCtx, ds, a, model, prompt)
+		}
+		if retErr == nil && repairCtx.Err() != nil {
+			output, retErr = repairOutput{}, repairCtx.Err()
 		}
 		return output.Text, retErr
 	}

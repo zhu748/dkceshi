@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +18,8 @@ var ErrNotFound = errors.New("tool diagnostic record not found")
 // demand. mu serializes disk commits as well as retention decisions.
 type Store struct {
 	settingsCache atomic.Pointer[Settings]
+	stateCache    atomic.Pointer[Index]
+	errorCache    atomic.Pointer[string]
 	mu            sync.Mutex
 	path          string
 	state         Index
@@ -34,59 +35,6 @@ func (s *Store) Enabled() bool {
 	return settings != nil && settings.Enabled
 }
 
-func (s *Store) Put(record Record) error {
-	if s == nil {
-		return nil
-	}
-	record = boundRecord(record)
-	data, err := json.Marshal(record)
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.loadError != nil {
-		return s.loadError
-	}
-	if !validID(record.ID) {
-		return errors.New("invalid diagnostic id")
-	}
-	if err := atomicData(s.detailPath(record.ID), data); err != nil {
-		s.lastError = err
-		return err
-	}
-	before := s.state
-	s.state.Items = append([]Summary(nil), s.state.Items...)
-	found := false
-	reorder := false
-	for i := range s.state.Items {
-		if s.state.Items[i].ID == record.ID {
-			reorder = s.state.Items[i].CreatedAt != record.CreatedAt
-			s.state.Items[i] = record.Summary
-			found = true
-			break
-		}
-	}
-	if !found {
-		s.state.Items = append(s.state.Items, record.Summary)
-		reorder = true
-	}
-	if reorder {
-		sort.Slice(s.state.Items, func(i, j int) bool {
-			a, b := s.state.Items[i], s.state.Items[j]
-			if a.CreatedAt == b.CreatedAt {
-				return a.ID > b.ID
-			}
-			return a.CreatedAt > b.CreatedAt
-		})
-	}
-	if err := s.commitLocked(s.trimLocked()); err != nil {
-		s.state = before
-		return err
-	}
-	return nil
-}
-
 func (s *Store) trimLocked() []string {
 	kept := make([]Summary, 0, len(s.state.Items))
 	removed := []string{}
@@ -95,7 +43,7 @@ func (s *Store) trimLocked() []string {
 		if !item.Pinned && item.CompletedAt != 0 {
 			ordinary++
 			if ordinary > s.state.Settings.Limit {
-				removed = append(removed, item.ID)
+				removed = append(removed, s.detailPath(item.ID))
 				continue
 			}
 		}
@@ -106,21 +54,25 @@ func (s *Store) trimLocked() []string {
 }
 
 func (s *Store) List(q Query) Page {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	state := s.stateCache.Load()
+	if state == nil {
+		return Page{Items: []Summary{}}
+	}
 	if q.Page < 1 {
 		q.Page = 1
 	}
 	if q.PageSize < 1 || q.PageSize > 50 {
 		q.PageSize = 20
 	}
-	out := Page{Items: []Summary{}, Page: q.Page, PageSize: q.PageSize, Settings: PublicSettings(s.state.Settings), Revision: s.state.Revision}
-	if s.lastError != nil {
-		out.StorageError = s.lastError.Error()
+	out := Page{Items: []Summary{}, Page: q.Page, PageSize: q.PageSize, Settings: PublicSettings(state.Settings), Revision: state.Revision}
+	if health := s.errorCache.Load(); health != nil {
+		out.StorageError = *health
 	}
-	for _, item := range s.state.Items {
+	for _, item := range state.Items {
+		out.StoredTextBytes += int64(item.StoredTextBytes)
 		if item.Pinned {
 			out.PinnedCount++
+			out.PinnedTextBytes += int64(item.StoredTextBytes)
 		}
 		if !matches(item, q) {
 			continue
@@ -137,27 +89,33 @@ func (s *Store) List(q Query) Page {
 func validID(id string) bool {
 	return strings.HasPrefix(id, "tool_") && filepath.Base(id) == id && !strings.ContainsAny(id, "/\\")
 }
-func (s *Store) detailPath(id string) string { return filepath.Join(s.path+".d", id+".json") }
-func (s *Store) Get(id string) (Record, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.getLocked(id)
-}
-func (s *Store) getLocked(id string) (Record, error) {
-	if !validID(id) {
-		return Record{}, ErrNotFound
-	}
-	found := false
+func (s *Store) detailPath(id string) string {
 	for _, item := range s.state.Items {
 		if item.ID == id {
-			found = true
-			break
+			return s.versionPath(id, item.DetailVersion)
 		}
 	}
-	if !found {
+	return s.versionPath(id, "")
+}
+func (s *Store) Get(id string) (Record, error) {
+	index := s.stateCache.Load()
+	if index == nil {
 		return Record{}, ErrNotFound
 	}
-	raw, err := os.ReadFile(s.detailPath(id))
+	record, err := s.getIndexed(index, id)
+	// A commit may have replaced and removed the old immutable version.
+	if errors.Is(err, os.ErrNotExist) {
+		return s.getIndexed(s.stateCache.Load(), id)
+	}
+	return record, err
+}
+func (s *Store) getLocked(id string) (Record, error) { return s.getIndexed(&s.state, id) }
+func (s *Store) getIndexed(index *Index, id string) (Record, error) {
+	summary, err := indexedSummary(index, id)
+	if err != nil {
+		return Record{}, err
+	}
+	raw, err := os.ReadFile(s.versionPath(id, summary.DetailVersion))
 	if err != nil {
 		return Record{}, err
 	}
@@ -175,11 +133,15 @@ func (s *Store) SetSettings(settings Settings) error {
 	if s.loadError != nil {
 		return s.loadError
 	}
-	repair, err := mergeRepairSettings(s.state.Settings.Repair, settings.Repair)
-	if err != nil {
-		return err
+	if settings.Repair != nil {
+		repair, err := mergeRepairSettings(s.state.Settings.Repair, settings.Repair)
+		if err != nil {
+			return err
+		}
+		settings.Repair, settings.RepairError = repair, ""
+	} else {
+		settings.Repair, settings.RepairError = s.state.Settings.Repair, s.state.Settings.RepairError
 	}
-	settings.Repair = repair
 	before := s.state
 	s.state.Items = append([]Summary{}, s.state.Items...)
 	s.state.Settings = settings
@@ -207,7 +169,7 @@ func (s *Store) Clear(scope string) error {
 	removed := []string{}
 	for _, item := range s.state.Items {
 		if item.CompletedAt != 0 && (scope == "errors") == item.Pinned {
-			removed = append(removed, item.ID)
+			removed = append(removed, s.detailPath(item.ID))
 		} else {
 			kept = append(kept, item)
 		}
@@ -242,8 +204,9 @@ func (s *Store) Delete(id string) error {
 	if !found {
 		return ErrNotFound
 	}
+	detailPath := s.detailPath(id)
 	s.state.Items = kept
-	if err := s.commitLocked([]string{id}); err != nil {
+	if err := s.commitLocked([]string{detailPath}); err != nil {
 		s.state = before
 		return err
 	}
@@ -262,13 +225,18 @@ func (s *Store) saveIndexLocked() error {
 func (s *Store) commitLocked(removed []string) error {
 	if err := s.saveIndexLocked(); err != nil {
 		s.lastError = err
+		s.publishStorageErrorLocked()
 		return err
 	}
 	s.lastError = nil
-	for _, id := range removed {
-		if err := os.Remove(s.detailPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	// Publish the new manifest before deleting superseded versions, so a
+	// reader whose old path disappeared can immediately retry the new one.
+	s.publishSnapshotLocked()
+	for _, path := range removed {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			s.lastError = fmt.Errorf("remove diagnostic detail: %w", err)
 		}
 	}
+	s.publishStorageErrorLocked()
 	return nil
 }

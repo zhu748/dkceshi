@@ -33,18 +33,19 @@ func Capture(value string) Text {
 }
 
 type Step struct {
-	HistoryID string `json:"history_id,omitempty"`
-	Protocol  string `json:"protocol,omitempty"`
-	Provider  string `json:"provider,omitempty"`
-	Model     string `json:"model,omitempty"`
-	Stage     string `json:"stage"`
-	Result    string `json:"result"`
-	Reason    string `json:"reason,omitempty"`
-	Error     string `json:"error,omitempty"`
-	At        int64  `json:"at"`
-	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
-	Input     Text   `json:"input,omitempty"`
-	Output    Text   `json:"output,omitempty"`
+	RequestAttempt int    `json:"request_attempt,omitempty"`
+	HistoryID      string `json:"history_id,omitempty"`
+	Protocol       string `json:"protocol,omitempty"`
+	Provider       string `json:"provider,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Stage          string `json:"stage"`
+	Result         string `json:"result"`
+	Reason         string `json:"reason,omitempty"`
+	Error          string `json:"error,omitempty"`
+	At             int64  `json:"at"`
+	ElapsedMS      int64  `json:"elapsed_ms,omitempty"`
+	Input          Text   `json:"input,omitempty"`
+	Output         Text   `json:"output,omitempty"`
 }
 
 type Call struct {
@@ -77,21 +78,23 @@ type Attempt struct {
 }
 
 type Summary struct {
-	Revision     int64    `json:"revision"`
-	ID           string   `json:"id"`
-	CreatedAt    int64    `json:"created_at"`
-	UpdatedAt    int64    `json:"updated_at"`
-	CompletedAt  int64    `json:"completed_at,omitempty"`
-	Surface      string   `json:"surface"`
-	Model        string   `json:"model,omitempty"`
-	Stream       bool     `json:"stream"`
-	Status       string   `json:"status"`
-	Pinned       bool     `json:"pinned"`
-	ToolNames    []string `json:"tool_names"`
-	AttemptCount int      `json:"attempt_count"`
-	ErrorCode    string   `json:"error_code,omitempty"`
-	Error        string   `json:"error,omitempty"`
-	Delivery     string   `json:"delivery"`
+	StoredTextBytes int      `json:"stored_text_bytes"`
+	DetailVersion   string   `json:"detail_version,omitempty"`
+	Revision        int64    `json:"revision"`
+	ID              string   `json:"id"`
+	CreatedAt       int64    `json:"created_at"`
+	UpdatedAt       int64    `json:"updated_at"`
+	CompletedAt     int64    `json:"completed_at,omitempty"`
+	Surface         string   `json:"surface"`
+	Model           string   `json:"model,omitempty"`
+	Stream          bool     `json:"stream"`
+	Status          string   `json:"status"`
+	Pinned          bool     `json:"pinned"`
+	ToolNames       []string `json:"tool_names"`
+	AttemptCount    int      `json:"attempt_count"`
+	ErrorCode       string   `json:"error_code,omitempty"`
+	Error           string   `json:"error,omitempty"`
+	Delivery        string   `json:"delivery"`
 }
 
 type Record struct {
@@ -104,9 +107,10 @@ type Record struct {
 }
 
 type Settings struct {
-	Repair  *RepairSettings `json:"repair,omitempty"`
-	Enabled bool            `json:"enabled"`
-	Limit   int             `json:"limit"`
+	RepairError string          `json:"repair_error,omitempty"`
+	Repair      *RepairSettings `json:"repair,omitempty"`
+	Enabled     bool            `json:"enabled"`
+	Limit       int             `json:"limit"`
 }
 
 type Index struct {
@@ -122,14 +126,16 @@ type Query struct {
 	Pinned               bool
 }
 type Page struct {
-	Items        []Summary `json:"items"`
-	Total        int       `json:"total"`
-	PinnedCount  int       `json:"pinned_count"`
-	Page         int       `json:"page"`
-	PageSize     int       `json:"page_size"`
-	Settings     Settings  `json:"settings"`
-	Revision     int64     `json:"revision"`
-	StorageError string    `json:"storage_error,omitempty"`
+	StoredTextBytes int64     `json:"stored_text_bytes"`
+	PinnedTextBytes int64     `json:"pinned_text_bytes"`
+	Items           []Summary `json:"items"`
+	Total           int       `json:"total"`
+	PinnedCount     int       `json:"pinned_count"`
+	Page            int       `json:"page"`
+	PageSize        int       `json:"page_size"`
+	Settings        Settings  `json:"settings"`
+	Revision        int64     `json:"revision"`
+	StorageError    string    `json:"storage_error,omitempty"`
 }
 
 func matches(item Summary, q Query) bool {

@@ -56,3 +56,11 @@ test('only response snapshots carry a response-level terminal status', () => {
   assert.equal(parseChunkForContent({v:snapshot}, false, 'text').finished, true);
   assert.equal(parseChunkForContent({p:'response/fragments/-1',v:{status:'FINISHED',text:'fragment'}}, false, 'text').finished, false);
 });
+
+
+test('CDATA parameters retain suffix text and decode only outside the literal section', () => {
+  for (const [body, expected] of [['<![CDATA[head]]>tail', 'headtail'], ['<![CDATA[&amp;]]>&amp;', '&amp;&'], ['<![CDATA[1]]>23', '123']]) {
+    const raw = `<tool_calls><invoke name="write"><parameter name="content">${body}</parameter></invoke></tool_calls>`;
+    assert.equal(parseToolCallsDetailed(raw, []).calls[0].input.content, expected);
+  }
+});

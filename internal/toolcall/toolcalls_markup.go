@@ -10,30 +10,33 @@ import (
 var toolCallMarkupKVPattern = regexp.MustCompile(`(?is)<(?:[a-z0-9_:-]+:)?([a-z0-9_\-.]+)\b[^>]*>(.*?)</(?:[a-z0-9_:-]+:)?([a-z0-9_\-.]+)>`)
 
 func parseMarkupKVObject(text string) map[string]any {
-	matches := toolCallMarkupKVPattern.FindAllStringSubmatch(strings.TrimSpace(text), -1)
+	text = strings.TrimSpace(text)
+	matches := toolCallMarkupKVPattern.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 	out := map[string]any{}
+	prev := 0
 	for _, m := range matches {
-		if len(m) < 4 {
-			continue
+		if len(m) < 8 || !emptyToolMarkupGap(text[prev:m[0]]) {
+			return nil
 		}
-		key := strings.TrimSpace(m[1])
-		endKey := strings.TrimSpace(m[3])
+		key := strings.TrimSpace(text[m[2]:m[3]])
+		endKey := strings.TrimSpace(text[m[6]:m[7]])
 		if key == "" {
 			continue
 		}
 		if !strings.EqualFold(key, endKey) {
-			continue
+			return nil
 		}
-		value := parseMarkupValue(m[2])
+		value := parseMarkupValue(text[m[4]:m[5]])
 		if value == nil {
 			continue
 		}
 		appendMarkupValue(out, key, value)
+		prev = m[1]
 	}
-	if len(out) == 0 {
+	if len(out) == 0 || !emptyToolMarkupGap(text[prev:]) {
 		return nil
 	}
 	return out
@@ -110,7 +113,8 @@ func extractStandaloneCDATA(inner string) (string, bool) {
 			return trimmed[openLen:closeStart], true
 		}
 		if end := findToolCDATAEnd(trimmed, openLen); end >= 0 {
-			return trimmed[openLen:end], true
+			// Mixed XML/text must be consumed in full by the XML reader.
+			return "", false
 		}
 		return trimmed[openLen:], true
 	}

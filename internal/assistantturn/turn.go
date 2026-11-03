@@ -229,7 +229,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) (built 
 	parsed := DetectAssistantToolCalls(result.Text, text, result.Thinking, result.ToolDetectionThinking, opts.ToolNames, opts.ToolChoice.AllowReasoningProse)
 	calls := toolcall.NormalizeParsedToolCallsForSchemas(parsed.Calls, opts.ToolsRaw)
 	repairCompleted := false
-	if result.ReadError == nil && !result.ContentFilter && result.UpstreamError == "" && result.Cut != sse.CutPromptEcho {
+	if result.ReadError == nil && !result.ContentFilter && result.UpstreamError == "" && result.Cut != sse.CutPromptEcho && result.Cut != sse.CutOutputLimit {
 		if repaired, replaced := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
 			calls = repaired
 			text = deductRepairedSource(text, replaced)
@@ -316,7 +316,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) (bu
 	// cannot retract emitted tool_calls). When only bad text was streamed, the
 	// finalize replaces it with the repaired tool_calls. Partial success is
 	// repaired as one ordered batch without value-based deduplication.
-	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw && !snapshot.ContentFilter && snapshot.UpstreamError == "" && snapshot.ContentCut != sse.CutPromptEcho {
+	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw && !snapshot.ContentFilter && snapshot.UpstreamError == "" && snapshot.ContentCut != sse.CutPromptEcho && snapshot.ContentCut != sse.CutOutputLimit {
 		if repaired, replaced := maybeRepairToolCalls(parsed, snapshot.RawText, opts); len(repaired) > 0 {
 			calls = repaired
 			text = deductRepairedSource(text, replaced)

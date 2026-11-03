@@ -13,6 +13,15 @@ import (
 var errRepairIntegrity = errors.New("repair integrity check failed")
 var errIncompleteRepair = errors.New("repair output is incomplete")
 
+func repairParametersKnown(source cdataSlotResult, marker string) bool {
+	for _, node := range repairIdentities(closeRepairManifestCDATA(NormalizeMarkerText(source.skeleton, marker))) {
+		if node.kind == "parameter" && !node.known {
+			return false
+		}
+	}
+	return true
+}
+
 // A format repair may fix shells, but must preserve the ordered tool/parameter
 // identities and every value whose source boundary is known. This also binds
 // each CDATA placeholder to its original parameter, before restoring its bytes.
@@ -33,6 +42,9 @@ func validateRepairIntegrity(source cdataSlotResult, output, marker string) erro
 	}
 	for i, node := range expected {
 		got := actual[i]
+		if node.kind == "parameter" && !node.known {
+			return fmt.Errorf("%w: source parameter boundary is unknown at node %d", errRepairIntegrity, i)
+		}
 		if node.kind != got.kind || node.name != got.name {
 			return fmt.Errorf("%w: changed tool/parameter identity or order at node %d", errRepairIntegrity, i)
 		}

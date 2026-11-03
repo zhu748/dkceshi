@@ -47,12 +47,30 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	if !h.available(w) {
 		return
 	}
-	record, err := h.Store.Get(chi.URLParam(r, "id"))
+	id := chi.URLParam(r, "id")
+	summary, err := h.Store.GetSummary(id)
 	if err != nil {
 		h.respondError(w, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("ETag", diagnosticETag(summary))
+	if diagnosticETagMatches(r.Header.Get("If-None-Match"), diagnosticETag(summary)) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	record, err := h.Store.Get(id)
+	if err != nil {
+		h.respondError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	etag := diagnosticETag(record.Summary)
+	w.Header().Set("ETag", etag)
+	if diagnosticETagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	adminshared.WriteJSON(w, 200, record)
 }
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {

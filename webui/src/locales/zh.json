@@ -1030,7 +1030,8 @@
       "local_recovery": "本地恢复",
       "retry": "重新生成",
       "repair_request": "修复模型请求",
-      "candidate": "已捕获工具候选"
+      "candidate": "已捕获工具候选",
+      "repair_retry": "自定义 API 重试"
     },
     "result": {
       "success": "成功",
@@ -1074,7 +1075,11 @@
       "unparseable_output": "修复结果无法完整解析",
       "repair_prompt_too_large": "修复输入超过资源上限",
       "repair_unavailable_or_ambiguous_cdata": "未启用修复或存在不能安全修复的 CDATA 歧义",
-      "tool_output_retry": "失败输出进入重新生成"
+      "tool_output_retry": "失败输出进入重新生成",
+      "custom_api_retry": "修复失败，按配置退避后重试",
+      "ambiguous_parameter_boundary": "参数边界不明确，跳过自动修复以保护原值",
+      "request_cancelled": "请求已取消或超过期限，丢弃迟到的修复结果",
+      "repair_settings_unavailable": "修复配置无效，等待在面板修正"
     },
     "repair": {
       "title": "格式修复模型",
@@ -1114,7 +1119,24 @@
       "test": "测试修复",
       "testing": "正在测试…",
       "testHelp": "使用当前表单发送一个小型修复示例，会调用所选 API；测试不会保存配置。",
-      "testSuccess": "模型 {model} 修复校验通过，用时 {ms} ms。"
+      "testSuccess": "模型 {model} 修复校验通过，用时 {ms} ms，共请求 {attempts} 次。",
+      "retries": "失败重试次数（0–10）",
+      "retriesHelp": "默认重试 3 次，即最多请求 4 次；0 为不重试。全部请求共用修复超时。",
+      "effort": "思考强度",
+      "effort_default": "模型默认 / 高级 JSON",
+      "effort_low": "低",
+      "effort_medium": "中",
+      "effort_high": "高",
+      "effortHelp": "显式选择优先于高级 JSON。模型需支持对应思考参数；旧模型可切换为 Token 预算。",
+      "thinkingMode": "思考参数类型",
+      "thinking_auto": "按模型自动选择",
+      "thinking_adaptive": "自适应思考",
+      "thinking_level": "思考等级",
+      "thinking_budget": "Token 预算（低 1024 / 中 4096 / 高 8192）",
+      "invalidRetries": "重试次数必须是 0–10 的整数，不能留空。",
+      "invalidTimeout": "超时必须是 1–300 秒的整数，不能留空。",
+      "configUnavailable": "已保存的修复配置无效，自动修复已暂停；诊断采集和历史仍可使用。请修正并保存，或将表单重置为默认配置。",
+      "resetDraft": "重置表单为默认配置（保存后清除自定义密钥）"
     },
     "provider": {
       "original": "原请求模型",
@@ -1124,6 +1146,8 @@
     "closeArchive": "收起响应归档",
     "archiveUnavailable": "归档可能已被清理；诊断证据仍保留。",
     "archiveThinking": "修复模型思考",
-    "recordTruncated": "本条记录已达到证据总量上限，部分文本已截断；原始字节数仍保留。"
+    "recordTruncated": "本条记录已达到证据总量上限，部分文本已截断；原始字节数仍保留。",
+    "evidenceSize": "已保存证据文本",
+    "pinnedSize": "其中锁定异常 {size} MiB"
   }
 }

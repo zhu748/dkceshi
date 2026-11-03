@@ -10,6 +10,8 @@ func (s *Store) publishSettingsLocked() {
 	}
 	if value.Repair != nil {
 		repair := *value.Repair
+		repair.UnavailableReason = value.RepairError
+		repair.RetryCount = copyRetryCount(repair.RetryCount)
 		repair.ExtraBody = append([]byte(nil), repair.ExtraBody...)
 		value.Repair = &repair
 	}

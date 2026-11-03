@@ -10,6 +10,7 @@ import (
 )
 
 type RepairAPIProbe struct {
+	Attempts  int    `json:"attempts"`
 	Success   bool   `json:"success"`
 	Protocol  string `json:"protocol"`
 	Model     string `json:"model"`
@@ -20,16 +21,23 @@ type RepairAPIProbe struct {
 // fixed harmless example. No account, main conversation or saved setting is used.
 func TestRepairAPI(ctx context.Context, settings tooldiagnostics.RepairSettings) (RepairAPIProbe, error) {
 	started := time.Now()
+	ctx = tooldiagnostics.WithRepairSettings(ctx, settings)
+	ctx = context.WithValue(ctx, repairBackoffKey{}, true)
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(settings.TimeoutSeconds)*time.Second)
 	defer cancel()
 	const sample = `<|EPSE|broken><|EPSE|invoke name="repair_probe"><|EPSE|parameter name="path"><![CDATA[probe.txt]]></|EPSE|parameter></|EPSE|invoke></|EPSE|broken>`
 	var invokeError error
+	attempts := 0
 	calls, ok := toolcall.RepairToolCallsWithLLM(ctx, sample, func(ctx context.Context, prompt string) (string, error) {
+		attempts++
 		output, err := callRepairAPI(ctx, settings, prompt)
 		invokeError = err
 		return output.Text, err
 	})
-	result := RepairAPIProbe{Protocol: tooldiagnostics.RepairProtocol(settings.Protocol), Model: settings.Model, ElapsedMS: time.Since(started).Milliseconds()}
+	result := RepairAPIProbe{Attempts: attempts, Protocol: tooldiagnostics.RepairProtocol(settings.Protocol), Model: settings.Model, ElapsedMS: time.Since(started).Milliseconds()}
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
 	if invokeError != nil {
 		return result, invokeError
 	}

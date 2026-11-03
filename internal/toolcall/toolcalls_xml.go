@@ -3,6 +3,7 @@ package toolcall
 import (
 	"encoding/xml"
 	"html"
+	"io"
 	"strings"
 )
 
@@ -71,6 +72,9 @@ func parseXMLFragmentValue(raw string) (any, bool) {
 
 	value, err := parseXMLNodeValue(dec, start, source)
 	if err != nil {
+		return nil, false
+	}
+	if _, err := dec.Token(); err != io.EOF {
 		return nil, false
 	}
 	return value, true

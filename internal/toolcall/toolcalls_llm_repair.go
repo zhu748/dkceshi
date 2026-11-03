@@ -69,7 +69,7 @@ type ToolCallRepairInvoker func(ctx context.Context, prompt string) (string, err
 // tables needed to restore the model's output.
 //
 // Malformed input can be slotted two ways (see scanBoundedCDATARanges), so the
-// plan may carry an alternate interpretation. Only ONE LLM call is ever made;
+// plan may carry an alternate interpretation. Each attempt makes ONE LLM call;
 // the alternate is merely a second slot table applied to that same output, and
 // the interpretation whose restore+parse yields the better tool calls wins.
 type toolCallRepairPlan struct {
@@ -168,10 +168,14 @@ func firstRepairToolMarker(markers []string) string {
 // The optional toolMarker renders the repair prompt with the caller-specific
 // tool-call marker and normalizes the model's answer back to EPSE before
 // parsing; when omitted the canonical EPSE keyword is used (legacy behaviour).
-func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCallRepairInvoker, toolMarker ...string) (repairedCalls []ParsedToolCall, repairedOK bool) {
+func repairToolCallsOnce(ctx context.Context, badCode string, invoke ToolCallRepairInvoker, toolMarker ...string) (repairedCalls []ParsedToolCall, repairedOK bool) {
 	started := time.Now()
-	report := tooldiagnostics.Step{Stage: "llm_repair", Result: "failed", Input: tooldiagnostics.Capture(badCode)}
+	report := tooldiagnostics.Step{RequestAttempt: tooldiagnostics.RepairAttempt(ctx), Stage: "llm_repair", Result: "failed", Input: tooldiagnostics.Capture(badCode)}
 	defer func() {
+		if err := ctx.Err(); err != nil {
+			repairedCalls, repairedOK = nil, false
+			report.Reason, report.Error = "request_cancelled", err.Error()
+		}
 		report.ElapsedMS = time.Since(started).Milliseconds()
 		if repairedOK {
 			report.Result = "success"
@@ -188,6 +192,10 @@ func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCall
 	}
 	marker := firstRepairToolMarker(toolMarker)
 	plan := buildToolCallRepairPlan(badCode, marker)
+	if !repairParametersKnown(plan.primary, marker) && (plan.alternate.skeleton == "" || !repairParametersKnown(plan.alternate, marker)) {
+		report.Result, report.Reason = "skipped", "ambiguous_parameter_boundary"
+		return nil, false
+	}
 	if len(plan.prompt) > streambudget.Value("max_repair_bytes") {
 		report.Result, report.Reason = "skipped", "repair_prompt_too_large"
 		config.Logger.Warn("[toolcall_repair] skipped oversized repair prompt", "bytes", len(plan.prompt))
@@ -204,6 +212,9 @@ func RepairToolCallsWithLLM(ctx context.Context, badCode string, invoke ToolCall
 
 	tooldiagnostics.AddStep(ctx, tooldiagnostics.Step{Stage: "llm_repair", Result: "running", Input: report.Input})
 	out, err := invoke(ctx, plan.prompt)
+	if err == nil {
+		err = ctx.Err()
+	}
 	report.Output = tooldiagnostics.Capture(out)
 	if err != nil {
 		report.Reason, report.Error = "invoke_error", err.Error()

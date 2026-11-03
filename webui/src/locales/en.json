@@ -1030,7 +1030,8 @@
       "local_recovery": "Local recovery",
       "retry": "Regeneration",
       "repair_request": "Repair model request",
-      "candidate": "Tool candidate captured"
+      "candidate": "Tool candidate captured",
+      "repair_retry": "Custom API retry"
     },
     "result": {
       "success": "Succeeded",
@@ -1074,7 +1075,11 @@
       "unparseable_output": "Repaired output could not be fully parsed",
       "repair_prompt_too_large": "Repair input exceeded the resource limit",
       "repair_unavailable_or_ambiguous_cdata": "Repair unavailable or CDATA cannot be safely disambiguated",
-      "tool_output_retry": "Rejected output entered regeneration"
+      "tool_output_retry": "Rejected output entered regeneration",
+      "custom_api_retry": "Repair failed; retrying with configured backoff",
+      "ambiguous_parameter_boundary": "Ambiguous parameter boundary; skipped repair to preserve source values",
+      "request_cancelled": "Request cancelled or expired; discarded late repair output",
+      "repair_settings_unavailable": "Repair settings invalid; waiting for correction in the panel"
     },
     "repair": {
       "title": "Format repair model",
@@ -1114,7 +1119,24 @@
       "test": "Test repair",
       "testing": "Testing…",
       "testHelp": "Send a small repair example using this draft and the selected API. Testing does not save settings.",
-      "testSuccess": "Model {model} passed repair validation in {ms} ms."
+      "testSuccess": "Model {model} passed repair validation in {ms} ms using {attempts} request(s).",
+      "retries": "Retries after failure (0–10)",
+      "retriesHelp": "Default: 3 retries, up to 4 requests. Set 0 to disable. All requests share the repair timeout.",
+      "effort": "Reasoning effort",
+      "effort_default": "Model default / advanced JSON",
+      "effort_low": "Low",
+      "effort_medium": "Medium",
+      "effort_high": "High",
+      "effortHelp": "An explicit choice overrides advanced JSON. The model must support the selected parameters; older models can use a token budget.",
+      "thinkingMode": "Thinking parameter type",
+      "thinking_auto": "Select automatically by model",
+      "thinking_adaptive": "Adaptive thinking",
+      "thinking_level": "Thinking level",
+      "thinking_budget": "Token budget (low 1024 / medium 4096 / high 8192)",
+      "invalidRetries": "Retries must be an integer from 0 to 10 and cannot be blank.",
+      "invalidTimeout": "Timeout must be an integer from 1 to 300 seconds and cannot be blank.",
+      "configUnavailable": "Saved repair settings are invalid, so automatic repair is suspended. Diagnostics and history remain available. Correct and save the settings, or reset the draft to defaults.",
+      "resetDraft": "Reset draft to defaults (saving clears the custom key)"
     },
     "provider": {
       "original": "Original model",
@@ -1124,6 +1146,8 @@
     "closeArchive": "Close response archive",
     "archiveUnavailable": "The archive may have been cleared; diagnostic evidence is retained.",
     "archiveThinking": "Repair model thinking",
-    "recordTruncated": "This record reached its evidence budget. Some text was truncated; original byte counts are retained."
+    "recordTruncated": "This record reached its evidence budget. Some text was truncated; original byte counts are retained.",
+    "evidenceSize": "Saved evidence text",
+    "pinnedSize": "Pinned failures: {size} MiB"
   }
 }

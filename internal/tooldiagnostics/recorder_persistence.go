@@ -48,6 +48,20 @@ func (r *Recorder) writeLocked() {
 	r.record.Error, r.record.EvidenceTruncated = bounded.Error, bounded.EvidenceTruncated
 	if err := r.store.Put(r.record); err != nil {
 		slog.Warn("[tool_diagnostics] persistence failed", "id", r.record.ID, "error", err)
+		r.persistFailures++
+		if r.persistFailures <= 5 {
+			r.flushVersion++
+			version := r.flushVersion
+			r.flushTimer = time.AfterFunc(time.Duration(250*(1<<min(r.persistFailures-1, 4)))*time.Millisecond, func() {
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				if version == r.flushVersion {
+					r.writeLocked()
+				}
+			})
+		}
+	} else {
+		r.persistFailures = 0
 	}
 }
 

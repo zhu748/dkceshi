@@ -19,10 +19,11 @@ export default function ToolDiagnosticsContainer({ authFetch, onMessage }) {
     const clear = scope => setConfirmation({ path: `?scope=${scope}`, title: t(scope === 'errors' ? 'toolDiagnostics.clearErrors' : 'toolDiagnostics.clearNormal'), message: t(scope === 'errors' ? 'toolDiagnostics.clearErrorsConfirm' : 'toolDiagnostics.clearNormalConfirm') })
 
     return <div className="space-y-5">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border border-border bg-card/70 p-4"><p className="text-xs text-muted-foreground">{t('toolDiagnostics.ordinaryLimit')}</p><p className="mt-2 text-2xl font-bold">{settings.limit}</p></div>
             <div className="rounded-xl border border-border bg-card/70 p-4"><p className="flex items-center gap-2 text-xs text-muted-foreground"><LockKeyhole className="h-3.5 w-3.5" />{t('toolDiagnostics.retainedErrors')}</p><p className="mt-2 text-2xl font-bold text-amber-500">{data?.pinned_count || 0}</p></div>
             <div className="rounded-xl border border-border bg-card/70 p-4"><p className="text-xs text-muted-foreground">{t('toolDiagnostics.matched')}</p><p className="mt-2 text-2xl font-bold">{data?.total || 0}</p></div>
+            <div className="rounded-xl border border-border bg-card/70 p-4"><p className="text-xs text-muted-foreground">{t('toolDiagnostics.evidenceSize')}</p><p className="mt-2 text-2xl font-bold">{((data?.stored_text_bytes || 0) / 1048576).toFixed(2)} MiB</p><p className="mt-1 text-xs text-muted-foreground">{t('toolDiagnostics.pinnedSize', { size: ((data?.pinned_text_bytes || 0) / 1048576).toFixed(2) })}</p></div>
         </div>
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/70 p-4">
             <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={settings.enabled} disabled={busy || !data} onChange={event => mutate('/settings', 'PUT', { ...settings, enabled: event.target.checked })} />{t('toolDiagnostics.enabled')}</label>
@@ -32,6 +33,7 @@ export default function ToolDiagnosticsContainer({ authFetch, onMessage }) {
             <button type="button" className={control} disabled={busy || !data} onClick={() => clear('normal')}>{t('toolDiagnostics.clearNormal')}</button>
             <button type="button" className={`${control} text-destructive`} disabled={busy || !data?.pinned_count} onClick={() => clear('errors')}>{t('toolDiagnostics.clearErrors')}</button>
         </div>
+        {settings.repair_error && <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm"><p>{t('toolDiagnostics.repair.configUnavailable')}</p><p className="mt-1 break-words text-xs">{settings.repair_error}</p></div>}
         <RepairSettingsPanel settings={settings.repair} ready={Boolean(data)} busy={busy} mutate={mutate} authFetch={authFetch} t={t} />
         <p className="text-xs text-muted-foreground">{t('toolDiagnostics.retentionHelp')}{!settings.enabled && ` ${t('toolDiagnostics.disabledHelp')}`}</p>
         {(error || data?.storage_error) && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error || data.storage_error}</div>}

@@ -57,6 +57,9 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 			case []any:
 				return v
 			case string:
+				if toolCDATAOpenLenAt(trimmed, 0) > 0 && preservesCDATAStringParameter(paramName) {
+					return v
+				}
 				text := strings.TrimSpace(v)
 				if text == "" {
 					return ""

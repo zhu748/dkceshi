@@ -19,6 +19,7 @@ func buildRepairAPIPayload(settings tooldiagnostics.RepairSettings, prompt strin
 		payload = map[string]any{"contents": []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": prompt}}}}, "generationConfig": map[string]any{"maxOutputTokens": 8192, "candidateCount": 1}}
 	}
 	if len(settings.ExtraBody) == 0 {
+		applyRepairThinking(payload, settings)
 		return payload, nil
 	}
 	var extra map[string]json.RawMessage
@@ -39,6 +40,7 @@ func buildRepairAPIPayload(settings tooldiagnostics.RepairSettings, prompt strin
 		}
 		payload[key] = value
 	}
+	applyRepairThinking(payload, settings)
 	return payload, nil
 }
 

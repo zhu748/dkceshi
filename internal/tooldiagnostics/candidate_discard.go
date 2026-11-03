@@ -39,8 +39,9 @@ func (s *Store) discardCandidate(id string) error {
 	if len(kept) == len(s.state.Items) {
 		return nil
 	}
+	detailPath := s.detailPath(id)
 	s.state.Items = kept
-	if err := s.commitLocked([]string{id}); err != nil {
+	if err := s.commitLocked([]string{detailPath}); err != nil {
 		s.state = before
 		return err
 	}

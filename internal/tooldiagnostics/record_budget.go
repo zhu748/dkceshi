@@ -57,5 +57,6 @@ func boundRecord(record Record) Record {
 		}
 	}
 	record.Tools, record.Policy = take(record.Tools), take(record.Policy)
+	record.StoredTextBytes = MaxRecordTextBytes - remaining
 	return record
 }
