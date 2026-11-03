@@ -20,6 +20,7 @@ import (
 )
 
 func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
 	if r.URL.Query().Get("__stream_progress") == "1" {
 		h.handleVercelStreamProgress(w, r)
 		return
@@ -80,11 +81,11 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 还原客户端请求的模型名。
 	imageRoute := promptcompat.PlanImageRoute(req, h.Store)
 	if err := h.preprocessInlineFileInputs(r.Context(), a, req); err != nil {
-		writeOpenAIInlineFileError(w, err)
+		h.writeInlinePreparationError(w, r, a, req, err, startedAt)
 		return
 	}
 	if err := h.preprocessInlineTextFilesForExpert(r.Context(), a, req); err != nil {
-		writeOpenAIInlineFileError(w, err)
+		h.writeInlinePreparationError(w, r, a, req, err, startedAt)
 		return
 	}
 	imageRoute.StripImages(req)
@@ -96,8 +97,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	imageRoute.RestoreModelName(&stdReq)
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
-		status, message := mapCurrentInputFileError(err)
-		writeOpenAIError(w, status, message)
+		h.writeContextPreparationError(w, r, a, stdReq, err, startedAt)
 		return
 	}
 	historySession := startChatHistoryWithUsage(h.ChatHistory, h.Usage, r, a, stdReq)

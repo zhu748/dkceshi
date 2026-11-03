@@ -66,11 +66,11 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 	// 最后在标准化之后还原客户端请求的模型名。
 	imageRoute := promptcompat.PlanImageRoute(req, h.Store)
 	if err := h.preprocessInlineFileInputs(r.Context(), a, req); err != nil {
-		writeOpenAIInlineFileError(w, err)
+		h.writeInlinePreparationError(w, r, a, req, err, startedAt)
 		return
 	}
 	if err := h.preprocessInlineTextFilesForExpert(r.Context(), a, req); err != nil {
-		writeOpenAIInlineFileError(w, err)
+		h.writeInlinePreparationError(w, r, a, req, err, startedAt)
 		return
 	}
 	imageRoute.StripImages(req)
@@ -90,8 +90,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 	}
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
-		status, message := mapCurrentInputFileError(err)
-		writeOpenAIError(w, status, message)
+		h.writeContextPreparationError(w, r, a, stdReq, err, startedAt)
 		return
 	}
 

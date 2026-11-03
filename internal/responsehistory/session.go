@@ -38,16 +38,24 @@ func progressPersistDue(now, last time.Time) bool {
 }
 
 type StartParams struct {
-	Store    *chathistory.Store
-	Usage    *usagestats.Store
-	Request  *http.Request
-	Auth     *auth.RequestAuth
-	Surface  string
-	Standard promptcompat.StandardRequest
+	Store     *chathistory.Store
+	Usage     *usagestats.Store
+	Request   *http.Request
+	Auth      *auth.RequestAuth
+	Surface   string
+	Standard  promptcompat.StandardRequest
+	StartedAt time.Time
 }
 
 func Start(params StartParams) *Session {
-	if params.Request == nil || params.Auth == nil || !shouldCapture(params.Request) {
+	if params.Request == nil || !shouldCapture(params.Request) {
+		return nil
+	}
+	return start(params)
+}
+
+func start(params StartParams) *Session {
+	if params.Request == nil || params.Auth == nil {
 		return nil
 	}
 	startParams := chathistory.StartParams{
@@ -66,6 +74,10 @@ func Start(params StartParams) *Session {
 		FinalPrompt: params.Standard.FinalPrompt,
 	}
 	startedAt := time.Now()
+	if !params.StartedAt.IsZero() && params.StartedAt.Before(startedAt) {
+		startedAt = params.StartedAt
+	}
+	startParams.CreatedAt = startedAt.UnixMilli()
 	session := &Session{
 		store:        params.Store,
 		usage:        usagestats.NewRequestRecorder(params.Usage, params.Auth, usagestats.ModelForRequest(params.Standard.ResolvedModel, params.Standard.ResponseModel), startedAt),
@@ -98,19 +110,6 @@ func Start(params StartParams) *Session {
 		config.Logger.Warn("[response_history] start persisted in memory after write failure", "surface", startParams.Surface, "error", err)
 	}
 	return session
-}
-
-func shouldCapture(r *http.Request) bool {
-	if r == nil || r.URL == nil {
-		return false
-	}
-	if strings.TrimSpace(r.URL.Query().Get("__stream_prepare")) == "1" {
-		return false
-	}
-	if strings.TrimSpace(r.URL.Query().Get("__stream_release")) == "1" {
-		return false
-	}
-	return true
 }
 
 func ExtractSingleUserInput(messages []any) string {

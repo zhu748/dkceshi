@@ -60,6 +60,7 @@ func isClaudeVercelProxyRequest(r *http.Request) bool {
 }
 
 func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) bool {
+	startedAt := time.Now()
 	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
 	// Decode straight from the replay body: the UTF-8/JSON validator already
 	// buffers the payload once, and io.ReadAll here made multimodal requests
@@ -92,8 +93,7 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 	}
 	defer h.Auth.Release(a)
 	if err := files.PreprocessInlineFiles(r.Context(), a, req, h.DS, norm.Standard.ResolvedModel, norm.Standard.Thinking); err != nil {
-		status, message := files.InlineFileErrorDetails(err)
-		writeClaudeError(w, status, message)
+		h.writePreparationError(w, r, a, norm.Standard, err, startedAt, true)
 		return true
 	}
 	norm, err = normalizeClaudeRequest(h.Store, req)
@@ -111,8 +111,7 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 	norm.Standard.PromptTokenText = norm.Standard.FinalPrompt
 	stdReq, err := h.applyCurrentInputFile(r.Context(), a, norm.Standard)
 	if err != nil {
-		status, message := mapCurrentInputFileError(err)
-		writeClaudeError(w, status, message)
+		h.writePreparationError(w, r, a, stdReq, err, startedAt, false)
 		return true
 	}
 	historySession := responsehistory.Start(responsehistory.StartParams{

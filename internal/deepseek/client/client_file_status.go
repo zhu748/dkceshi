@@ -107,7 +107,12 @@ func (c *Client) WaitForUploadedFiles(ctx context.Context, a *auth.RequestAuth, 
 		}
 
 		if attempt < fileReadyPollAttempts-1 {
-			if err := fileReadySleep(pollCtx, interval); err != nil {
+			delay := interval
+			var limited *FileRateLimitError
+			if errors.As(lastErr, &limited) {
+				delay = max(delay, fileRateLimitDelay(attempt+1, ""))
+			}
+			if err := fileReadySleep(pollCtx, delay); err != nil {
 				return fmt.Errorf("waiting for file readiness: %w", err)
 			}
 		}
@@ -164,6 +169,9 @@ func (c *Client) fetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fi
 
 	code, bizCode, msg, bizMsg := extractResponseStatus(resp)
 	if status != http.StatusOK || code != 0 || bizCode != 0 {
+		if limited := fileRateLimit("fetch files", status, code, bizCode, msg, bizMsg); limited != nil {
+			return nil, limited
+		}
 		if isTokenInvalid(status, code, bizCode, msg, bizMsg) || isAuthIndicativeBizFailure(msg, bizMsg) {
 			return nil, &RequestFailure{Op: "fetch files", Kind: authFailureKind(a != nil && a.UseConfigToken), Message: failureMessage(msg, bizMsg, "file authentication failed")}
 		}
@@ -192,30 +200,6 @@ func (c *Client) fetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fi
 		return nil, fmt.Errorf("%w: requested %d files, received %d", ErrUploadFileNotFound, len(ids), len(files))
 	}
 	return files, nil
-}
-
-type fileFetchError struct {
-	status  int
-	message string
-}
-
-func (e *fileFetchError) Error() string { return e.message }
-
-func (e *fileFetchError) HTTPStatus() int {
-	if e.status >= 400 && e.status <= 599 {
-		return e.status
-	}
-	return http.StatusBadGateway
-}
-
-func isPermanentFileFetchError(err error) bool {
-	if errors.Is(err, ErrUploadFileNotFound) || IsManagedUnauthorizedError(err) || IsDirectUnauthorizedError(err) || IsMutedError(err) ||
-		errors.Is(err, ErrInvalidUpstreamResponse) || errors.Is(err, ErrUpstreamResponseTooLarge) {
-		return true
-	}
-	var failure *fileFetchError
-	return errors.As(err, &failure) && failure.status < 500 &&
-		failure.status != http.StatusRequestTimeout && failure.status != http.StatusTooManyRequests
 }
 
 // Only a recognized file-list envelope proves absence. An empty or changed

@@ -3,6 +3,7 @@ package files
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -43,7 +44,10 @@ func (e *inlineFileUploadError) Unwrap() error { return e.err }
 
 func upstreamFileError(err error, message string) *inlineFileUploadError {
 	status := referenceFileErrorStatus(err)
+	var limited *dsclient.FileRateLimitError
 	switch {
+	case errors.As(err, &limited):
+		message = limited.Error()
 	case dsclient.IsMutedError(err):
 		status, message = http.StatusForbidden, "Account is muted by upstream."
 	case dsclient.IsManagedUnauthorizedError(err):

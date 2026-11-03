@@ -10,6 +10,7 @@ import (
 var errContextFileReferenceLimit = errors.New("history splitting would exceed the maximum of 50 referenced files; reduce attachments or disable input_file")
 
 func MapError(err error) (int, string) {
+	var limited *dsclient.FileRateLimitError
 	switch {
 	case errors.Is(err, errContextFileReferenceLimit):
 		return http.StatusBadRequest, err.Error()
@@ -19,6 +20,8 @@ func MapError(err error) (int, string) {
 		return http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin."
 	case dsclient.IsDirectUnauthorizedError(err):
 		return http.StatusUnauthorized, "Invalid token. If this should be a DS2API key, add it to config.keys first."
+	case errors.As(err, &limited):
+		return http.StatusTooManyRequests, err.Error()
 	default:
 		return http.StatusInternalServerError, err.Error()
 	}

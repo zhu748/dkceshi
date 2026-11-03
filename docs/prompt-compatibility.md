@@ -360,6 +360,10 @@ LLM 修复默认跟随本次标准请求的实际 `ResolvedModel`，复用同一
 这些字段为 JSON 快照并独立复制，避免调用方修改原请求或读取结果后污染记录。旧记录可继续读取，
 已有 `content` 仍是历史展示使用的原始正文，不代表最终交付给客户端的结构化 tool_calls。
 本地回放方法和本轮样本分析见 [tool-call-history-audit.md](tool-call-history-audit.md)。
+文件预处理失败（内联附件上传、引用查询、HISTORY/TOOLS 生成）也写入响应记录，
+保留当前输入、账号、失败阶段、HTTP 状态、底层错误及准备耗时；不计为模型输出或成功用量。
+Vercel 内部 prepare 在上传阶段失败时直接记录，无需等待不会发生的 release；
+成功 prepare 仍由 release 归档，避免重复记录。直接 token 鉴权失败仍不留响应记录。
 与 `ouqiting20/ds2api` 的提示词位置、DSML 提醒和兜底实现对比见
 [upstream-toolcall-comparison.md](upstream-toolcall-comparison.md)。
 
@@ -453,6 +457,12 @@ OpenAI Chat/Responses 剥离已上传的图片块时保留带 file_id 的文本�
 Responses 支持图片 content part 数组、message 数组和单对象 input；引用先汇总到 RefFileIDs。
 
 上游 Client 的共享上传层对内联文件、`/v1/files` 和 HISTORY/TOOLS 使用同一套进程内复用缓存。
+上游 HTTP 200 中的 `code/biz_code=40029`、`TOO_MANY_REQUESTS` 与 HTTP 429
+统一识别为文件限流，上传在原账号按 1、2、4…秒（最高 16 秒）退避，
+存在 `Retry-After` 时取较长等待时间，耗尽本次上传重试次数后向调用方返回 HTTP 429。
+文件就绪查询遇到该业务限流也可退避重试，仍受原有总等待时限约束。
+等待支持取消，不把限流当作 token 失效、文件不存在或允许盲目重传的证据。
+这限制的是失败后的重试频率，不保证避开上游的账号或时间窗口配额。
 键包含调用者、上游账号/凭证、安装身份、原文件 SHA-256、文件名/MIME/purpose、思考与压缩配置。
 同一作用域的重复请求可复用 file_id；不同账号不混用，原有显式账号绑定不变。
 缓存不改变号池路由；请求被分到另一个账号时，需要在该账号独立上传。

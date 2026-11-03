@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -57,6 +58,7 @@ func isGeminiVercelProxyRequest(r *http.Request) bool {
 }
 
 func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, stream bool) bool {
+	startedAt := time.Now()
 	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
 	// See handleClaudeDirect: decode from the replay body instead of double
 	// buffering the payload.
@@ -91,8 +93,7 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 	}
 	defer h.Auth.Release(a)
 	if err := files.PreprocessInlineFiles(r.Context(), a, req, h.DS, stdReq.ResolvedModel, stdReq.Thinking); err != nil {
-		status, message := files.InlineFileErrorDetails(err)
-		writeGeminiError(w, status, message)
+		h.writePreparationError(w, r, a, stdReq, err, startedAt, true)
 		return true
 	}
 	stdReq, err = normalizeGeminiRequest(h.Store, routeModel, req, stream)
@@ -107,8 +108,7 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 	stdReq.PromptTokenText = stdReq.FinalPrompt
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
-		status, message := mapCurrentInputFileError(err)
-		writeGeminiError(w, status, message)
+		h.writePreparationError(w, r, a, stdReq, err, startedAt, false)
 		return true
 	}
 	historySession := responsehistory.Start(responsehistory.StartParams{

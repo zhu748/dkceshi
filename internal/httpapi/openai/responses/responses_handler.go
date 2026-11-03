@@ -51,6 +51,7 @@ func (h *Handler) GetResponseByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
 	r.Body = http.MaxBytesReader(w, r.Body, openAIGeneralMaxSize)
 	var req map[string]any
 	if err := jsonvalue.Decode(r.Body, &req); err != nil {
@@ -97,11 +98,11 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 	// 还原客户端请求的模型名。
 	imageRoute := promptcompat.PlanImageRoute(req, h.Store)
 	if err := h.preprocessInlineFileInputs(r.Context(), a, req); err != nil {
-		writeOpenAIInlineFileError(w, err)
+		h.writeInlinePreparationError(w, r, a, req, err, startedAt)
 		return
 	}
 	if err := h.preprocessInlineTextFilesForExpert(r.Context(), a, req); err != nil {
-		writeOpenAIInlineFileError(w, err)
+		h.writeInlinePreparationError(w, r, a, req, err, startedAt)
 		return
 	}
 	imageRoute.StripImages(req)
@@ -114,8 +115,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 	imageRoute.RestoreModelName(&stdReq)
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
-		status, message := mapCurrentInputFileError(err)
-		writeOpenAIError(w, status, message)
+		h.writeContextPreparationError(w, r, a, stdReq, err, startedAt)
 		return
 	}
 
