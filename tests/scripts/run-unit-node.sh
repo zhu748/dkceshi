@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 ./tests/scripts/check-node-split-syntax.sh
 node --test tests/node/third-round-tools.test.cjs tests/node/tool-visible-guard.test.js tests/node/visibility-contract.test.js tests/node/pending-literal.test.cjs
+node --test webui/src/features/toolDiagnostics/DiagnosticDetail.test.mjs
 
 # Keep Node's file-level test scheduling serial to avoid intermittent cross-file
 # interference when multiple suites import mutable module singletons.

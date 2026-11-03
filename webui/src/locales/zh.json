@@ -982,6 +982,7 @@
     "pinnedHelp": "此记录包含失败现场，已自动锁定，不受 20/50 条上限影响。",
     "attempt": "第 {number} 次尝试",
     "account": "账号",
+    "sourceLabel": "来源",
     "source": {
       "content": "正文通道",
       "reasoning": "思考通道"

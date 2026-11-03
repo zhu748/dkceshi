@@ -982,6 +982,7 @@
     "pinnedHelp": "A failed attempt was retained. This record is exempt from the 20/50 record limit.",
     "attempt": "Attempt {number}",
     "account": "Account",
+    "sourceLabel": "Source",
     "source": {
       "content": "Content channel",
       "reasoning": "Reasoning channel"
