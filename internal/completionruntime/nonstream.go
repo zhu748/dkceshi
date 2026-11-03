@@ -2,7 +2,6 @@ package completionruntime
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"ds2api/internal/assistantturn"
@@ -132,6 +131,7 @@ func prepareCompletionPayloadOnce(ctx context.Context, ds DeepSeekCaller, a *aut
 	if prepErr != nil {
 		return "", "", nil, prepErr
 	}
+	defer pinCompletionAccount(a)()
 	var err error
 	sessionID, err = ds.CreateSession(ctx, a, maxAttempts)
 	if err != nil {
@@ -161,6 +161,7 @@ func startCompletionOnce(ctx context.Context, ds DeepSeekCaller, a *auth.Request
 	if prepErr != nil {
 		return StartResult{Request: stdReq}, prepErr
 	}
+	defer pinCompletionAccount(a)()
 	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
 	if err != nil {
 		return StartResult{Request: stdReq}, sessionOutputError(a, err)
@@ -197,6 +198,8 @@ func currentInputFileOutputError(err error) *assistantturn.OutputError {
 	switch {
 	case dsclient.IsMutedError(err):
 		code = "account_muted"
+	case dsclient.IsBannedError(err):
+		code = "account_banned"
 	case dsclient.IsManagedUnauthorizedError(err):
 		code = OutputCodeAccountUnauthorized
 	}
@@ -297,7 +300,8 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			retryMax = EmptyOutputRetryMaxAttempts()
 		}
 		toolRetry := IsToolOutputError(turn.Error) && attempts < retryMax
-		if !opts.RetryEnabled || !toolRetry && !assistantturn.ShouldRetryEmptyOutput(turn, attempts, retryMax) {
+		cooldownEmpty := assistantturn.IsUnavailableEmptyOutput(turn.Error) && a.NoteRateLimit()
+		if cooldownEmpty || !opts.RetryEnabled || !toolRetry && !assistantturn.ShouldRetryEmptyOutput(turn, attempts, retryMax) {
 			if canRetryOnAlternateAccount(ctx, a, turn.Error, opts.RetryEnabled, &accountSwitchAttempted) {
 				switched, switchErr := startStandardCompletionOnAlternateAccount(ctx, ds, a, stdReq, opts, maxAttempts)
 				if switchErr != nil {
@@ -405,6 +409,12 @@ func canRetryOnAlternateAccount(ctx context.Context, a *auth.RequestAuth, outErr
 	if ctx != nil && ctx.Err() != nil {
 		return false
 	}
+	if outErr.Status == http.StatusTooManyRequests && outErr.Code != "upstream_empty_output" && a.ManagedPool() {
+		return a.SwitchAccountOnRateLimit(ctx)
+	}
+	if assistantturn.IsUnavailableEmptyOutput(outErr) && a.ManagedPool() {
+		return a.SwitchAccountOnRateLimit(ctx)
+	}
 	if isAccountMuted(outErr) {
 		return a.SwitchAccount(ctx)
 	}
@@ -443,7 +453,7 @@ func isUpstreamUnavailable(outErr *assistantturn.OutputError) bool {
 }
 
 func isAccountMuted(outErr *assistantturn.OutputError) bool {
-	return outErr != nil && outErr.Code == "account_muted"
+	return outErr != nil && (outErr.Code == "account_muted" || outErr.Code == "account_banned")
 }
 
 func startStandardCompletionOnAlternateAccount(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options, maxAttempts int) (StartResult, *assistantturn.OutputError) {
@@ -516,45 +526,4 @@ func authOutputError(a *auth.RequestAuth) *assistantturn.OutputError {
 		return &assistantturn.OutputError{Status: http.StatusUnauthorized, Message: "Account token is invalid. Please re-login the account in admin.", Code: OutputCodeAccountUnauthorized}
 	}
 	return &assistantturn.OutputError{Status: http.StatusUnauthorized, Message: DirectTokenErrorMessage, Code: "error"}
-}
-
-// sessionOutputError 把 CreateSession 失败映射为标准输出错误。只有上游明确以
-// 鉴权失败拒绝（托管账号的 FailureManagedUnauthorized、直传 token 的
-// FailureDirectUnauthorized）才标记 account_unauthorized / 直传 token 错误，
-// 让共享重试逻辑刷新 Token 或换号；网络抖动等非鉴权失败归类为可换号重试的
-// upstream_unavailable，避免把健康账号误判为鉴权异常。
-func sessionOutputError(a *auth.RequestAuth, err error) *assistantturn.OutputError {
-	if dsclient.IsManagedUnauthorizedError(err) || dsclient.IsDirectUnauthorizedError(err) {
-		return authOutputError(a)
-	}
-	if a != nil && !a.UseConfigToken {
-		return authOutputError(a)
-	}
-	return &assistantturn.OutputError{Status: http.StatusBadGateway, Message: "Failed to create session.", Code: "upstream_unavailable"}
-}
-
-const DirectTokenErrorMessage = "Invalid token. If this should be a DS2API key, add it to config.keys first."
-
-// powOutputError 把 GetPow 失败映射为输出错误。只有上游明确以鉴权失败拒绝托管
-// 账号时才带 account_unauthorized 错误码，让共享重试逻辑先刷新 Token 再换号；
-// 网络抖动等非鉴权失败归类为可换号重试的 upstream_unavailable，避免把健康账号
-// 误判为鉴权异常（isManagedUnauthorized 只认 account_unauthorized 错误码）。
-// 直传 token 模式保持原有 401 语义。
-func powOutputError(a *auth.RequestAuth, err error) *assistantturn.OutputError {
-	const message = "Failed to get PoW (invalid token or unknown error)."
-	if a == nil || !a.UseConfigToken {
-		return &assistantturn.OutputError{Status: http.StatusUnauthorized, Message: message, Code: "error"}
-	}
-	if dsclient.IsManagedUnauthorizedError(err) {
-		return &assistantturn.OutputError{Status: http.StatusUnauthorized, Message: message, Code: OutputCodeAccountUnauthorized}
-	}
-	return &assistantturn.OutputError{Status: http.StatusBadGateway, Message: message, Code: "upstream_unavailable"}
-}
-
-func IsDirectTokenAuthError(outErr *assistantturn.OutputError) bool {
-	return outErr != nil && outErr.Status == http.StatusUnauthorized && outErr.Message == DirectTokenErrorMessage
-}
-
-func Errorf(status int, format string, args ...any) *assistantturn.OutputError {
-	return &assistantturn.OutputError{Status: status, Message: fmt.Sprintf(format, args...), Code: "error"}
 }

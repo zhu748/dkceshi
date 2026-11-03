@@ -69,6 +69,7 @@
     "jwt_expire_hours": 24
   },
   "runtime": {
+    "account_sticky_enabled": false,
     "account_max_inflight": 2,
     "account_max_queue": 0,
     "global_max_inflight": 0,

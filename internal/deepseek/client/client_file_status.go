@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	dsprotocol "ds2api/internal/deepseek/protocol"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
+	dsprotocol "ds2api/internal/deepseek/protocol"
 )
 
 const (
@@ -76,7 +76,8 @@ func (c *Client) WaitForUploadedFiles(ctx context.Context, a *auth.RequestAuth, 
 		for _, result := range pending {
 			ids = append(ids, result.ID)
 		}
-		fetched, err := c.FetchUploadedFiles(pollCtx, a, ids)
+		// The readiness loop owns its retry budget; do not nest metadata retries.
+		fetched, err := c.fetchUploadedFilesWithAuth(pollCtx, a, ids)
 		if err == nil {
 			remaining := pending[:0]
 			for _, result := range pending {
@@ -102,6 +103,10 @@ func (c *Client) WaitForUploadedFiles(ctx context.Context, a *auth.RequestAuth, 
 			if isPermanentFileFetchError(err) {
 				return fmt.Errorf("waiting for file readiness: %w", err)
 			}
+			var limited *FileRateLimitError
+			if errors.As(err, &limited) && a.ManagedPool() {
+				return fmt.Errorf("waiting for file readiness: %w", err)
+			}
 			lastErr = err
 			config.Logger.Debug("[upload_file] waiting for file readiness", "count", len(pending), "attempt", attempt+1, "error", err)
 		}
@@ -110,7 +115,7 @@ func (c *Client) WaitForUploadedFiles(ctx context.Context, a *auth.RequestAuth, 
 			delay := interval
 			var limited *FileRateLimitError
 			if errors.As(lastErr, &limited) {
-				delay = max(delay, fileRateLimitDelay(attempt+1, ""))
+				delay = max(delay, fileRateLimitDelay(attempt+1, limited.RetryAfter))
 			}
 			if err := fileReadySleep(pollCtx, delay); err != nil {
 				return fmt.Errorf("waiting for file readiness: %w", err)
@@ -130,7 +135,7 @@ func (c *Client) FetchUploadedFile(ctx context.Context, a *auth.RequestAuth, fil
 	return files[0], nil
 }
 
-func (c *Client) FetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fileIDs []string) ([]*UploadFileResult, error) {
+func (c *Client) fetchUploadedFilesWithAuth(ctx context.Context, a *auth.RequestAuth, fileIDs []string) ([]*UploadFileResult, error) {
 	files, err := c.fetchUploadedFiles(ctx, a, fileIDs)
 	if IsManagedUnauthorizedError(err) && c.Auth != nil && c.Auth.RefreshToken(ctx, a) {
 		// A file stays on its owning account even if that account refreshes auth.
@@ -159,7 +164,7 @@ func (c *Client) fetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fi
 	reqURL := dsprotocol.DeepSeekFetchFilesURL + "?" + params.Encode()
 	headers := c.authHeadersForAuth(a)
 
-	resp, status, err := c.getJSONWithStatus(ctx, clients.regular, reqURL, headers)
+	resp, status, responseHeaders, err := c.getJSONWithStatusHeaders(ctx, clients.regular, reqURL, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +175,12 @@ func (c *Client) fetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fi
 	code, bizCode, msg, bizMsg := extractResponseStatus(resp)
 	if status != http.StatusOK || code != 0 || bizCode != 0 {
 		if limited := fileRateLimit("fetch files", status, code, bizCode, msg, bizMsg); limited != nil {
+			limited.RetryAfter = responseHeaders.Get("Retry-After")
+			a.NoteRateLimit()
 			return nil, limited
+		}
+		if kind := c.observeAccountFailure(a, resp, "fetch files"); kind != FailureUnknown {
+			return nil, &RequestFailure{Op: "fetch files", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
 		}
 		if isTokenInvalid(status, code, bizCode, msg, bizMsg) || isAuthIndicativeBizFailure(msg, bizMsg) {
 			return nil, &RequestFailure{Op: "fetch files", Kind: authFailureKind(a != nil && a.UseConfigToken), Message: failureMessage(msg, bizMsg, "file authentication failed")}

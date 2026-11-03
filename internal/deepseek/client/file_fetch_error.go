@@ -20,7 +20,7 @@ func (e *fileFetchError) HTTPStatus() int {
 }
 
 func isPermanentFileFetchError(err error) bool {
-	if errors.Is(err, ErrUploadFileNotFound) || IsManagedUnauthorizedError(err) || IsDirectUnauthorizedError(err) || IsMutedError(err) ||
+	if errors.Is(err, ErrUploadFileNotFound) || IsManagedUnauthorizedError(err) || IsDirectUnauthorizedError(err) || IsMutedError(err) || IsBannedError(err) ||
 		errors.Is(err, ErrInvalidUpstreamResponse) || errors.Is(err, ErrUpstreamResponseTooLarge) {
 		return true
 	}

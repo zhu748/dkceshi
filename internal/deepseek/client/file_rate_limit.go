@@ -10,13 +10,14 @@ import (
 
 // FileRateLimitError preserves business-level throttling even with HTTP 200.
 type FileRateLimitError struct {
-	Op      string
-	Code    int
-	BizCode int
+	Op         string
+	Code       int
+	BizCode    int
+	RetryAfter string
 }
 
 func (e *FileRateLimitError) Error() string {
-	return fmt.Sprintf("%s: upstream file requests are rate limited (code=%d, biz_code=%d, TOO_MANY_REQUESTS); retry later", e.Op, e.Code, e.BizCode)
+	return fmt.Sprintf("%s: upstream requests are rate limited (code=%d, biz_code=%d, TOO_MANY_REQUESTS); retry later", e.Op, e.Code, e.BizCode)
 }
 
 func (*FileRateLimitError) HTTPStatus() int { return http.StatusTooManyRequests }

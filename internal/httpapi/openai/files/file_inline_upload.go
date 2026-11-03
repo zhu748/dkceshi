@@ -50,6 +50,8 @@ func upstreamFileError(err error, message string) *inlineFileUploadError {
 		message = limited.Error()
 	case dsclient.IsMutedError(err):
 		status, message = http.StatusForbidden, "Account is muted by upstream."
+	case dsclient.IsBannedError(err):
+		status, message = http.StatusForbidden, "Account is banned by upstream."
 	case dsclient.IsManagedUnauthorizedError(err):
 		status, message = http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin."
 	case dsclient.IsDirectUnauthorizedError(err):
@@ -105,7 +107,7 @@ type pendingFileUploader interface {
 	WaitForUploadedFiles(context.Context, *auth.RequestAuth, []*dsclient.UploadFileResult) error
 }
 
-func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[string]any, uploader FileUploader, resolvedModel string, thinkingEnabled bool) error {
+func preprocessInlineFilesOnce(ctx context.Context, a *auth.RequestAuth, req map[string]any, uploader FileUploader, resolvedModel string, thinkingEnabled bool) error {
 	if uploader == nil || len(req) == 0 {
 		return nil
 	}

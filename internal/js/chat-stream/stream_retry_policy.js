@@ -2,6 +2,7 @@
 
 const { asString } = require('./http_internal');
 const { boundRetryFeedback } = require('./retry_feedback_bound');
+const { upstreamEmptyOutputDetail } = require('./stream_failure');
 
 const EMPTY_OUTPUT_RETRY_SUFFIX = 'Previous reply had no visible output. Please regenerate the visible final answer or tool call now.';
 
@@ -11,7 +12,7 @@ const TOOL_OUTPUT_RETRY_SUFFIX = 'Previous tool turn was rejected; no tools ran.
 
 const TRANSIENT_SWITCH_MAX_ATTEMPTS = 3;
 
-const TRANSIENT_UPSTREAM_STATUS = new Set([500, 502, 503, 504]);
+const TRANSIENT_UPSTREAM_STATUS = new Set([429, 500, 502, 503, 504]);
 
 const TRANSIENT_UPSTREAM_KEYWORDS = [
   '暂时', '稍后', '请重试', '繁忙', '超时', '不可用', '服务异常', '限流', '请求过于频繁',
@@ -39,8 +40,18 @@ function isAccountAuthFailureStatus(status) {
 }
 
 function switchOptionsForStatus(status) {
-  return isAccountAuthFailureStatus(status) ? { disable: true, auth_failed: true } : { disable: true };
+  return Number(status) === 429 ? { rate_limited: true } : isAccountAuthFailureStatus(status) ? { disable: true, auth_failed: true } : { disable: true };
 }
+
+function isUnavailableEmptyOutput(detail) {
+  return Number(detail?.status) === 503 && detail?.code === 'upstream_unavailable'
+    && asString(detail.message).trim() === upstreamEmptyOutputDetail(false, '', '').message;
+}
+
+function switchOptionsForFailure(detail) {
+  return isUnavailableEmptyOutput(detail) ? { rate_limited: true } : switchOptionsForStatus(detail?.status);
+}
+
 
 function clonePayloadForEmptyOutputRetry(payload, parentMessageID) {
   const clone = {
@@ -80,7 +91,7 @@ function usagePromptWithRetryPayload(previous, payload) {
   return asString(previous) + '\n' + asString(payload?.prompt);
 }
 
-module.exports = { isTransientUpstreamStatus, isAccountAuthFailureStatus, TRANSIENT_SWITCH_MAX_ATTEMPTS, switchOptionsForStatus, isTransientUpstreamMessage, EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS, TOOL_OUTPUT_RETRY_SUFFIX, usagePromptWithRetryPayload, clonePayloadForEmptyOutputRetry, clonePayloadForToolOutputRetry };
+module.exports = { isUnavailableEmptyOutput, switchOptionsForFailure, isTransientUpstreamStatus, isAccountAuthFailureStatus, TRANSIENT_SWITCH_MAX_ATTEMPTS, switchOptionsForStatus, isTransientUpstreamMessage, EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS, TOOL_OUTPUT_RETRY_SUFFIX, usagePromptWithRetryPayload, clonePayloadForEmptyOutputRetry, clonePayloadForToolOutputRetry };
 
 const PROMPT_ECHO_RETRY_SUFFIX = 'Previous reply repeated input instructions or conversation metadata instead of answering. Do not reproduce the system prelude, role headers, or serialized conversation. Continue the latest real user task and return only its answer or the required tool calls.';
 

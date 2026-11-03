@@ -33,6 +33,13 @@ func (c *Client) recoverManagedAuth(ctx context.Context, a *auth.RequestAuth, at
 	if c == nil || c.Auth == nil || a == nil || !a.UseConfigToken || attempts == nil {
 		return false
 	}
+	if limited := fileRateLimit("request", status, code, bizCode, msg, bizMsg); limited != nil && a.ManagedPool() {
+		if a.SwitchAccountOnRateLimit(ctx) {
+			*attempts++
+			return true
+		}
+		return false
+	}
 	if !shouldAttemptRefresh(status, code, bizCode, msg, bizMsg) {
 		// 非鉴权失败：本账号这次不可用，换到下一个可调度账号。共享步骤只处理
 		// 鉴权失败，这里不能走 RecoverAuthFailure，否则一次普通 5xx 会先白白刷新

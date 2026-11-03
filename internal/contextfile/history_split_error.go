@@ -16,6 +16,8 @@ func MapError(err error) (int, string) {
 		return http.StatusBadRequest, err.Error()
 	case dsclient.IsMutedError(err):
 		return http.StatusForbidden, "Account is muted by upstream."
+	case dsclient.IsBannedError(err):
+		return http.StatusForbidden, "Account is banned by upstream."
 	case dsclient.IsManagedUnauthorizedError(err):
 		return http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin."
 	case dsclient.IsDirectUnauthorizedError(err):

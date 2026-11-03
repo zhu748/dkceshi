@@ -647,6 +647,8 @@
     "muteReportDesc": "Off by default. When enabled, every request or token refresh that detects a temporarily muted or permanently banned account reports an event to the endpoint below.",
     "muteReportUrl": "Report endpoint",
     "muteReportUrlDesc": "HTTP endpoint that receives the report. Must be an http/https URL, defaulting to http://127.0.0.1:8100.",
+    "accountStickyEnabled": "Sticky account scheduling",
+    "accountStickyHelp": "Disabled by default (round robin). Fill one account’s concurrency slots before using the next. In both modes, upstream rate limits bench the account for two minutes and trigger failover; banned accounts are disabled. Explicit targets and existing account-bound files stay pinned.",
     "accountRateLimitEnabled": "Per-Account Rate Limit",
     "accountRateLimitDesc": "Disabled by default. Limits max requests per minute for each account; accounts become unavailable and queue when limit is reached until 1-minute reset.",
     "accountRateLimitLimit": "Max requests per minute",

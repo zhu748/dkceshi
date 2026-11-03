@@ -9,9 +9,10 @@ import (
 // 禁言上报与单账号速率限制。它同时是一个注册段（见文件末尾的 RegisterSection），
 // 所以编解码、Clone、校验、归一化、导入合并与设置页读写都从那一处派生。
 type RuntimeConfig struct {
-	AccountMaxInflight int `json:"account_max_inflight,omitempty"`
-	AccountMaxQueue    int `json:"account_max_queue,omitempty"`
-	GlobalMaxInflight  int `json:"global_max_inflight,omitempty"`
+	AccountStickyEnabled *bool `json:"account_sticky_enabled,omitempty"`
+	AccountMaxInflight   int   `json:"account_max_inflight,omitempty"`
+	AccountMaxQueue      int   `json:"account_max_queue,omitempty"`
+	GlobalMaxInflight    int   `json:"global_max_inflight,omitempty"`
 	// TokenRefreshIntervalHours 是托管账号 Token 的最长复用时长（小时，默认 6）。
 	// 语义是"取号时的 TTL 检查"，不是定时刷新：仅当账号被请求调度到时，
 	// auth.Resolver.shouldForceRefresh 才比较距上次登录的时长，超过则先重新
@@ -95,10 +96,11 @@ func recommendedRuntimeMaxQueue(s *Store) int {
 }
 
 // cloneRuntimeConfig 复制运行时配置。RuntimeConfig 内仅 MuteReport.Enabled 与
-// AccountRateLimit.Enabled / AccountDailyLimit.Enabled 是引用类型，需要单独
+// AccountRateLimit.Enabled / AccountDailyLimit.Enabled / AccountStickyEnabled 是引用类型，需要单独
 // 深拷贝，避免调用方修改快照时污染 Store 内部状态。
 func cloneRuntimeConfig(in RuntimeConfig) RuntimeConfig {
 	out := in
+	out.AccountStickyEnabled = cloneBoolPtr(in.AccountStickyEnabled)
 	out.MuteReport.Enabled = cloneBoolPtr(in.MuteReport.Enabled)
 	out.AccountRateLimit.Enabled = cloneBoolPtr(in.AccountRateLimit.Enabled)
 	out.AccountDailyLimit.Enabled = cloneBoolPtr(in.AccountDailyLimit.Enabled)
@@ -109,7 +111,7 @@ func cloneRuntimeConfig(in RuntimeConfig) RuntimeConfig {
 // 写出，否则只配置了 account_rate_limit 或 devid_public_key 的实例会在保存时
 // 静默丢掉它们。
 func runtimeConfigIsSet(rt RuntimeConfig) bool {
-	return rt.AccountMaxInflight > 0 || rt.AccountMaxQueue > 0 || rt.GlobalMaxInflight > 0 ||
+	return rt.AccountStickyEnabled != nil || rt.AccountMaxInflight > 0 || rt.AccountMaxQueue > 0 || rt.GlobalMaxInflight > 0 ||
 		rt.TokenRefreshIntervalHours > 0 || rt.DeviceIDMode != "" || strings.TrimSpace(rt.DevidPublicKey) != "" ||
 		rt.MuteReport.Enabled != nil || strings.TrimSpace(rt.MuteReport.URL) != "" ||
 		rt.AccountRateLimit.Enabled != nil || rt.AccountRateLimit.MaxPerMinute > 0 ||
@@ -123,6 +125,9 @@ func init() {
 			Order:    2,
 			TitleKey: "settings.runtimeTitle",
 			Fields: []SectionField{
+				withHelp(SectionBool("runtime.account_sticky_enabled", "settings.accountStickyEnabled",
+					func(s *Store) bool { return s.RuntimeAccountStickyEnabled() },
+					func(c *Config, v bool) { c.Runtime.AccountStickyEnabled = &v }), "settings.accountStickyHelp"),
 				SectionInt("runtime.account_max_inflight", "settings.accountMaxInflight", 1, 256,
 					func(s *Store) int { return s.RuntimeAccountMaxInflight() },
 					func(c *Config, v int) { c.Runtime.AccountMaxInflight = v }),

@@ -14,33 +14,35 @@ type inspectedStreamBody struct {
 }
 
 func detectMutedCompletion(body io.ReadCloser) (io.ReadCloser, bool, float64, error) {
+	replay, parsed, err := inspectCompletionJSON(body)
+	return replay, isMutedJSONResponse(parsed), extractMuteUntil(parsed), err
+}
+
+func inspectCompletionJSON(body io.ReadCloser) (io.ReadCloser, map[string]any, error) {
 	if body == nil {
-		return nil, false, 0, nil
+		return nil, nil, nil
 	}
 	reader := bufio.NewReader(body)
 	first, err := reader.Peek(1)
 	if err != nil && err != io.EOF {
-		return &inspectedStreamBody{reader, body}, false, 0, err
+		return &inspectedStreamBody{reader, body}, nil, err
 	}
 	if len(first) == 0 || first[0] != '{' {
-		return &inspectedStreamBody{reader, body}, false, 0, nil
+		return &inspectedStreamBody{reader, body}, nil, nil
 	}
 	data, err := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
 	replay := &inspectedStreamBody{io.MultiReader(bytes.NewReader(data), reader), body}
 	if err != nil {
-		return replay, false, 0, err
+		return replay, nil, err
 	}
 	if len(data) > 1<<20 {
-		return replay, false, 0, nil
+		return replay, nil, nil
 	}
 	var parsed map[string]any
 	if json.Unmarshal(data, &parsed) != nil {
-		return replay, false, 0, nil
+		return replay, nil, nil
 	}
-	if isMutedJSONResponse(parsed) {
-		return replay, true, extractMuteUntil(parsed), nil
-	}
-	return replay, false, 0, nil
+	return replay, parsed, nil
 }
 func isMutedJSONResponse(resp map[string]any) bool {
 	if resp == nil {

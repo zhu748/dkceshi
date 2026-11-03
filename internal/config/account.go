@@ -116,7 +116,7 @@ func (a Account) IsAuthFailed() bool {
 }
 
 // IsCoolingDown reports whether the account is in a local risk-control cooldown
-// after a captcha challenge. Like IsMuted this expires on its own, so the pool
+// after upstream throttling or a captcha challenge. Like IsMuted this expires, so the pool
 // picks the account back up without any sweeper.
 func (a Account) IsCoolingDown() bool {
 	if a.CooldownUntil <= 0 {

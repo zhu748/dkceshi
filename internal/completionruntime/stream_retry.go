@@ -164,10 +164,18 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			return
 		}
 		pendingErr := buildEmptyOutputError(hooks)
+		cooldownEmpty := !result.ResumeContinue && assistantturn.IsUnavailableEmptyOutput(pendingErr) && a.NoteRateLimit()
 		if !result.Retryable || !opts.RetryEnabled || !result.ResumeContinue && !IsRetryableOutputError(pendingErr) {
 			if !failed && hooks.Finalize != nil {
 				hooks.Finalize(attempts)
 			}
+			return
+		}
+		if cooldownEmpty {
+			if switchAccount(pendingErr) {
+				continue
+			}
+			fail(pendingErr)
 			return
 		}
 		if attempts >= retryMax {

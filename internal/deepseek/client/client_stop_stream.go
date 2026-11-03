@@ -3,7 +3,6 @@ package client
 import (
 	"bufio"
 	"context"
-	dsprotocol "ds2api/internal/deepseek/protocol"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/banreport"
 	"ds2api/internal/config"
+	dsprotocol "ds2api/internal/deepseek/protocol"
 )
 
 const (
@@ -74,23 +74,11 @@ func (c *Client) FireCompletionAndStop(ctx context.Context, a *auth.RequestAuth,
 	if captureSession != nil {
 		resp.Body = captureSession.WrapBody(resp.Body, resp.StatusCode)
 	}
+	if failure := c.inspectCompletionFailure(a, resp, banreport.SourceStopStream); failure != nil {
+		return 0, failure
+	}
 	if resp.StatusCode != http.StatusOK {
-		config.Logger.Warn("[fire_completion_and_stop] completion returned non-200", "session_id", sessionID, "account", a.AccountID, "status", resp.StatusCode)
 		return 0, fmt.Errorf("completion returned HTTP %d", resp.StatusCode)
-	}
-
-	newBody, muted, muteUntil, err := detectMutedCompletion(resp.Body)
-	if err != nil {
-		config.Logger.Warn("[fire_completion_and_stop] mute detection failed", "session_id", sessionID, "account", a.AccountID, "error", err)
-		return 0, err
-	}
-	if muted {
-		config.Logger.Warn("[fire_completion_and_stop] account muted", "session_id", sessionID, "account", a.AccountID)
-		c.persistMutedUntil(a.AccountID, muteUntil, banreport.SourceStopStream)
-		return 0, &RequestFailure{Op: "completion", Kind: FailureMuted, Message: "user is muted"}
-	}
-	if newBody != nil {
-		resp.Body = newBody
 	}
 
 	responseMessageID := 0

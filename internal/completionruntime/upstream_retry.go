@@ -2,6 +2,7 @@ package completionruntime
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -113,6 +114,13 @@ func managedUnauthorizedResponseError(resp *http.Response, a *auth.RequestAuth) 
 // unavailability so the retry machinery can switch accounts instead of passing
 // the raw error downstream.
 func completionCallOutputError(ctx context.Context, err error) *assistantturn.OutputError {
+	if dsclient.IsBannedError(err) {
+		return &assistantturn.OutputError{Status: http.StatusForbidden, Message: "Account is banned by upstream.", Code: "account_banned"}
+	}
+	var limited *dsclient.FileRateLimitError
+	if errors.As(err, &limited) {
+		return &assistantturn.OutputError{Status: http.StatusTooManyRequests, Message: err.Error(), Code: "rate_limit_exceeded"}
+	}
 	if dsclient.IsMutedError(err) {
 		return &assistantturn.OutputError{Status: http.StatusForbidden, Message: "Account is muted by upstream.", Code: "account_muted"}
 	}

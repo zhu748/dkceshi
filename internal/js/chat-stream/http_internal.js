@@ -80,6 +80,7 @@ async function fetchStreamSwitch(req, leaseID, options = {}, signal, deadline) {
     }
   }
   if (options.auth_failed === true) switchBody.auth_failed = true;
+  if (options.rate_limited === true) switchBody.rate_limited = true;
   return requestStreamControl(req, '__stream_switch', Buffer.from(JSON.stringify(switchBody)), signal, deadline);
 }
 

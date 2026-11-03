@@ -26,6 +26,7 @@ func StartCompletionWithSegments(ctx context.Context, ds DeepSeekCaller, a *auth
 	if prepErr != nil {
 		return StartResult{Request: stdReq}, prepErr
 	}
+	defer pinCompletionAccount(a)()
 
 	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
 	if err != nil {
@@ -69,6 +70,9 @@ func fireSegmentPayloads(ctx context.Context, ds DeepSeekCaller, a *auth.Request
 		}
 		respID, err := segmentCaller.FireCompletionAndStop(ctx, a, segPayload, segPow)
 		if err != nil {
+			if typed := accountFailureOutputError(err); typed != nil {
+				return "", nil, typed
+			}
 			if dsclient.IsMutedError(err) {
 				return "", nil, &assistantturn.OutputError{Status: http.StatusForbidden, Message: "Account is muted by upstream.", Code: "account_muted"}
 			}

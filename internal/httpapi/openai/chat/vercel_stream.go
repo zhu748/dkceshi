@@ -127,6 +127,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		"tool_names":              stdReq.ToolNames,
 		"tool_marker":             stdReq.ToolMarker,
 		"deepseek_token":          a.DeepSeekToken,
+		"managed_account":         a.UseConfigToken,
 		"pow_header":              powHeader,
 		"payload":                 payload,
 		"base_headers":            dsclient.BaseHeadersForAuth(a),
@@ -247,6 +248,9 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 	banned, _ := req["banned"].(bool)
 	bannedReason, _ := req["banned_reason"].(string)
 	authFailed, _ := req["auth_failed"].(bool)
+	if req["rate_limited"] == true {
+		a.NoteRateLimit()
+	}
 	if mutedUntil > 0 && a.UseConfigToken {
 		if notifier, ok := h.Auth.(interface {
 			SetAccountMutedUntil(*auth.RequestAuth, float64)
@@ -290,6 +294,8 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 			writeOpenAIErrorWithCode(w, http.StatusForbidden, "Account is muted by upstream.", "account_muted")
 		} else if authFailed {
 			writeOpenAIErrorWithCode(w, http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin.", "account_unauthorized")
+		} else if req["rate_limited"] == true {
+			writeOpenAIErrorWithCode(w, http.StatusTooManyRequests, "Upstream requests are rate limited.", "rate_limit_exceeded")
 		} else if disable {
 			writeOpenAIErrorWithCode(w, http.StatusServiceUnavailable, "Upstream service is unavailable and returned no output.", "upstream_unavailable")
 		} else {

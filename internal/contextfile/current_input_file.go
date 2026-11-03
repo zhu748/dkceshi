@@ -35,7 +35,7 @@ type Service struct {
 	DS    CurrentInputUploader
 }
 
-func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
+func (s Service) applyCurrentInputFileOnce(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
 	if stdReq.CurrentInputFileApplied || s.DS == nil || s.Store == nil || a == nil || !s.Store.CurrentInputFileEnabled() {
 		return stdReq, nil
 	}
@@ -83,7 +83,7 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 	return stdReq, nil
 }
 
-func (s Service) ReuploadAppliedCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
+func (s Service) reuploadAppliedCurrentInputFileOnce(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
 	if !stdReq.CurrentInputFileApplied || s.DS == nil || a == nil || strings.TrimSpace(stdReq.HistoryText) == "" {
 		return stdReq, nil
 	}

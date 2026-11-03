@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	dsprotocol "ds2api/internal/deepseek/protocol"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/banreport"
 	"ds2api/internal/config"
+	dsprotocol "ds2api/internal/deepseek/protocol"
 )
 
 func (c *Client) Login(ctx context.Context, acc config.Account) (string, error) {
@@ -113,6 +113,10 @@ func (c *Client) CreateSession(ctx context.Context, a *auth.RequestAuth, maxAtte
 			continue
 		}
 		code, bizCode, msg, bizMsg := extractResponseStatus(resp)
+		if limited := fileRateLimit("create session", status, code, bizCode, msg, bizMsg); limited != nil {
+			a.NoteRateLimit()
+			return "", limited
+		}
 		if status == http.StatusOK && code == 0 && bizCode == 0 {
 			sessionID := extractCreateSessionID(resp)
 			if sessionID != "" {
@@ -201,6 +205,10 @@ func (c *Client) fetchPowSolution(ctx context.Context, a *auth.RequestAuth, targ
 			continue
 		}
 		code, bizCode, msg, bizMsg := extractResponseStatus(resp)
+		if limited := fileRateLimit("get pow", status, code, bizCode, msg, bizMsg); limited != nil {
+			a.NoteRateLimit()
+			return powSolution{}, limited
+		}
 		if status == http.StatusOK && code == 0 && bizCode == 0 {
 			data, _ := resp["data"].(map[string]any)
 			bizData, _ := data["biz_data"].(map[string]any)
@@ -384,20 +392,6 @@ func extractCreateSessionID(resp map[string]any) string {
 		}
 	}
 	return ""
-}
-
-func extractResponseStatus(resp map[string]any) (code int, bizCode int, msg string, bizMsg string) {
-	code = intFrom(resp["code"])
-	msg, _ = resp["msg"].(string)
-	data, _ := resp["data"].(map[string]any)
-	bizCode = intFrom(data["biz_code"])
-	bizMsg, _ = data["biz_msg"].(string)
-	if strings.TrimSpace(bizMsg) == "" {
-		if bizData, ok := data["biz_data"].(map[string]any); ok {
-			bizMsg, _ = bizData["msg"].(string)
-		}
-	}
-	return code, bizCode, msg, bizMsg
 }
 
 func normalizeMobileForLogin(raw string) (mobile string, areaCode any) {

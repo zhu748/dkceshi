@@ -36,6 +36,15 @@ func startPayloadCompletionOnce(ctx context.Context, ds DeepSeekCaller, a *auth.
 			ExpertPromptSegment: opts.ExpertPromptSegment,
 		}, segments)
 	}
+	request := opts.Request
+	if opts.CurrentInputFile != nil && request.CurrentInputFileApplied {
+		var prepErr *assistantturn.OutputError
+		request, prepErr = reuploadCurrentInputFileForAccount(ctx, ds, a, request, Options{CurrentInputFile: opts.CurrentInputFile})
+		if prepErr != nil {
+			return StartResult{}, prepErr
+		}
+	}
+	defer pinCompletionAccount(a)()
 	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
 	if err != nil {
 		return StartResult{}, sessionOutputError(a, err)
@@ -45,12 +54,8 @@ func startPayloadCompletionOnce(ctx context.Context, ds DeepSeekCaller, a *auth.
 		return StartResult{SessionID: sessionID}, powOutputError(a, err)
 	}
 	nextPayload := clonePayload(payload)
-	if opts.CurrentInputFile != nil && opts.Request.CurrentInputFileApplied {
-		stdReq, prepErr := reuploadCurrentInputFileForAccount(ctx, ds, a, opts.Request, Options{CurrentInputFile: opts.CurrentInputFile})
-		if prepErr != nil {
-			return StartResult{SessionID: sessionID}, prepErr
-		}
-		nextPayload = stdReq.CompletionPayload(sessionID)
+	if request.CurrentInputFileApplied {
+		nextPayload = request.CompletionPayload(sessionID)
 	}
 	nextPayload["chat_session_id"] = sessionID
 	delete(nextPayload, "parent_message_id")

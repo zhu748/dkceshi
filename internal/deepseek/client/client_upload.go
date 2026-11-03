@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	dsprotocol "ds2api/internal/deepseek/protocol"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
+	dsprotocol "ds2api/internal/deepseek/protocol"
 	trans "ds2api/internal/deepseek/transport"
 )
 
@@ -191,6 +191,9 @@ func (c *Client) uploadFilePendingUncached(ctx context.Context, a *auth.RequestA
 		config.Logger.Warn("[upload_file] failed", "status", resp.StatusCode, "code", code, "biz_code", bizCode, "msg", msg, "biz_msg", bizMsg, "account", a.AccountID, "filename", filename)
 		powHeader = ""
 		if limited := fileRateLimit("upload file", resp.StatusCode, code, bizCode, msg, bizMsg); limited != nil {
+			if a.NoteRateLimit() {
+				return nil, limited
+			}
 			attempts++
 			if attempts >= maxAttempts {
 				return nil, limited

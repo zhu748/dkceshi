@@ -9,7 +9,9 @@ const { asString } = require('./http_internal');
 //   - banned 为 true 时表示检测到 USER_IS_BANNED，response 为 null；
 //   - 均未检测到时，response 为可能经过恢复的 Response（SSE body 未被消耗）。
 async function detectMutedOrBannedResponse(res) {
-  if (!res || !res.ok || !res.body) {
+  // Keep non-JSON HTTP failures on the normal error-body path, including its
+  // disconnect checks. Only JSON errors need mute/ban/business-code inspection.
+  if (!res || !res.body || (!res.ok && !/\bjson\b/i.test(asString(res.headers?.get('content-type'))))) {
     return { mutedUntil: 0, banned: false, response: res };
   }
   const reader = res.body.getReader();
@@ -71,6 +73,7 @@ async function detectMutedOrBannedResponse(res) {
     }
     try {
       const data = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+      if (Number(data.code) === 40029 || Number(data.data?.biz_code) === 40029 || /TOO_MANY_REQUESTS/i.test(asString(data.msg) + asString(data.data?.biz_msg))) return { rateLimited: true, mutedUntil: 0, banned: false, response: null };
       const mutedUntil = extractMuteUntil(data);
       const banned = isBannedJSONResponse(data);
       if (mutedUntil > 0 || banned) return { mutedUntil, banned, response: null };

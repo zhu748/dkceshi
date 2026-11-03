@@ -114,7 +114,9 @@ func (p *Pool) acquireLocked(target string, exclude map[string]bool, filter Acco
 		p.inUse[target]++
 		p.inUseTotal++
 		p.recordAccountRequestCheckedLocked(target, checks)
-		p.bumpQueue(target)
+		if !p.store.RuntimeAccountStickyEnabled() {
+			p.bumpQueue(target)
+		}
 		return acc, true
 	}
 
@@ -125,6 +127,7 @@ func (p *Pool) tryAcquire(exclude map[string]bool, filter AccountFilter, checks 
 	// Per-attempt invariants (store locks, date roll, global saturation) are
 	// computed once by the caller; the candidate scan below only does map
 	// lookups.
+	sticky := p.store.RuntimeAccountStickyEnabled()
 	var acquired config.Account
 	var found bool
 	p.forEachQueueAccount(func(id string) bool {
@@ -144,7 +147,9 @@ func (p *Pool) tryAcquire(exclude map[string]bool, filter AccountFilter, checks 
 		p.inUse[id]++
 		p.inUseTotal++
 		p.recordAccountRequestCheckedLocked(id, checks)
-		p.bumpQueue(id)
+		if !sticky {
+			p.bumpQueue(id)
+		}
 		acquired, found = acc, true
 		return false
 	})

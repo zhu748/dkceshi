@@ -52,7 +52,7 @@ const {
   isTransientUpstreamStatus,
   isAccountAuthFailureStatus,
   TRANSIENT_SWITCH_MAX_ATTEMPTS,
-  switchOptionsForStatus,
+  switchOptionsForStatus, isUnavailableEmptyOutput, switchOptionsForFailure,
   isTransientUpstreamMessage,
   EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS,
   clonePayloadForOutputRetry,
@@ -225,12 +225,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         completionRes = detection.response;
         break;
       }
-      if (!detection.banned && !(detection.mutedUntil > 0)) {
+      if (!detection.rateLimited && !detection.banned && !(detection.mutedUntil > 0)) {
         // JSON body 但既非封号也非禁言：无可切换依据，交给下游按空输出处理。
         break;
       }
       accountSwitchCount += 1;
-      const switchOptions = detection.banned
+      const switchOptions = detection.rateLimited ? { rate_limited: true } : detection.banned
         ? { banned: true, banned_reason: '账户已被停用' }
         : { mute_until: detection.mutedUntil };
       const switched = await switchAccount(switchOptions);
@@ -240,7 +240,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (detection.banned) {
           writeOpenAIErrorWithCode(res, 403, 'Account is banned by upstream.', 'account_banned');
         } else {
-          writeOpenAIErrorWithCode(res, 403, 'Account is muted by upstream.', 'account_muted');
+          writeOpenAIErrorWithCode(res, detection.rateLimited ? 429 : 403, detection.rateLimited ? 'Upstream requests are rate limited.' : 'Account is muted by upstream.', detection.rateLimited ? 'rate_limit_exceeded' : 'account_muted');
         }
         return;
       }
@@ -267,7 +267,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       let switchAttempts = 0;
       while (
         (isTransientUpstreamStatus(status) || isAccountAuthFailureStatus(status))
-        && switchAttempts < TRANSIENT_SWITCH_MAX_ATTEMPTS
+        && (status === 429 || switchAttempts < TRANSIENT_SWITCH_MAX_ATTEMPTS)
       ) {
         const switched = await switchAccount(switchOptionsForStatus(status));
         if (!switched) return;
@@ -785,6 +785,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         ? await processStream(completionRes, allowDeferEmpty)
         : { terminal: false, retryable: true, interrupted: false };
       const isUpstreamUnavailable = lastEmptyDetail && lastEmptyDetail.code === 'upstream_unavailable';
+      const unavailableEmpty = prep.body.managed_account === true && isUnavailableEmptyOutput(lastEmptyDetail);
       const isAccountUnauthorized = lastEmptyDetail && lastEmptyDetail.code === 'account_unauthorized';
       const isInputContentBlocked = lastEmptyDetail && lastEmptyDetail.code === 'input_content_blocked';
       if (processed.terminal) {
@@ -804,19 +805,19 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         await finish('stop');
         return;
       }
-      if (retryAttempts >= EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS) {
+      if (retryAttempts >= EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS || unavailableEmpty) {
         if (lastEmptyDetail?.code === 'upstream_prompt_echo') { await finish('stop'); return; }
         if (isInputContentBlocked) {
           await finish('stop');
           return;
         }
         if (isUpstreamUnavailable || isAccountUnauthorized) {
-          if (answerDelivered || transientSwitchAttempts >= TRANSIENT_SWITCH_MAX_ATTEMPTS) {
+          if (answerDelivered || !unavailableEmpty && transientSwitchAttempts >= TRANSIENT_SWITCH_MAX_ATTEMPTS) {
             await finish('stop');
             return;
           }
           transientSwitchAttempts += 1;
-          const switched = await switchAccount(isAccountUnauthorized ? { disable: true, auth_failed: true } : { disable: true });
+          const switched = await switchAccount(switchOptionsForFailure(lastEmptyDetail));
           if (!switched) return;
           if (switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object') {
             applySwitchedPayload(switched);

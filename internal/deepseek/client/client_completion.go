@@ -3,12 +3,11 @@ package client
 import (
 	"bytes"
 	"context"
-	dsprotocol "ds2api/internal/deepseek/protocol"
-
 	"net/http"
 
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
+	dsprotocol "ds2api/internal/deepseek/protocol"
 	trans "ds2api/internal/deepseek/transport"
 )
 
@@ -26,21 +25,13 @@ func (c *Client) CallCompletion(ctx context.Context, a *auth.RequestAuth, payloa
 	if captureSession != nil {
 		resp.Body = captureSession.WrapBody(resp.Body, resp.StatusCode)
 	}
+	if failure := c.inspectCompletionFailure(a, resp, "completion"); failure != nil {
+		if err := resp.Body.Close(); err != nil {
+			config.Logger.Warn("[completion] close failed", "error", err)
+		}
+		return nil, failure
+	}
 	if resp.StatusCode == http.StatusOK {
-		body, muted, until, inspectErr := detectMutedCompletion(resp.Body)
-		if body != nil {
-			resp.Body = body
-		}
-		if inspectErr != nil {
-			config.Logger.Warn("[completion] inspection failed", "error", inspectErr)
-		}
-		if muted {
-			if err := resp.Body.Close(); err != nil {
-				config.Logger.Warn("[completion] close failed", "error", err)
-			}
-			c.persistMutedUntil(a.AccountID, until, "completion")
-			return nil, &RequestFailure{Op: "completion", Kind: FailureMuted, Message: "user is muted"}
-		}
 		resp = c.wrapCompletionWithAutoContinue(ctx, a, payload, powResp, resp)
 		// 复刻真实 Android App：completion 成功后立刻异步预取下一个 PoW，
 		// 让下一次 completion 几乎零延迟拿到 PoW。使用独立 context 避免被当前

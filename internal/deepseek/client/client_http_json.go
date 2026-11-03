@@ -80,6 +80,11 @@ func (c *Client) postJSONWithStatus(ctx context.Context, doer trans.Doer, fallba
 }
 
 func (c *Client) getJSONWithStatus(ctx context.Context, doer trans.Doer, url string, headers map[string]string) (map[string]any, int, error) {
+	body, status, _, err := c.getJSONWithStatusHeaders(ctx, doer, url, headers)
+	return body, status, err
+}
+
+func (c *Client) getJSONWithStatusHeaders(ctx context.Context, doer trans.Doer, url string, headers map[string]string) (map[string]any, int, http.Header, error) {
 	headers = cloneStringMap(headers)
 	for key := range headers {
 		if strings.EqualFold(key, "Content-Type") || strings.EqualFold(key, "Content-Length") {
@@ -89,7 +94,7 @@ func (c *Client) getJSONWithStatus(ctx context.Context, doer trans.Doer, url str
 	clients := c.requestClientsFromContext(ctx)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -97,28 +102,28 @@ func (c *Client) getJSONWithStatus(ctx context.Context, doer trans.Doer, url str
 	resp, err := doer.Do(req)
 	if err != nil {
 		if trans.UseFramedH2() {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		config.Logger.Warn("[deepseek] fingerprint GET request failed, fallback to std transport", "url", url, "error", err)
 		req2, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if reqErr != nil {
-			return nil, 0, reqErr
+			return nil, 0, nil, reqErr
 		}
 		for k, v := range headers {
 			req2.Header.Set(k, v)
 		}
 		resp, err = clients.fallback.Do(req2)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 	}
 	defer closeMetadataBody(resp)
 	payloadBytes, err := readResponseBody(resp)
 	if err != nil {
-		return nil, resp.StatusCode, err
+		return nil, resp.StatusCode, resp.Header, err
 	}
 	out, err := decodeMetadataResponse(payloadBytes, resp.StatusCode)
-	return out, resp.StatusCode, err
+	return out, resp.StatusCode, resp.Header, err
 }
 
 func closeMetadataBody(resp *http.Response) {

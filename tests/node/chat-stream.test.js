@@ -2887,3 +2887,60 @@ test('leading prose and split custom tool tags still reach final validation', as
   assert.equal(frames.some(x=>x.error),false);
   assert.equal(result.fetchURLs.filter(x=>x.includes('__stream_validate=1')).length,1);
 });
+
+
+test('business rate limits request account cooldown and failover', async () => {
+  const { detectMutedOrBannedResponse } = require('../../internal/js/chat-stream/upstream_inspect');
+  const { switchOptionsForStatus } = require('../../internal/js/chat-stream/stream_retry_policy');
+  const result = await detectMutedOrBannedResponse(new Response(JSON.stringify({ code: 40029, msg: 'TOO_MANY_REQUESTS' })));
+  assert.equal(result.rateLimited, true);
+  assert.equal(result.response, null);
+  assert.deepEqual(switchOptionsForStatus(429), { rate_limited: true });
+  assert.deepEqual(switchOptionsForStatus(401), { disable: true, auth_failed: true });
+});
+
+
+test('explicit banned JSON is recognized on HTTP 403 as well as HTTP 200', async () => {
+  const { detectMutedOrBannedResponse } = require('../../internal/js/chat-stream/upstream_inspect');
+  for (const status of [200, 403]) {
+    const result = await detectMutedOrBannedResponse(new Response(JSON.stringify({ code: 0, data: { biz_code: 10, biz_msg: 'USER_IS_BANNED' } }), { status, headers: { 'content-type': 'application/json' } }));
+    assert.equal(result.banned, true);
+    assert.equal(result.response, null);
+  }
+});
+
+
+test('known empty 503 immediately switches accounts with the cooldown flag', async () => {
+  const { frames, fetchURLs, fetchBodies } = await runMockVercelStreamSequence([
+    ['data: [DONE]\n\n'],
+    ['data: {"p":"response/content","v":"recovered answer"}\n\n', 'data: [DONE]\n\n'],
+  ], { managed_account: true, switch_result: { session_id: 'replacement', payload: { prompt: 'hello', chat_session_id: 'replacement' }, deepseek_token: 'replacement-token', pow_header: 'replacement-pow' } });
+  const events = frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
+  assert.equal(fetchURLs.filter(url => url.includes('__stream_switch=1')).length, 1);
+  assert.equal(fetchURLs.filter(url => url.includes('__stream_pow=1')).length, 0);
+  assert.ok(fetchBodies.some(body => body.lease_id === 'lease-test' && body.rate_limited === true));
+  assert.ok(events.some(event => event.choices?.[0]?.delta?.content === 'recovered answer'));
+  assert.equal(events.some(event => event.error), false);
+});
+
+test('direct-token empty output retains its same-account regeneration', async () => {
+  const { frames, fetchURLs } = await runMockVercelStreamSequence([
+    ['data: [DONE]\n\n'],
+    ['data: {"p":"response/content","v":"direct recovery"}\n\n', 'data: [DONE]\n\n'],
+  ], { managed_account: false });
+  assert.equal(fetchURLs.filter(url => url.includes('__stream_switch=1')).length, 0);
+  assert.equal(fetchURLs.filter(url => url.includes('__stream_pow=1')).length, 1);
+  assert.ok(frames.some(frame => frame.includes('direct recovery')));
+});
+
+test('only the known empty-503 outcome requests cooldown', () => {
+  const { isUnavailableEmptyOutput, switchOptionsForFailure } = require('../../internal/js/chat-stream/stream_retry_policy');
+  const { upstreamEmptyOutputDetail } = require('../../internal/js/chat-stream/stream_failure');
+  const known = upstreamEmptyOutputDetail(false, '', '');
+  assert.equal(isUnavailableEmptyOutput(known), true);
+  assert.deepEqual(switchOptionsForFailure(known), { rate_limited: true });
+  for (const detail of [null, { ...known, message: 'connection reset' }, { ...known, status: 400, code: 'content_filter' }]) {
+    assert.equal(isUnavailableEmptyOutput(detail), false);
+    assert.equal(switchOptionsForFailure(detail).rate_limited, undefined);
+  }
+});

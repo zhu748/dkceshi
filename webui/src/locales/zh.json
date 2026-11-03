@@ -647,6 +647,8 @@
     "muteReportDesc": "默认关闭。开启后，每次请求或刷新 Token 时若发现账号被上游临时禁言/永久封号，就向下方地址上报事件",
     "muteReportUrl": "上报地址",
     "muteReportUrlDesc": "接收上报的 HTTP 接口地址，需为 http/https URL，默认 http://127.0.0.1:8100。",
+    "accountStickyEnabled": "账号粘性模式",
+    "accountStickyHelp": "默认关闭，使用轮询。开启后优先填满同一账号的并发槽位，满后再使用下一个。两种模式遇到上游限流均暂停该账号 2 分钟并换号重试；封禁账号自动禁用。手动指定账号或已有附件绑定时不跨账号。",
     "accountRateLimitEnabled": "单账号速率限制",
     "accountRateLimitDesc": "默认关闭。开启后限制单个账号每分钟最大请求数，达到设定数值后该账号不可用，所有账号不可用时进入等待队列，1分钟后自动重置恢复",
     "accountRateLimitLimit": "单账号每分钟最大请求数",

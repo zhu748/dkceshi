@@ -86,8 +86,7 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		contentType = http.DetectContentType(data)
 	}
 	modelType := resolveUploadModelType(h.Store, r)
-	pinFileAccount(a)
-	result, err := h.DS.UploadFile(r.Context(), a, dsclient.UploadFileRequest{
+	result, err := uploadStandaloneFile(r.Context(), a, h.DS, dsclient.UploadFileRequest{
 		Filename:        header.Filename,
 		ContentType:     contentType,
 		Purpose:         strings.TrimSpace(r.FormValue("purpose")),
@@ -95,7 +94,7 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		ThinkingEnabled: resolveUploadThinking(h.Store, r),
 		PreserveImage:   r.FormValue("preserve_image") == "true",
 		Data:            data,
-	}, 3)
+	})
 	if err != nil {
 		WriteInlineFileError(w, upstreamFileError(err, "Failed to upload file."))
 		return
