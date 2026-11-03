@@ -137,7 +137,7 @@ func (c *Client) FetchUploadedFile(ctx context.Context, a *auth.RequestAuth, fil
 
 func (c *Client) fetchUploadedFilesWithAuth(ctx context.Context, a *auth.RequestAuth, fileIDs []string) ([]*UploadFileResult, error) {
 	files, err := c.fetchUploadedFiles(ctx, a, fileIDs)
-	if IsManagedUnauthorizedError(err) && c.Auth != nil && c.Auth.RefreshToken(ctx, a) {
+	if IsManagedUnauthorizedError(err) && c.Auth != nil && c.Auth.RefreshTokenOnce(ctx, a) {
 		// A file stays on its owning account even if that account refreshes auth.
 		return c.fetchUploadedFiles(ctx, a, fileIDs)
 	}

@@ -1,8 +1,15 @@
 package promptcompat
 
-import "ds2api/internal/config"
+import (
+	"context"
+	"ds2api/internal/config"
+)
 
 type StandardRequest struct {
+	// ReplayInput reconstructs normalized input from retained attachment bytes.
+	// It is request-local and must never be serialized into diagnostics or leases.
+	ReplayInput    func(context.Context) (StandardRequest, error) `json:"-"`
+	InputAccountID string                                         `json:"-"`
 	Surface        string
 	RequestedModel string
 	ResolvedModel  string

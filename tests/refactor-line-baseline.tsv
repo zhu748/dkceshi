@@ -3,8 +3,8 @@
 internal/account/pool_daily_limit.go	371
 internal/assistantturn/turn.go	528
 internal/auth/auth_failure.go	312
-internal/auth/request.go	701
-internal/completionruntime/nonstream.go	563
+internal/auth/request.go	669
+internal/completionruntime/nonstream.go	519
 internal/config/codec.go	321
 internal/config/config.go	351
 internal/config/models.go	384
@@ -29,7 +29,7 @@ internal/httpapi/openai/files/expert_text_file_inline.go	313
 internal/httpapi/openai/files/file_inline_upload.go	466
 internal/httpapi/openai/responses/responses_handler.go	319
 internal/httpapi/openai/responses/responses_stream_runtime_toolcalls.go	358
-internal/js/chat-stream/vercel_stream_impl.js	903
+internal/js/chat-stream/vercel_stream_impl.js	892
 internal/js/helpers/stream-tool-sieve/cdata_repair.js	329
 internal/js/helpers/stream-tool-sieve/markup_normalize.js	418
 internal/js/helpers/stream-tool-sieve/markup_scan.js	497

@@ -23,7 +23,7 @@ func (u *batchInlineUploader) UploadFile(context.Context, *auth.RequestAuth, dsc
 }
 
 func (u *batchInlineUploader) UploadFilePending(_ context.Context, a *auth.RequestAuth, r dsclient.UploadFileRequest, _ int) (*dsclient.UploadFileResult, error) {
-	if a.TargetAccount != a.AccountID || !r.ThinkingEnabled {
+	if !a.AccountPinned() || !r.ThinkingEnabled {
 		return nil, errors.New("lost account or thinking flag")
 	}
 	u.uploads++

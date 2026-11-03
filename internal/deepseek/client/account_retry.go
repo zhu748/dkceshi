@@ -20,5 +20,8 @@ func RetryAccountFailure(ctx context.Context, a *auth.RequestAuth, err error) bo
 	if IsMutedError(err) || IsBannedError(err) {
 		return a.SwitchAccount(ctx)
 	}
+	if IsManagedUnauthorizedError(err) {
+		return a.RecoverAuthFailure(ctx) != auth.AuthRecoveryNone
+	}
 	return false
 }

@@ -109,6 +109,7 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 	// 否则同一个设置（思考注入 / input_file 续写）开与不开会让 Claude 的
 	// input_tokens 分别按两种形态计数。
 	norm.Standard.PromptTokenText = norm.Standard.FinalPrompt
+	norm.Standard = h.withInputReplay(norm.Standard, a, req)
 	stdReq, err := h.applyCurrentInputFile(r.Context(), a, norm.Standard)
 	if err != nil {
 		h.writePreparationError(w, r, a, stdReq, err, startedAt, false)

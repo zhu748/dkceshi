@@ -94,7 +94,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	imageRoute.RestoreModelName(&stdReq)
+	stdReq = h.withInputReplay(stdReq, a, req, requestTraceID(r), imageRoute)
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
 		h.writeContextPreparationError(w, r, a, stdReq, err, startedAt)

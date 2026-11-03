@@ -15,34 +15,43 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 }
 
 func (s Service) ReuploadAppliedCurrentInputFile(ctx context.Context, a *auth.RequestAuth, req promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
-	return retryContextFileAccount(ctx, a, req, s.reuploadAppliedCurrentInputFileOnce)
+	return retryContextFileAccount(ctx, a, req, func(ctx context.Context, a *auth.RequestAuth, req promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
+		if !req.CurrentInputFileApplied {
+			return s.applyCurrentInputFileOnce(ctx, a, req)
+		}
+		return s.reuploadAppliedCurrentInputFileOnce(ctx, a, req)
+	})
 }
 
 func retryContextFileAccount(ctx context.Context, a *auth.RequestAuth, req promptcompat.StandardRequest, apply func(context.Context, *auth.RequestAuth, promptcompat.StandardRequest) (promptcompat.StandardRequest, error)) (promptcompat.StandardRequest, error) {
 	for {
-		originalTarget := ""
-		if a != nil {
-			originalTarget = a.TargetAccount
-			if originalTarget == "" {
-				a.TargetAccount = a.AccountID
+		if err := ctx.Err(); err != nil {
+			return req, err
+		}
+		if a != nil && req.ReplayInput != nil && req.InputAccountID != a.AccountID {
+			out, err := req.ReplayInput(ctx)
+			if err != nil {
+				return req, err
 			}
+			out.ThinkingInjectionPrompt = req.ThinkingInjectionPrompt
+			out.FinalPrompt = out.WithThinkingInstruction(out.FinalPrompt)
+			out.PromptTokenText = out.FinalPrompt
+			req = out
 		}
+		release := a.PinAccount()
 		out, err := apply(ctx, a, req)
-		if a != nil {
-			a.TargetAccount = originalTarget
-		}
-		var limited *dsclient.FileRateLimitError
-		rateLimited := errors.As(err, &limited)
-		if !a.ManagedPool() || (!rateLimited && !dsclient.IsMutedError(err) && !dsclient.IsBannedError(err)) {
+		release()
+		if err == nil || !a.ManagedPool() {
 			return out, err
 		}
-		if rateLimited {
+		var limited *dsclient.FileRateLimitError
+		if errors.As(err, &limited) {
 			a.NoteRateLimit()
 		}
 		// Client-provided file IDs have no replayable bytes here. Never carry
 		// those references to a new owner, even if they were not explicitly pinned.
 		for _, id := range req.RefFileIDs {
-			if !strings.EqualFold(id, req.CurrentInputFileID) && !strings.EqualFold(id, req.CurrentToolsFileID) {
+			if req.ReplayInput == nil && !strings.EqualFold(id, req.CurrentInputFileID) && !strings.EqualFold(id, req.CurrentToolsFileID) {
 				return out, err
 			}
 		}

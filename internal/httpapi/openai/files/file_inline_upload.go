@@ -115,9 +115,7 @@ func preprocessInlineFilesOnce(ctx context.Context, a *auth.RequestAuth, req map
 	if err := checkFileReferenceLimit(refs); err != nil {
 		return err
 	}
-	if len(refs) > 0 {
-		pinFileAccount(a)
-	}
+	defer a.PinAccount()()
 	modelType, ok := config.GetModelType(resolvedModel)
 	if !ok {
 		modelType = "default"
@@ -219,7 +217,6 @@ func (s *inlineUploadState) uploadInlineFile(file inlineDecodedFile) (string, er
 	if contentType == "" {
 		contentType = http.DetectContentType(file.Data)
 	}
-	pinFileAccount(s.auth)
 	request := dsclient.UploadFileRequest{
 		Filename:        file.Filename,
 		ContentType:     contentType,
@@ -452,13 +449,4 @@ func stringsToAnySlice(items []string) []any {
 		return nil
 	}
 	return out
-}
-
-// Uploaded IDs are installation/account scoped. Reuse the resolver's existing
-// explicit-target constraint so a later PoW/retry cannot mix files from two
-// accounts in one completion. Generated HISTORY/TOOLS use their rebuild path.
-func pinFileAccount(a *auth.RequestAuth) {
-	if a != nil && a.UseConfigToken && strings.TrimSpace(a.TargetAccount) == "" {
-		a.TargetAccount = a.AccountID
-	}
 }

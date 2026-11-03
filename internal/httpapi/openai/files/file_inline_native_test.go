@@ -37,7 +37,7 @@ func TestNativeInlineFilesUseSharedUploadAndReferences(t *testing.T) {
 			if len(uploader.uploads) != 1 || string(uploader.uploads[0].Data) != "ABCD" || uploader.uploads[0].ThinkingEnabled != thinking || uploader.uploads[0].ModelType != "default" {
 				t.Fatalf("upload mismatch: %#v", uploader.uploads)
 			}
-			if a.TargetAccount != "test-account" {
+			if a.FileAccountID != "test-account" {
 				t.Fatal("file account was not pinned")
 			}
 			refs := promptcompat.CollectOpenAIRefFileIDs(req)

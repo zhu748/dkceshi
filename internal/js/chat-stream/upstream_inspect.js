@@ -11,6 +11,10 @@ const { asString } = require('./http_internal');
 async function detectMutedOrBannedResponse(res) {
   // Keep non-JSON HTTP failures on the normal error-body path, including its
   // disconnect checks. Only JSON errors need mute/ban/business-code inspection.
+  if (Number(res?.status) === 429) {
+    try { await res.body?.cancel(); } catch (error) { console.warn('[vercel_stream_inspect] cancel failed', error.message); }
+    return { rateLimited: true, mutedUntil: 0, banned: false, response: null };
+  }
   if (!res || !res.body || (!res.ok && !/\bjson\b/i.test(asString(res.headers?.get('content-type'))))) {
     return { mutedUntil: 0, banned: false, response: res };
   }
@@ -104,11 +108,12 @@ function isBannedJSONResponse(data) {
   if (!data || typeof data !== 'object') {
     return false;
   }
+  if (/USER_IS_BANNED/i.test(asString(data.msg))) return true;
   const d = data.data;
   if (!d || typeof d !== 'object') {
     return false;
   }
-  const bizMsg = asString(d.biz_msg).toLowerCase();
+  const bizMsg = (asString(d.biz_msg) || asString(d.biz_data?.msg)).toLowerCase();
   const bizCode = Number(d.biz_code) || 0;
   return bizCode === 10 || bizMsg.includes('user_is_banned');
 }
@@ -125,7 +130,7 @@ function extractMuteUntil(data) {
   if (!d || typeof d !== 'object') {
     return 0;
   }
-  const bizMsg = asString(d.biz_msg).toLowerCase();
+  const bizMsg = (asString(d.biz_msg) || asString(d.biz_data?.msg)).toLowerCase();
   const bizCode = Number(d.biz_code) || 0;
   if (bizCode !== 5 && bizCode !== 14 && !bizMsg.includes('muted')) {
     return 0;
@@ -136,10 +141,10 @@ function extractMuteUntil(data) {
   }
   const bizData = d.biz_data;
   if (!bizData || typeof bizData !== 'object') {
-    return 0;
+    return Math.floor(Date.now() / 1000) + 600;
   }
   const muteUntil = Number(bizData.mute_until);
-  return Number.isFinite(muteUntil) && muteUntil > 0 ? muteUntil : 0;
+  return Number.isFinite(muteUntil) && muteUntil > 0 ? muteUntil : Math.floor(Date.now() / 1000) + 600;
 }
 
 module.exports = { detectMutedOrBannedResponse };

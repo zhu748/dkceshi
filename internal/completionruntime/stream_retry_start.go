@@ -27,22 +27,14 @@ func startPayloadCompletionOnAlternateAccount(ctx context.Context, ds DeepSeekCa
 }
 
 func startPayloadCompletionOnce(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, payload map[string]any, opts StreamRetryOptions, maxAttempts int) (StartResult, *assistantturn.OutputError) {
-	if segments := shouldSegmentExpertPrompt(opts.Request, Options{ExpertPromptSegment: opts.ExpertPromptSegment}); segments != nil {
-		return StartCompletionWithSegments(ctx, ds, a, opts.Request, Options{
+	if opts.Request.FinalPrompt != "" || opts.Request.ReplayInput != nil || opts.Request.CurrentInputFileApplied {
+		return startStandardCompletionOnAlternateAccount(ctx, ds, a, opts.Request, Options{
 			MaxAttempts:         maxAttempts,
 			RetryEnabled:        opts.RetryEnabled,
 			RetryMaxAttempts:    opts.RetryMaxAttempts,
 			CurrentInputFile:    opts.CurrentInputFile,
 			ExpertPromptSegment: opts.ExpertPromptSegment,
-		}, segments)
-	}
-	request := opts.Request
-	if opts.CurrentInputFile != nil && request.CurrentInputFileApplied {
-		var prepErr *assistantturn.OutputError
-		request, prepErr = reuploadCurrentInputFileForAccount(ctx, ds, a, request, Options{CurrentInputFile: opts.CurrentInputFile})
-		if prepErr != nil {
-			return StartResult{}, prepErr
-		}
+		}, maxAttempts)
 	}
 	defer pinCompletionAccount(a)()
 	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
@@ -54,9 +46,6 @@ func startPayloadCompletionOnce(ctx context.Context, ds DeepSeekCaller, a *auth.
 		return StartResult{SessionID: sessionID}, powOutputError(a, err)
 	}
 	nextPayload := clonePayload(payload)
-	if request.CurrentInputFileApplied {
-		nextPayload = request.CompletionPayload(sessionID)
-	}
 	nextPayload["chat_session_id"] = sessionID
 	delete(nextPayload, "parent_message_id")
 	resp, err := ds.CallCompletion(ctx, a, nextPayload, pow, maxAttempts)

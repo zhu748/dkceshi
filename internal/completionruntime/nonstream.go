@@ -107,21 +107,28 @@ func startCompletionForRequest(ctx context.Context, ds DeepSeekCaller, a *auth.R
 // 与非流式链路一致：账号级鉴权失败（401）先刷新 Token 再换号重试，
 // 避免把错误直接透传给客户端（Vercel 流式镜像同样受弹性号池保护）。
 func PrepareCompletionPayload(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options, maxAttempts int) (sessionID, pow string, payload map[string]any, outErr *assistantturn.OutputError) {
+	start, outErr := PrepareStandardCompletionPayload(ctx, ds, a, stdReq, opts, maxAttempts)
+	return start.SessionID, start.Pow, start.Payload, outErr
+}
+
+// PrepareStandardCompletionPayload also returns rebuilt input so leases and
+// future retries retain the same file owner and prompt as the prepared payload.
+func PrepareStandardCompletionPayload(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options, maxAttempts int) (StartResult, *assistantturn.OutputError) {
 	if maxAttempts <= 0 {
 		maxAttempts = 3
 	}
 	var attempted bool
-	sessionID, pow, payload, outErr = prepareCompletionPayloadOnce(ctx, ds, a, stdReq, opts, maxAttempts, false)
+	start, outErr := prepareCompletionPayloadOnce(ctx, ds, a, stdReq, opts, maxAttempts, false)
 	for outErr != nil && canRetryOnAlternateAccount(ctx, a, outErr, true, &attempted) {
 		config.Logger.Info("[completion_runtime_account_switch_retry] retrying payload prepare after account failure",
 			"surface", stdReq.Surface, "account", a.AccountID, "status", outErr.Status, "error_code", outErr.Code)
 		// 换号后当前输入文件必须为新账号重新上传（file_id 是账号级的）。
-		sessionID, pow, payload, outErr = prepareCompletionPayloadOnce(ctx, ds, a, stdReq, opts, maxAttempts, true)
+		start, outErr = prepareCompletionPayloadOnce(ctx, ds, a, stdReq, opts, maxAttempts, true)
 	}
-	return sessionID, pow, payload, outErr
+	return start, outErr
 }
 
-func prepareCompletionPayloadOnce(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options, maxAttempts int, retry bool) (sessionID, pow string, payload map[string]any, outErr *assistantturn.OutputError) {
+func prepareCompletionPayloadOnce(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options, maxAttempts int, retry bool) (StartResult, *assistantturn.OutputError) {
 	var prepErr *assistantturn.OutputError
 	if retry {
 		stdReq, prepErr = reuploadCurrentInputFileForAccount(ctx, ds, a, stdReq, opts)
@@ -129,26 +136,25 @@ func prepareCompletionPayloadOnce(ctx context.Context, ds DeepSeekCaller, a *aut
 		stdReq, prepErr = prepareCurrentInputFile(ctx, ds, a, stdReq, opts)
 	}
 	if prepErr != nil {
-		return "", "", nil, prepErr
+		return StartResult{Request: stdReq}, prepErr
 	}
 	defer pinCompletionAccount(a)()
-	var err error
-	sessionID, err = ds.CreateSession(ctx, a, maxAttempts)
+	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
 	if err != nil {
-		return "", "", nil, sessionOutputError(a, err)
+		return StartResult{Request: stdReq}, sessionOutputError(a, err)
 	}
 	if segments := shouldSegmentExpertPrompt(stdReq, opts); len(segments) > 1 {
 		finalPow, finalPayload, segErr := fireSegmentPayloads(ctx, ds, a, stdReq, sessionID, segments, maxAttempts)
 		if segErr != nil {
-			return sessionID, "", nil, segErr
+			return StartResult{SessionID: sessionID, Request: stdReq}, segErr
 		}
-		return sessionID, finalPow, finalPayload, nil
+		return StartResult{SessionID: sessionID, Pow: finalPow, Payload: finalPayload, Request: stdReq}, nil
 	}
-	pow, err = ds.GetPow(ctx, a, maxAttempts)
+	pow, err := ds.GetPow(ctx, a, maxAttempts)
 	if err != nil {
-		return sessionID, "", nil, powOutputError(a, err)
+		return StartResult{SessionID: sessionID, Request: stdReq}, powOutputError(a, err)
 	}
-	return sessionID, pow, stdReq.CompletionPayload(sessionID), nil
+	return StartResult{SessionID: sessionID, Pow: pow, Payload: stdReq.CompletionPayload(sessionID), Request: stdReq}, nil
 }
 
 func startCompletionOnce(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options) (StartResult, *assistantturn.OutputError) {
@@ -179,9 +185,6 @@ func startCompletionOnce(ctx context.Context, ds DeepSeekCaller, a *auth.Request
 }
 
 func prepareCurrentInputFile(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options) (promptcompat.StandardRequest, *assistantturn.OutputError) {
-	if opts.CurrentInputFile == nil || stdReq.CurrentInputFileApplied {
-		return stdReq, nil
-	}
 	out, err := (contextfile.Service{Store: opts.CurrentInputFile, DS: ds}).ApplyCurrentInputFile(ctx, a, stdReq)
 	if err != nil {
 		return out, currentInputFileOutputError(err)
@@ -268,6 +271,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					payload = switched.Payload
 					pow = switched.Pow
 					currentResp = switched.Response
+					stdReq = switched.Request
 					usagePrompt = stdReq.PromptTokenText
 					accumulatedThinking = ""
 					accumulatedRawThinking = ""
@@ -314,6 +318,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					payload = switched.Payload
 					pow = switched.Pow
 					currentResp = switched.Response
+					stdReq = switched.Request
 					usagePrompt = stdReq.PromptTokenText
 					accumulatedThinking = ""
 					accumulatedRawThinking = ""
@@ -338,15 +343,17 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		diagnosticRetry(ctx, a, "regeneration", turn.Error)
 		parentMessageID := retryParentMessageID(turn.ResponseMessageID, payload)
 		config.Logger.Info("[completion_runtime_empty_retry] attempting synthetic retry", "surface", stdReq.Surface, "stream", false, "retry_attempt", attempts, "parent_message_id", parentMessageID)
-		retryPow, powErr := ds.GetPow(ctx, a, maxAttempts)
-		if powErr != nil {
-			config.Logger.Warn("[completion_runtime_empty_retry] retry PoW fetch failed, falling back to original PoW", "surface", stdReq.Surface, "retry_attempt", attempts, "error", powErr)
-			retryPow = pow
-		}
+		retryPow, callErr := retryPowForAccount(ctx, ds, a, pow, maxAttempts)
 		retryPayload := ClonePayloadForOutputRetry(payload, parentMessageID, turn.Error, ToolRetrySource(turn.RawText, turn.DetectionThinking))
-		nextResp, err := ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
-		if err != nil {
-			callErr := completionCallOutputError(ctx, err)
+		var nextResp *http.Response
+		if callErr == nil {
+			var err error
+			nextResp, err = ds.CallCompletion(ctx, a, retryPayload, retryPow, maxAttempts)
+			if err != nil {
+				callErr = completionCallOutputError(ctx, err)
+			}
+		}
+		if callErr != nil {
 			if canRetryOnAlternateAccount(ctx, a, callErr, opts.RetryEnabled, &accountSwitchAttempted) {
 				switched, switchErr := startStandardCompletionOnAlternateAccount(ctx, ds, a, stdReq, opts, maxAttempts)
 				if switchErr != nil {
@@ -359,6 +366,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					payload = switched.Payload
 					pow = switched.Pow
 					currentResp = switched.Response
+					stdReq = switched.Request
 					usagePrompt = stdReq.PromptTokenText
 					accumulatedThinking = ""
 					accumulatedRawThinking = ""
@@ -457,34 +465,16 @@ func isAccountMuted(outErr *assistantturn.OutputError) bool {
 }
 
 func startStandardCompletionOnAlternateAccount(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options, maxAttempts int) (StartResult, *assistantturn.OutputError) {
-	if segments := shouldSegmentExpertPrompt(stdReq, opts); segments != nil {
-		return StartCompletionWithSegments(ctx, ds, a, stdReq, opts, segments)
-	}
 	var prepErr *assistantturn.OutputError
 	stdReq, prepErr = reuploadCurrentInputFileForAccount(ctx, ds, a, stdReq, opts)
 	if prepErr != nil {
 		return StartResult{Request: stdReq}, prepErr
 	}
-	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
-	if err != nil {
-		return StartResult{}, sessionOutputError(a, err)
-	}
-	pow, err := ds.GetPow(ctx, a, maxAttempts)
-	if err != nil {
-		return StartResult{SessionID: sessionID}, powOutputError(a, err)
-	}
-	payload := stdReq.CompletionPayload(sessionID)
-	resp, err := ds.CallCompletion(ctx, a, payload, pow, maxAttempts)
-	if err != nil {
-		return StartResult{SessionID: sessionID, Payload: payload, Pow: pow}, completionCallOutputError(ctx, err)
-	}
-	return StartResult{SessionID: sessionID, Payload: payload, Pow: pow, Response: resp, Request: stdReq}, nil
+	opts.MaxAttempts = maxAttempts
+	return startCompletionForRequest(ctx, ds, a, stdReq, opts)
 }
 
 func reuploadCurrentInputFileForAccount(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options) (promptcompat.StandardRequest, *assistantturn.OutputError) {
-	if opts.CurrentInputFile == nil || !stdReq.CurrentInputFileApplied {
-		return stdReq, nil
-	}
 	out, err := (contextfile.Service{Store: opts.CurrentInputFile, DS: ds}).ReuploadAppliedCurrentInputFile(ctx, a, stdReq)
 	if err != nil {
 		return out, currentInputFileOutputError(err)

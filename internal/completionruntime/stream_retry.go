@@ -115,6 +115,10 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 	}
 	adopt := func(start StartResult) {
 		currentResp, currentPayload, pow = start.Response, start.Payload, start.Pow
+		if start.Request.FinalPrompt != "" {
+			opts.Request = start.Request
+			opts.UsagePrompt = start.Request.PromptTokenText
+		}
 		usagePrompt = opts.UsagePrompt
 		reset()
 		if hooks.OnAccountSwitch != nil {
@@ -202,10 +206,13 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			parentMessageID = hooks.ParentMessageID()
 		}
 		parentMessageID = retryParentMessageID(parentMessageID, currentPayload)
-		retryPow, powErr := ds.GetPow(ctx, a, maxAttempts)
+		retryPow, powErr := retryPowForAccount(ctx, ds, a, pow, maxAttempts)
 		if powErr != nil {
-			config.Logger.Warn("[completion_runtime_retry] PoW fetch failed, reusing original", "surface", surface, "error", powErr)
-			retryPow = pow
+			if !result.ResumeContinue && switchAccount(powErr) {
+				continue
+			}
+			fail(powErr)
+			return
 		}
 		if result.ResumeContinue {
 			sessionID, _ := currentPayload["chat_session_id"].(string)

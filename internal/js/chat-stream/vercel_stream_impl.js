@@ -67,7 +67,8 @@ const {
 } = require('./stream_continue');
 const { upstreamEmptyOutputDetail } = require('./stream_failure');
 const { createStreamReport } = require('./stream_report');
-const { detectMutedOrBannedResponse } = require('./upstream_inspect');
+const { fetchAccountCompletion } = require('./completion_account_retry');
+const { powAccountFailure } = require('./pow_account_failure');
 
 const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
 const DEEPSEEK_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
@@ -97,7 +98,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let deepseekToken = asString(prep.body.deepseek_token);
     const initialPowHeader = asString(prep.body.pow_header);
     let completionPayload = prep.body.payload && typeof prep.body.payload === 'object' ? prep.body.payload : null;
-    const finalPrompt = asString(prep.body.final_prompt);
+    let finalPrompt = asString(prep.body.final_prompt);
+    let streamStarted = false;
     const thinkingEnabled = toBool(prep.body.thinking_enabled);
     const toolPolicy = resolveToolcallPolicy(prep.body, payload.tools);
     const toolNames = toolPolicy.toolNames;
@@ -120,7 +122,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     };
 
     let currentPowHeader = initialPowHeader;
+    let lastPowFailure = null;
     const refreshPowHeader = async (roundType) => {
+      lastPowFailure = null;
       if (lifecycle.closed) return '';
       try {
         const pow = await fetchStreamPow(req, leaseID, lifecycle.signal, watch.deadline);
@@ -130,6 +134,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           currentPowHeader = nextPowHeader;
           return currentPowHeader;
         }
+        lastPowFailure = powAccountFailure(pow);
+        if (lastPowFailure) return '';
         console.warn('[vercel_stream_pow] refresh failed, reusing previous PoW', {
           round_type: roundType,
           status: pow.status || 0,
@@ -173,7 +179,24 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         throw err;
       }
     };
-    const fetchCompletion = (bodyPayload) => fetchDeepSeekStream(DEEPSEEK_COMPLETION_URL, bodyPayload, currentPowHeader);
+    const fetchCompletion = (bodyPayload) => fetchAccountCompletion(bodyPayload, {
+      fetch: (body) => fetchDeepSeekStream(DEEPSEEK_COMPLETION_URL, body, currentPowHeader),
+      closed: () => lifecycle.closed,
+      canSwitch: () => !streamStarted || !answerDelivered,
+      switch: (options) => switchAccount(options),
+      adopt: (switched) => {
+        applySwitchedPayload(switched);
+        if (streamStarted) { usagePrompt = finalPrompt; resetForRegeneration(); }
+      },
+      fail: async (failure) => {
+        leaseCompletion = { finish_reason: 'error', error: failure.message, error_code: failure.code };
+        if (streamStarted) {
+          sendFailedChunk(res, failure.status, failure.message, failure.code);
+          if (!res.writableEnded && !res.destroyed) res.end();
+        } else writeOpenAIErrorWithCode(res, failure.status, failure.message, failure.code);
+        await releaseLease();
+      },
+    });
     let activeDeepSeekSessionID = responseID;
     const fetchContinue = async (messageID) => {
       try {
@@ -191,6 +214,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     // / session 应用到当前流式请求，供首包与重试阶段的临时上游故障切号复用。
     const applySwitchedPayload = (switched) => {
       completionPayload = switched.body.payload;
+      finalPrompt = asString(switched.body.final_prompt) || finalPrompt;
       deepseekToken = asString(switched.body.deepseek_token) || deepseekToken;
       currentPowHeader = asString(switched.body.pow_header) || currentPowHeader;
       activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
@@ -211,51 +235,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     }
     if (lifecycle.closed) {
       return;
-    }
-
-    // 当 DeepSeek 返回封号/停用 JSON（HTTP 200 + JSON body）时，持久化状态并
-    // 切换账号。循环切换直到拿到健康的 SSE 流，或没有更多可调度账号；每次切换
-    // 都会让 Go 侧持久化状态并触发弹性号池补位，因此全程无需人工干预。
-    let accountSwitchCount = 0;
-    while (true) {
-      if (lifecycle.closed) return;
-      const detection = await detectMutedOrBannedResponse(completionRes);
-      if (lifecycle.closed) return;
-      if (detection.response) {
-        completionRes = detection.response;
-        break;
-      }
-      if (!detection.rateLimited && !detection.banned && !(detection.mutedUntil > 0)) {
-        // JSON body 但既非封号也非禁言：无可切换依据，交给下游按空输出处理。
-        break;
-      }
-      accountSwitchCount += 1;
-      const switchOptions = detection.rateLimited ? { rate_limited: true } : detection.banned
-        ? { banned: true, banned_reason: '账户已被停用' }
-        : { mute_until: detection.mutedUntil };
-      const switched = await switchAccount(switchOptions);
-      if (!switched) return;
-      if (!(switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object')) {
-        await releaseLease();
-        if (detection.banned) {
-          writeOpenAIErrorWithCode(res, 403, 'Account is banned by upstream.', 'account_banned');
-        } else {
-          writeOpenAIErrorWithCode(res, detection.rateLimited ? 429 : 403, detection.rateLimited ? 'Upstream requests are rate limited.' : 'Account is muted by upstream.', detection.rateLimited ? 'rate_limit_exceeded' : 'account_muted');
-        }
-        return;
-      }
-      console.warn('[vercel_stream_account_switch] retrying on alternate account after upstream mute/ban', {
-        switch_count: accountSwitchCount,
-        reason: detection.banned ? 'banned' : 'muted',
-      });
-      applySwitchedPayload(switched);
-      completionRes = await fetchCompletion(completionPayload);
-      if (completionRes === null) {
-        return;
-      }
-      if (lifecycle.closed) {
-        return;
-      }
     }
 
     if (!completionRes.ok || !completionRes.body) {
@@ -306,6 +285,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       res.flushHeaders();
     }
 
+    streamStarted = true;
     stopHeartbeat = startHeartbeat(res);
     const created = Math.floor(Date.now() / 1000);
     let currentType = thinkingEnabled ? 'thinking' : 'text';
@@ -861,13 +841,23 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       usagePrompt = usagePromptWithRetryPayload(usagePrompt, retryPayload);
       const retryPowHeader = await refreshPowHeader('retry');
       if (!retryPowHeader) {
+        if (lastPowFailure && !lifecycle.closed) {
+          const switched = await switchAccount(lastPowFailure.options);
+          if (switched?.ok && switched.body?.payload) {
+            applySwitchedPayload(switched);
+            usagePrompt = finalPrompt;
+            resetForRegeneration();
+            completionRes = await fetchCompletion(completionPayload);
+            if (completionRes) continue;
+          } else {
+            lastEmptyDetail = lastPowFailure;
+            await finish('stop');
+          }
+        }
         return;
       }
-      completionRes = await fetchDeepSeekStream(
-        DEEPSEEK_COMPLETION_URL,
-        retryPayload,
-        retryPowHeader,
-      );
+      currentPowHeader = retryPowHeader;
+      completionRes = await fetchCompletion(retryPayload);
       if (completionRes === null) {
         return;
       }

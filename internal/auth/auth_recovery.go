@@ -46,7 +46,9 @@ func (r *Resolver) RecoverAuthFailure(ctx context.Context, a *RequestAuth) AuthR
 		// 刷新本身成功过，新 Token 仍被上游拒绝，说明账号已不可用。刷新失败的原因
 		// （登录被上游拒绝 / 网络抖动）已在 RefreshTokenErr 内按错误类型判定并
 		// 计数，这里不能重复计。
-		r.MarkAuthFailure(a, authRefreshStillRejectedReason)
+		if !a.authFailedAccounts[a.AccountID] {
+			r.MarkAuthFailure(a, authRefreshStillRejectedReason)
+		}
 	} else if r.RefreshTokenOnce(ctx, a) {
 		return AuthRecoveryRefreshed
 	}

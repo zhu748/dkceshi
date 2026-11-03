@@ -83,7 +83,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	imageRoute.RestoreModelName(&stdReq)
+	stdReq = h.withInputReplay(stdReq, a, req, requestTraceID(r), imageRoute)
 	if !stdReq.Stream {
 		writeOpenAIError(w, http.StatusBadRequest, "stream must be true")
 		return
@@ -94,7 +94,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	sessionID, powHeader, payload, outErr := completionruntime.PrepareCompletionPayload(r.Context(), h.DS, a, stdReq, completionruntime.Options{
+	prepared, outErr := completionruntime.PrepareStandardCompletionPayload(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		CurrentInputFile:    h.Store,
 		ExpertPromptSegment: h.Store,
 	}, 3)
@@ -102,6 +102,8 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		writeOpenAIError(w, outErr.Status, outErr.Message)
 		return
 	}
+	stdReq = prepared.Request
+	sessionID, powHeader, payload := prepared.SessionID, prepared.Pow, prepared.Payload
 	if strings.TrimSpace(a.DeepSeekToken) == "" {
 		writeOpenAIError(w, http.StatusUnauthorized, "Invalid token. If this should be a DS2API key, add it to config.keys first.")
 		return
@@ -203,9 +205,9 @@ func (h *Handler) handleVercelStreamPow(w http.ResponseWriter, r *http.Request) 
 		writeOpenAIError(w, http.StatusNotFound, "stream lease not found or expired")
 		return
 	}
-	powHeader, err := h.DS.GetPow(r.Context(), leaseAuth, 3)
-	if err != nil {
-		writeOpenAIError(w, http.StatusInternalServerError, "Failed to get PoW.")
+	powHeader, outErr := completionruntime.GetSessionPow(r.Context(), h.DS, leaseAuth, 3)
+	if outErr != nil {
+		writeOpenAIErrorWithCode(w, outErr.Status, outErr.Message, outErr.Code)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -314,7 +316,7 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	sessionID, powHeader, payload, outErr := completionruntime.PrepareCompletionPayload(r.Context(), h.DS, a, stdReq, completionruntime.Options{
+	prepared, outErr := completionruntime.PrepareStandardCompletionPayload(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		CurrentInputFile:    h.Store,
 		ExpertPromptSegment: h.Store,
 	}, 3)
@@ -322,6 +324,8 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 		writeOpenAIError(w, outErr.Status, outErr.Message)
 		return
 	}
+	stdReq = prepared.Request
+	sessionID, powHeader, payload := prepared.SessionID, prepared.Pow, prepared.Payload
 	if strings.TrimSpace(a.DeepSeekToken) == "" {
 		writeOpenAIError(w, http.StatusUnauthorized, "Account token is invalid. Please re-login the account in admin.")
 		return

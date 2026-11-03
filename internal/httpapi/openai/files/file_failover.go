@@ -18,11 +18,22 @@ func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[str
 	if a != nil {
 		originalTarget = a.TargetAccount
 	}
-	canMove := originalTarget == "" && len(promptcompat.CollectOpenAIRefFileIDs(req)) == 0
+	canMove := a.ManagedPool() && originalTarget == "" && !a.AccountPinned() && len(promptcompat.CollectOpenAIRefFileIDs(req)) == 0
 	for {
 		working := cloneFileInput(req).(map[string]any)
 		err := preprocessInlineFilesOnce(ctx, a, working, uploader, model, thinking)
 		if err == nil {
+			if len(promptcompat.CollectOpenAIRefFileIDs(working)) > 0 && a != nil && a.UseConfigToken {
+				if canMove {
+					working[replaySnapshotKey] = &inlineReplaySnapshot{source: req, uploader: uploader, model: model, thinking: thinking, owner: a.AccountID}
+				} else {
+					a.FileAccountID = a.AccountID
+				}
+			}
+			// Keep a separate container for source data before replacing req.
+			if replay, ok := working[replaySnapshotKey].(*inlineReplaySnapshot); ok {
+				replay.source = cloneFileInput(req).(map[string]any)
+			}
 			for k := range req {
 				delete(req, k)
 			}
@@ -34,7 +45,6 @@ func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[str
 		if !canMove || !a.ManagedPool() {
 			return err
 		}
-		a.TargetAccount = originalTarget
 		if !dsclient.RetryAccountFailure(ctx, a, err) {
 			return err
 		}
@@ -61,14 +71,13 @@ func cloneFileInput(value any) any {
 }
 
 func uploadStandaloneFile(ctx context.Context, a *auth.RequestAuth, uploader FileUploader, req dsclient.UploadFileRequest) (*dsclient.UploadFileResult, error) {
-	originalTarget := a.TargetAccount
 	for {
-		pinFileAccount(a)
+		release := a.PinAccount()
 		file, err := uploader.UploadFile(ctx, a, req, 3)
-		if err == nil || originalTarget != "" || !a.ManagedPool() {
+		release()
+		if err == nil || a.AccountPinned() || !a.ManagedPool() {
 			return file, err
 		}
-		a.TargetAccount = originalTarget
 		if !dsclient.RetryAccountFailure(ctx, a, err) {
 			return nil, err
 		}

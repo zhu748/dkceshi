@@ -106,6 +106,7 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 	// 与 OpenAI 出口保持一致：usage 按实际发送的 prompt 计数，
 	// 包括思考注入和 input_file 续写对 prompt 的改写。
 	stdReq.PromptTokenText = stdReq.FinalPrompt
+	stdReq = h.withInputReplay(stdReq, a, req, routeModel, stream)
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
 		h.writePreparationError(w, r, a, stdReq, err, startedAt, false)

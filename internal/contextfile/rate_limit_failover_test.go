@@ -23,7 +23,7 @@ type failoverContextUploader struct {
 }
 
 func (u *failoverContextUploader) UploadFile(_ context.Context, a *auth.RequestAuth, req dsclient.UploadFileRequest, _ int) (*dsclient.UploadFileResult, error) {
-	if a.TargetAccount != a.AccountID {
+	if !a.AccountPinned() {
 		return nil, fmt.Errorf("context upload was not pinned")
 	}
 	u.owners = append(u.owners, a.AccountID)

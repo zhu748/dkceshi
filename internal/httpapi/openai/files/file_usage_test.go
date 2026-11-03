@@ -33,7 +33,7 @@ func (u *usageFileUploader) UploadFilePending(context.Context, *auth.RequestAuth
 func (u *usageFileUploader) FetchUploadedFiles(_ context.Context, a *auth.RequestAuth, ids []string) ([]*dsclient.UploadFileResult, error) {
 	u.fetches++
 	u.fetchedIDs = append([]string(nil), ids...)
-	if a.TargetAccount != a.AccountID {
+	if !a.AccountPinned() {
 		return nil, errors.New("file owner not pinned")
 	}
 	if u.fetchErr != nil {
