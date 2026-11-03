@@ -192,6 +192,10 @@ func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
 	out := map[string]any{
 		"role": "assistant",
 	}
+	if call, ok := m["function_call"].(map[string]any); ok {
+		out["function_call"] = call
+		out["id"] = m["id"]
+	}
 	if toolCalls, ok := m["tool_calls"].([]any); ok && len(toolCalls) > 0 {
 		out["tool_calls"] = toolCalls
 	}
@@ -207,7 +211,7 @@ func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
 	if reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(m["reasoning_content"])); reasoning != "" {
 		out["reasoning_content"] = m["reasoning_content"]
 	}
-	if _, hasToolCalls := out["tool_calls"]; hasToolCalls || out["content"] != nil || out["reasoning_content"] != nil {
+	if _, hasToolCalls := out["tool_calls"]; hasToolCalls || out["function_call"] != nil || out["content"] != nil || out["reasoning_content"] != nil {
 		return out
 	}
 	return nil

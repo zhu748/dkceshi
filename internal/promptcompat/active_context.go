@@ -12,6 +12,7 @@ func hasMessageToolCalls(msg map[string]any) bool {
 // are repeated in the live context, in order, as the effective instruction set.
 // A leading system prompt alone is not history worth uploading.
 func SplitActiveContext(messages []any) (history, live []any) {
+	messages = NormalizeLegacyToolHistory(messages)
 	cut := -1
 	for i := len(messages) - 1; i >= 0; i-- {
 		m, ok := messages[i].(map[string]any)
@@ -32,27 +33,13 @@ func SplitActiveContext(messages []any) (history, live []any) {
 	}
 	// An active tool result may reference a call before the newest user message.
 	// Move the boundary back until all such dependencies remain together.
-	callIndex := map[string]int{}
-	for i, raw := range messages {
-		m, _ := raw.(map[string]any)
-		calls, _ := m["tool_calls"].([]any)
-		for _, rawCall := range calls {
-			c, _ := rawCall.(map[string]any)
-			if id := asString(c["id"]); id != "" {
-				callIndex[id] = i
-			}
-		}
+	dependencies, err := toolHistoryDependencies(messages)
+	if err != nil {
+		return nil, messages
 	}
-	for {
-		start := cut
-		for _, raw := range messages[cut:] {
-			m, _ := raw.(map[string]any)
-			if i, ok := callIndex[asString(m["tool_call_id"])]; ok && i < cut {
-				cut = i
-			}
-		}
-		if start == cut {
-			break
+	for i := len(messages) - 1; i >= cut; i-- {
+		if callIndex, ok := dependencies[i]; ok && callIndex < cut {
+			cut = callIndex
 		}
 	}
 	hasHistory := false

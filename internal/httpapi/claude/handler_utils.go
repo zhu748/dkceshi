@@ -194,9 +194,9 @@ func normalizeClaudeToolResultContent(content any) any {
 	}
 	payload := map[string]any{
 		"type":    "tool_result",
-		"content": content,
+		"content": preserveClaudeToolResultContent(content),
 	}
-	b, err := json.Marshal(sanitizeClaudeBlockForPrompt(payload))
+	b, err := json.Marshal(payload)
 	if err != nil {
 		return strings.TrimSpace(fmt.Sprintf("%v", content))
 	}

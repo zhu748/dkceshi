@@ -1,3 +1,5 @@
+import { isCurrentContinuation, isSerializedHistory, parseSerializedHistory } from './serializedHistory.js'
+
 export const LIMIT_OPTIONS = [0, 10, 20, 50]
 export const DISABLED_LIMIT = 0
 export const MESSAGE_COLLAPSE_AT = 700
@@ -23,12 +25,12 @@ function isCurrentInputFilePrompt(value) {
     return text === CURRENT_INPUT_FILE_PROMPT
         || text === CURRENT_INPUT_FILE_PROMPT_WITH_TOOLS
         || LEGACY_CURRENT_INPUT_FILE_PROMPTS.has(text)
+        || isCurrentContinuation(text)
 }
 
 function normalizeHistoryRole(role) {
     const normalized = String(role || '').trim().toLowerCase()
     if (normalized === 'function') return 'tool'
-    if (normalized === 'developer') return 'system'
     if (normalized === 'system' || normalized === 'user' || normalized === 'assistant' || normalized === 'tool') {
         return normalized
     }
@@ -139,7 +141,7 @@ function findNextMarker(text, start) {
 
 export function parseStrictHistoryMessages(historyText) {
     const rawText = String(historyText || '')
-    if (!rawText) return null
+    if (!/^(System|User|Assistant|Tool)/.test(rawText)) return null
 
     const parsed = []
     let cursor = 0
@@ -205,6 +207,7 @@ export function parseStrictHistoryMessages(historyText) {
 
 export function parseTranscriptHistoryMessages(historyText) {
     const rawText = String(historyText || '')
+    if (isSerializedHistory(rawText)) return parseSerializedHistory(rawText)
     const titleIndex = rawText.indexOf(HISTORY_TRANSCRIPT_TITLE)
     const transcript = titleIndex >= 0 ? rawText.slice(titleIndex) : rawText
     const matches = [...transcript.matchAll(HISTORY_TRANSCRIPT_ENTRY_RE)]
@@ -226,6 +229,8 @@ export function parseTranscriptHistoryMessages(historyText) {
 }
 
 export function parseHistoryMessages(historyText) {
+    const text = String(historyText || '')
+    if (isSerializedHistory(text) || text.includes(HISTORY_TRANSCRIPT_TITLE)) return parseTranscriptHistoryMessages(text)
     return parseStrictHistoryMessages(historyText) || parseTranscriptHistoryMessages(historyText)
 }
 

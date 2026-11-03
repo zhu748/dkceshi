@@ -2,9 +2,9 @@ package contextfile
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
@@ -36,209 +36,97 @@ type Service struct {
 }
 
 func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
-	// 经过最新实测，deepseek网页端不再限制单次输入长度。此功能已不再需要。因此默认关闭。
 	if stdReq.CurrentInputFileApplied || s.DS == nil || s.Store == nil || a == nil || !s.Store.CurrentInputFileEnabled() {
 		return stdReq, nil
 	}
 	if modelType, ok := config.GetModelType(stdReq.ResolvedModel); ok && modelType == "expert" {
 		return stdReq, nil
 	}
-	if stdReq.ToolMarker == "" && a != nil && a.ToolMarker != "" {
-		stdReq.ToolMarker = a.ToolMarker
-	}
-	threshold := s.Store.CurrentInputFileMinChars()
-	// The threshold is measured against the whole finalized prompt (all role
-	// markers plus tool instructions), matching the rune-count semantics used
-	// by the retired prompt segmentation path. Counting only the latest user
-	// turn ignored the bulk of the context, so long multi-turn requests never
-	// triggered the split. An empty prompt means there is nothing to split.
-	if len([]rune(stdReq.FinalPrompt)) < threshold {
+	if strings.TrimSpace(stdReq.FinalPrompt) == "" || utf8.RuneCountInString(stdReq.FinalPrompt) < s.Store.CurrentInputFileMinChars() {
 		return stdReq, nil
 	}
-	readGuard := promptcompat.ReadToolResultNeedsCacheGuard(stdReq.Messages)
-	historyMessages, activeMessages := promptcompat.SplitActiveContext(stdReq.Messages)
-	if len(historyMessages) == 0 {
-		// A first task with a tool loop must stay live. A lone long user input can
-		// still be externalized, with its location explicitly described below.
-		for _, raw := range stdReq.Messages {
-			msg, _ := raw.(map[string]any)
-			role, _ := msg["role"].(string)
-			if role == "assistant" || role == "tool" || role == "function" {
-				return stdReq, nil
-			}
-		}
-		historyMessages = stdReq.Messages
-		activeMessages = nil
-		for _, raw := range stdReq.Messages {
-			msg, _ := raw.(map[string]any)
-			role, _ := msg["role"].(string)
-			if role == "system" || role == "developer" {
-				activeMessages = append(activeMessages, raw)
-			}
-		}
+	if stdReq.ToolMarker == "" {
+		stdReq.ToolMarker = a.ToolMarker
 	}
-	// Preserve a first user turn inline when a leading instruction block is
-	// available to externalize; the instructions also remain pinned live.
-	if len(activeMessages) > 0 && len(historyMessages) == len(stdReq.Messages) {
-		historyMessages = append([]any(nil), activeMessages...)
-		activeMessages = stdReq.Messages
+	plan := planCurrentInputContext(stdReq)
+	if plan == nil {
+		return stdReq, nil
 	}
-	fileText := promptcompat.BuildOpenAICurrentInputContextTranscript(historyMessages, stdReq.ToolMarker)
-	if strings.TrimSpace(fileText) == "" {
-		return stdReq, errors.New("current user input file produced empty transcript")
+	generated := 1
+	if plan.toolsText != "" {
+		generated++
 	}
-	// Detect the "tools declared in system text" shape (no top-level `tools`
-	// array) before the original messages are replaced by the continuation
-	// user message. The tool catalog itself moves into HISTORY.txt, but the
-	// live continuation prompt still needs the EPSE format spec so the model
-	// keeps emitting tool calls in the expected format. The predicate is the
-	// request-level one, shared with the prompt builder: an exit whose tool
-	// catalog can only arrive as a top-level array (Claude) must not get the
-	// spec here either, or the live continuation prompt would demand tool calls
-	// the exit does not sieve.
-	systemDeclaredTools := stdReq.SystemTextToolsApply()
-	fileText = injectCurrentInputFileContinuation(fileText)
-	fileText = stdReq.WithThinkingInstruction(fileText)
-	toolsText, _ := promptcompat.BuildOpenAIToolsContextTranscript(stdReq.ToolsRaw, stdReq.ToolChoice)
-	modelType := "default"
-	if resolvedType, ok := config.GetModelType(stdReq.ResolvedModel); ok {
-		modelType = resolvedType
+	if len(prependUniqueRefFileIDs(stdReq.RefFileIDs))+generated > promptcompat.MaxReferenceFiles {
+		return stdReq, errContextFileReferenceLimit
 	}
-	// The uploaded context is read by the upstream model, so it must carry
-	// the same caller-specific tool marker as the live prompt; otherwise a
-	// single request would show the upstream both the shared EPSE keyword
-	// (in HISTORY.txt) and the per-key marker (in the live prompt).
-	// stdReq.HistoryText stores this rendered text so local archives and WebUI
-	// history stay synchronized with the actual uploaded payload.
-	result, err := s.DS.UploadFile(ctx, a, dsclient.UploadFileRequest{
-		Filename:        currentInputFilename,
-		ContentType:     currentInputContentType,
-		Purpose:         currentInputPurpose,
-		ModelType:       modelType,
-		ThinkingEnabled: stdReq.Thinking,
-		Data:            []byte(fileText),
-	}, 3)
+	fileID, err := s.uploadContextText(ctx, a, stdReq, currentInputFilename, plan.historyText)
 	if err != nil {
-		return stdReq, fmt.Errorf("upload current user input file: %w", err)
+		return stdReq, err
 	}
-	fileID := strings.TrimSpace(result.ID)
-	if fileID == "" {
-		return stdReq, errors.New("upload current user input file returned empty file id")
+	toolFileID, err := s.uploadContextText(ctx, a, stdReq, currentToolsFilename, plan.toolsText)
+	if err != nil {
+		return stdReq, err
 	}
-
-	toolFileID := ""
-	if strings.TrimSpace(toolsText) != "" {
-		result, err := s.DS.UploadFile(ctx, a, dsclient.UploadFileRequest{
-			Filename:        currentToolsFilename,
-			ContentType:     currentInputContentType,
-			Purpose:         currentInputPurpose,
-			ModelType:       modelType,
-			ThinkingEnabled: stdReq.Thinking,
-			Data:            []byte(toolsText),
-		}, 3)
-		if err != nil {
-			return stdReq, fmt.Errorf("upload current tools file: %w", err)
-		}
-		toolFileID = strings.TrimSpace(result.ID)
-		if toolFileID == "" {
-			return stdReq, errors.New("upload current tools file returned empty file id")
-		}
-	}
-
-	// The continuation line is injected as a system turn (rendered as
-	// `[System]:继续会话`), not as a fake user turn: attributing a synthetic
-	// placeholder to the user would misrepresent the request. When the newest
-	// turn was a real user turn it follows as an actual user message, so the
-	// prompt reads `[System]:继续会话[User]:...[Assistant]:`. Tool descriptions
-	// are merged into the leading system turn; the forced format spec keeps its
-	// own contract of landing immediately before `[Assistant]:`.
-	messages := []any{
-		map[string]any{
-			"role":    "system",
-			"content": currentInputFilePrompt(toolFileID != ""),
-		},
-	}
-	messages = append(messages, activeMessages...)
-
-	stdReq.Messages = messages
-	stdReq.HistoryText = fileText
+	stdReq.Messages = plan.messages
+	stdReq.HistoryText = plan.historyText
+	stdReq.FinalPrompt = plan.prompt
+	stdReq.ToolNames = plan.toolNames
 	stdReq.CurrentInputFileApplied = true
 	stdReq.CurrentInputFileID = fileID
 	stdReq.CurrentToolsFileID = toolFileID
 	stdReq.RefFileIDs = prependUniqueRefFileIDs(stdReq.RefFileIDs, fileID, toolFileID)
-	if systemDeclaredTools {
-		stdReq.FinalPrompt, stdReq.ToolNames = promptcompat.BuildOpenAIPromptWithForcedFormatSpec(messages, "", stdReq.ToolChoice, stdReq.Thinking, stdReq.ToolReminderConfig(), stdReq.ToolMarker)
-	} else {
-		stdReq.FinalPrompt, stdReq.ToolNames = promptcompat.BuildOpenAIPromptWithToolInstructionsOnlyWithReadGuard(messages, stdReq.ToolsRaw, "", stdReq.ToolChoice, stdReq.Thinking, readGuard, stdReq.ToolReminderConfig(), stdReq.ToolMarker)
+	parts := []string{plan.historyText}
+	if plan.toolsText != "" {
+		parts = append(parts, plan.toolsText)
 	}
-	// Token accounting must reflect the actual downstream context:
-	// uploaded context files + the continuation live prompt.
-	stdReq.FinalPrompt = stdReq.WithThinkingInstruction(stdReq.FinalPrompt)
-	tokenParts := []string{fileText}
-	if strings.TrimSpace(toolsText) != "" {
-		tokenParts = append(tokenParts, toolsText)
-	}
-	tokenParts = append(tokenParts, stdReq.FinalPrompt)
-	stdReq.PromptTokenText = strings.Join(tokenParts, "\n")
+	stdReq.PromptTokenText = strings.Join(append(parts, plan.prompt), "\n")
 	return stdReq, nil
 }
 
 func (s Service) ReuploadAppliedCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
-	if !stdReq.CurrentInputFileApplied || s.DS == nil || a == nil {
+	if !stdReq.CurrentInputFileApplied || s.DS == nil || a == nil || strings.TrimSpace(stdReq.HistoryText) == "" {
 		return stdReq, nil
 	}
-	if stdReq.ToolMarker == "" && a.ToolMarker != "" {
+	if stdReq.ToolMarker == "" {
 		stdReq.ToolMarker = a.ToolMarker
 	}
-	fileText := strings.TrimSpace(stdReq.HistoryText)
-	if fileText == "" {
-		return stdReq, nil
-	}
-	modelType := "default"
-	if resolvedType, ok := config.GetModelType(stdReq.ResolvedModel); ok {
-		modelType = resolvedType
-	}
-	result, err := s.DS.UploadFile(ctx, a, dsclient.UploadFileRequest{
-		Filename:        currentInputFilename,
-		ContentType:     currentInputContentType,
-		Purpose:         currentInputPurpose,
-		ModelType:       modelType,
-		ThinkingEnabled: stdReq.Thinking,
-		// Re-upload the exact rendered bytes for the new account.
-		Data: []byte(stdReq.HistoryText),
-	}, 3)
-	if err != nil {
-		return stdReq, fmt.Errorf("upload current user input file: %w", err)
-	}
-	fileID := strings.TrimSpace(result.ID)
-	if fileID == "" {
-		return stdReq, errors.New("upload current user input file returned empty file id")
-	}
-
 	toolsText, _ := promptcompat.BuildOpenAIToolsContextTranscript(stdReq.ToolsRaw, stdReq.ToolChoice)
-	toolFileID := ""
-	if strings.TrimSpace(toolsText) != "" {
-		result, err := s.DS.UploadFile(ctx, a, dsclient.UploadFileRequest{
-			Filename:        currentToolsFilename,
-			ContentType:     currentInputContentType,
-			Purpose:         currentInputPurpose,
-			ModelType:       modelType,
-			ThinkingEnabled: stdReq.Thinking,
-			Data:            []byte(toolsText),
-		}, 3)
-		if err != nil {
-			return stdReq, fmt.Errorf("upload current tools file: %w", err)
-		}
-		toolFileID = strings.TrimSpace(result.ID)
-		if toolFileID == "" {
-			return stdReq, errors.New("upload current tools file returned empty file id")
-		}
+	if len(stdReq.RefFileIDs) > promptcompat.MaxReferenceFiles {
+		return stdReq, errContextFileReferenceLimit
 	}
-
+	fileID, err := s.uploadContextText(ctx, a, stdReq, currentInputFilename, stdReq.HistoryText)
+	if err != nil {
+		return stdReq, err
+	}
+	toolFileID, err := s.uploadContextText(ctx, a, stdReq, currentToolsFilename, toolsText)
+	if err != nil {
+		return stdReq, err
+	}
 	stdReq.RefFileIDs = replaceGeneratedCurrentInputRefs(stdReq.RefFileIDs, stdReq.CurrentInputFileID, stdReq.CurrentToolsFileID, fileID, toolFileID)
 	stdReq.CurrentInputFileID = fileID
 	stdReq.CurrentToolsFileID = toolFileID
 	return stdReq, nil
+}
+
+func (s Service) uploadContextText(ctx context.Context, a *auth.RequestAuth, req promptcompat.StandardRequest, filename, content string) (string, error) {
+	if strings.TrimSpace(content) == "" {
+		return "", nil
+	}
+	modelType := "default"
+	if resolved, ok := config.GetModelType(req.ResolvedModel); ok {
+		modelType = resolved
+	}
+	result, err := s.DS.UploadFile(ctx, a, dsclient.UploadFileRequest{
+		Filename: filename, ContentType: currentInputContentType, Purpose: currentInputPurpose,
+		ModelType: modelType, ThinkingEnabled: req.Thinking, Data: []byte(content),
+	}, 3)
+	if err != nil {
+		return "", fmt.Errorf("upload context file %s: %w", filename, err)
+	}
+	if result == nil || strings.TrimSpace(result.ID) == "" {
+		return "", fmt.Errorf("upload context file %s returned empty file id", filename)
+	}
+	return strings.TrimSpace(result.ID), nil
 }
 
 func injectCurrentInputFileContinuation(transcript string) string {

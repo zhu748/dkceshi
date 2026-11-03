@@ -10,7 +10,6 @@ internal/config/config.go	351
 internal/config/models.go	384
 internal/config/store.go	386
 internal/config/store_accessors.go	389
-internal/contextfile/current_input_file.go	312
 internal/deepseek/client/client_auth.go	424
 internal/deepseek/client/client_continue.go	348
 internal/deepseek/client/client_file_status.go	324

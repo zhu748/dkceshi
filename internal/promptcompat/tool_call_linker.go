@@ -98,7 +98,16 @@ func (s *ToolCallLinker) Err() error { return s.err }
 // Partial histories may contain results without their original calls. Reject
 // only contradictions to calls actually present in this request.
 func ValidateToolHistory(messages []any) error {
+	_, err := toolHistoryDependencies(NormalizeLegacyToolHistory(messages))
+	return err
+}
+
+// Dependencies bind each result to its preceding call occurrence. Completed
+// IDs may be reused, so a request-wide ID -> last call index is insufficient.
+func toolHistoryDependencies(messages []any) (map[int]int, error) {
 	links := NewToolCallLinker("history")
+	indices := map[string]int{}
+	dependencies := map[int]int{}
 	for _, raw := range messages {
 		message, _ := raw.(map[string]any)
 		links.Reserve(asString(message["tool_call_id"]))
@@ -109,21 +118,25 @@ func ValidateToolHistory(messages []any) error {
 		}
 	}
 
-	for _, raw := range messages {
+	for index, raw := range messages {
 		message, _ := raw.(map[string]any)
 		calls, _ := message["tool_calls"].([]any)
 		for _, rawCall := range calls {
 			call, _ := rawCall.(map[string]any)
-			function, _ := call["function"].(map[string]any)
-			links.Call(asString(function["name"]), asString(call["id"]))
+			id := links.Call(historyToolName(call), asString(call["id"]))
+			indices[id] = index
 		}
 		role := strings.ToLower(strings.TrimSpace(asString(message["role"])))
 		if role == "tool" || role == "function" {
-			links.Result(asString(message["name"]), asString(message["tool_call_id"]))
+			id, _ := links.Result(asString(message["name"]), asString(message["tool_call_id"]))
+			if callIndex, ok := indices[id]; ok {
+				dependencies[index] = callIndex
+				delete(indices, id)
+			}
 		}
 		if links.Err() != nil {
-			return links.Err()
+			return nil, links.Err()
 		}
 	}
-	return nil
+	return dependencies, nil
 }

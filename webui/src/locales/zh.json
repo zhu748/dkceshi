@@ -487,6 +487,7 @@
       "user": "用户",
       "assistant": "助手",
       "tool": "工具",
+      "developer": "开发者",
       "system": "系统"
     }
   },

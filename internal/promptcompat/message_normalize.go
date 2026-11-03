@@ -14,6 +14,7 @@ const assistantReasoningLabel = "reasoning_content"
 // rewritten by a later whole-prompt substitution.
 func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...string) []map[string]any {
 	_ = traceID
+	raw = NormalizeLegacyToolHistory(raw)
 	marker := firstToolMarker(toolMarker)
 	out := make([]map[string]any, 0, len(raw))
 	for _, item := range raw {
@@ -122,12 +123,13 @@ func normalizeAssistantToolMarkupContentForPrompt(content, marker string) string
 		return content
 	}
 	parsed := toolcall.ParseStandaloneToolCallsDetailed(trimmed, nil)
-	if len(parsed.Calls) == 0 {
+	if len(parsed.Calls) == 0 || parsed.SawToolCallIntent || strings.TrimSpace(parsed.ResidualProtocolText) != "" {
 		return content
 	}
 	raw := make([]any, 0, len(parsed.Calls))
 	for _, call := range parsed.Calls {
 		raw = append(raw, map[string]any{
+			"id":    call.CallID,
 			"name":  call.Name,
 			"input": call.Input,
 		})

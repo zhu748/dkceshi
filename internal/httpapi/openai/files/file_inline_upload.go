@@ -18,7 +18,7 @@ import (
 	"ds2api/internal/util"
 )
 
-const maxInlineFilesPerRequest = 50
+const maxInlineFilesPerRequest = promptcompat.MaxReferenceFiles
 
 type inlineFileUploadError struct {
 	status  int

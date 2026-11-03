@@ -255,9 +255,9 @@ func normalizeCanonicalToolAttrKey(raw string) string {
 	if trimmed == "" {
 		return ""
 	}
-	if next, ok := consumeToolKeyword(trimmed, 0, "name"); ok {
-		if skipToolMarkupIgnorables(trimmed, next) == len(trimmed) {
-			return "name"
+	for _, key := range []string{"name", "call_id"} {
+		if next, ok := consumeToolKeyword(trimmed, 0, key); ok && skipToolMarkupIgnorables(trimmed, next) == len(trimmed) {
+			return key
 		}
 	}
 	return ""

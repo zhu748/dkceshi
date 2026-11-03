@@ -1,13 +1,18 @@
 package contextfile
 
 import (
+	"errors"
 	"net/http"
 
 	dsclient "ds2api/internal/deepseek/client"
 )
 
+var errContextFileReferenceLimit = errors.New("history splitting would exceed the maximum of 50 referenced files; reduce attachments or disable input_file")
+
 func MapError(err error) (int, string) {
 	switch {
+	case errors.Is(err, errContextFileReferenceLimit):
+		return http.StatusBadRequest, err.Error()
 	case dsclient.IsMutedError(err):
 		return http.StatusForbidden, "Account is muted by upstream."
 	case dsclient.IsManagedUnauthorizedError(err):

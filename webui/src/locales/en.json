@@ -487,6 +487,7 @@
       "user": "User",
       "assistant": "Assistant",
       "tool": "Tool",
+      "developer": "Developer",
       "system": "System"
     }
   },

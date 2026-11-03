@@ -1,28 +1,14 @@
 package promptcompat
 
 import (
+	"regexp"
 	"strings"
 )
 
-var readToolAbnormalMarkers = []string{
-	// Cache / unchanged markers
-	"unchanged",
-	"already available",
-	"previous context",
-	"no file body",
-	"no content",
-	"not modified",
-	"cached",
-	"no changes",
-	// Error markers
-	"error",
-	"failed",
-	"not found",
-	"does not exist",
-	"no such file",
-	"permission denied",
-	"denied",
-}
+// Only short, standalone status responses qualify for this legacy fallback.
+// Substring matching a complete source file (e.g. Go's error type) is unsafe.
+var readCacheStatus = regexp.MustCompile(`(?i)^(?:unchanged(?:[.!]|$)|file is unchanged\b|already available\b|content is already available\b|previous context\b|refer to previous context\b|no file body\b|warning: no file body\b|no content\b|file has no content\b|not modified\b|status: 304 not modified\b|cached(?:[.!]|$)|result served from cached entry\b|no changes\b|there are no changes to this file\b)`)
+var readErrorStatus = regexp.MustCompile(`(?i)^(?:error(?::|$| (?:opening|reading|loading|accessing)\b)|failed(?::|$| (?:to|opening|reading)\b)|read operation failed\b|not found\b|file not found\b|does not exist\b|(?:the specified path|file) does not exist\b|no such file\b|open [^\r\n]+: no such file\b|permission denied\b|access denied\b|denied(?:[: \t]|$))`)
 
 // ReadToolResultNeedsCacheGuard inspects raw messages and reports whether the
 // most recent tool/function result was from a read-like tool and returned an
@@ -132,16 +118,15 @@ func ReadToolResultNeedsCacheGuard(messages []any) bool {
 		contentRaw = lastToolMsg["output"]
 	}
 	contentStr := strings.TrimSpace(NormalizeOpenAIContentForPrompt(contentRaw))
+	if lastToolMsg["is_error"] == true {
+		return true
+	}
 	if contentStr == "" || contentStr == "{}" || strings.EqualFold(contentStr, "null") {
 		return true
 	}
 
-	lower := strings.ToLower(contentStr)
-	for _, marker := range readToolAbnormalMarkers {
-		if strings.Contains(lower, marker) {
-			return true
-		}
+	if len(contentStr) > 512 || strings.ContainsAny(contentStr, "\r\n") {
+		return false
 	}
-
-	return false
+	return readCacheStatus.MatchString(contentStr) || lastToolMsg["is_error"] != false && readErrorStatus.MatchString(contentStr)
 }

@@ -83,6 +83,20 @@ func (r StandardRequest) BuildPromptFromMessages(messages []any) (string, []stri
 	return finalPrompt, toolNames
 }
 
+// BuildPromptWithExternalTools keeps the same protocol boundary while moving
+// formal tool descriptions into TOOLS.txt. Syntax, policy and read guards stay
+// live; a surface that disables text catalogs must not regain them on rebuild.
+func (r StandardRequest) BuildPromptWithExternalTools(messages []any, readGuard bool) (string, []string) {
+	var text string
+	var names []string
+	if r.SystemTextToolsApply() {
+		text, names = BuildOpenAIPromptWithForcedFormatSpec(messages, "", r.ToolChoice, r.Thinking, r.ToolReminderConfig(), r.ToolMarker)
+	} else {
+		text, names = buildOpenAIPromptWithReadGuard(messages, r.ToolsRaw, "", r.ToolChoice, r.Thinking, false, readGuard, !r.SystemTextToolsDisabled, r.ToolReminderConfig(), r.ToolMarker)
+	}
+	return r.WithThinkingInstruction(text), names
+}
+
 // SystemTextToolsApply 报告本请求是否适用「system 文本声明工具」分支：出口允许该
 // 形态、请求未被强制禁用工具、没有顶层 `tools` 数组，且某条 system/developer 消息包含明确的
 // 工具目录结构。prompt 组装与该分支的续写路径（current input file 的

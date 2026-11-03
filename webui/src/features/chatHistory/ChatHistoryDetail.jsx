@@ -64,7 +64,7 @@ function RequestMessages({ item, t, messages }) {
                 const body = [message.content, Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : ''].filter(Boolean).join('\n\n')
                 const label = isUser
                     ? t('chatHistory.role.user')
-                    : (isAssistant ? t('chatHistory.role.assistant') : (isTool ? t('chatHistory.role.tool') : t('chatHistory.role.system')))
+                    : (isAssistant ? t('chatHistory.role.assistant') : (isTool ? t('chatHistory.role.tool') : t(role === 'developer' ? 'chatHistory.role.developer' : 'chatHistory.role.system')))
                 return (
                     <div key={`${role}-${index}`} className={clsx('flex gap-4', isUser && 'flex-row-reverse justify-start')}>
                         <div className={clsx(

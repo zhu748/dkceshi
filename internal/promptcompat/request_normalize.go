@@ -39,6 +39,7 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 	if strings.TrimSpace(model) == "" || len(messagesRaw) == 0 {
 		return StandardRequest{}, fmt.Errorf("request must include 'model' and 'messages'")
 	}
+	messagesRaw = NormalizeLegacyToolHistory(messagesRaw)
 	if err := ValidateToolHistory(messagesRaw); err != nil {
 		return StandardRequest{}, err
 	}
@@ -115,6 +116,7 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 	}
 
 	messagesRaw := ResponsesMessagesFromRequest(req)
+	messagesRaw = NormalizeLegacyToolHistory(messagesRaw)
 	if err := ValidateToolHistory(messagesRaw); err != nil {
 		return StandardRequest{}, err
 	}

@@ -9,6 +9,7 @@ import (
 func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 	attrs := parseXMLTagAttributes(block.Attrs)
 	name := strings.TrimSpace(html.UnescapeString(attrs["name"]))
+	callID := strings.TrimSpace(html.UnescapeString(attrs["call_id"]))
 	if name == "" {
 		return ParsedToolCall{}, false
 	}
@@ -17,7 +18,9 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 	if strings.HasPrefix(inner, "{") {
 		var payload map[string]any
 		if err := jsonvalue.Unmarshal([]byte(inner), &payload); err == nil {
-			return parseJSONToolCallEnvelope(name, payload)
+			call, ok := parseJSONToolCallEnvelope(name, payload)
+			call.CallID = callID
+			return call, ok
 		}
 	}
 
@@ -47,10 +50,10 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 		if strings.TrimSpace(inner) != "" {
 			return ParsedToolCall{}, false
 		}
-		return ParsedToolCall{Name: name, Input: map[string]any{}}, true
+		return ParsedToolCall{CallID: callID, Name: name, Input: map[string]any{}}, true
 	}
 	if len(literals) == 0 {
 		literals = nil
 	}
-	return ParsedToolCall{Name: name, Input: input, StringLiterals: literals, RecoverySteps: recovery}, true
+	return ParsedToolCall{CallID: callID, Name: name, Input: input, StringLiterals: literals, RecoverySteps: recovery}, true
 }

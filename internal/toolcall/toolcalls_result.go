@@ -1,6 +1,9 @@
 package toolcall
 
 type ParsedToolCall struct {
+	// CallID is retained for replaying text-form history. Response adapters
+	// continue allocating their own delivery IDs; model IDs are not trusted.
+	CallID         string            `json:"-"`
 	RecoverySteps  []string          `json:"-"`
 	Name           string            `json:"name"`
 	Input          map[string]any    `json:"input"`

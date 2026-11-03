@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"ds2api/internal/util"
 )
 
 const (
@@ -20,8 +22,8 @@ func formatClaudeUnknownBlockForPrompt(block map[string]any) string {
 	if raw == "" {
 		return ""
 	}
-	if len(raw) > maxClaudeRawPromptChars {
-		return raw[:maxClaudeRawPromptChars] + "...(truncated)"
+	if shortened, truncated := util.TruncateUTF8Bytes(raw, maxClaudeRawPromptChars); truncated {
+		return shortened + "...(truncated)"
 	}
 	return raw
 }
@@ -68,8 +70,8 @@ func sanitizeClaudeStringForPrompt(key, value string) string {
 	if looksLikeBinaryFieldName(key) || looksLikeBase64Payload(trimmed) {
 		return omittedBinaryMarker
 	}
-	if len(trimmed) > maxClaudeRawPromptChars {
-		return trimmed[:maxClaudeRawPromptChars] + "...(truncated)"
+	if shortened, truncated := util.TruncateUTF8Bytes(trimmed, maxClaudeRawPromptChars); truncated {
+		return shortened + "...(truncated)"
 	}
 	return trimmed
 }

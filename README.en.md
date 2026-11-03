@@ -304,8 +304,9 @@ Common fields:
 - `model_aliases`: one shared alias map for OpenAI / Claude / Gemini model names.
 - `runtime`: account concurrency, queueing, and token refresh behavior, hot-reloadable via Admin Settings.
 - `auto_delete.mode`: remote session cleanup after each request, supporting `none` / `single` / `all`.
-- `current_input_file`: the global context split/upload mode; it is enabled by default and uploads the full context as a `chat_context.txt` context file once the character threshold is reached.
-- If you turn off `current_input_file`, requests pass through directly without uploading any split context file.
+- `input_file`: context splitting is disabled by default. When enabled and the character threshold is reached, earlier context is uploaded as `HISTORY.txt` and the tool catalog as `TOOLS.txt`; the active task and tool loop remain in the live prompt according to the first-task placement rules.
+- Splitting is an input transport feature, without a token-savings requirement or automatic summarization. Client attachments and generated context files share the 50-reference limit; an over-limit split returns HTTP 400 before uploading.
+- The old `current_input_file` configuration key is ignored; migrate it to `input_file`.
 
 For the full environment variable list, see [docs/DEPLOY.en.md](docs/DEPLOY.en.md). For auth behavior, see [API.en.md](API.en.md#authentication).
 
