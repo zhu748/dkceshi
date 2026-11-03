@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -40,7 +41,12 @@ func TestRepairSettingsPersistWithoutExposingKeyAndSurviveRetentionChanges(t *te
 		t.Fatal("record cleanup deleted repair settings")
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm()&0o077 != 0 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows exposes synthetic POSIX mode bits; they do not describe ACLs.
+	// Keep persistence and key-redaction checks above on every platform.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		t.Fatal("private index permissions are too broad")
 	}
 }
