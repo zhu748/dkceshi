@@ -1,7 +1,6 @@
 package usagestats
 
 import (
-	"sort"
 	"strings"
 	"time"
 )
@@ -90,32 +89,6 @@ func (s *Store) dataChangedLocked() {
 	s.dirty = true
 }
 
-// Summary 返回按日期倒序、模型/调用方升序的累计条目。费用是记录时刻按
-// 当时单价一次估算的（含波峰倍率），不做追溯重算：调价只影响之后的请求，
-// 也避免「记录用量」开关反复切换导致的历史费用漂移。
-func (s *Store) Summary() []Entry {
-	if s == nil {
-		return []Entry{}
-	}
-	s.mu.Lock()
-
-	out := make([]Entry, 0, len(s.entries))
-	for _, entry := range s.entries {
-		out = append(out, *entry)
-	}
-	s.mu.Unlock()
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Date != out[j].Date {
-			return out[i].Date > out[j].Date
-		}
-		if out[i].Model != out[j].Model {
-			return out[i].Model < out[j].Model
-		}
-		return entryIdentityLess(out[i], out[j])
-	})
-	return out
-}
-
 // Backfill 仅在账本为空时把聊天历史里的历史请求一次性灌入，避免重复计数。
 func (s *Store) Backfill(items []BackfillItem) (bool, error) {
 	if s == nil {
@@ -161,4 +134,20 @@ func (s *Store) Backfill(items []BackfillItem) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func normalizeModel(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		return "unknown"
+	}
+	return model
+}
+
+func normalizeCallerID(callerID string) string {
+	callerID = strings.TrimSpace(callerID)
+	if callerID == "" {
+		return "unknown"
+	}
+	return callerID
 }

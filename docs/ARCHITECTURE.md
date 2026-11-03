@@ -261,3 +261,23 @@ Node 协调入口把租约 / 断开清理交给 `stream_lifecycle`，把重试�
 - `deepseek/client/client_tts*`：类型、设置 / 账号声音锁、WebSocket 消费和合成编排分别组织，接口和重试策略保持一致。
 - `deepseek/transport/h2_pool.go`：只复用已完整消费的连接；按 origin、token、安装身份和客户端代理隔离，不共享在途连接。每客户端最多 64 个空闲连接、每身份最多 2 个，空闲 90 秒关闭。
 - API 测试器的 `chatRequest.js` 持有请求身份，`chatStream.js` 读取 SSE，React hook 只负责生命周期绑定。
+
+## 用量模块职责
+
+`internal/usagestats` 保持一个 Store 和原有锁顺序，按以下职责组织：
+
+| 文件 | 职责 |
+| --- | --- |
+| `store.go` | Store 状态、初始化、生命周期 |
+| `ledger.go` / `summary.go` / `mutations.go` / `import.go` | 记账、带版本的查询快照、管理操作及导入事务 |
+| `load.go` / `legacy.go` | 账本读取、损坏文件隔离与旧格式迁移 |
+| `persistence.go` | 定时快照、revision 检查和原子落盘 |
+| `settings.go` / `settings_validation.go` / `settings_store.go` | 设置模型与默认值、校验、设置读写及副本隔离 |
+
+前端 `usageUtils.js` 负责字段转换、日期和格式化，`usageAggregation.js` 负责按日聚合及有限图表分桶，`usagePricing.js` 负责价格迁移、校验与本地缓存。`usageDashboard.js` 是纯计算层，`useUsageDashboard.js` 管理派生数据的 React 缓存，`TokenUsageContainer.jsx` 装配交互与展示。
+
+账本检查点使用紧凑 JSON，维持原有字段、版本和原子写入顺序。`summary.go` 在同一把锁下取得条目副本与版本，锁外排序；实例身份使重启后的版本与旧进程隔离。HTTP 层负责把业务版本编码成 ETag，匹配时跳过完整快照处理。
+
+`usageRecordsResource.js` 持有已接受快照的 ETag 和请求身份，处理 304、清空失效及迟到结果；Hook 负责 React 状态绑定。设置保存按弹窗和请求世代隔离，关闭、重开、切换请求来源或卸载会作废旧回调。取消只阻止旧结果更新界面，不保证撤回后端已接受的保存。
+
+工具过滤器的 `pending_literal` 只决定何时重新调用完整解析器。注释 / CDATA 按块搜索闭合符，并保留跨块边界；引用字符串继续按转义状态扫描。它不决定工具调用是否合法，Go / Node 都由最终解析与校验路径裁决。

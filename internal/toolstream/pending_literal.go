@@ -12,7 +12,8 @@ import (
 type pendingLiteral struct {
 	mode             byte
 	escaped          bool
-	tail             string
+	tail             [4]byte
+	tailLen          int
 	preview          string
 	previewAccounted int
 	previewBlocked   bool
@@ -39,36 +40,48 @@ func newPendingLiteral(raw string) *pendingLiteral {
 }
 
 func (p *pendingLiteral) feed(text string) bool {
+	if p.mode != 'q' {
+		return p.feedDelimited(text)
+	}
 	for i := 0; i < len(text); i++ {
 		ch := text[i]
-		if p.mode == 'q' {
-			if p.escaped {
-				p.escaped = false
-				continue
-			}
-			if ch == '\\' {
-				p.escaped = true
-				continue
-			}
-			if ch == '"' || ch < ' ' {
-				return true
-			}
+		if p.escaped {
+			p.escaped = false
 			continue
 		}
-		p.tail += text[i : i+1]
-		if len(p.tail) > 6 {
-			p.tail = p.tail[len(p.tail)-6:]
+		if ch == '\\' {
+			p.escaped = true
+			continue
 		}
-		if p.mode == 'c' && strings.HasSuffix(p.tail, "-->") {
+		if ch == '"' || ch < ' ' {
 			return true
 		}
-		if p.mode == 'd' {
-			for _, close := range []string{"]]>", "]]＞", "]]﹥", "]]〉"} {
-				if strings.HasSuffix(p.tail, close) {
-					return true
-				}
-			}
+	}
+	return false
+}
+
+// Search each chunk in bulk and inspect only the four-byte overlap needed by
+// a split Unicode CDATA closer. The fixed buffer never retains the chunk or
+// allocates one temporary string per body byte.
+func (p *pendingLiteral) feedDelimited(text string) bool {
+	var overlap [8]byte
+	n := copy(overlap[:], p.tail[:p.tailLen])
+	n += copy(overlap[n:], text[:min(4, len(text))])
+	boundary := string(overlap[:n])
+	closes := []string{"-->"}
+	if p.mode == 'd' {
+		closes = []string{"]]>", "]]＞", "]]﹥", "]]〉"}
+	}
+	for _, close := range closes {
+		if strings.Contains(text, close) || strings.Contains(boundary, close) {
+			return true
 		}
+	}
+	if len(text) >= len(p.tail) {
+		p.tailLen = copy(p.tail[:], text[len(text)-len(p.tail):])
+	} else {
+		p.tailLen = min(len(p.tail), n)
+		copy(p.tail[:], overlap[n-p.tailLen:n])
 	}
 	return false
 }

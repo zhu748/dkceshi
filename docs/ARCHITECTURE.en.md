@@ -267,3 +267,30 @@ The ordered HTTP/2 pool reuses fully consumed connections within the same origin
 and proxy client. Connections are checked out exclusively; a cancelled stream cannot close a sibling.
 It retains at most 64 idle connections per client, two per identity, with a 90-second idle lifetime.
 The API tester separates request ownership (`chatRequest.js`), SSE consumption (`chatStream.js`), and React lifecycle binding.
+
+## Usage module responsibilities
+
+`internal/usagestats` retains one Store and its existing lock order. `store.go` owns initialization
+and lifecycle; `ledger.go`, `summary.go`, `mutations.go` and `import.go` own accounting, versioned snapshots and mutations; `load.go`
+and `legacy.go` own loading, quarantine and migration; `persistence.go` owns periodic snapshots,
+revision checks and atomic writes. Settings models/defaults, validation and persistence live in
+`settings.go`, `settings_validation.go` and `settings_store.go` respectively.
+
+The usage UI separates conversion/date/format helpers (`usageUtils.js`), daily aggregation and
+bounded buckets (`usageAggregation.js`), pricing migration and storage (`usagePricing.js`), pure
+dashboard calculations (`usageDashboard.js`) and React memoization (`useUsageDashboard.js`).
+`TokenUsageContainer.jsx` assembles interactions and presentation.
+
+Ledger checkpoints use compact JSON with the existing schema and atomic-write ordering.
+`summary.go` copies values and their version under one lock, then sorts outside the lock. Each
+store instance has a distinct identity. The HTTP layer alone formats ETags and skips full snapshot
+work for matching conditional requests. `usageRecordsResource.js` owns accepted validators, request
+identity, 304 handling and clear invalidation; the hook binds this lifecycle to React.
+
+Settings saves belong to one dialog generation. Closing, reopening, changing the fetch source or
+unmounting invalidates old callbacks. Cancellation does not roll back a save already accepted by
+the backend.
+
+The Go and Node `pending_literal` scanners only schedule authoritative parsing. Comments and CDATA
+use bulk delimiter searches with a retained chunk boundary; quoted strings retain escape state.
+These scanners never decide whether a tool call is valid or executable.

@@ -11,14 +11,25 @@ import (
 	"ds2api/internal/usagestats"
 )
 
-func (h *Handler) getUsage(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) getUsage(w http.ResponseWriter, r *http.Request) {
 	if h == nil || h.Usage == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"detail": "usage stats store is not configured"})
 		return
 	}
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "private, no-cache")
+	condition := r.Header.Get("If-None-Match")
+	if condition != "" {
+		tag := usageETag(h.Usage.Revision())
+		if usageETagMatches(condition, tag) {
+			w.Header().Set("ETag", tag)
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+	items, revision := h.Usage.SummaryWithRevision()
+	w.Header().Set("ETag", usageETag(revision))
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items": h.Usage.Summary(),
+		"items": items,
 		"path":  h.Usage.Path(),
 	})
 }

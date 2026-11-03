@@ -43,6 +43,24 @@ npm run build --prefix webui
 - CI 还会额外在 macOS/Windows 跑 Go 单测，并执行 release 目标交叉编译检查。
 - `run-live.sh` 是真实账号端到端测试，适合作为发布或高风险改动后的补充验证，不属于每次 PR 的固定本地门禁。
 
+### 用量与工具过滤性能回归
+
+```bash
+go test ./internal/toolstream ./internal/usagestats -run '^$' -bench 'Benchmark(PendingLiteralDelimited|ClockMinutes)$' -benchmem -count=3
+node tests/tools/bench-pending-literal.cjs
+node tests/tools/bench-usage-data.mjs
+```
+
+两个 Node 基准均允许用首个参数指定保存的旧实现，以相同输入比较历史版本。Go 基准覆盖 16 / 128 / 4096 字节分块；Node 工具过滤基准为 66 KB 正文、128 字符分块，用量基准包含 10 万条账本记录和稀疏日期范围。耗时仅用于本机对比，不设置容易受机器负载影响的 CI 耗时阈值。跨块 Unicode 闭合符、完整文本保留与各聚合通道总数由单元测试校验。
+
+账本检查点与条件轮询的基准：
+
+```bash
+go test ./internal/usagestats ./internal/httpapi/admin/usage -run '^$' -bench 'Benchmark(WriteSnapshot|UsagePolling)$' -benchmem -count=3
+```
+
+检查点基准包含 1 万 / 10 万条记录，计入排序、编码和文件字节数，使用内存写入替身隔离 fsync。轮询基准包含 1 万条记录，对比无条件读取与匹配 ETag 的请求，报告响应正文字节数。设置生命周期回归在 `usageHooks.test.mjs` 中使用与 React 版本匹配的 `react-test-renderer` 执行实际 Hook，覆盖关闭重开、卸载、重复保存和异常重试；该依赖仅用于开发测试。
+
 ---
 
 ## 快速开始 | Quick Start

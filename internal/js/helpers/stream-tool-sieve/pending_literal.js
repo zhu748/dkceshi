@@ -5,17 +5,21 @@
 class PendingLiteral {
   constructor(mode) { this.mode = mode; this.escaped = false; this.tail = ''; }
   feed(text) {
+    if (this.mode !== 'q') return this.feedDelimited(text);
     for (const ch of text) {
-      if (this.mode === 'q') {
-        if (this.escaped) { this.escaped = false; continue; }
-        if (ch === '\\') { this.escaped = true; continue; }
-        if (ch === '"' || ch.charCodeAt(0) < 32) return true;
-        continue;
-      }
-      this.tail = (this.tail + ch).slice(-3);
-      if (this.mode === 'c' && this.tail === '-->') return true;
-      if (this.mode === 'd' && /^\]\][>＞﹥〉]$/.test(this.tail)) return true;
+      if (this.escaped) { this.escaped = false; continue; }
+      if (ch === '\\') { this.escaped = true; continue; }
+      if (ch === '"' || ch.charCodeAt(0) < 32) return true;
     }
+    return false;
+  }
+
+  feedDelimited(text) {
+    // All closers are three UTF-16 units; only two units can cross a chunk.
+    const boundary = this.tail + text.slice(0, 2);
+    const closes = this.mode === 'c' ? ['-->'] : [']]>', ']]＞', ']]﹥', ']]〉'];
+    if (closes.some(close => text.includes(close) || boundary.includes(close))) return true;
+    this.tail = text.length >= 2 ? text.slice(-2) : (this.tail + text).slice(-2);
     return false;
   }
 }

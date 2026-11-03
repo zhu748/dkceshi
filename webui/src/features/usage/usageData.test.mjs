@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { aggregateDaily, dayKey, entryToRecord, fillDateRange, sameUsageRecords } from './usageUtils.js'
-import { accountDisplay, accountOptionsFor, buildUsageSeries, filterUsageRecords, groupUsage, usageTotals } from './usageDashboard.js'
+import { dayKey, entryToRecord, sameUsageRecords } from './usageUtils.js'
+import { aggregateDaily, fillDateRange } from './usageAggregation.js'
+import { accountDisplay, accountOptionsFor, buildModelUsageRows, buildUsageSeries, filterUsageRecords, groupUsage, usageTotals } from './usageDashboard.js'
+import { applyServerSettings, defaultPricing, MODEL_PRICE_KEY, peakWindowError } from './usagePricing.js'
 
 function entry(overrides = {}) {
     return {
@@ -124,4 +126,42 @@ test('account chart top-eight and Other preserve totals and prototype-like ident
     assert.equal(buildUsageSeries(daily, 'account', accounts, t, true)[0].fullName, 'account:11')
     assert.equal(accountDisplay('unknown', '', t), 'usage.unknownAccount')
     assert.match(accountDisplay('direct:caller:abc123', '', t), /usage.directToken/)
+})
+
+test('daily aggregation and per-model rows conserve every channel across repeated days', () => {
+    const records = Array.from({ length: 300 }, (_, i) => entryToRecord(entry({
+        date: i % 2 ? '2026-10-30' : '2026-10-29', model: i % 3 ? 'model-a' : 'model-b',
+        account_id: '__proto__', caller_id: 'constructor', cost: 0.125, calls: 2,
+    })))
+    const daily = aggregateDaily(records)
+    assert.equal(daily.length, 2)
+    assert.deepEqual(daily.map(day => day.key), ['2026-10-29', '2026-10-30'])
+    const expected = { calls: 600, prompt: 30000, output: 12000, reasoning: 3000, total: 42000, cost: 37.5 }
+    for (const [field, value] of Object.entries(expected)) {
+        assert.equal(daily.reduce((sum, day) => sum + day[field], 0), value, field)
+    }
+    for (const field of ['byModel', 'byCaller', 'byAccount']) {
+        assert.equal(daily.reduce((sum, day) => sum + Object.values(day[field]).reduce((a, b) => a + b, 0), 0), 42000)
+        assert.equal(daily.reduce((sum, day) => sum + Object.values(day[`${field}Cost`]).reduce((a, b) => a + b, 0), 0), 37.5)
+    }
+    const models = buildModelUsageRows(records, 'all')
+    assert.deepEqual(models.map(row => row.model), ['model-a', 'model-b'])
+    for (const field of ['calls', 'total', 'cost']) {
+        assert.equal(models.reduce((sum, row) => sum + row[field], 0), expected[field], field)
+    }
+    assert.deepEqual(buildModelUsageRows([], 'all'), [])
+})
+
+test('pricing migration preserves explicit free prices and fills absent cache-miss prices', () => {
+    const defaults = defaultPricing()
+    const pricing = applyServerSettings(defaults, {
+        models: { flash: { input_price: 0, output_price: 0 } },
+        cache_hit: { enabled: false, rate: 0 },
+    })
+    assert.deepEqual(pricing.models, { [MODEL_PRICE_KEY]: { inputPrice: 0, inputMissPrice: 1, outputPrice: 0 } })
+    assert.equal(pricing.cacheHitEnabled, false)
+    assert.equal(pricing.cacheHitRate, 0)
+    assert.equal(peakWindowError({ ...defaults, peak2Start: '11:00' }), 'usage.settingsPeakOverlap')
+    assert.equal(peakWindowError({ ...defaults, peak2Start: '12:00' }), null)
+    assert.equal(peakWindowError({ ...defaults, peakEnabled: false, peak2Start: '11:00' }), null)
 })

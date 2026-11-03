@@ -1,9 +1,5 @@
 package usagestats
 
-import (
-	"fmt"
-)
-
 // 默认值集中在这里，供 DefaultSettings、normalizeSettings 与各访问器复用。
 const (
 	defaultInputMissPrice = 1.0
@@ -140,51 +136,6 @@ func cloneFloat64Ptr(v *float64) *float64 {
 	return float64Ptr(*v)
 }
 
-func validatePeakSettings(peak PeakSettings) error {
-	ranges := []struct {
-		start string
-		end   string
-		label string
-	}{
-		{peak.Start1, peak.End1, "peak window 1"},
-		{peak.Start2, peak.End2, "peak window 2"},
-	}
-	for _, r := range ranges {
-		if r.start == "" && r.end == "" {
-			continue
-		}
-		if r.start == "" || r.end == "" {
-			return fmt.Errorf("%w: %s must have both start and end times", ErrInvalidUsageSettings, r.label)
-		}
-		startMinutes, err := clockMinutes(r.start)
-		if err != nil {
-			return fmt.Errorf("%w: %s start %q is invalid", ErrInvalidUsageSettings, r.label, r.start)
-		}
-		endMinutes, err := clockMinutes(r.end)
-		if err != nil {
-			return fmt.Errorf("%w: %s end %q is invalid", ErrInvalidUsageSettings, r.label, r.end)
-		}
-		if startMinutes >= endMinutes {
-			return fmt.Errorf("%w: %s start must be before end", ErrInvalidUsageSettings, r.label)
-		}
-	}
-	if peak.Multiplier < 0 {
-		return fmt.Errorf("%w: peak multiplier must be >= 0", ErrInvalidUsageSettings)
-	}
-	return nil
-}
-
-func clockMinutes(value string) (int, error) {
-	var hour, minute int
-	if _, err := fmt.Sscanf(value, "%d:%d", &hour, &minute); err != nil {
-		return 0, err
-	}
-	if hour < 0 || hour > 23 || minute < 0 || minute > 59 {
-		return 0, fmt.Errorf("invalid clock value")
-	}
-	return hour*60 + minute, nil
-}
-
 // normalizeSettings 把单价表收敛成唯一一条并补齐缺失的波峰参数。单价 0 是
 // 合法取值（表示不计费），不会被默认价覆盖；负数一律钳制为 0，防止手改文件
 // 写出负价。「模拟缓存命中」段缺失（旧设置文件）时整体回落默认值（开启 +
@@ -270,17 +221,4 @@ func clampPrice(p ModelPrice) ModelPrice {
 		p.InputMissPrice = float64Ptr(0)
 	}
 	return p
-}
-
-// validateModelPrices 拒绝负单价，避免手改请求写出负价条目。
-func validateModelPrices(models map[string]ModelPrice) error {
-	for key, price := range models {
-		if price.InputPrice < 0 || price.OutputPrice < 0 {
-			return fmt.Errorf("%w: model %q prices must be >= 0", ErrInvalidUsageSettings, key)
-		}
-		if price.InputMissPrice != nil && *price.InputMissPrice < 0 {
-			return fmt.Errorf("%w: model %q cache-miss input price must be >= 0", ErrInvalidUsageSettings, key)
-		}
-	}
-	return nil
 }

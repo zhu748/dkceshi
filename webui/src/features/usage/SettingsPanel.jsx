@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../i18n'
 import ConfirmDialog from './ConfirmDialog'
-import { DEFAULT_INPUT_MISS_PRICE, MODEL_PRICE_KEY, peakWindowError } from './usageUtils'
+import { DEFAULT_INPUT_MISS_PRICE, MODEL_PRICE_KEY, peakWindowError } from './usagePricing'
 import { useDialogA11y } from './useDialogA11y'
 
 // NumberInput keeps its own text state so intermediate values like "0." or a

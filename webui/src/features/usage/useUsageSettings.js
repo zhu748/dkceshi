@@ -1,185 +1,158 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../i18n'
-import {
-    DEFAULT_CACHE_HIT_RATE,
-    DEFAULT_INPUT_MISS_PRICE,
-    applyServerSettings,
-    loadLocalPricing,
-    peakWindowError,
-    persistLocalPricing,
-} from './usageUtils'
+import { createLatestRequest } from '../../utils/latestRequest.js'
+import { applyServerSettings, loadLocalPricing, peakWindowError, persistLocalPricing, toServerUsageSettings } from './usagePricing'
 
 export function useUsageSettings({ authFetch, onMessage }) {
     const { t } = useI18n()
-    const [settingsOpen, setSettingsOpen] = useState(false)
+    const [settingsOpen, setSettingsOpenState] = useState(false)
     const [pricingOpen, setPricingOpen] = useState(false)
     const [settingsLoadState, setSettingsLoadState] = useState('loading')
     const [usageEnabled, setUsageEnabled] = useState(false)
     const [pricing, setPricing] = useState(() => loadLocalPricing())
     const [saving, setSaving] = useState(false)
-    const savingPromiseRef = useRef(null)
-    const loadSettingsIdRef = useRef(0)
+    const loadRequests = useRef(createLatestRequest()).current
+    const saveRequests = useRef(createLatestRequest()).current
+    const activeSave = useRef(null)
+    const dialogGeneration = useRef(0)
     const mountedRef = useRef(true)
-    // Abort the in-flight settings load on unmount / refetch; the requestId
-    // guard only discards stale state, the request itself keeps running.
-    const abortRef = useRef(null)
+    const tRef = useRef(t)
+    const onMessageRef = useRef(onMessage)
+
+    useEffect(() => {
+        tRef.current = t
+        onMessageRef.current = onMessage
+    })
 
     useEffect(() => {
         mountedRef.current = true
+        setSaving(false)
         return () => {
             mountedRef.current = false
-            if (abortRef.current) abortRef.current.abort()
+            loadRequests.cancel()
+            saveRequests.cancel()
+            activeSave.current = null
+            ++dialogGeneration.current
         }
-    }, [])
+    }, [authFetch, loadRequests, saveRequests])
 
-    // Debounce localStorage writes: pricing changes on every keystroke in the
-    // price inputs, and each write serializes the whole table.
     useEffect(() => {
         const timer = setTimeout(() => persistLocalPricing(pricing), 300)
         return () => clearTimeout(timer)
     }, [pricing])
 
+    const cancelSave = useCallback(() => {
+        ++dialogGeneration.current
+        saveRequests.cancel()
+        activeSave.current = null
+        if (mountedRef.current) setSaving(false)
+    }, [saveRequests])
+
+    // A new dialog owns its saves even when an old fetch ignores abort.
+    const setSettingsOpen = useCallback((value) => {
+        cancelSave()
+        setSettingsOpenState(value)
+    }, [cancelSave])
+
     const loadUsageSettings = useCallback(async () => {
-        const requestId = ++loadSettingsIdRef.current
-        if (abortRef.current) abortRef.current.abort()
-        const controller = new AbortController()
-        abortRef.current = controller
+        const request = loadRequests.start()
         setSettingsLoadState('loading')
         try {
-            const res = await authFetch('/admin/usage/settings', { signal: controller.signal })
+            const res = await authFetch('/admin/usage/settings', { signal: request.signal })
+            if (!request.isCurrent() || !mountedRef.current) return
             const data = await res.json().catch(() => ({}))
-            if (requestId !== loadSettingsIdRef.current || !mountedRef.current) return
-            if (res.ok && data.settings) {
-                const s = data.settings
-                setUsageEnabled(!!s.enabled)
-                setSettingsLoadState('ready')
-                setPricing((prev) => applyServerSettings(prev, s))
-            } else {
+            if (!request.isCurrent() || !mountedRef.current) return
+            if (!res.ok || !data.settings) throw new Error(tRef.current('usage.settingsLoadFailed'))
+            setUsageEnabled(!!data.settings.enabled)
+            setSettingsLoadState('ready')
+            setPricing((prev) => applyServerSettings(prev, data.settings))
+        } catch (error) {
+            if (request.isCurrent() && mountedRef.current) {
                 setSettingsLoadState('error')
-                onMessage?.('error', t('usage.settingsLoadFailed'))
-            }
-        } catch (e) {
-            if (e?.name === 'AbortError') return
-            if (requestId === loadSettingsIdRef.current && mountedRef.current) {
-                setSettingsLoadState('error')
-                onMessage?.('error', t('usage.settingsLoadFailed'))
+                onMessageRef.current?.('error', tRef.current('usage.settingsLoadFailed'))
             }
         }
-    }, [authFetch, onMessage, t])
+    }, [authFetch, loadRequests])
 
-    useEffect(() => {
-        loadUsageSettings()
-    }, [loadUsageSettings])
+    useEffect(() => { loadUsageSettings() }, [loadUsageSettings])
 
-    // saveUsageSettings pushes the full pricing set to the server and reports
-    // whether the save succeeded so the caller can decide whether to close.
-    const saveUsageSettings = useCallback(async (nextPricing, nextEnabled) => {
-        if (savingPromiseRef.current) {
-            return savingPromiseRef.current
-        }
-        const promise = (async () => {
-            setSaving(true)
+    const saveUsageSettings = useCallback((nextPricing, nextEnabled) => {
+        if (!mountedRef.current) return Promise.resolve(false)
+        if (activeSave.current) return activeSave.current.promise
+        // A pre-save read must not overwrite the accepted save later.
+        loadRequests.cancel()
+        const request = saveRequests.start()
+        const operation = { request, promise: null }
+        activeSave.current = operation
+        setSaving(true)
+        // Publish the operation before invoking user-supplied fetch, including
+        // fetchers which throw synchronously or callbacks which start a save.
+        operation.promise = Promise.resolve().then(async () => {
+            const current = () => request.isCurrent() && mountedRef.current
             try {
-                const settings = {
-                    enabled: !!nextEnabled,
-                    models: Object.fromEntries(
-                        Object.entries(nextPricing.models || {}).map(([name, p]) => [
-                            name,
-                            {
-                                input_price: Number(p?.inputPrice || 0),
-                                // 显式下发未命中单价：服务端把缺省字段当作「旧设置
-                                // 文件」并回落默认值，只有写出来才能保存用户填的 0。
-                                input_miss_price: Number(p?.inputMissPrice ?? DEFAULT_INPUT_MISS_PRICE),
-                                output_price: Number(p?.outputPrice || 0),
-                            },
-                        ])
-                    ),
-                    peak: {
-                        enabled: !!nextPricing.peakEnabled,
-                        start1: nextPricing.peak1Start,
-                        end1: nextPricing.peak1End,
-                        start2: nextPricing.peak2Start,
-                        end2: nextPricing.peak2End,
-                        multiplier: Number(nextPricing.peakMultiplier || 0),
-                        weekend_normal: !!nextPricing.weekendNormal,
-                    },
-                    cache_hit: {
-                        enabled: !!nextPricing.cacheHitEnabled,
-                        rate: Number(nextPricing.cacheHitRate ?? DEFAULT_CACHE_HIT_RATE),
-                    },
-                }
+                if (!current()) return false
                 const res = await authFetch('/admin/usage/settings', {
-                    method: 'PUT',
+                    method: 'PUT', signal: request.signal,
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ settings }),
+                    body: JSON.stringify({ settings: toServerUsageSettings(nextPricing, nextEnabled) }),
                 })
+                if (!current()) return false
                 const data = await res.json().catch(() => ({}))
-                if (!res.ok) throw new Error(data?.detail || t('usage.saveFailed'))
+                if (!current()) return false
+                if (!res.ok) throw new Error(data?.detail || tRef.current('usage.saveFailed'))
                 if (data.settings) {
                     setUsageEnabled(!!data.settings.enabled)
                     setPricing((prev) => applyServerSettings(prev, data.settings))
+                    setSettingsLoadState('ready')
                 }
-                onMessage?.('success', t('usage.settingsSaved'))
-                return true
-            } catch (err) {
-                onMessage?.('error', err.message || t('usage.saveFailed'))
+                onMessageRef.current?.('success', tRef.current('usage.settingsSaved'))
+                return current()
+            } catch (error) {
+                if (current()) onMessageRef.current?.('error', error.message || tRef.current('usage.saveFailed'))
                 return false
             } finally {
-                savingPromiseRef.current = null
-                if (mountedRef.current) setSaving(false)
+                if (activeSave.current === operation) {
+                    activeSave.current = null
+                    if (current()) setSaving(false)
+                }
             }
-        })()
-        savingPromiseRef.current = promise
-        return promise
-    }, [authFetch, onMessage, t])
+        })
+        return operation.promise
+    }, [authFetch, loadRequests, saveRequests])
 
-    // closeSettings(attemptSave) never dead-locks: × / Esc call it with
-    // attemptSave=false and always dismiss; "Done" attempts the save and only
-    // closes on success (or closes without saving when settings failed to load).
+    const dismissSettings = useCallback(() => {
+        cancelSave()
+        setPricingOpen(false)
+        setSettingsOpenState(false)
+    }, [cancelSave])
+
     const closeSettings = useCallback(async (attemptSave) => {
+        const generation = dialogGeneration.current
         if (attemptSave) {
             if (settingsLoadState === 'loading') {
-                onMessage?.('error', t('usage.settingsNotLoaded'))
+                onMessageRef.current?.('error', tRef.current('usage.settingsNotLoaded'))
                 return
             }
             if (settingsLoadState === 'error') {
-                setPricingOpen(false)
-                setSettingsOpen(false)
-                onMessage?.('error', t('usage.settingsNotSaved'))
+                dismissSettings()
+                onMessageRef.current?.('error', tRef.current('usage.settingsNotSaved'))
                 return
             }
             const peakError = peakWindowError(pricing)
             if (peakError) {
                 setPricingOpen(true)
-                onMessage?.('error', t(peakError))
+                onMessageRef.current?.('error', tRef.current(peakError))
                 return
             }
             const ok = await saveUsageSettings(pricing, usageEnabled)
-            if (!ok) return
+            if (!ok || generation !== dialogGeneration.current || !mountedRef.current) return
         }
-        setPricingOpen(false)
-        setSettingsOpen(false)
-    }, [settingsLoadState, pricing, usageEnabled, saveUsageSettings, onMessage, t])
-
-    const dismissSettings = useCallback(() => {
-        setPricingOpen(false)
-        setSettingsOpen(false)
-    }, [])
+        dismissSettings()
+    }, [settingsLoadState, pricing, usageEnabled, saveUsageSettings, dismissSettings])
 
     return {
-        settingsOpen,
-        setSettingsOpen,
-        pricingOpen,
-        setPricingOpen,
-        settingsLoadState,
-        saving,
-        usageEnabled,
-        setUsageEnabled,
-        pricing,
-        setPricing,
-        loadUsageSettings,
-        saveUsageSettings,
-        closeSettings,
-        dismissSettings,
+        settingsOpen, setSettingsOpen, pricingOpen, setPricingOpen, settingsLoadState,
+        saving, usageEnabled, setUsageEnabled, pricing, setPricing,
+        loadUsageSettings, saveUsageSettings, closeSettings, dismissSettings,
     }
 }

@@ -1247,6 +1247,16 @@ data: {"type":"message_stop"}
 
 ---
 
+### `GET /admin/usage`
+
+使用 Admin 鉴权，返回 `items` 用量账本和 `path`。响应带 `ETag` 与 `Cache-Control: private, no-cache`。后续请求可携带 `If-None-Match`；账本未变化时返回无正文的 HTTP `304`，客户端保留原数据且不解析 JSON。记账、成功导入或清空后版本失效；服务重启后使用新的实例版本。未提供条件头的客户端继续获得 HTTP `200` 完整快照。
+
+### `PUT /admin/usage/settings`
+
+使用 Admin 鉴权，提交 `{"settings": {...}}`，成功返回生效的 `settings`。设置通过 `GET /admin/usage/settings` 读取。
+
+`peak.start1` / `end1` / `start2` / `end2` 必须是完整的 24 小时制 `HH:MM`（`00:00`～`23:59`）。每段开始时间必须早于结束时间；开启波峰计价时，两段不可重叠，允许首尾相接或调换顺序。省略的完整时段按默认值补齐后仍须通过校验。格式错误、重叠或负价格返回 HTTP `400`，不修改已保存设置。
+
 ## 错误响应格式
 
 非流式 completion 在上游结束信号之前发生读取错误时，返回 HTTP `502`，错误码为

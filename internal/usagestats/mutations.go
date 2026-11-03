@@ -18,7 +18,9 @@ func writeSnapshot(path string, payload fileData, write func(string, []byte) err
 		}
 		return entryIdentityLess(a, b)
 	})
-	body, err := json.MarshalIndent(payload, "", "  ")
+	// A checkpoint is rewritten on every dirty flush. Compact JSON keeps the
+	// same schema while avoiding a second formatting pass and larger writes.
+	body, err := json.Marshal(payload)
 	if err == nil {
 		err = write(path, append(body, '\n'))
 	}

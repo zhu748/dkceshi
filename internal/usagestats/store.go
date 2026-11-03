@@ -1,17 +1,15 @@
 package usagestats
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
-	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"ds2api/internal/config"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -26,30 +24,6 @@ var gmt8 = time.FixedZone("GMT+8", 8*60*60)
 // UsageSettings/SaveSettings so HTTP handlers can map them to 400.
 var ErrInvalidUsageSettings = errors.New("invalid usage settings")
 
-type fileData struct {
-	Version   int     `json:"version"`
-	UpdatedAt int64   `json:"updated_at"`
-	Entries   []Entry `json:"entries"`
-}
-
-// legacyModelUsage 与 legacyDayUsage 是 v1（按天+模型聚合）账本的旧结构，
-// 仅在加载时用于迁移，不再写出。
-type legacyModelUsage struct {
-	Requests     int64 `json:"requests"`
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
-}
-
-type legacyDayUsage struct {
-	Date   string                      `json:"date"`
-	Models map[string]legacyModelUsage `json:"models"`
-}
-
-type legacyV1File struct {
-	Version int                        `json:"version"`
-	Days    map[string]*legacyDayUsage `json:"days"`
-}
-
 // Store 是内容无关的 Token 用量账本：按 GMT+8 日期 + 模型 + 调用方 + 账号聚合
 // 数值累计与费用估算，仅保存账号的哈希标识和脱敏标签，不保存提示词、回复内容或密钥本体。
 // 落盘采用版本化文件 + 后台定时 flush，费用按请求发生时刻的波峰倍率累计。
@@ -60,6 +34,7 @@ type Store struct {
 	settingsPath string
 	entries      map[string]*Entry
 	settings     UsageSettings
+	instanceID   string
 	revision     int64
 	dirty        bool
 	stop         chan struct{}
@@ -76,6 +51,7 @@ func New(path string) *Store {
 		settingsPath: strings.TrimSpace(path) + ".settings",
 		entries:      map[string]*Entry{},
 		settings:     DefaultSettings(),
+		instanceID:   uuid.NewString(),
 	}
 	s.mu.Lock()
 	if err := s.loadLocked(); err != nil {
@@ -104,336 +80,10 @@ func (s *Store) Path() string {
 	return s.path
 }
 
-func (s *Store) Settings() UsageSettings {
-	if s == nil {
-		return DefaultSettings()
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return cloneSettings(s.settings)
-}
-
-// cloneSettings 深拷贝设置，避免调用方改到 Store 内部状态。Models 表与
-// 「模拟缓存命中」段的指针字段都必须重新分配。
-func cloneSettings(settings UsageSettings) UsageSettings {
-	out := settings
-	out.Models = make(map[string]ModelPrice, len(settings.Models))
-	for key, price := range settings.Models {
-		copied := price
-		copied.InputMissPrice = cloneFloat64Ptr(price.InputMissPrice)
-		out.Models[key] = copied
-	}
-	out.CacheHit = CacheHitSettings{
-		Enabled: cloneBoolPtr(settings.CacheHit.Enabled),
-		Rate:    cloneFloat64Ptr(settings.CacheHit.Rate),
-	}
-	return out
-}
-
-func (s *Store) SaveSettings(settings UsageSettings) error {
-	if s == nil {
-		return nil
-	}
-	if err := validatePeakSettings(settings.Peak); err != nil {
-		return err
-	}
-	if err := validateModelPrices(settings.Models); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	previous := s.settings
-	s.settings = cloneSettings(normalizeSettings(settings))
-	if err := s.saveSettingsLocked(); err != nil {
-		s.settings = previous
-		return err
-	}
-	return nil
-}
-
 func (s *Store) Close() {
 	if s == nil {
 		return
 	}
 	s.closeOnce.Do(func() { close(s.stop) })
 	<-s.done
-}
-
-func (s *Store) startFlusher() {
-	s.stop = make(chan struct{})
-	s.done = make(chan struct{})
-	go s.flushLoop()
-}
-
-func (s *Store) flushLoop() {
-	ticker := time.NewTicker(FlushInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-s.stop:
-			if err := s.flushNow(); err != nil {
-				config.Logger.Warn("[usage_stats] final flush failed", "path", s.path, "error", err)
-			}
-			close(s.done)
-			return
-		case <-ticker.C:
-			if err := s.flushNow(); err != nil {
-				config.Logger.Warn("[usage_stats] save failed", "path", s.path, "error", err)
-			}
-		}
-	}
-}
-
-func (s *Store) flushNow() error {
-	return s.flushWith(writeFileAtomic)
-}
-
-func (s *Store) flushWith(write func(string, []byte) error) error {
-	// Serialize before taking a snapshot so an older flush cannot replace a
-	// newer revision after that revision has already cleared the dirty flag.
-	s.flushMu.Lock()
-	defer s.flushMu.Unlock()
-	s.mu.Lock()
-	if !s.dirty {
-		s.mu.Unlock()
-		return nil
-	}
-	revision := s.revision
-	payload := s.snapshotLocked()
-	s.mu.Unlock()
-
-	if err := writeSnapshot(s.path, payload, write); err != nil {
-		return err
-	}
-
-	s.mu.Lock()
-	if s.revision == revision {
-		s.dirty = false
-	}
-	s.mu.Unlock()
-	return nil
-}
-
-func (s *Store) snapshotLocked() fileData {
-	payload := fileData{
-		Version:   FileVersion,
-		UpdatedAt: time.Now().UnixMilli(),
-		Entries:   make([]Entry, 0, len(s.entries)),
-	}
-	for _, entry := range s.entries {
-		payload.Entries = append(payload.Entries, *entry)
-	}
-	return payload
-}
-
-// quarantineUnreadableLedger renames an undecodable ledger file aside so a
-// later flush cannot overwrite it. Returns the quarantine path, or "" when
-// there is nothing to preserve (the file does not exist).
-func quarantineUnreadableLedger(path string) (string, error) {
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
-		return "", err
-	}
-	quarantined := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
-	if err := os.Rename(path, quarantined); err != nil {
-		return "", err
-	}
-	return quarantined, nil
-}
-
-func (s *Store) loadLocked() error {
-	if s.path == "" {
-		return errors.New("usage stats path is required")
-	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil && filepath.Dir(s.path) != "." {
-		return fmt.Errorf("create usage stats dir: %w", err)
-	}
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("read usage stats file: %w", err)
-	}
-	if len(raw) == 0 {
-		return nil
-	}
-	if entries, ok := decodeLegacyArray(raw); ok {
-		s.ingestEntries(entries)
-		return nil
-	}
-	var loaded fileData
-	if err := json.Unmarshal(raw, &loaded); err != nil {
-		return fmt.Errorf("decode usage stats file: %w", err)
-	}
-	if len(loaded.Entries) > 0 {
-		s.ingestEntries(loaded.Entries)
-		return nil
-	}
-	if days, ok := decodeLegacyV1Days(raw); ok {
-		s.entries = migrateLegacyV1Days(days)
-		return nil
-	}
-	return nil
-}
-
-// decodeLegacyArray 兼容旧版（无版本包装的纯 Entry 数组）文件。
-func decodeLegacyArray(raw []byte) ([]Entry, bool) {
-	trimmed := strings.TrimSpace(string(raw))
-	if !strings.HasPrefix(trimmed, "[") {
-		return nil, false
-	}
-	var list []Entry
-	if err := json.Unmarshal(raw, &list); err != nil {
-		return nil, false
-	}
-	return list, true
-}
-
-// decodeLegacyV1Days 识别 v1 按天+模型聚合的旧账本结构。
-func decodeLegacyV1Days(raw []byte) (map[string]*legacyDayUsage, bool) {
-	var v1 legacyV1File
-	if err := json.Unmarshal(raw, &v1); err != nil || len(v1.Days) == 0 {
-		return nil, false
-	}
-	return v1.Days, true
-}
-
-func migrateLegacyV1Days(days map[string]*legacyDayUsage) map[string]*Entry {
-	entries := map[string]*Entry{}
-	for date, day := range days {
-		if day == nil {
-			continue
-		}
-		for model, usage := range day.Models {
-			normalized := normalizeModel(model)
-			key := entryKey(date, normalized, "unknown", "unknown")
-			entry := entries[key]
-			if entry == nil {
-				entry = &Entry{Date: date, Model: normalized, CallerID: "unknown", AccountID: "unknown"}
-				entries[key] = entry
-			}
-			entry.PromptTokens += usage.InputTokens
-			entry.CompletionTokens += usage.OutputTokens
-			entry.TotalTokens += usage.InputTokens + usage.OutputTokens
-			entry.Calls += usage.Requests
-		}
-	}
-	return entries
-}
-
-func (s *Store) ingestEntries(list []Entry) {
-	for _, entry := range list {
-		entry.Model = normalizeModel(entry.Model)
-		entry.CallerID = normalizeCallerID(entry.CallerID)
-		entry.AccountID = normalizeCallerID(entry.AccountID)
-		key := entryKey(entry.Date, entry.Model, entry.CallerID, entry.AccountID)
-		if existing := s.entries[key]; existing != nil {
-			mergeEntry(existing, entry)
-		} else {
-			copied := entry
-			s.entries[key] = &copied
-		}
-	}
-}
-
-func (s *Store) loadSettings() {
-	if s == nil || s.settingsPath == "" {
-		return
-	}
-	raw, err := os.ReadFile(s.settingsPath)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			config.Logger.Warn("[usage_stats] settings load failed", "error", err)
-		}
-		return
-	}
-	var settings UsageSettings
-	if err := json.Unmarshal(raw, &settings); err != nil {
-		config.Logger.Warn("[usage_stats] settings parse failed", "error", err)
-		return
-	}
-	settings = normalizeSettings(settings)
-	if err := validatePeakSettings(settings.Peak); err != nil {
-		config.Logger.Warn("[usage_stats] settings peak invalid, using defaults", "error", err)
-		settings.Peak = DefaultSettings().Peak
-	}
-	s.mu.Lock()
-	s.settings = settings
-	if err := s.saveSettingsLocked(); err != nil {
-		config.Logger.Warn("[usage_stats] settings normalize/write failed", "error", err)
-	}
-	s.mu.Unlock()
-}
-
-func (s *Store) saveSettingsLocked() error {
-	if s == nil || s.settingsPath == "" {
-		return nil
-	}
-	raw, err := json.MarshalIndent(s.settings, "", "  ")
-	if err != nil {
-		return fmt.Errorf("settings marshal: %w", err)
-	}
-	return writeFileAtomic(s.settingsPath, append(raw, '\n'))
-}
-
-func normalizeModel(model string) string {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if model == "" {
-		return "unknown"
-	}
-	return model
-}
-
-func normalizeCallerID(callerID string) string {
-	callerID = strings.TrimSpace(callerID)
-	if callerID == "" {
-		return "unknown"
-	}
-	return callerID
-}
-
-func writeFileAtomic(path string, body []byte) error {
-	dir := filepath.Dir(path)
-	if dir == "" {
-		dir = "."
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil && dir != "." {
-		return fmt.Errorf("create usage stats dir: %w", err)
-	}
-	tmpFile, err := os.CreateTemp(dir, ".usage-stats-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp usage stats file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	cleanup := func() {
-		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
-			config.Logger.Warn("[usage_stats] remove temporary file failed", "error", err)
-		}
-	}
-	if _, err := tmpFile.Write(body); err != nil {
-		if err := tmpFile.Close(); err != nil {
-			slog.Warn("cleanup close failed", "error", err)
-		}
-		cleanup()
-		return fmt.Errorf("write temp usage stats file: %w", err)
-	}
-	if err := tmpFile.Sync(); err != nil {
-		if err := tmpFile.Close(); err != nil {
-			slog.Warn("cleanup close failed", "error", err)
-		}
-		cleanup()
-		return fmt.Errorf("sync temp usage stats file: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("close temp usage stats file: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		cleanup()
-		return fmt.Errorf("promote temp usage stats file: %w", err)
-	}
-	return nil
 }

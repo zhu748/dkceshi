@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
     LayoutDashboard,
@@ -69,6 +69,8 @@ function BrandMark({ compact = false }) {
 
 export default function DashboardShell({ token, onLogout, config, fetchConfig, showMessage, message, onForceLogout, isVercel }) {
     const { t } = useI18n()
+    const tRef = useRef(t)
+    useEffect(() => { tRef.current = t }, [t])
     const location = useLocation()
     const navigate = useNavigate()
     const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -112,10 +114,10 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
 
         if (res.status === 401) {
             onLogout(token)
-            throw new Error(t('auth.expired'))
+            throw new Error(tRef.current('auth.expired'))
         }
         return res
-    }, [onLogout, t, token])
+    }, [onLogout, token])
 
 
     const versionInfo = useVersionInfo(authFetch)

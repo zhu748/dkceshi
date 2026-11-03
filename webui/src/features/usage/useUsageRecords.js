@@ -1,85 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../i18n'
-import { entryToRecord, sameUsageRecords } from './usageUtils'
+import { sameUsageRecords } from './usageUtils.js'
+import { createUsageRecordsResource } from './usageRecordsResource.js'
 
 export function useUsageRecords({ authFetch, onMessage }) {
     const { t } = useI18n()
-    const [records, setRecords] = useState([])
-    const [loading, setLoading] = useState(true)
-    // `initialized` separates the first load from manual refreshes: after the
-    // first load completes we keep the rendered data on screen while
-    // re-fetching, instead of swapping the whole page for the loading block.
-    const [initialized, setInitialized] = useState(false)
-    const [error, setError] = useState('')
-    const mountedRef = useRef(true)
-    const loadRecordsIdRef = useRef(0)
-    // Abort the in-flight request when a newer one starts or the hook unmounts;
-    // the requestId guard only stops stale state writes, not the network work.
-    const abortRef = useRef(null)
-    // Keep the latest i18n translator / toast callback in refs so switching
-    // language doesn't change loadRecords' identity and trigger a refetch.
+    const [state, setState] = useState({ records: [], loading: true, initialized: false, error: '' })
     const tRef = useRef(t)
     const onMessageRef = useRef(onMessage)
-
     useEffect(() => {
         tRef.current = t
         onMessageRef.current = onMessage
     })
 
+    const resource = useMemo(() => createUsageRecordsResource({
+        onChange: (next) => setState((prev) => ({
+            ...prev, ...next,
+            records: !next.records || sameUsageRecords(prev.records, next.records) ? prev.records : next.records,
+        })),
+        onError: (message) => onMessageRef.current?.('error', message),
+    }), [authFetch])
+    const loadRecords = useCallback(() => resource.load(authFetch, tRef.current('usage.loadFailed')), [resource, authFetch])
+    const clearRecords = useCallback(() => resource.clear(), [resource])
     useEffect(() => {
-        mountedRef.current = true
-        return () => {
-            mountedRef.current = false
-            if (abortRef.current) abortRef.current.abort()
-        }
-    }, [])
-
-    const loadRecords = useCallback(async () => {
-        const requestId = ++loadRecordsIdRef.current
-        if (abortRef.current) abortRef.current.abort()
-        const controller = new AbortController()
-        abortRef.current = controller
-        setLoading(true)
-        setError('')
-        try {
-            const res = await authFetch('/admin/usage', { signal: controller.signal })
-            const data = await res.json().catch(() => ({}))
-            if (!res.ok) {
-                throw new Error(data?.detail || tRef.current('usage.loadFailed'))
-            }
-            const items = Array.isArray(data.items) ? data.items : []
-            const mapped = items.map(entryToRecord).filter((r) => r.created_at > 0)
-            if (requestId === loadRecordsIdRef.current && mountedRef.current) {
-                // Reuse the previous array when the polled ledger is unchanged so
-                // downstream memos and charts are not invalidated every 30s.
-                setRecords((prev) => (sameUsageRecords(prev, mapped) ? prev : mapped))
-            }
-        } catch (err) {
-            if (err?.name === 'AbortError') return
-            if (requestId === loadRecordsIdRef.current && mountedRef.current) {
-                setError(err.message || tRef.current('usage.loadFailed'))
-                onMessageRef.current?.('error', err.message || tRef.current('usage.loadFailed'))
-            }
-        } finally {
-            if (requestId === loadRecordsIdRef.current && mountedRef.current) {
-                setLoading(false)
-                setInitialized(true)
-            }
-        }
-    }, [authFetch])
-
-    useEffect(() => {
+        resource.activate()
         loadRecords()
-    }, [loadRecords])
+        return () => resource.dispose()
+    }, [resource, loadRecords])
 
-    const clearRecords = useCallback(() => {
-        ++loadRecordsIdRef.current
-        abortRef.current?.abort()
-        setRecords([])
-        setLoading(false)
-        setInitialized(true)
-        setError('')
-    }, [])
-
-    return { records, loading, initialized, error, loadRecords, clearRecords }
+    return { ...state, loadRecords, clearRecords }
 }

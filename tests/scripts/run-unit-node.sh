@@ -5,11 +5,11 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 ./tests/scripts/check-node-split-syntax.sh
-node --test tests/node/third-round-tools.test.cjs tests/node/tool-visible-guard.test.js tests/node/visibility-contract.test.js
+node --test tests/node/third-round-tools.test.cjs tests/node/tool-visible-guard.test.js tests/node/visibility-contract.test.js tests/node/pending-literal.test.cjs
 
 # Keep Node's file-level test scheduling serial to avoid intermittent cross-file
 # interference when multiple suites import mutable module singletons.
-node --test tests/node/prompt-echo.test.cjs webui/src/features/apiTester/chatRequest.test.mjs webui/build/precompress.test.mjs webui/src/app/adminSession.test.mjs tests/node/dedupe.test.js tests/node/tip-annotation.test.js tests/node/app-transport.test.js tests/node/gif-har-headers.test.js tests/node/devid-runtime-check.test.cjs tests/node/devid-android.test.cjs tests/node/devid-cli.test.cjs tests/node/devid-assets.test.cjs webui/src/features/usage/usageData.test.mjs webui/src/features/chatHistory/detailResource.test.mjs webui/src/features/toolDiagnostics/repairModelResource.test.mjs webui/src/features/toolDiagnostics/repairTestResource.test.mjs webui/src/features/toolDiagnostics/repairDraft.test.mjs webui/src/features/toolDiagnostics/repairValidation.test.mjs webui/src/features/toolDiagnostics/diagnosticRequests.test.mjs webui/src/features/toolDiagnostics/diagnosticPoll.test.mjs
+node --test tests/node/prompt-echo.test.cjs webui/src/features/apiTester/chatRequest.test.mjs webui/build/precompress.test.mjs webui/src/app/adminSession.test.mjs tests/node/dedupe.test.js tests/node/tip-annotation.test.js tests/node/app-transport.test.js tests/node/gif-har-headers.test.js tests/node/devid-runtime-check.test.cjs tests/node/devid-android.test.cjs tests/node/devid-cli.test.cjs tests/node/devid-assets.test.cjs webui/src/features/usage/usageData.test.mjs webui/src/features/usage/usageRecordsResource.test.mjs webui/src/features/usage/usageHooks.test.mjs webui/src/features/chatHistory/detailResource.test.mjs webui/src/features/toolDiagnostics/repairModelResource.test.mjs webui/src/features/toolDiagnostics/repairTestResource.test.mjs webui/src/features/toolDiagnostics/repairDraft.test.mjs webui/src/features/toolDiagnostics/repairValidation.test.mjs webui/src/features/toolDiagnostics/diagnosticRequests.test.mjs webui/src/features/toolDiagnostics/diagnosticPoll.test.mjs
 NODE_TEST_LOG="$(mktemp)"
 cleanup() {
   rm -f "$NODE_TEST_LOG"

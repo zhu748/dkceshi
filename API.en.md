@@ -1236,6 +1236,16 @@ Clears packet-capture entries:
 
 ---
 
+### `GET /admin/usage`
+
+Requires Admin authentication and returns ledger `items` and `path`. Responses include `ETag` and `Cache-Control: private, no-cache`. Subsequent requests may send `If-None-Match`; an unchanged ledger returns HTTP `304` without a body, so clients retain their data and skip JSON parsing. Recording, successful import or clearing invalidates the version. Restarted stores use a new instance version. Unconditional clients continue receiving a complete HTTP `200` snapshot.
+
+### `PUT /admin/usage/settings`
+
+Requires Admin authentication. Send `{"settings": {...}}`; a successful response contains the effective `settings`. Read settings with `GET /admin/usage/settings`.
+
+`peak.start1`, `end1`, `start2` and `end2` require complete 24-hour `HH:MM` values (`00:00`–`23:59`). Each start must precede its end. When peak billing is enabled, the windows must not overlap; touching boundaries and either order are allowed. Omitted complete windows receive defaults, then the effective settings are validated again. Malformed times, overlaps and negative prices return HTTP `400` without changing saved settings.
+
 ## Error Payloads
 
 A non-streaming completion interrupted by a read error before the upstream terminal signal returns

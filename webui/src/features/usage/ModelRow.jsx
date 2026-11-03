@@ -2,7 +2,8 @@ import { useCallback, useMemo } from 'react'
 import { useI18n } from '../../i18n'
 import EChart from './EChart'
 import { buildLineOption, buildStackedOption } from './chartOptions'
-import { fmtCompact, fmtMoney, fmtNumber, splitCacheHitTokens } from './usageUtils'
+import { fmtCompact, fmtMoney, fmtNumber } from './usageUtils'
+import { splitCacheHitTokens } from './usagePricing'
 import { useEntranceAnimation } from './useEntranceAnimation'
 
 // ModelRow renders the per-model breakdown: an API-requests line chart plus a

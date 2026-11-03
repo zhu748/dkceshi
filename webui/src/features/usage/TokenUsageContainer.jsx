@@ -4,7 +4,8 @@ import { useTheme } from '../../themeProvider'
 import './usage.css'
 import ModelRow from './ModelRow'
 import UsageBreakdown from './UsageBreakdown'
-import { accountOptionsFor, buildUsageSeries, filterUsageRecords, usageTotals } from './usageDashboard'
+import { buildUsageSeries } from './usageDashboard'
+import { useUsageDashboard } from './useUsageDashboard'
 import { buildUsageCsv, parseUsageCsv } from './usageCsv'
 import SettingsPanel from './SettingsPanel'
 import { useUsageRecords } from './useUsageRecords'
@@ -12,13 +13,9 @@ import { useUsageSettings } from './useUsageSettings'
 import { useEntranceAnimation } from './useEntranceAnimation'
 import { buildStackedOption } from './chartOptions'
 import {
-    aggregateDaily,
-    dayKey,
-    fillDateRange,
     fmtCompact,
     fmtMoney,
     fmtNumber,
-    normalizeUsage,
 } from './usageUtils'
 
 // Summary, filters and export become usable before the chart engine loads.
@@ -77,29 +74,9 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
         return () => clearInterval(timer)
     }, [loadRecords])
 
-    const today = dayKey(Date.now())
-    const filtered = useMemo(() => filterUsageRecords(records, {
-        dateRange, model: modelFilter, account: accountFilter,
-    }), [records, dateRange, modelFilter, accountFilter, today])
-    const accountOptions = useMemo(() => accountOptionsFor(records, t), [records, t])
-
-    const summary = useMemo(() => {
-        const saved = usageTotals(records)
-        const window = usageTotals(filtered)
-        return {
-            savedTotal: saved.total, savedCost: saved.cost,
-            windowTotal: window.total, windowCost: window.cost,
-            promptSum: window.prompt, completionSum: window.output, calls: window.calls,
-        }
-    }, [records, filtered])
-
-    const dailyAll = useMemo(() => fillDateRange(aggregateDaily(filtered), dateRange), [filtered, dateRange])
-
-    const modelOptions = useMemo(() => {
-        const set = new Set()
-        records.forEach((r) => set.add(r.model || 'unknown'))
-        return Array.from(set).sort()
-    }, [records])
+    const { filtered, accountOptions, summary, dailyAll, modelOptions, modelRows } = useUsageDashboard({
+        records, dateRange, modelFilter, accountFilter, t,
+    })
 
     const topSeries = useMemo(() => buildUsageSeries(dailyAll, chartDimension, accountOptions, t, summaryMode === 'cost'),
         [dailyAll, chartDimension, accountOptions, t, summaryMode])
@@ -124,26 +101,6 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
         fmtMoney: fmtMoneyLocal,
         animate: animateCharts,
     }), [dailyAll, topSeries, dark, costMode, fmt, fmtMoneyLocal, animateCharts])
-
-    const modelRows = useMemo(() => {
-        const groups = new Map()
-        filtered.forEach((r) => {
-            const model = r.model || 'unknown'
-            if (!groups.has(model)) groups.set(model, [])
-            groups.get(model).push(r)
-        })
-        return Array.from(groups.entries()).map(([model, list]) => {
-            const dailyRows = fillDateRange(aggregateDaily(list), dateRange)
-            let total = 0
-            list.forEach((r) => {
-                const u = normalizeUsage(r.usage)
-                if (u) total += u.total
-            })
-            let cost = 0
-            list.forEach((r) => { cost += Number(r.cost || 0) })
-            return { model, daily: dailyRows, total, cost, calls: list.reduce((sum, r) => sum + (r.calls_count || 0), 0) }
-        }).sort((a, b) => b.total - a.total)
-    }, [filtered, dateRange])
 
     const handleExport = useCallback(() => {
         if (!filtered.length) return

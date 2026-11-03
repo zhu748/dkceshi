@@ -1,4 +1,5 @@
 import { dayKey, normalizeUsage, parseDayKey, shortCaller } from './usageUtils.js'
+import { aggregateDaily, fillDateRange } from './usageAggregation.js'
 
 const PALETTES = {
     model: ['#FF8800', '#FF5500', '#FFAA33', '#E64400', '#FFB84D', '#F97316', '#C2410C', '#FDBA74'],
@@ -44,6 +45,25 @@ export function usageTotals(records) {
         sum.cost += Number(r.cost || 0)
         return sum
     }, { calls: 0, prompt: 0, output: 0, reasoning: 0, total: 0, cost: 0 })
+}
+
+export function buildModelUsageRows(records, dateRange) {
+    const groups = new Map()
+    for (const record of records) {
+        const model = record.model || 'unknown'
+        if (!groups.has(model)) groups.set(model, [])
+        groups.get(model).push(record)
+    }
+    return Array.from(groups, ([model, list]) => {
+        let total = 0, cost = 0, calls = 0
+        for (const record of list) {
+            const usage = normalizeUsage(record.usage)
+            if (usage) total += usage.total
+            cost += Number(record.cost || 0)
+            calls += record.calls_count || 0
+        }
+        return { model, daily: fillDateRange(aggregateDaily(list), dateRange), total, cost, calls }
+    }).sort((a, b) => b.total - a.total)
 }
 
 export function groupUsage(records, dimension) {
