@@ -41,6 +41,7 @@ type UploadFileResult struct {
 	Purpose    string
 	AccountID  string
 	IsImage    bool
+	TokenUsage *int
 	Raw        map[string]any
 	RawHeaders http.Header
 }
@@ -362,6 +363,7 @@ func extractUploadFileResult(resp map[string]any) *UploadFileResult {
 		if m == nil {
 			continue
 		}
+		readFileTokenUsage(result, m)
 		if result.ID == "" {
 			result.ID = firstNonEmptyString(m, "id", "file_id")
 		}
@@ -411,13 +413,4 @@ func firstNonEmptyString(m map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func firstPositiveInt64(m map[string]any, keys ...string) int64 {
-	for _, key := range keys {
-		if v := toInt64(m[key], 0); v > 0 {
-			return v
-		}
-	}
-	return 0
 }

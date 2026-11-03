@@ -2,7 +2,6 @@ package files
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"mime"
@@ -43,7 +42,7 @@ func (e *inlineFileUploadError) Error() string {
 func (e *inlineFileUploadError) Unwrap() error { return e.err }
 
 func upstreamFileError(err error, message string) *inlineFileUploadError {
-	status := http.StatusInternalServerError
+	status := referenceFileErrorStatus(err)
 	switch {
 	case dsclient.IsMutedError(err):
 		status, message = http.StatusForbidden, "Account is muted by upstream."
@@ -64,7 +63,7 @@ type inlineUploadState struct {
 	preserveImage   bool
 	uploadedByID    map[string]string
 	uploadCount     int
-	inlineFileBytes int
+	fallbackBytes   map[string]int
 	pendingFiles    []*dsclient.UploadFileResult
 }
 
@@ -106,7 +105,11 @@ func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[str
 	if uploader == nil || len(req) == 0 {
 		return nil
 	}
-	if len(promptcompat.CollectOpenAIRefFileIDs(req)) > 0 {
+	refs := promptcompat.CollectOpenAIRefFileIDs(req)
+	if err := checkFileReferenceLimit(refs); err != nil {
+		return err
+	}
+	if len(refs) > 0 {
 		pinFileAccount(a)
 	}
 	modelType, ok := config.GetModelType(resolvedModel)
@@ -121,6 +124,7 @@ func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[str
 		thinkingEnabled: thinkingEnabled,
 		preserveImage:   req["preserve_image"] == true,
 		uploadedByID:    map[string]string{},
+		fallbackBytes:   map[string]int{},
 	}
 	for _, key := range []string{"messages", "input", "attachments", "contents"} {
 		if raw, ok := req[key]; ok {
@@ -131,18 +135,7 @@ func PreprocessInlineFiles(ctx context.Context, a *auth.RequestAuth, req map[str
 			req[key] = updated
 		}
 	}
-	if batch, ok := uploader.(pendingFileUploader); ok && len(state.pendingFiles) > 0 {
-		if err := batch.WaitForUploadedFiles(ctx, a, state.pendingFiles); err != nil {
-			return upstreamFileError(err, "Failed to process inline files.")
-		}
-	}
-	if refIDs := promptcompat.CollectOpenAIRefFileIDs(req); len(refIDs) > 0 {
-		req["ref_file_ids"] = stringsToAnySlice(refIDs)
-	}
-	if state.inlineFileBytes > 0 {
-		req["_inline_file_bytes"] = state.inlineFileBytes
-	}
-	return nil
+	return state.finalizeFileInputs(req)
 }
 
 func WriteInlineFileError(w http.ResponseWriter, err error) {
@@ -198,7 +191,6 @@ func (s *inlineUploadState) tryUploadBlock(block map[string]any) (map[string]any
 		return nil, true, upstreamFileError(err, "Failed to upload inline file.")
 	}
 	s.uploadCount++
-	s.inlineFileBytes += len(decoded.Data)
 	replacement := map[string]any{
 		"type":    decoded.ReplacementType,
 		"file_id": fileID,
@@ -213,8 +205,7 @@ func (s *inlineUploadState) tryUploadBlock(block map[string]any) (map[string]any
 }
 
 func (s *inlineUploadState) uploadInlineFile(file inlineDecodedFile) (string, error) {
-	sum := sha256.Sum256(append([]byte(file.ContentType+"\x00"+file.Filename+"\x00"), file.Data...))
-	cacheKey := fmt.Sprintf("%x", sum[:])
+	cacheKey := inlineFileFingerprint(file.Filename, file.ContentType, file.Data)
 	if fileID, ok := s.uploadedByID[cacheKey]; ok && strings.TrimSpace(fileID) != "" {
 		return fileID, nil
 	}
@@ -247,6 +238,7 @@ func (s *inlineUploadState) uploadInlineFile(file inlineDecodedFile) (string, er
 		return "", fmt.Errorf("upload succeeded without file id")
 	}
 	s.uploadedByID[cacheKey] = fileID
+	s.fallbackBytes[fileID] = len(file.Data)
 	s.pendingFiles = append(s.pendingFiles, result)
 	return fileID, nil
 }

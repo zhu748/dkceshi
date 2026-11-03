@@ -54,7 +54,7 @@ func (s *responseStore) put(owner, id string, value map[string]any) bool {
 	return s.putContext(owner, id, value, nil)
 }
 
-func (s *responseStore) putContext(owner, id string, value map[string]any, context []any) bool {
+func (s *responseStore) putContext(owner, id string, value map[string]any, context []any, fileInputs ...map[string]any) bool {
 	if s == nil || owner == "" || id == "" || value == nil {
 		return false
 	}
@@ -64,7 +64,7 @@ func (s *responseStore) putContext(owner, id string, value map[string]any, conte
 	if err != nil {
 		return false
 	}
-	contextJSON, err := json.Marshal(context)
+	contextJSON, err := marshalReplayContext(context, fileInputs...)
 	if err != nil {
 		return false
 	}
@@ -139,21 +139,22 @@ func cloneValue(in any) any {
 }
 func cloneMessages(in []any) []any { out, _ := cloneValue(in).([]any); return out }
 func (s *responseStore) context(owner, id string) ([]any, bool) {
+	messages, _, ok := s.continuationContext(owner, id)
+	return messages, ok
+}
+
+func (s *responseStore) continuationContext(owner, id string) ([]any, map[string]any, bool) {
 	if s == nil || owner == "" || id == "" {
-		return nil, false
+		return nil, nil, false
 	}
 	s.mu.Lock()
 	s.sweepLocked(time.Now())
 	item, ok := s.items[responseStoreKey(owner, id)]
 	s.mu.Unlock()
 	if !ok || item.Owner != owner || string(item.Context) == "null" {
-		return nil, false
+		return nil, nil, false
 	}
-	var context []any
-	if err := jsonvalue.Unmarshal(item.Context, &context); err != nil {
-		return nil, false
-	}
-	return context, true
+	return unmarshalReplayContext(item.Context)
 }
 
 func (h *Handler) getResponseStore() *responseStore {

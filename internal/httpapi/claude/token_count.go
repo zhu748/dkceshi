@@ -12,7 +12,7 @@ func countClaudeInputTokens(stdReq promptcompat.StandardRequest) int {
 	if strings.TrimSpace(promptText) == "" {
 		promptText = stdReq.FinalPrompt
 	}
-	return countClaudeInputTokensFromText(promptText, stdReq.ResolvedModel)
+	return countClaudeInputTokensFromText(promptText, stdReq.ResolvedModel) + stdReq.RefFileTokens
 }
 
 func countClaudeInputTokensFromText(promptText, model string) int {

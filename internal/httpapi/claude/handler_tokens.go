@@ -1,8 +1,12 @@
 package claude
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
+
+	"ds2api/internal/httpapi/openai/files"
+	"ds2api/internal/httpapi/openai/shared"
+	"ds2api/internal/jsonvalue"
 )
 
 func (h *Handler) CountTokens(w http.ResponseWriter, r *http.Request) {
@@ -14,7 +18,13 @@ func (h *Handler) CountTokens(w http.ResponseWriter, r *http.Request) {
 	defer h.Auth.Release(a)
 
 	var req map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeClaudeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		writeClaudeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
@@ -25,6 +35,16 @@ func (h *Handler) CountTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalized, err := normalizeClaudeRequest(h.Store, req)
+	if err != nil {
+		writeClaudeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := files.CountFileInputs(r.Context(), a, req, h.DS, normalized.Standard.ResolvedModel, normalized.Standard.Thinking); err != nil {
+		status, message := files.InlineFileErrorDetails(err)
+		writeClaudeError(w, status, message)
+		return
+	}
+	normalized, err = normalizeClaudeRequest(h.Store, req)
 	if err != nil {
 		writeClaudeError(w, http.StatusBadRequest, err.Error())
 		return

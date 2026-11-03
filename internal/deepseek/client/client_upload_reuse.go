@@ -20,10 +20,6 @@ func (c *Client) reuseUploadedFile(ctx context.Context, a *auth.RequestAuth, req
 	return c.uploadCache.do(ctx, key, uploadReuseOwner(a.DeepSeekToken), func(cached *UploadFileResult) (*UploadFileResult, bool, error) {
 		if cached != nil {
 			current, err := c.FetchUploadedFile(ctx, a, cached.ID)
-			if IsManagedUnauthorizedError(err) && c.Auth != nil && c.Auth.RefreshToken(ctx, a) {
-				// Refresh only the owning account; file IDs never move accounts.
-				current, err = c.FetchUploadedFile(ctx, a, cached.ID)
-			}
 			if err == nil && current != nil && !isFailedUploadFileStatus(current.Status) {
 				mergeUploadFileResults(cached, current)
 				return cached, key == uploadReuseKey(a, req), nil

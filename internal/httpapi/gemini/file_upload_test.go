@@ -13,11 +13,12 @@ import (
 type geminiPhotoDS struct {
 	geminiMarkerDS
 	uploads []dsclient.UploadFileRequest
+	tokens  *int
 }
 
 func (d *geminiPhotoDS) UploadFile(_ context.Context, _ *auth.RequestAuth, req dsclient.UploadFileRequest, _ int) (*dsclient.UploadFileResult, error) {
 	d.uploads = append(d.uploads, req)
-	return &dsclient.UploadFileResult{ID: "photo-test"}, nil
+	return &dsclient.UploadFileResult{ID: "photo-test", TokenUsage: d.tokens}, nil
 }
 
 func TestGeminiDirectUploadsNativePhotoBeforeCompletion(t *testing.T) {

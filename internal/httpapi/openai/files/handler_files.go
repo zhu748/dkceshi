@@ -207,6 +207,8 @@ func buildOpenAIFileObject(result *dsclient.UploadFileResult) map[string]any {
 	if result.AccountID != "" {
 		obj["account_id"] = result.AccountID
 	}
+	obj["token_usage"] = result.TokenUsage
+	obj["is_image"] = result.IsImage
 	return obj
 }
 

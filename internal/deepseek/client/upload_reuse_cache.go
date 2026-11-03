@@ -152,6 +152,7 @@ func uploadMetadataCopy(file *UploadFileResult) *UploadFileResult {
 		return nil
 	}
 	copy := *file
+	copy.TokenUsage = cloneFileTokenUsage(file.TokenUsage)
 	copy.Raw, copy.RawHeaders = nil, nil
 	return &copy
 }

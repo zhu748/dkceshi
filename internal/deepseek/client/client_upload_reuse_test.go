@@ -36,7 +36,7 @@ func (u *reuseTestUpstream) Do(req *http.Request) (*http.Response, error) {
 		body = fmt.Sprintf(`{"code":0,"data":{"biz_code":0,"biz_data":{"challenge":{"algorithm":"DeepSeekHashV1","challenge":"%s","salt":"salt","expire_at":1712345678,"difficulty":1000,"signature":"sig"}}}}`, hex.EncodeToString(hash[:]))
 	case "/api/v0/file/upload_file":
 		u.uploads++
-		body = fmt.Sprintf(`{"code":0,"data":{"biz_code":0,"biz_data":{"id":"file-%d","status":"%s","file_name":"photo.png","file_size":4,"is_image":true}}}`, u.uploads, u.status)
+		body = fmt.Sprintf(`{"code":0,"data":{"biz_code":0,"biz_data":{"id":"file-%d","status":"%s","file_name":"photo.png","file_size":4,"is_image":true,"token_usage":954}}}`, u.uploads, u.status)
 	case "/api/v0/file/fetch_files":
 		u.fetches++
 		body = fmt.Sprintf(`{"code":0,"data":{"biz_code":0,"biz_data":{"files":[{"id":"%s","status":"%s","is_image":true}]}}}`, req.URL.Query().Get("file_ids"), u.status)
@@ -75,9 +75,13 @@ func TestUploadReuseSkipsMultipartAndPowButValidatesFile(t *testing.T) {
 	if u.uploads != 1 || u.proofs != 1 || u.fetches != 1 {
 		t.Fatalf("upload/proof/fetch counts: %d/%d/%d", u.uploads, u.proofs, u.fetches)
 	}
+	if first.TokenUsage == nil || second.TokenUsage == nil || *first.TokenUsage != 954 || *second.TokenUsage != 954 {
+		t.Fatal("upload reuse lost authoritative token counts")
+	}
 	second.Status = "changed"
+	*second.TokenUsage = 123
 	third, err := c.UploadFile(context.Background(), a, req, 1)
-	if err != nil || third.Status != "SUCCESS" {
+	if err != nil || third.Status != "SUCCESS" || third.TokenUsage == nil || *third.TokenUsage != 954 {
 		t.Fatalf("caller mutation leaked: %#v %v", third, err)
 	}
 }

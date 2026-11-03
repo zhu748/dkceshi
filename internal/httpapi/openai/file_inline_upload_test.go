@@ -22,6 +22,7 @@ type inlineUploadDSStub struct {
 	completionReq  map[string]any
 	createSession  string
 	uploadErr      error
+	fileTokens     *int
 	completionResp *http.Response
 }
 
@@ -47,11 +48,12 @@ func (m *inlineUploadDSStub) UploadFile(ctx context.Context, _ *auth.RequestAuth
 		id = "file-inline-" + fmt.Sprint(len(m.uploadCalls))
 	}
 	return &dsclient.UploadFileResult{
-		ID:       id,
-		Filename: req.Filename,
-		Bytes:    int64(len(req.Data)),
-		Status:   "uploaded",
-		Purpose:  req.Purpose,
+		ID:         id,
+		Filename:   req.Filename,
+		Bytes:      int64(len(req.Data)),
+		Status:     "uploaded",
+		Purpose:    req.Purpose,
+		TokenUsage: m.fileTokens,
 	}, nil
 }
 

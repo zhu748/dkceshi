@@ -23,6 +23,7 @@ func (h *Handler) restoreContinuation(r *http.Request, req map[string]any) ([]an
 		return nil, fmt.Errorf("conversation is not supported; use previous_response_id or full input")
 	}
 	var previous []any
+	var previousFiles map[string]any
 	if raw := req["previous_response_id"]; raw != nil {
 		id, ok := raw.(string)
 		if !ok || strings.TrimSpace(id) == "" {
@@ -33,7 +34,7 @@ func (h *Handler) restoreContinuation(r *http.Request, req map[string]any) ([]an
 			return nil, errContinuationUnauthorized
 		}
 		var found bool
-		previous, found = h.getResponseStore().context(responseStoreOwner(caller), id)
+		previous, previousFiles, found = h.getResponseStore().continuationContext(responseStoreOwner(caller), id)
 		if !found {
 			return nil, fmt.Errorf("previous_response_id was not found, expired, or belongs to another caller")
 		}
@@ -64,11 +65,19 @@ func (h *Handler) restoreContinuation(r *http.Request, req map[string]any) ([]an
 	}
 	req["messages"] = messages
 	delete(req, "input")
+	mergeReplayFiles(req, previousFiles)
+	if req["store"] == false {
+		return nil, nil
+	}
 	return cloneMessages(messages), nil
 }
 
 func (h *Handler) responsePersister(owner, id string, req map[string]any, context []any) func(map[string]any) bool {
 	enabled := req["store"] != false
+	files, ok := req[replayFilesKey].(replayFileInputs)
+	if enabled && !ok {
+		files = captureReplayFiles(req)
+	}
 	return func(value map[string]any) bool {
 		value["store"] = enabled
 		value["previous_response_id"] = req["previous_response_id"]
@@ -81,7 +90,7 @@ func (h *Handler) responsePersister(owner, id string, req map[string]any, contex
 			output, _ = cloneValue(value["output"]).([]any)
 		}
 		replay := append(cloneMessages(context), promptcompat.NormalizeResponsesInputAsMessages(output)...)
-		if !h.getResponseStore().putContext(owner, id, value, replay) {
+		if !h.getResponseStore().putContext(owner, id, value, replay, files) {
 			value["store"] = false
 			return false
 		}

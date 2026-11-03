@@ -317,7 +317,7 @@ data: [DONE]
 - 开启 thinking 时会输出 `delta.reasoning_content`
 - 普通文本输出 `delta.content`
 - 最后一段包含 `finish_reason` 和 `usage`
-- token 计数使用内部估算，忽略上游累计 `accumulated_token_usage` / `token_usage`，避免把整段上下文累计值当作本次用量。失败/中断型结束（例如 `response.failed`）可能不会携带 `usage`
+- 文本和输出 token 使用内部估算，忽略 SSE 上游累计 `accumulated_token_usage` / `token_usage`；文件输入优先采用就绪元数据的真实 `token_usage`，避免把整段上下文累计值当作本次用量。失败/中断型结束（例如 `response.failed`）可能不会携带 `usage`
 
 #### Tool Calls
 
@@ -367,6 +367,8 @@ data: [DONE]
 无需鉴权。入参支持 alias（例如 `gpt-4o`），返回的是映射后的 DeepSeek 模型对象。
 
 ### `POST /v1/responses`
+
+使用 `previous_response_id` 续接时，顶层 `file_ids`、`ref_file_ids`、`attachments` 也会恢复并与本轮文件合并；文件输入计入缓存容量，显式 ID 仍需使用所属账号。
 
 OpenAI Responses 风格接口，兼容 `input` 或 `messages`。
 
@@ -452,11 +454,13 @@ data: [DONE]
 
 - 请求必须为 `multipart/form-data`，否则返回 `400`。
 - 请求体总大小上限 **100 MiB**（超限返回 `413`）。
-- 成功返回 OpenAI `file` 对象（`id/object/bytes/filename/purpose/status` 等字段），并附带 `account_id` 便于定位来源账号。
+- 成功返回 OpenAI `file` 对象（`id/object/bytes/filename/purpose/status` 等字段），并附带 `account_id` 便于定位来源账号，以及 `is_image` 和 `token_usage`（未知为 `null`，真实零为 `0`）。
 - 同调用者、上游账号/凭证、文件内容与处理参数的重复上传可复用上游 ID；默认进程内缓存 900 秒、最多 256 项。命中先查询上游状态，不再重复上传或计算上传 PoW。配置及失效规则见 [图片与文件复用](docs/upload-reuse-gif-alignment.md)。
 - 图片和文档的内联 Base64 上传共用此缓存。GIF/APNG/WebP 保留原始动画；`preserve_image=true` 可跳过 JPEG/PNG 压缩。
 - 后续直接引用 `file_ids: ["上传返回的 id"]` 时，多账号环境需携带 `X-Ds2-Target-Account: 上传返回的 account_id`。显式 ID 不包含原文件，失效后需重新上传。
 - OpenAI Chat/Responses 支持只包含图片的消息；不要求额外附加文字。
+- 每次最多引用 50 个唯一文件 ID；已有 ID 批量查询并等待就绪，不重传文件。同一 ID 只计一次文件 token；缺失返回 `404`，处理失败返回 `422`。无真实计数时才按文件字节数 /3 估算。
+- 文件查询保留上游限流/服务端错误状态；等待超时返回 `504`，无效上游响应返回 `502`。引用 ID 已超限时，在上传内联文件前拒绝请求。
 
 ### `GET /v1/files/{file_id}`
 
@@ -582,6 +586,8 @@ data: {"type":"message_stop"}
 
 ### `POST /anthropic/v1/messages/count_tokens`
 
+包含文件输入用量：已有文件 ID 查询真实计数；内联 Base64 本地估算，不实际上传。
+
 **请求**：
 
 ```json
@@ -634,7 +640,7 @@ data: {"type":"message_stop"}
 - thinking：持续返回 `parts[].thought=true` 的增量 chunk
 - `tools` 场景：会缓冲并在结束时输出 `functionCall` 结构
 - 结束 chunk：包含 `finishReason: "STOP"` 与 `usageMetadata`
-- token 计数使用内部估算，忽略上游累计 `accumulated_token_usage` / `token_usage`
+- 文本和输出 token 使用内部估算，忽略 SSE 上游累计 `accumulated_token_usage` / `token_usage`；文件输入优先采用就绪元数据的真实 `token_usage`
 
 ---
 

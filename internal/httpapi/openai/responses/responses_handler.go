@@ -88,6 +88,9 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	if req["store"] != false {
+		req[replayFilesKey] = captureReplayFiles(req)
+	}
 
 	// 图片处理分三步且顺序固定：先判定（此时图片块还在，上传要用），再在两轮
 	// 内联上传之后剥离图片块（图片改经 ref_file_ids 送达），最后在标准化之后

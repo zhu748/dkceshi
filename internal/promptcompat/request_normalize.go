@@ -200,12 +200,12 @@ func collectOpenAIChatPassThrough(req map[string]any) map[string]any {
 	return out
 }
 
-// EstimateInlineFileTokens extracts the byte count stashed by PreprocessInlineFileInputs
-// and converts it to a conservative token estimate. Inline files are typically images or
-// documents that the upstream model will process; we use bytes/3 (rather than bytes/4)
-// as a slightly pessimistic approximation so the returned context token count stays
-// safely above the real value.
+// EstimateInlineFileTokens prefers per-file upstream counts resolved by shared
+// preprocessing. The byte estimate remains for older internal callers only.
 func EstimateInlineFileTokens(req map[string]any) int {
+	if tokens, ok := referenceFileTokens(req); ok {
+		return tokens
+	}
 	raw, ok := req["_inline_file_bytes"]
 	if !ok {
 		return 0

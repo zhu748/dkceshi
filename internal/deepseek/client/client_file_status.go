@@ -68,7 +68,6 @@ func (c *Client) WaitForUploadedFiles(ctx context.Context, a *auth.RequestAuth, 
 	}
 
 	var lastErr error
-	refreshed := false
 	for attempt := 0; attempt < fileReadyPollAttempts; attempt++ {
 		if err := pollCtx.Err(); err != nil {
 			return fmt.Errorf("waiting for file readiness: %w", err)
@@ -100,13 +99,6 @@ func (c *Client) WaitForUploadedFiles(ctx context.Context, a *auth.RequestAuth, 
 			}
 			lastErr = fmt.Errorf("%d files are still processing", len(pending))
 		} else {
-			if IsManagedUnauthorizedError(err) && !refreshed && c.Auth != nil {
-				refreshed = true
-				// Files remain bound to their owner; never switch accounts here.
-				if c.Auth.RefreshToken(pollCtx, a) {
-					continue
-				}
-			}
 			if isPermanentFileFetchError(err) {
 				return fmt.Errorf("waiting for file readiness: %w", err)
 			}
@@ -134,6 +126,15 @@ func (c *Client) FetchUploadedFile(ctx context.Context, a *auth.RequestAuth, fil
 }
 
 func (c *Client) FetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fileIDs []string) ([]*UploadFileResult, error) {
+	files, err := c.fetchUploadedFiles(ctx, a, fileIDs)
+	if IsManagedUnauthorizedError(err) && c.Auth != nil && c.Auth.RefreshToken(ctx, a) {
+		// A file stays on its owning account even if that account refreshes auth.
+		return c.fetchUploadedFiles(ctx, a, fileIDs)
+	}
+	return files, err
+}
+
+func (c *Client) fetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fileIDs []string) ([]*UploadFileResult, error) {
 	params := url.Values{}
 	ids := make([]string, 0, len(fileIDs))
 	seen := make(map[string]bool, len(fileIDs))
@@ -184,11 +185,11 @@ func (c *Client) FetchUploadedFiles(ctx context.Context, a *auth.RequestAuth, fi
 		result.Raw = resp
 		files = append(files, result)
 	}
-	if len(files) == 0 {
+	if len(files) != len(ids) {
 		if !hasFetchedFileList(resp) {
 			return nil, fmt.Errorf("%w: missing files list", ErrInvalidUpstreamResponse)
 		}
-		return nil, ErrUploadFileNotFound
+		return nil, fmt.Errorf("%w: requested %d files, received %d", ErrUploadFileNotFound, len(ids), len(files))
 	}
 	return files, nil
 }
@@ -200,8 +201,15 @@ type fileFetchError struct {
 
 func (e *fileFetchError) Error() string { return e.message }
 
+func (e *fileFetchError) HTTPStatus() int {
+	if e.status >= 400 && e.status <= 599 {
+		return e.status
+	}
+	return http.StatusBadGateway
+}
+
 func isPermanentFileFetchError(err error) bool {
-	if IsManagedUnauthorizedError(err) || IsDirectUnauthorizedError(err) || IsMutedError(err) ||
+	if errors.Is(err, ErrUploadFileNotFound) || IsManagedUnauthorizedError(err) || IsDirectUnauthorizedError(err) || IsMutedError(err) ||
 		errors.Is(err, ErrInvalidUpstreamResponse) || errors.Is(err, ErrUpstreamResponseTooLarge) {
 		return true
 	}
@@ -274,35 +282,8 @@ func buildUploadFileResultFromMap(m map[string]any, targetID string) *UploadFile
 	if result.Status == "" {
 		result.Status = "uploaded"
 	}
+	readFileTokenUsage(result, m)
 	return result
-}
-
-func mergeUploadFileResults(dst, src *UploadFileResult) {
-	if dst == nil || src == nil {
-		return
-	}
-	if strings.TrimSpace(src.ID) != "" {
-		dst.ID = strings.TrimSpace(src.ID)
-	}
-	if strings.TrimSpace(src.Filename) != "" {
-		dst.Filename = strings.TrimSpace(src.Filename)
-	}
-	if src.Bytes > 0 {
-		dst.Bytes = src.Bytes
-	}
-	if strings.TrimSpace(src.Status) != "" {
-		dst.Status = strings.TrimSpace(src.Status)
-	}
-	if strings.TrimSpace(src.Purpose) != "" {
-		dst.Purpose = strings.TrimSpace(src.Purpose)
-	}
-	dst.IsImage = src.IsImage
-	if len(src.Raw) > 0 {
-		dst.Raw = src.Raw
-	}
-	if src.RawHeaders != nil {
-		dst.RawHeaders = src.RawHeaders.Clone()
-	}
 }
 
 func isReadyUploadFileStatus(status string) bool {

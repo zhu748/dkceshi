@@ -312,7 +312,7 @@ data: [DONE]
 - When thinking is enabled, the stream may emit `delta.reasoning_content`
 - Text emits `delta.content`
 - Last chunk includes `finish_reason` and `usage`
-- Token counts use internal estimates and ignore upstream cumulative `accumulated_token_usage` / `token_usage`, so whole-context totals are not mistaken for this request’s usage. Failed/interrupted endings (for example `response.failed`) may not include `usage`
+- Text and output token counts use internal estimates and ignore cumulative SSE `accumulated_token_usage` / `token_usage`; file inputs prefer ready-file metadata’s actual `token_usage`, so whole-context totals are not mistaken for this request’s usage. Failed/interrupted endings (for example `response.failed`) may not include `usage`
 
 #### Tool Calls
 
@@ -361,6 +361,8 @@ Additional notes:
 No auth required. Alias values are accepted as path params (for example `gpt-4o`), and the returned object is the mapped DeepSeek model.
 
 ### `POST /v1/responses`
+
+Continuations using `previous_response_id` also restore top-level `file_ids`, `ref_file_ids` and `attachments`, merging them with current files. File inputs count toward cache capacity; explicit IDs still require their owning account.
 
 OpenAI Responses-style endpoint, accepting either `input` or `messages`.
 
@@ -447,11 +449,13 @@ Constraints and behavior:
 
 - `Content-Type` must be `multipart/form-data` (otherwise `400`).
 - Total request size limit is **100 MiB** (over-limit returns `413`).
-- Success returns an OpenAI `file` object (`id/object/bytes/filename/purpose/status`, etc.) and includes `account_id` for source-account tracing.
+- Success returns an OpenAI `file` object (`id/object/bytes/filename/purpose/status`, etc.) and includes `account_id` for source-account tracing, plus `is_image` and `token_usage` (`null` when unknown; `0` for a known zero).
 - Repeated uploads with the same caller, upstream account/credential, file bytes and processing parameters can reuse an upstream ID. The process-local cache defaults to 900 seconds and 256 entries; each hit checks upstream metadata before skipping upload PoW and multipart transfer. See [reuse behavior and configuration](docs/upload-reuse-gif-alignment.md).
 - Inline Base64 images/documents use the same cache. GIF/APNG/WebP animation bytes are preserved; `preserve_image=true` skips JPEG/PNG compression.
 - To reference an uploaded file directly, pass `file_ids: ["returned id"]` and, in a managed account pool, `X-Ds2-Target-Account: returned account_id`. An expired explicit ID needs a new upload because it contains no original bytes.
 - OpenAI Chat/Responses accept image-only user messages without requiring additional text.
+- Up to 50 unique file IDs per request are fetched in one batch and awaited without reuploading. File tokens are counted once per ID. Missing files return `404`; rejected files return `422`. Bytes/3 is used only when the actual file count is unavailable.
+- File queries preserve upstream rate-limit/server error statuses. Processing timeouts return `504`; invalid upstream responses return `502`. Requests already exceeding the reference limit are rejected before inline uploads.
 
 ### `GET /v1/files/{file_id}`
 
@@ -573,6 +577,8 @@ data: {"type":"message_stop"}
 
 ### `POST /anthropic/v1/messages/count_tokens`
 
+Includes file input usage: existing IDs use fetched metadata; inline Base64 is estimated locally without uploading.
+
 **Request**:
 
 ```json
@@ -625,7 +631,7 @@ Returns SSE (`text/event-stream`), each chunk as `data: <json>`:
 - thinking: incremental chunks with `parts[].thought=true`
 - `tools` mode: buffered and emitted as `functionCall` at finalize phase
 - final chunk: includes `finishReason: "STOP"` and `usageMetadata`
-- Token counts use internal estimates and ignore upstream cumulative `accumulated_token_usage` / `token_usage`
+- Text and output token counts use internal estimates and ignore cumulative SSE `accumulated_token_usage` / `token_usage`; file inputs prefer ready-file metadata’s actual `token_usage`
 
 ---
 
