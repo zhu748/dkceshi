@@ -1,0 +1,17 @@
+{
+  "chunk": {
+    "p": "response/fragments",
+    "o": "APPEND",
+    "v": [
+      {
+        "id": 4,
+        "type": "TIP",
+        "content": "本回答由 AI 生成，内容仅供参考，请仔细甄别",
+        "style": "WARNING",
+        "hide_on_wip": true
+      }
+    ]
+  },
+  "thinking_enabled": false,
+  "current_type": "text"
+}

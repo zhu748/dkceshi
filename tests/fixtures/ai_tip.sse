@@ -1,0 +1,5 @@
+data: {"p":"response/fragments","o":"APPEND","v":[{"id":3,"type":"RESPONSE","content":"正文"}]}
+data: {"p":"response/fragments/-1/content","v":"继续"}
+data: {"p":"response/fragments","v":[{"id":4,"type":"TIP","content":"本回答由 AI 生成，内容仅供参考，请仔细甄别","style":"WARNING","hide_on_wip":true}]}
+data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":165},{"p":"quasi_status","v":"FINISHED"}]}
+data: {"p":"response/status","o":"SET","v":"FINISHED"}

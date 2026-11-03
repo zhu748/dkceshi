@@ -26,6 +26,9 @@ func collectDirectFragments(path string, chunk map[string]any, v any, thinkingEn
 			typeName = fragType
 		}
 		switch typeName {
+		case "TIP":
+			// App annotations (including the AI disclosure) are not answer text.
+			continue
 		case "THINK", "THINKING":
 			if !bodyStarted(thinkingEnabled, *newType) {
 				// THINK fragment moves the cursor to thinking (see
@@ -172,6 +175,8 @@ func appendWrappedFragments(val map[string]any, partType string, thinkingEnabled
 			typeName = fragType
 		}
 		switch typeName {
+		case "TIP":
+			continue
 		case "THINK", "THINKING":
 			if !bodyStarted(thinkingEnabled, *newType) {
 				// A THINK fragment moves the sticky cursor to thinking: it is

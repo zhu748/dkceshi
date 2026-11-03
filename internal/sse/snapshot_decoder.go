@@ -197,6 +197,9 @@ func (d *snapshotDecoder) fragment(node map[string]any, index int, kind string, 
 	}
 	typ, _ := node["type"].(string)
 	switch strings.ToUpper(typ) {
+	case "TIP":
+		// Keep presentation annotations out of the answer's snapshot history.
+		kind = "tip"
 	case "THINK", "THINKING":
 		kind = "thinking"
 		if !bodyStarted(d.thinkingEnabled, d.cursor) {

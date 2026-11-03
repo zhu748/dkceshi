@@ -45,6 +45,8 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
         continue;
       }
       const fragType = asString(frag.type).toUpperCase();
+      // App annotations (including the AI disclosure) are not answer text.
+      if (fragType === 'TIP') continue;
       const content = asContentString(frag.content, stripReferenceMarkers);
       if (!content) {
         continue;
@@ -139,6 +141,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
           continue;
         }
         const t = asString(frag.type).toUpperCase();
+        if (t === 'TIP') continue;
         if (t === 'THINK' || t === 'THINKING') {
           if (!(thinkingEnabled && newType === 'text')) {
             newType = 'thinking';

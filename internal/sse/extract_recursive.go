@@ -20,6 +20,9 @@ func extractContentRecursiveFrom(items []any, defaultType string, thinkingEnable
 		if !ok {
 			continue
 		}
+		if typeName, _ := m["type"].(string); strings.EqualFold(typeName, "TIP") {
+			continue
+		}
 		itemPath, _ := m["p"].(string)
 		itemV, hasV := m["v"]
 		if !hasV {
@@ -92,6 +95,9 @@ func extractContentRecursiveFrom(items []any, defaultType string, thinkingEnable
 			for _, inner := range v {
 				switch x := inner.(type) {
 				case map[string]any:
+					if typeName, _ := x["type"].(string); strings.EqualFold(typeName, "TIP") {
+						continue
+					}
 					innerPath, _ := x["p"].(string)
 					if shouldSkipPath(innerPath) {
 						continue

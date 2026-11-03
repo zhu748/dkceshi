@@ -163,3 +163,28 @@ Claude/Gemini 原生上传、多个文件引用及 Go/Node JSON 一致性。
 
 登录 SDK ID、安装标识、auto 生成路径、遥测头、时区、上传参数转义、图片压缩和 Node HTTP/2
 已进一步核对；上文保留的是历史 HAR 背景。当前实现及明确边界以 [APK 请求对齐核对](apk-request-alignment.md) 为准。
+
+## 2026-11-03 聊天抓包复核
+
+用户补充的 HAR 共 19 个请求，包含 6 次 completion/regenerate SSE 响应。
+本次仅保留缩减后的协议回归用例，不保存原始 HAR、认证信息或设备身份。
+
+该样本的 App 版本、UA、平台、语言、包名、时区、Accept、字符集、压缩方式、
+PoW 位置及 HTTP/2 头部顺序与当前默认构造规则相符。以下字段不保证逐字相同：
+
+- 样本发送空的 `x-rangers-id`，项目省略空值；配置真实值后才发送。
+- 样本没有 `x-device-id`，项目通常发送账号安装标识；
+  `DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER=0` 可控制该头部的省略。
+- 型号和 Android API 等级跟随账号设备档案，认证 token 和 PoW 跟随当前请求。
+
+其中 3 次响应在正文后附带独立提示片段：
+
+```json
+{"p":"response/fragments","v":[{"id":4,"type":"TIP","content":"本回答由 AI 生成，内容仅供参考，请仔细甄别","style":"WARNING","hide_on_wip":true}]}
+```
+
+这是 App 的界面标注，不是 `RESPONSE` 正文。快照解码会将未指定操作的该帧归一化为
+`APPEND`，因此也必须在后续片段提取时识别 `TIP`。Go 与 Node 的共用 SSE 解析层现在
+跳过此类型，覆盖直接追加、嵌套 BATCH 和完整响应快照；提示不进入正文、思考或工具检测通道。
+提示的快照状态与正文分开，避免污染后续正文重放。过滤依据是类型，不匹配提示文案，
+正常 `RESPONSE` 或正文增量中引用相同句子会保留。标准 API 目前不另行返回 App 提示标注字段。

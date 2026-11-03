@@ -1,0 +1,28 @@
+{
+  "chunk": {
+    "v": {
+      "response": {
+        "fragments": [
+          {
+            "type": "THINK",
+            "content": "思考"
+          },
+          {
+            "type": "RESPONSE",
+            "content": "正文"
+          },
+          {
+            "id": 4,
+            "type": "TIP",
+            "content": "本回答由 AI 生成，内容仅供参考，请仔细甄别",
+            "style": "WARNING",
+            "hide_on_wip": true
+          }
+        ],
+        "status": "FINISHED"
+      }
+    }
+  },
+  "thinking_enabled": true,
+  "current_type": "thinking"
+}

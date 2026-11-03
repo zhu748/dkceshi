@@ -10,6 +10,7 @@ function extractContentRecursive(items, defaultType, newType, stripReferenceMark
     if (!it || typeof it !== 'object') {
       continue;
     }
+    if (asString(it.type).toUpperCase() === 'TIP') continue;
     if (!Object.prototype.hasOwnProperty.call(it, 'v')) {
       continue;
     }
@@ -100,6 +101,7 @@ function extractContentRecursive(items, defaultType, newType, stripReferenceMark
       if (!inner || typeof inner !== 'object') {
         continue;
       }
+      if (asString(inner.type).toUpperCase() === 'TIP') continue;
       if (shouldSkipPath(asString(inner.p))) {
         continue;
       }
@@ -110,8 +112,7 @@ function extractContentRecursive(items, defaultType, newType, stripReferenceMark
         //   {"p":"-1/content","o":"APPEND","v":"..."}
         // Use the sticky cursor for its type so body code (e.g. a trailing
         // "pass\n```") is not dropped and reasoning fragments are not leaked
-        // as body text. TIP-style items still fall through when "v" is not a
-        // string.
+        // as body text.
         const sv = typeof inner.v === 'string' ? asContentString(inner.v, stripReferenceMarkers) : '';
         if (sv) {
           parts.push({ text: sv, type: newType || partType });

@@ -86,7 +86,9 @@ class SnapshotDecoder {
   }
   fragment(node, index, kind, snapshot) {
     const typ = String(node.type || '').toUpperCase();
-    if (typ === 'THINK' || typ === 'THINKING') { kind = 'thinking'; if (!(this.thinkingEnabled && this.cursor === 'text')) this.cursor = kind; }
+    // Keep presentation annotations out of the answer's snapshot history.
+    if (typ === 'TIP') kind = 'tip';
+    else if (typ === 'THINK' || typ === 'THINKING') { kind = 'thinking'; if (!(this.thinkingEnabled && this.cursor === 'text')) this.cursor = kind; }
     else if (typ === 'RESPONSE') kind = this.cursor = 'text';
     else if (isToolFragmentType(typ)) kind = 'thinking';
     const alias = 'response/fragments/' + index + '/content';
