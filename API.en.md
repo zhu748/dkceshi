@@ -796,6 +796,8 @@ Hot-updates runtime settings. Supported fields:
 - `model_aliases`
 - `toolcall` policy is fixed and is no longer writable through settings
 
+Automatic session cleanup applies consistently to direct Chat, Responses, Claude and Gemini paths: `single` removes the current session; `all` removes account sessions at final request completion. Account switches and session replacement retire only the old individual session. Cleanup runs in the background on a best-effort basis; failures are logged without changing the generated response.
+
 ### `POST /admin/settings/password`
 
 Updates admin password and invalidates existing JWTs.

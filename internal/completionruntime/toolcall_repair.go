@@ -162,26 +162,4 @@ func callOriginalRepair(ctx context.Context, ds DeepSeekCaller, a *auth.RequestA
 	return repairOutput{Text: result.Text, Thinking: result.Thinking}, nil
 }
 
-// deleteRepairSession reclaims a repair session on a best-effort basis, wiring
-// the phase3 repair pass into the project's session-deletion strategy (the same
-// mechanism autoDeleteRemoteSession uses for the main request). It is a no-op
-// when the caller cannot delete sessions or the session id is empty. Errors are
-// logged, not returned: cleanup failure must never fail the repair.
-func deleteRepairSession(parentCtx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, sessionID string) {
-	if sessionID == "" {
-		return
-	}
-	deleter, ok := ds.(repairSessionDeleter)
-	if !ok {
-		return
-	}
-	// Detach from the parent (and the already-expired repair) context so the
-	// delete is not cancelled by a repair timeout or a completed request.
-	deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), toolCallRepairSessionDeleteTimeout)
-	defer cancel()
-	if _, err := deleter.DeleteSession(deleteCtx, a, sessionID, 1); err != nil {
-		config.Logger.Warn("[toolcall_repair] failed to delete repair session", "session_id", sessionID, "error", err)
-	}
-}
-
 var errToolCallRepairUpstream = errors.New("toolcall repair: upstream returned non-200")

@@ -1,4 +1,6 @@
 'use strict';
+const { readErrorText } = require('./response_read');
+const { resolveInitialResponse } = require('./initial_response');
 const { createLeadingText } = require('./leading_text');
 const { createFinalValidation } = require('./final_validation');
 const { createDiagnosticProgress } = require('./diagnostic_progress');
@@ -69,11 +71,11 @@ const { createUpstreamConnection } = require('./upstream_connection');
 
 const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
 const DEEPSEEK_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
-
 async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAppStream) {
   let leaseCompletion = {};
   let partialCompletion = () => ({});
   let usageAccounting;
+  let streamStarted = false;
   const report = createStreamReport();
   const { fail: sendFailedChunk, finishFailure: finishStreamFailure } = report;
   const lifecycle = createStreamLifecycle(req, res, () => report.snapshot({ ...(leaseCompletion.finish_reason ? leaseCompletion : partialCompletion()), ...usageAccounting?.metadata() }));
@@ -99,7 +101,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let completionPayload = prep.body.payload && typeof prep.body.payload === 'object' ? prep.body.payload : null;
     let finalPrompt = asString(prep.body.final_prompt);
     usageAccounting = createUsageAccounting(prep.body);
-    let streamStarted = false;
+
     const thinkingEnabled = toBool(prep.body.thinking_enabled);
     const toolPolicy = resolveToolcallPolicy(prep.body, payload.tools);
     const toolNames = toolPolicy.toolNames;
@@ -112,6 +114,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
 
     const connection = createUpstreamConnection({ prepared: prep.body, req, leaseID, lifecycle, deadline: watch.deadline, appFetch });
     const fetchCompletion = (bodyPayload) => fetchAccountCompletion(bodyPayload, {
+      readOptions: { deadline: watch.deadline, signal: lifecycle.signal },
       fetch: (body) => connection.fetch(DEEPSEEK_COMPLETION_URL, body, connection.powHeader),
       closed: () => lifecycle.closed,
       canSwitch: () => !streamStarted || !answerDelivered,
@@ -168,43 +171,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       return;
     }
 
-    if (!completionRes.ok || !completionRes.body) {
-      let status = completionRes.ok ? 500 : completionRes.status || 500;
-      let detail = completionRes.body ? await completionRes.text() : '';
-      // 临时上游故障（500/502/503/504）与账号级鉴权失败（401）都先尝试切号重放，
-      // 而不是把上游报错原样透传给客户端；与 Go 侧 StartCompletion 的临时错误
-      // 升级、retryManagedAuthFailure 的刷新 Token 后换号保持一致。
-      let switchAttempts = 0;
-      while (
-        (isTransientUpstreamStatus(status) || isAccountAuthFailureStatus(status))
-        && (prep.body.failover_budget_managed === true || status === 429 || switchAttempts < TRANSIENT_SWITCH_MAX_ATTEMPTS)
-      ) {
-        const switched = await switchAccount(switchOptionsForStatus(status));
-        if (!switched) return;
-        if (!(switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object')) {
-          break;
-        }
-        switchAttempts += 1;
-        console.warn('[vercel_stream_account_switch] retrying after upstream status', {
-          status,
-          switch_count: switchAttempts,
-        });
-        applySwitchedPayload(switched);
-        completionRes = await fetchCompletion(completionPayload);
-        if (completionRes === null) {
-          return;
-        }
-        if (completionRes.ok && completionRes.body) {
-          break;
-        }
-        status = completionRes.ok ? 500 : completionRes.status || 500;
-        detail = completionRes.body ? await completionRes.text() : '';
-      }
-      if (!completionRes.ok || !completionRes.body) {
-        writeOpenAIError(res, status, detail);
-        return;
-      }
-    }
+    completionRes = await resolveInitialResponse(completionRes, {
+      res, readOptions: { deadline: watch.deadline, signal: lifecycle.signal }, prepared: prep.body,
+      switchAccount, adopt: applySwitchedPayload, fetchCompletion, closed: () => lifecycle.closed,
+    });
+    if (!completionRes) return;
 
     if (lifecycle.closed) return;
     res.statusCode = 200;
@@ -684,7 +655,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     while (true) {
       if (!completionRes.ok || !completionRes.body) {
         const status = completionRes.ok ? 502 : completionRes.status || 502;
-        const message = completionRes.body && !completionRes.bodyUsed ? await completionRes.text() : (lastEmptyDetail && lastEmptyDetail.message) || '';
+        const message = completionRes.body && !completionRes.bodyUsed ? await readErrorText(completionRes, { deadline: watch.deadline, signal: lifecycle.signal }) : (lastEmptyDetail && lastEmptyDetail.message) || '';
         if (!isTransientUpstreamStatus(status) && !isAccountAuthFailureStatus(status) && status !== 429) {
           ended = true;
           leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: outputText, error: message };
@@ -797,7 +768,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       if (!completionRes.ok || !completionRes.body) {
         const retryStatus = completionRes.ok ? 500 : completionRes.status || 500;
         if (isTransientUpstreamStatus(retryStatus) || isAccountAuthFailureStatus(retryStatus)) {
-          const retryDetail = completionRes.body ? await completionRes.text() : '';
+          const retryDetail = completionRes.body ? await readErrorText(completionRes, { deadline: watch.deadline, signal: lifecycle.signal }) : '';
           lastEmptyDetail = {
             status: retryStatus,
             message: retryDetail,
@@ -809,6 +780,14 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         return;
       }
       resetForRegeneration();
+    }
+  } catch (error) {
+    if (!lifecycle.closed && !res.writableEnded && !res.destroyed) {
+      const code = error.code === 'output_limit_exceeded' ? error.code : 'upstream_unavailable';
+      const message = code === 'output_limit_exceeded' ? error.message : 'Upstream request failed or timed out.';
+      leaseCompletion = { ...partialCompletion(), finish_reason: 'error', error: message, error_code: code };
+      if (streamStarted) { sendFailedChunk(res, 502, message, code); res.end(); }
+      else writeOpenAIErrorWithCode(res, 502, message, code);
     }
   } finally {
     stopHeartbeat();

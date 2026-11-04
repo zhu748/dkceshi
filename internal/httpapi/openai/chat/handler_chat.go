@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"ds2api/internal/jsonvalue"
 	"io"
 	"net/http"
@@ -70,7 +69,9 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	var sessionID string
 	defer func() {
-		h.autoDeleteRemoteSession(r.Context(), a, sessionID)
+		if !a.FinishAccountResources() {
+			h.autoDeleteRemoteSession(r.Context(), a, sessionID)
+		}
 		h.Auth.Release(a)
 	}()
 
@@ -151,39 +152,6 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	streamReq := start.Request
 	refFileTokens := streamReq.RefFileTokens
 	h.handleStreamWithRetry(w, r, a, start.Response, start.Payload, start.Pow, sessionID, &sessionID, streamReq, streamReq.ResponseModel, streamReq.PromptTokenText, refFileTokens, streamReq.Thinking, streamReq.Search, streamReq.ToolNames, streamReq.ToolsRaw, streamReq.ToolChoice, historySession)
-}
-
-func (h *Handler) autoDeleteRemoteSession(ctx context.Context, a *auth.RequestAuth, sessionID string) {
-	mode := h.Store.AutoDeleteMode()
-	if mode == "none" || a.DeepSeekToken == "" {
-		return
-	}
-
-	deleteBaseCtx := context.WithoutCancel(ctx)
-	deleteCtx, cancel := context.WithTimeout(deleteBaseCtx, 10*time.Second)
-	defer cancel()
-
-	switch mode {
-	case "single":
-		if sessionID == "" {
-			config.Logger.Warn("[auto_delete_sessions] skipped single-session delete because session_id is empty", "account", a.AccountID)
-			return
-		}
-		_, err := h.DS.DeleteSessionForToken(deleteCtx, a.DeepSeekToken, sessionID)
-		if err != nil {
-			config.Logger.Warn("[auto_delete_sessions] failed", "account", a.AccountID, "mode", mode, "session_id", sessionID, "error", err)
-			return
-		}
-		config.Logger.Debug("[auto_delete_sessions] success", "account", a.AccountID, "mode", mode, "session_id", sessionID)
-	case "all":
-		if err := h.DS.DeleteAllSessionsForToken(deleteCtx, a.DeepSeekToken); err != nil {
-			config.Logger.Warn("[auto_delete_sessions] failed", "account", a.AccountID, "mode", mode, "error", err)
-			return
-		}
-		config.Logger.Debug("[auto_delete_sessions] success", "account", a.AccountID, "mode", mode)
-	default:
-		config.Logger.Warn("[auto_delete_sessions] unknown mode", "account", a.AccountID, "mode", mode)
-	}
 }
 
 func (h *Handler) handleNonStream(w http.ResponseWriter, resp *http.Response, completionID, model, finalPrompt string, refFileTokens int, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, historySession *chatHistorySession) {

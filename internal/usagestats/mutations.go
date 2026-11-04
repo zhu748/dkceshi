@@ -33,6 +33,7 @@ func (s *Store) commitEntriesLocked(entries map[string]*Entry) error {
 		return err
 	}
 	s.entries = entries
+	s.checkpointBuffer = nil
 	s.checkpointOrder = nil
 	s.revision++
 	s.dirty = false

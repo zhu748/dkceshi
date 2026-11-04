@@ -177,7 +177,7 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 	finishLeaseDiagnostics(r, lease, req)
 	h.recordVercelStreamCompletion(r, lease.Auth, lease.Standard, req, lease.StartedAt)
 	writeVercelUsageReply(w, usage)
-	if lease.Auth != nil {
+	if lease.Auth != nil && !lease.Auth.FinishAccountResources() {
 		h.autoDeleteRemoteSession(r.Context(), lease.Auth, lease.SessionID)
 	}
 }

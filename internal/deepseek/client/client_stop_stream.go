@@ -74,7 +74,7 @@ func (c *Client) FireCompletionAndStop(ctx context.Context, a *auth.RequestAuth,
 	if captureSession != nil {
 		resp.Body = captureSession.WrapBody(resp.Body, resp.StatusCode)
 	}
-	if failure := c.inspectCompletionFailure(a, resp, banreport.SourceStopStream); failure != nil {
+	if failure := c.inspectCompletionFailureContext(ctx, a, resp, banreport.SourceStopStream); failure != nil {
 		return 0, failure
 	}
 	if resp.StatusCode != http.StatusOK {

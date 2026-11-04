@@ -6,17 +6,18 @@ export async function parseJSONResponse(res, t) {
     return res.json()
 }
 
-export async function fetchSettings(apiFetch, t) {
-    const res = await apiFetch('/admin/settings')
+export async function fetchSettings(apiFetch, t, signal) {
+    const res = await apiFetch('/admin/settings', { signal })
     const data = await parseJSONResponse(res, t)
     return { res, data }
 }
 
-export async function putSettings(apiFetch, payload) {
+export async function putSettings(apiFetch, payload, signal) {
     const res = await apiFetch('/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal,
     })
     const data = await res.json()
     return { res, data }

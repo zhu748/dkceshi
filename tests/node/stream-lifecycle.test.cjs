@@ -132,13 +132,11 @@ test('disconnect while reading a failed response skips account switching', async
     throw new Error('unexpected internal request');
   };
   await handleVercelStream(req, res, Buffer.from('{}'), {}, async () => {
-    const response = new Response('temporary error', { status: 503 });
-    response.text = async () => {
-      res.destroyed = true;
-      res.emit('close');
-      return 'temporary error';
-    };
-    return response;
+    let reads = 0;
+    return new Response(new ReadableStream({ pull(controller) {
+      if (++reads === 1) controller.enqueue(Buffer.from('temporary error'));
+      else { res.destroyed = true; res.emit('close'); controller.close(); }
+    } }), { status: 503 });
   });
   assert.equal(switches, 0);
   assert.equal(releases, 1);
@@ -153,7 +151,7 @@ test('JSON response inspection releases its source reader', async () => {
   }
 });
 
-test('an oversized first JSON chunk is canceled without another read', async () => {
+test('oversized JSON transfers reader ownership until the consumer cancels', async () => {
   let reads = 0, cancels = 0, releases = 0;
   const source = { ok: true, body: { getReader: () => ({
     read: async () => ++reads === 1 ? { value: Buffer.from('{' + ' '.repeat(1 << 20)), done: false } : { done: true },
@@ -162,6 +160,9 @@ test('an oversized first JSON chunk is canceled without another read', async () 
   const result = await detectMutedOrBannedResponse(source);
   assert.ok(result.response);
   assert.equal(reads, 1);
+  assert.equal(cancels, 0);
+  assert.equal(releases, 0);
+  await result.response.body.cancel();
   assert.equal(cancels, 1);
   assert.equal(releases, 1);
 });

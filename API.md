@@ -804,6 +804,8 @@ data: {"type":"message_stop"}
 - `model_aliases`
 - `toolcall` 策略已固定，不再作为可写入字段
 
+自动会话清理对 Chat、Responses、Claude 和 Gemini 的直接路径一致生效：`single` 删除当前会话，`all` 在请求最终结束时删除账号会话。中途切换账号或重建会话只清理已退役的单个会话。清理在后台尽力执行，失败记录日志，不改变已生成的响应。
+
 ### `POST /admin/settings/password`
 
 更新管理密码并使旧 JWT 失效。

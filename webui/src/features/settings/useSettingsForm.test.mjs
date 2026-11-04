@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { fromServerSections, fromServerSettings, intFieldAccepts, parseIntFieldInput, toServerPayload } from './useSettingsForm.js'
+import { fromServerSections, fromServerSettings, intFieldAccepts, parseIntFieldInput, toServerPayload } from './settingsMapping.js'
 
 const SPECS = [
     {

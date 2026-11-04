@@ -1,6 +1,8 @@
 'use strict';
 
+const { streamLimit } = require('./stream_limits');
 const { asString } = require('./http_internal');
+const { readResponseChunk, replayResponse } = require('./response_read');
 
 // 检测 DeepSeek 是否返回了封号/停用 JSON 响应（HTTP 200 但 body 是 JSON 而非 SSE）。
 // 与 Go 侧 detectMutedCompletion / isUserBannedResponse 对齐：先 peek 第一个字节，只有 JSON 才读取全部 body。
@@ -8,7 +10,8 @@ const { asString } = require('./http_internal');
 //   - mutedUntil > 0 时表示检测到禁言，response 为 null；
 //   - banned 为 true 时表示检测到 USER_IS_BANNED，response 为 null；
 //   - 均未检测到时，response 为可能经过恢复的 Response（SSE body 未被消耗）。
-async function detectMutedOrBannedResponse(res) {
+async function detectMutedOrBannedResponse(res, options = {}) {
+  options = { deadline: Date.now() + streamLimit('max_duration_ms'), ...options };
   // Keep non-JSON HTTP failures on the normal error-body path, including its
   // disconnect checks. Only JSON errors need mute/ban/business-code inspection.
   if (Number(res?.status) === 429) {
@@ -21,41 +24,19 @@ async function detectMutedOrBannedResponse(res) {
   const reader = res.body.getReader();
   let firstChunk;
   try {
-    const result = await reader.read();
-    if (result.done || !result.value || result.value.length === 0) {
+    let result;
+    do { result = await readResponseChunk(reader, options); } while (!result.done && !result.value?.length);
+    if (result.done) {
       reader.releaseLock();
-      return { mutedUntil: 0, banned: false, response: res };
+      return { mutedUntil: 0, banned: false, response: new Response(null, res) };
     }
     firstChunk = result.value;
-  } catch (_err) {
+  } catch (error) {
     try { reader.releaseLock(); } catch (_e) {}
-    return { mutedUntil: 0, banned: false, response: res };
+    throw error;
   }
   if (firstChunk[0] !== 0x7b) { // '{'
-    let cancelled = false;
-    let released = false;
-    const releaseSource = () => {
-      if (!released) { released = true; reader.releaseLock(); }
-    };
-    const newBody = new ReadableStream({
-      start(controller) { controller.enqueue(firstChunk); },
-      async pull(controller) {
-        try {
-          const { done, value } = await reader.read();
-          if (cancelled) return;
-          if (done) { controller.close(); releaseSource(); }
-          else controller.enqueue(value);
-        } catch (err) {
-          if (!cancelled) { controller.error(err); releaseSource(); }
-        }
-      },
-      async cancel(reason) {
-        cancelled = true;
-        try { if (!released) await reader.cancel(reason); }
-        finally { releaseSource(); }
-      },
-    });
-    return { mutedUntil: 0, banned: false, response: new Response(newBody, res) };
+    return { mutedUntil: 0, banned: false, response: replayResponse(res, [firstChunk], reader, options) };
   }
   // JSON body: read it in full (bounded), then either report the mute/ban
   // verdict or hand back a replayable response. Returning response:null with
@@ -64,14 +45,16 @@ async function detectMutedOrBannedResponse(res) {
   // after headers were already flushed, silently truncating the client stream.
   const chunks = [firstChunk];
   let total = firstChunk.length;
+  let handedOff = false;
   try {
     while (true) {
       // The first read can itself exceed the cap. Do not wait for another
       // chunk before handing its buffered prefix back to the normal path.
       if (total > MAX_MUTED_DETECT_JSON_BYTES) {
-        return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
+        handedOff = true;
+        return { mutedUntil: 0, banned: false, response: replayResponse(res, chunks, reader, options) };
       }
-      const { done, value } = await reader.read();
+      const { done, value } = await readResponseChunk(reader, options);
       if (done) break;
       if (value) { chunks.push(value); total += value.length; }
     }
@@ -85,9 +68,11 @@ async function detectMutedOrBannedResponse(res) {
     } catch (_error) { /* Truncated JSON is replayed unchanged. */ }
     return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
   } finally {
-    try { await reader.cancel(); }
-    catch (error) { console.warn('[vercel_stream_inspect] reader cancel failed', error.message); }
-    reader.releaseLock();
+    if (!handedOff) {
+      try { await reader.cancel(); }
+      catch (error) { console.warn('[vercel_stream_inspect] reader cancel failed', error.message); }
+      reader.releaseLock();
+    }
   }
 }
 

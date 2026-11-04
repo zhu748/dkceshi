@@ -9,7 +9,7 @@ import (
 
 // Register the session while its account is pinned. A replacement session on
 // the same owner or a switch retires it through the existing bounded cleanup
-// queue. Final successful sessions retain the configured handler cleanup.
+// queue. Final request completion applies the configured single/all policy.
 func createCompletionSession(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, attempts int, settings any) (string, error) {
 	policy, ok := settings.(interface{ AutoDeleteMode() string })
 	cleanup := ok && policy.AutoDeleteMode() != "none" && a != nil
@@ -19,7 +19,8 @@ func createCompletionSession(ctx context.Context, ds DeepSeekCaller, a *auth.Req
 	id, err := ds.CreateSession(ctx, a, attempts)
 	if err == nil && id != "" && cleanup {
 		owner := &auth.RequestAuth{AccountID: a.AccountID, DeepSeekToken: a.DeepSeekToken, Account: a.Account, CallerID: a.CallerID, UserAgent: a.UserAgent, ToolMarker: a.ToolMarker}
-		a.SetAccountCleanup(func() {
+		mode := policy.AutoDeleteMode()
+		a.SetAccountFinalizer(func(final bool) {
 			// Read fresh credentials for this owner without touching the live
 			// request, which may already be refreshing or switching accounts.
 			if store, ok := settings.(interface {
@@ -29,7 +30,7 @@ func createCompletionSession(ctx context.Context, ds DeepSeekCaller, a *auth.Req
 					owner.Account, owner.DeepSeekToken = current, current.Token
 				}
 			}
-			enqueueRepairSessionDelete(ds, owner, id)
+			enqueueSessionCleanup(ds, owner, id, final && mode == "all")
 		})
 	}
 	return id, err

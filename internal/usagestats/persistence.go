@@ -58,10 +58,16 @@ func (s *Store) flushWith(write func(string, []byte) error) error {
 		return nil
 	}
 	revision := s.revision
+	if cap(s.checkpointBuffer) < len(s.entries) {
+		s.checkpointBuffer = make([]Entry, 0, len(s.entries))
+	}
 	payload := s.snapshotLocked()
 	s.mu.Unlock()
 
 	writeErr := writeSnapshot(s.path, payload, write)
+	// The writer consumed its bytes synchronously. Keep capacity for the next
+	// flush, but clear string references so removed accounts are not retained.
+	clear(payload.Entries)
 
 	s.mu.Lock()
 	// Record only adds keys; import/clear take flushMu and invalidate the cache.
@@ -80,7 +86,7 @@ func (s *Store) snapshotLocked() fileData {
 	payload := fileData{
 		Version:   FileVersion,
 		UpdatedAt: time.Now().UnixMilli(),
-		Entries:   make([]Entry, 0, len(s.entries)),
+		Entries:   s.checkpointBuffer[:0],
 	}
 	if len(s.checkpointOrder) == len(s.entries) {
 		payload.ordered = true

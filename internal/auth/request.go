@@ -465,13 +465,13 @@ func (a *RequestAuth) SwitchAccount(ctx context.Context) bool {
 // Release 结束一次托管请求：结算连续鉴权失败计数并归还账号名额。名额的归还走
 // releaseAccountSlot，因此 SwitchAccount 已经归还过的账号不会被减第二次。
 func (r *Resolver) Release(a *RequestAuth) {
+	a.FinishAccountResources()
 	if a == nil || !a.UseConfigToken || a.AccountID == "" {
 		return
 	}
 	r.settleAuthFailures(a)
 	r.releaseAccountSlot(a, a.AccountID)
 }
-
 func extractCallerToken(req *http.Request) string {
 	authHeader := strings.TrimSpace(req.Header.Get("Authorization"))
 	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {

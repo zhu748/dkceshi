@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"ds2api/internal/auth"
 	dsclient "ds2api/internal/deepseek/client"
@@ -17,6 +18,7 @@ type autoDeleteModeDSStub struct {
 	allCalls      int
 	lastSessionID string
 	lastCtxErr    error
+	deleted       chan struct{}
 }
 
 func (m *autoDeleteModeDSStub) CreateSession(_ context.Context, _ *auth.RequestAuth, _ int) (string, error) {
@@ -46,11 +48,17 @@ func (m *autoDeleteModeDSStub) FireCompletionAndStop(_ context.Context, _ *auth.
 func (m *autoDeleteModeDSStub) DeleteSessionForToken(_ context.Context, _ string, sessionID string) (*dsclient.DeleteSessionResult, error) {
 	m.singleCalls++
 	m.lastSessionID = sessionID
+	if m.deleted != nil {
+		m.deleted <- struct{}{}
+	}
 	return &dsclient.DeleteSessionResult{SessionID: sessionID, Success: true}, nil
 }
 
 func (m *autoDeleteModeDSStub) DeleteAllSessionsForToken(_ context.Context, _ string) error {
 	m.allCalls++
+	if m.deleted != nil {
+		m.deleted <- struct{}{}
+	}
 	return nil
 }
 
@@ -76,6 +84,7 @@ func TestChatCompletionsAutoDeleteModes(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ds := &autoDeleteModeDSStub{
+				deleted: make(chan struct{}, 1),
 				resp: makeOpenAISSEHTTPResponse(
 					`data: {"p":"response/content","v":"hello"}`,
 					"data: [DONE]",
@@ -96,6 +105,13 @@ func TestChatCompletionsAutoDeleteModes(t *testing.T) {
 			rec := httptest.NewRecorder()
 
 			h.ChatCompletions(rec, req)
+			if tc.wantSingle+tc.wantAll > 0 {
+				select {
+				case <-ds.deleted:
+				case <-time.After(time.Second):
+					t.Fatal("session cleanup not performed")
+				}
+			}
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())

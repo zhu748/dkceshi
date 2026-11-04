@@ -28,19 +28,20 @@ var ErrInvalidUsageSettings = errors.New("invalid usage settings")
 // 数值累计与费用估算，仅保存账号的哈希标识和脱敏标签，不保存提示词、回复内容或密钥本体。
 // 落盘采用版本化文件 + 后台定时 flush，费用按请求发生时刻的波峰倍率累计。
 type Store struct {
-	mu              sync.Mutex
-	flushMu         sync.Mutex // Serialize disk writes without holding mu during I/O.
-	path            string
-	settingsPath    string
-	entries         map[string]*Entry
-	checkpointOrder []string // Immutable keys from the last sorted checkpoint.
-	settings        UsageSettings
-	instanceID      string
-	revision        int64
-	dirty           bool
-	stop            chan struct{}
-	done            chan struct{}
-	closeOnce       sync.Once
+	mu               sync.Mutex
+	flushMu          sync.Mutex // Serialize disk writes without holding mu during I/O.
+	path             string
+	settingsPath     string
+	entries          map[string]*Entry
+	checkpointOrder  []string // Immutable keys from the last sorted checkpoint.
+	checkpointBuffer []Entry  // Reused only while flushMu is held.
+	settings         UsageSettings
+	instanceID       string
+	revision         int64
+	dirty            bool
+	stop             chan struct{}
+	done             chan struct{}
+	closeOnce        sync.Once
 }
 
 func New(path string) *Store {

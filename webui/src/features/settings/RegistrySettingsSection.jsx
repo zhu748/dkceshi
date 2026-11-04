@@ -16,7 +16,7 @@ import { useState } from 'react'
 
 import { detectRuntimeEnv } from '../../utils/runtimeEnv'
 import { buildSettingCards } from './settingCards'
-import { parseIntFieldInput } from './useSettingsForm'
+import { parseIntFieldInput } from './settingsMapping.js'
 
 export default function RegistrySettingsSection({ t, form, setForm, specs, sectionSpecs = [], cardSpecs = [] }) {
     const cards = buildSettingCards({

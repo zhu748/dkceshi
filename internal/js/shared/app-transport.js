@@ -4,6 +4,8 @@ const { streamLimit } = require('../chat-stream/stream_limits');
 const http2 = require('node:http2');
 const { Readable } = require('node:stream');
 const zlib = require('node:zlib');
+const { createAppSessionPool } = require('./app-session-pool');
+const sessions = createAppSessionPool();
 
 const headerOrder = [
   'x-ds-pow-response', 'x-thinking-enabled', 'x-file-size', 'x-model-type',
@@ -60,20 +62,25 @@ function fetchAppStream(url, init = {}) {
   return new Promise((resolve, reject) => {
     if (init.signal?.aborted) { reject(init.signal.reason || new DOMException('Aborted', 'AbortError')); return; }
     const parsed = new URL(url);
-    const session = http2.connect(parsed.origin);
+    const headers = buildAppHeaders(url, init);
+    const installation = Object.entries(init.headers || {}).find(([key]) => key.toLowerCase() === 'x-device-id')?.[1] || '';
+    const lease = sessions.take(parsed.origin, headers, installation);
+    const session = lease.session;
     let stream;
     let body;
     let resolved = false;
     let failed = false;
     let cleaned = false;
     let handshakeTimer;
-    const cleanup = () => {
+    const cleanup = (reusable = false) => {
       if (cleaned) return;
       cleaned = true;
       clearTimeout(handshakeTimer);
       init.signal?.removeEventListener('abort', abort);
+      session.removeListener('error', fail);
+      session.removeListener('close', onSessionClose);
       if (stream && !stream.destroyed) stream.destroy();
-      session.destroy();
+      lease.release(reusable);
     };
     const fail = (error) => {
       if (failed || cleaned) return;
@@ -89,15 +96,16 @@ function fetchAppStream(url, init = {}) {
     const abort = () => fail(init.signal.reason || new DOMException('Aborted', 'AbortError'));
     init.signal?.addEventListener('abort', abort, { once: true });
     session.once('error', fail);
-    session.once('close', () => {
+    const onSessionClose = () => {
       if (!resolved || !stream?.readableEnded) fail(new Error('HTTP/2 session closed before response completed'));
       else cleanup();
-    });
-    session.once('connect', () => {
+    };
+    session.once('close', onSessionClose);
+    const send = () => {
       try {
         // Node ends GET/HEAD streams at request() by default. Decide this
         // explicitly so empty requests never call end() on an ended stream.
-        stream = session.request(buildAppHeaders(url, init), { endStream: !init.body });
+        stream = session.request(headers, { endStream: !init.body });
         stream.once('error', fail);
         stream.once('aborted', () => fail(new Error('HTTP/2 response aborted')));
         stream.once('end', () => {
@@ -120,6 +128,7 @@ function fetchAppStream(url, init = {}) {
           }
           body.once('close', cleanup);
           body.once('error', fail);
+          body.once('end', () => cleanup(!failed && stream.readableEnded && !stream.rstCode));
           const status = Number(raw[':status']);
           resolved = true;
           if (status === 204 || status === 205 || status === 304) {
@@ -131,8 +140,9 @@ function fetchAppStream(url, init = {}) {
         });
         if (init.body) stream.end(init.body);
       } catch (error) { fail(error); }
-    });
+    };
+    if (lease.reused) send(); else session.once('connect', send);
   });
 }
 
-module.exports = { buildAppHeaders, fetchAppStream };
+module.exports = { buildAppHeaders, fetchAppStream, closeIdleAppSessions: () => sessions.closeIdle() };

@@ -98,6 +98,18 @@
       "destination": "/api/index"
     },
     {
+      "source": "/admin/usage(.*)",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/admin/tool-call-records(.*)",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/admin/mihomo/(.*)",
+      "destination": "/api/index"
+    },
+    {
       "source": "/admin",
       "destination": "/admin/index.html"
     },

@@ -18,7 +18,7 @@ type RequestAuth struct {
 	accountPins     int
 	accountSwitches int
 	failoverWait    time.Duration
-	accountCleanup  func()
+	accountCleanup  func(bool)
 	Account         config.Account
 	TriedAccounts   map[string]bool
 	// ToolsPresent 表示本次请求是否携带工具定义（请求 body 的 tools 非空）。

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const http2 = require('node:http2');
 const zlib = require('node:zlib');
 const { once } = require('node:events');
-const { buildAppHeaders, fetchAppStream } = require('../../internal/js/shared/app-transport');
+const { buildAppHeaders, fetchAppStream, closeIdleAppSessions } = require('../../internal/js/shared/app-transport');
 const { selectAnchoredArchive } = require('../../scripts/devid-generate.cjs');
 test('HTTP/2 wire keeps App headers, gzip SSE and UTF-8 byte length', async () => {
  const server=http2.createServer();let observed;
@@ -15,7 +15,7 @@ test('HTTP/2 wire keeps App headers, gzip SSE and UTF-8 byte length', async () =
   assert.equal(await response.text(),'data: [DONE]\n\n');assert.equal(observed.headers['content-length'],String(Buffer.byteLength(observed.body)));
   assert.equal(observed.headers['accept-language'],undefined);assert.equal(observed.headers['sec-fetch-mode'],undefined);
   assert.deepEqual(Object.keys(observed.headers).slice(0,6),[':method',':authority',':path',':scheme','x-ds-pow-response','x-client-platform']);
- } finally {await new Promise(resolve=>server.close(resolve));}
+ } finally {closeIdleAppSessions();await new Promise(resolve=>server.close(resolve));}
 });
 test('already aborted stream makes no connection',async()=>{
  const controller=new AbortController();controller.abort();await assert.rejects(fetchAppStream('https://example.invalid',{signal:controller.signal}),{name:'AbortError'});
