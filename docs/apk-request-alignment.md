@@ -1,5 +1,9 @@
 # Android 2.7.1 请求对齐核对
 
+2026-11-04 上传的 APK 哈希与本文一致。四份 HAR 的逐项核对见
+[2026-11-04 核对](android-har-alignment-2026-11-04.md)。
+后续加密登录、MFA 和安装头反例见 [登录抓包核对](android-login-har-2026-11-04.md)。
+
 核对对象：`com.deepseek.chat` 2.7.1，versionCode 287，minSdk 24，targetSdk 36。
 APK SHA-256：`cd461f3d7c78f0c4ab6b8c4ff7270e16a766042170dfebead540b7f174948c5c`。
 依据是该 APK 的 DEX 调用链和仓库已有脱敏 HAR 夹具；未进行真实账号登录、遥测注册或现场 TLS 抓包。

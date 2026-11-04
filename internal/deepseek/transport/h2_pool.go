@@ -27,6 +27,12 @@ func h2IdentityKey(req *http.Request, headers []OrderedHeader) string {
 				break
 			}
 		}
+		// The installation header can be absent on the wire while the local
+		// request still identifies a different installation. Never pool those
+		// requests together just because they share a token and device model.
+		if name == "x-device-id" {
+			identity = append(identity, req.Header.Get(name))
+		}
 		identity = append(identity, value)
 	}
 	sum := sha256.Sum256([]byte(strings.Join(identity, "\x00")))

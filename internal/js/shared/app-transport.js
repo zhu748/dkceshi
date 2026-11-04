@@ -9,8 +9,8 @@ const headerOrder = [
   'x-ds-pow-response', 'x-thinking-enabled', 'x-file-size', 'x-model-type',
   'x-client-platform', 'x-client-version', 'x-client-locale', 'x-client-bundle-id',
   'x-client-timezone-offset', 'x-device-model', 'x-rangers-id', 'x-device-id',
-  'x-hif-dliq', 'x-hif-leim', 'x-settings-token', 'user-agent', 'authorization',
-  'accept', 'accept-charset', 'content-type', 'content-length', 'accept-encoding',
+  'x-hif-dliq', 'x-hif-leim', 'x-settings-token', 'user-agent', 'x-ds-guest-pow-response', 'authorization',
+  'accept', 'x-request-encryption-key', 'accept-charset', 'content-type', 'content-length', 'accept-encoding',
 ];
 
 function buildAppHeaders(url, init) {
@@ -22,6 +22,8 @@ function buildAppHeaders(url, init) {
     if (Number(expires) <= Date.now() / 1000) normalized.delete(name.toLowerCase());
   }
   for (const key of ['', 'host', 'connection', 'proxy-connection', 'transfer-encoding', 'keep-alive', 'upgrade', 'accept-language', 'sec-fetch-mode']) normalized.delete(key);
+  // Startup/login/chat samples include a known installation; some sessions
+  // omit it. Preserve the configured identity unless explicitly opted out.
   if (['0', 'false', 'no', 'off'].includes(String(process.env.DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER || '').trim().toLowerCase())) normalized.delete('x-device-id');
   if (method === 'GET' || method === 'HEAD') {
     normalized.delete('content-type');
@@ -33,14 +35,22 @@ function buildAppHeaders(url, init) {
   }
   if (!normalized.get('accept-encoding')) normalized.set('accept-encoding', 'gzip');
   const headers = { ':method': method, ':authority': parsed.host, ':path': parsed.pathname + parsed.search, ':scheme': parsed.protocol.slice(0, -1) };
-  const order = parsed.pathname === '/api/v0/users/auth_token/check_device' ? ['authorization', ...headerOrder] : headerOrder;
+  let order = headerOrder;
+  if (['/api/v0/users/auth_token/check_device', '/api/v0/users/mfa/trusted_device/register', '/api/v0/users/mfa/trusted_device/verify'].includes(parsed.pathname)) {
+    order = ['authorization', ...headerOrder];
+  } else if (parsed.pathname === '/api/v0/telemetry') {
+    order = ['x-request-encryption-key', 'x-ds-compression',
+      'x-client-platform', 'x-client-version', 'x-client-locale', 'x-client-bundle-id',
+      'x-client-timezone-offset', 'x-device-model', 'x-device-id', 'user-agent',
+      'authorization', 'accept-charset', 'accept', 'content-type', 'content-length', 'accept-encoding'];
+  }
   for (const name of [...order, ...[...normalized.keys()].sort()]) {
     if (!normalized.has(name) || name.startsWith(':')) continue;
     const value = normalized.get(name);
     if (value !== '') headers[name] = value;
     normalized.delete(name);
   }
-  headers[http2.sensitiveHeaders] = ['authorization', 'x-ds-pow-response', 'x-settings-token'];
+  headers[http2.sensitiveHeaders] = ['authorization', 'x-ds-pow-response', 'x-ds-guest-pow-response', 'x-settings-token', 'x-request-encryption-key'];
   return headers;
 }
 
@@ -85,7 +95,9 @@ function fetchAppStream(url, init = {}) {
     });
     session.once('connect', () => {
       try {
-        stream = session.request(buildAppHeaders(url, init));
+        // Node ends GET/HEAD streams at request() by default. Decide this
+        // explicitly so empty requests never call end() on an ended stream.
+        stream = session.request(buildAppHeaders(url, init), { endStream: !init.body });
         stream.once('error', fail);
         stream.once('aborted', () => fail(new Error('HTTP/2 response aborted')));
         stream.once('end', () => {
@@ -117,7 +129,7 @@ function fetchAppStream(url, init = {}) {
             resolve(new Response(Readable.toWeb(body), { status, headers }));
           }
         });
-        stream.end(init.body || '');
+        if (init.body) stream.end(init.body);
       } catch (error) { fail(error); }
     });
   });

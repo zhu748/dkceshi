@@ -66,6 +66,12 @@ func (c *Client) Login(ctx context.Context, acc config.Account) (string, error) 
 	}
 	data, _ := resp["data"].(map[string]any)
 	if bizCode := intFrom(data["biz_code"]); bizCode != 0 {
+		bizData, _ := data["biz_data"].(map[string]any)
+		if sessionID, _ := bizData["mfa_session_id"].(string); bizCode == 14 && strings.TrimSpace(sessionID) != "" {
+			// MFA is an unfinished verification flow, not rejected credentials.
+			// Never expose or persist its session ID as an authenticated token.
+			return "", &RequestFailure{Op: "login", Kind: FailureCaptchaRequired, Message: "multi-factor authentication required; complete verification in the official client and configure its token"}
+		}
 		bizMsg, _ := data["biz_msg"].(string)
 		if isUserBannedResponse(bizCode, bizMsg) {
 			c.persistBannedAccount(acc.Identifier(), "账户已被停用", banreport.SourceLogin)

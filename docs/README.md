@@ -21,6 +21,8 @@
 - [2026-10-31 第二阶段全面审查与修复](./review-2026-10-31-followup.md)
 - [2026-10-31 代码分类与可维护性审查](./maintainability-review-2026-10-31.md)
 - [2026-11-03 项目审查、性能测量与用量模块整理](./project-review-2026-11-03.md)
+- [2026-11-04 Android 请求头与指纹逐项对齐](./android-har-alignment-2026-11-04.md)
+- [2026-11-04 加密登录、MFA 与安装头补充核对](./android-login-har-2026-11-04.md)
 - [API -> 网页对话纯文本兼容主链路说明](./prompt-compatibility.md)
 - [Tool Calling 统一语义](./toolcall-semantics.md)
 - [DeepSeek SSE 行为结构说明（逆向观察）](./DeepSeekSSE行为结构说明-2026-04-05.md)

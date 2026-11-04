@@ -17,6 +17,8 @@ func TestHeaderOrderMatchesAllHARRequestShapes(t *testing.T) {
 
 func testHARHeaders(t *testing.T, filename string) {
 	t.Helper()
+	// Historical captures included the optional installation header.
+	t.Setenv("DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER", "1")
 	raw, err := os.ReadFile("../../../tests/fixtures/" + filename)
 	if err != nil {
 		t.Fatal(err)

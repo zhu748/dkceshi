@@ -1,0 +1,808 @@
+{
+  "description": "Sanitized HTTP-level observations only; no credentials, IDs, signed URLs, filenames, prompts, or file contents.",
+  "apk_sha256": "cd461f3d7c78f0c4ab6b8c4ff7270e16a766042170dfebead540b7f174948c5c",
+  "sources": [
+    {
+      "file": "chat.deepseek.com_2026_11_04_14_41_52.har",
+      "entries": 59,
+      "capture_start_utc": "2026-10-29T16:22:59.826Z",
+      "capture_end_utc": "2026-10-29T16:24:20.613Z",
+      "connect_entries": 5
+    },
+    {
+      "file": "chat.deepseek.com_2026_11_04_14_42_11.har",
+      "entries": 49,
+      "capture_start_utc": "2026-10-29T15:56:22.436Z",
+      "capture_end_utc": "2026-10-29T15:58:51.872Z",
+      "connect_entries": 0
+    },
+    {
+      "file": "chat.deepseek.com_2026_11_04_14_47_02.har",
+      "entries": 68,
+      "capture_start_utc": "2026-11-04T06:44:15.456Z",
+      "capture_end_utc": "2026-11-04T06:46:57.034Z",
+      "connect_entries": 1
+    },
+    {
+      "file": "上传图片md pdf docx(1).har",
+      "entries": 52,
+      "capture_start_utc": "2026-11-03T01:14:09.844Z",
+      "capture_end_utc": "2026-11-03T01:16:40.067Z",
+      "connect_entries": 3
+    }
+  ],
+  "total_entries": 228,
+  "business_requests": 216,
+  "identity_header_presence": {
+    "authorization": 215,
+    "x-rangers-id": 216,
+    "x-device-id": 0,
+    "x-hif-dliq": 0,
+    "x-hif-leim": 0
+  },
+  "request_shapes": [
+    {
+      "host": "chat.deepseek.com",
+      "method": "GET",
+      "path": "/api/v0/chat/history_messages",
+      "count": 26,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty",
+      "statuses": {
+        "200": 26
+      },
+      "query_shapes": [
+        {
+          "keys": [
+            "chat_session_id",
+            "scenario"
+          ],
+          "count": 17
+        },
+        {
+          "keys": [
+            "chat_session_id",
+            "scenario",
+            "cache_version",
+            "cache_reset_at"
+          ],
+          "count": 9
+        }
+      ],
+      "body_keys": []
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "POST",
+      "path": "/api/v0/chat/create_pow_challenge",
+      "count": 60,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "json",
+      "statuses": {
+        "200": 60
+      },
+      "query_shapes": [
+        {
+          "keys": [],
+          "count": 60
+        }
+      ],
+      "body_keys": [
+        "target_path"
+      ]
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "POST",
+      "path": "/api/v0/chat/completion",
+      "count": 26,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-ds-pow-response",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "json",
+      "statuses": {
+        "200": 26
+      },
+      "query_shapes": [
+        {
+          "keys": [],
+          "count": 26
+        }
+      ],
+      "body_keys": [
+        "chat_session_id",
+        "parent_message_id",
+        "prompt",
+        "ref_file_ids",
+        "thinking_enabled",
+        "search_enabled",
+        "audio_id",
+        "preempt",
+        "model_type",
+        "action"
+      ]
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "POST",
+      "path": "/api/v0/chat_session/create",
+      "count": 18,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty",
+      "statuses": {
+        "200": 18
+      },
+      "query_shapes": [
+        {
+          "keys": [],
+          "count": 18
+        }
+      ],
+      "body_keys": []
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "GET",
+      "path": "/api/v0/file/fetch_files",
+      "count": 43,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty",
+      "statuses": {
+        "200": 43
+      },
+      "query_shapes": [
+        {
+          "keys": [
+            "file_ids"
+          ],
+          "count": 38
+        },
+        {
+          "keys": [
+            "file_ids",
+            "file_ids"
+          ],
+          "count": 5
+        }
+      ],
+      "body_keys": []
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "POST",
+      "path": "/api/v0/file/upload_file",
+      "count": 32,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-ds-pow-response",
+        "x-thinking-enabled",
+        "x-file-size",
+        "x-model-type",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-thinking-enabled": "1",
+        "x-model-type": "default",
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "multipart",
+      "statuses": {
+        "200": 31,
+        "0": 1
+      },
+      "query_shapes": [
+        {
+          "keys": [],
+          "count": 32
+        }
+      ],
+      "body_keys": []
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "POST",
+      "path": "/api/v0/chat_session/delete",
+      "count": 7,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "content-type",
+        "content-length",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "json",
+      "statuses": {
+        "200": 7
+      },
+      "query_shapes": [
+        {
+          "keys": [],
+          "count": 7
+        }
+      ],
+      "body_keys": [
+        "chat_session_id",
+        "chat_session_ids"
+      ]
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "GET",
+      "path": "/api/v0/chat_session/fetch_page",
+      "count": 1,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty",
+      "statuses": {
+        "200": 1
+      },
+      "query_shapes": [
+        {
+          "keys": [],
+          "count": 1
+        }
+      ],
+      "body_keys": []
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "GET",
+      "path": "/api/v0/users/current",
+      "count": 1,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty",
+      "statuses": {
+        "200": 1
+      },
+      "query_shapes": [
+        {
+          "keys": [],
+          "count": 1
+        }
+      ],
+      "body_keys": []
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "GET",
+      "path": "/api/v0/chat/tts/voices",
+      "count": 1,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "authorization",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty",
+      "statuses": {
+        "200": 1
+      },
+      "query_shapes": [
+        {
+          "keys": [],
+          "count": 1
+        }
+      ],
+      "body_keys": []
+    },
+    {
+      "host": "chat.deepseek.com",
+      "method": "GET",
+      "path": "/api/v0/ip_to_country_code",
+      "count": 1,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "x-client-timezone-offset",
+        "x-device-model",
+        "x-rangers-id",
+        "user-agent",
+        "accept",
+        "accept-charset",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "x-client-timezone-offset": "28800",
+        "x-device-model": "V2507A",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept": "application/json",
+        "accept-charset": "UTF-8",
+        "accept-encoding": "gzip"
+      },
+      "body_kind": "empty",
+      "statuses": {
+        "200": 1
+      },
+      "query_shapes": [
+        {
+          "keys": [],
+          "count": 1
+        }
+      ],
+      "body_keys": []
+    }
+  ],
+  "download_shapes": [
+    {
+      "host": "files.deepseeksvc.com",
+      "method": "GET",
+      "path": "/api/file",
+      "count": 3,
+      "http_version": "HTTP/2.0",
+      "header_names": [
+        ":method",
+        ":authority",
+        ":path",
+        ":scheme",
+        "referer",
+        "x-client-platform",
+        "x-client-version",
+        "x-client-locale",
+        "x-client-bundle-id",
+        "user-agent",
+        "accept-charset",
+        "accept",
+        "accept-encoding"
+      ],
+      "static_headers": {
+        "x-client-platform": "android",
+        "x-client-version": "2.7.1",
+        "x-client-locale": "zh_CN",
+        "x-client-bundle-id": "com.deepseek.chat",
+        "user-agent": "DeepSeek/2.7.1 Android/36",
+        "accept-charset": "UTF-8",
+        "accept": "*/*",
+        "accept-encoding": "gzip",
+        "referer": "https://chat.deepseek.com"
+      },
+      "body_kind": "empty",
+      "statuses": {
+        "200": 3
+      },
+      "query_shapes": [
+        {
+          "keys": [
+            "file_id",
+            "state",
+            "ty"
+          ],
+          "count": 3
+        }
+      ],
+      "body_keys": []
+    }
+  ],
+  "completion_variants": [
+    {
+      "action": null,
+      "audio_id": null,
+      "model_type": "default",
+      "parent_is_null": true,
+      "preempt": false,
+      "ref_count": 1,
+      "search_enabled": true,
+      "thinking_enabled": true,
+      "count": 10
+    },
+    {
+      "action": null,
+      "audio_id": null,
+      "model_type": null,
+      "parent_is_null": false,
+      "preempt": false,
+      "ref_count": 0,
+      "search_enabled": true,
+      "thinking_enabled": true,
+      "count": 7
+    },
+    {
+      "action": null,
+      "audio_id": null,
+      "model_type": "default",
+      "parent_is_null": true,
+      "preempt": false,
+      "ref_count": 3,
+      "search_enabled": true,
+      "thinking_enabled": true,
+      "count": 3
+    },
+    {
+      "action": null,
+      "audio_id": null,
+      "model_type": null,
+      "parent_is_null": false,
+      "preempt": false,
+      "ref_count": 3,
+      "search_enabled": true,
+      "thinking_enabled": true,
+      "count": 1
+    },
+    {
+      "action": null,
+      "audio_id": null,
+      "model_type": "default",
+      "parent_is_null": true,
+      "preempt": false,
+      "ref_count": 0,
+      "search_enabled": true,
+      "thinking_enabled": true,
+      "count": 1
+    },
+    {
+      "action": null,
+      "audio_id": null,
+      "model_type": "default",
+      "parent_is_null": true,
+      "preempt": false,
+      "ref_count": 3,
+      "search_enabled": false,
+      "thinking_enabled": true,
+      "count": 1
+    },
+    {
+      "action": null,
+      "audio_id": null,
+      "model_type": null,
+      "parent_is_null": false,
+      "preempt": false,
+      "ref_count": 1,
+      "search_enabled": true,
+      "thinking_enabled": true,
+      "count": 1
+    },
+    {
+      "action": null,
+      "audio_id": null,
+      "model_type": "default",
+      "parent_is_null": true,
+      "preempt": false,
+      "ref_count": 2,
+      "search_enabled": true,
+      "thinking_enabled": true,
+      "count": 2
+    }
+  ],
+  "pow_header_keys": [
+    {
+      "keys": [
+        "algorithm",
+        "challenge",
+        "salt",
+        "signature",
+        "answer",
+        "target_path"
+      ],
+      "count": 58
+    }
+  ],
+  "uploads": {
+    "count": 32,
+    "media_counts": {
+      "gif": 3,
+      "webp": 16,
+      "pdf": 4,
+      "text/other": 6,
+      "docx/zip": 3
+    },
+    "file_size_matches": 32,
+    "boundary_length": 70,
+    "part_mime": "application/octet-stream",
+    "part_names": [
+      "file"
+    ],
+    "multipart_content_length_present": false,
+    "closing_crlf": true,
+    "statuses": {
+      "200": 31,
+      "0": 1
+    }
+  },
+  "not_observable": [
+    "TLS ClientHello/JA3/JA4",
+    "HTTP/2 SETTINGS, WINDOW_UPDATE and HPACK indexing",
+    "native anti-fraud SDK device trust",
+    "HIF issuance",
+    "telemetry registration"
+  ]
+}

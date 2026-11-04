@@ -1,5 +1,9 @@
 # 图片、文件复用与 GIF 抓包核对
 
+后续四份 HAR 的逐项复核见 [2026-11-04 请求头与指纹对齐](android-har-alignment-2026-11-04.md)。
+后续 [登录抓包](android-login-har-2026-11-04.md) 确认安装头也存在于登录后的聊天请求；
+最终默认保留已知安装 ID，`DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER=0` 可匹配省略头的样本。
+
 ## 最新图片与 MD/PDF/DOCX 样本
 
 2026-11-03 的新 HAR 有 52 条记录、8 次文件上传，包含两组字节相同的图片及文档。

@@ -50,7 +50,11 @@ func pooledGet(t *testing.T, client *H2FramedClient, url, installation, token st
 }
 
 func TestOrderedH2ReusesConnectionsWithoutSharingAccountIdentity(t *testing.T) {
+	t.Setenv("DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER", "0")
 	client, url, dials := pooledTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-device-id") != "" {
+			t.Error("local installation identity leaked onto the wire")
+		}
 		if _, err := io.WriteString(w, "ok"); err != nil {
 			t.Error(err)
 		}

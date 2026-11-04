@@ -1,5 +1,9 @@
 # Android App 2.7.1 抓包对齐
 
+2026-11-04 的四份 HAR 完整复核与各层指纹边界见
+[最新请求头与指纹对齐](android-har-alignment-2026-11-04.md)。
+安装头存在/缺省两种实测形态及加密登录、MFA 的补充见 [登录抓包核对](android-login-har-2026-11-04.md)。
+
 本次基于三份用户提供的 HAR（共 226 个条目）检查 `chat.deepseek.com` 的请求：
 
 - `app注册.har`（83）
@@ -24,7 +28,7 @@
 | x-client-bundle-id | `com.deepseek.chat` |
 | x-client-timezone-offset | `28800`，秒 |
 | x-device-model | 历史样本为 `V2507A`；当前按账号选择型号，无固定默认值 |
-| x-device-id | 账号 `installation_id`，与登录 SDK `device_id` 分离 |
+| x-device-id | 默认保留已知账号 `installation_id`；`DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER=0` 显式省略，与登录 SDK `device_id` 分离 |
 | x-rangers-id | 账号 `rangers_id` 或显式全局值，未注册时不生成伪值 |
 | Accept / accept-charset / Accept-Encoding | `application/json` / `UTF-8` / `gzip` |
 | authorization | 当前账号 token，刷新后使用新 token |

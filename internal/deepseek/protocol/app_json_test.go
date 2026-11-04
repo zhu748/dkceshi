@@ -86,3 +86,67 @@ func TestAppDefaultsAndCompletionJSONMatchCapture(t *testing.T) {
 		}
 	}
 }
+
+func TestNovemberCompletionVariantsMatchCapture(t *testing.T) {
+	raw, err := os.ReadFile("../../../tests/fixtures/android_app_2_7_1_2026_11_04.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Requests []struct {
+			Path string
+			Keys []string `json:"body_keys"`
+		} `json:"request_shapes"`
+		Variants []map[string]any `json:"completion_variants"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, request := range fixture.Requests {
+		if request.Path == DeepSeekCompletionTargetPath {
+			keys = request.Keys
+		}
+	}
+	if len(keys) == 0 || len(fixture.Variants) == 0 {
+		t.Fatal("capture fixture is missing completion observations")
+	}
+	for _, variant := range fixture.Variants {
+		var parent any = 42
+		if variant["parent_is_null"] == true {
+			parent = nil
+		}
+		refs := make([]string, int(variant["ref_count"].(float64)))
+		for i := range refs {
+			refs[i] = "synthetic-file"
+		}
+		payload := map[string]any{"chat_session_id": "synthetic-session", "parent_message_id": parent, "prompt": "测试\u2028<内容>", "ref_file_ids": refs, "model_type": "default"}
+		for _, key := range []string{"thinking_enabled", "search_enabled", "preempt", "action"} {
+			payload[key] = variant[key]
+		}
+		body, err := MarshalAppJSON(DeepSeekCompletionURL, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var actual map[string]any
+		if err := json.Unmarshal(body, &actual); err != nil {
+			t.Fatal(err)
+		}
+		position := -1
+		for _, key := range keys {
+			next := bytes.Index(body, []byte(`"`+key+`":`))
+			if next <= position {
+				t.Fatalf("unexpected completion key ordering: %s", body)
+			}
+			position = next
+		}
+		for _, key := range []string{"thinking_enabled", "search_enabled", "audio_id", "preempt", "model_type", "action"} {
+			if !reflect.DeepEqual(actual[key], variant[key]) {
+				t.Fatalf("%s: got %v want %v", key, actual[key], variant[key])
+			}
+		}
+		if len(actual["ref_file_ids"].([]any)) != len(refs) || actual["prompt"] != payload["prompt"] || payload["model_type"] != "default" {
+			t.Fatal("wire conversion changed the prompt, references or shared payload")
+		}
+	}
+}

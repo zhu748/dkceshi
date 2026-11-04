@@ -15,7 +15,7 @@ var appHeaderOrder = []string{
 	"x-client-platform", "x-client-version", "x-client-locale", "x-client-bundle-id",
 	"x-client-timezone-offset", "x-device-model", "x-rangers-id", "x-device-id",
 	"x-hif-dliq", "x-hif-leim",
-	"x-settings-token", "user-agent", "authorization", "accept", "accept-charset",
+	"x-settings-token", "user-agent", "x-ds-guest-pow-response", "authorization", "accept", "x-request-encryption-key", "accept-charset",
 	"content-type", "content-length", "accept-encoding",
 }
 
@@ -44,8 +44,9 @@ func BuildOrderedRequestHeaders(method, path string, headers map[string]string, 
 			normalized[name] = value
 		}
 	}
-	// Some real App sessions omit this optional header. This switch only
-	// changes the wire header, never the stored installation/check_device ID.
+	// Login/startup and chat captures include this header once installation
+	// identity is available. Other sessions omit it; retain an explicit opt-out
+	// without changing the local installation/check_device identity.
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER"))) {
 	case "0", "false", "no", "off":
 		delete(normalized, "x-device-id")
@@ -63,8 +64,17 @@ func BuildOrderedRequestHeaders(method, path string, headers map[string]string, 
 		normalized["accept-encoding"] = "gzip"
 	}
 	order := appHeaderOrder
-	if strings.SplitN(path, "?", 2)[0] == "/api/v0/users/auth_token/check_device" {
+	requestPath := strings.SplitN(path, "?", 2)[0]
+	switch requestPath {
+	case "/api/v0/users/auth_token/check_device", "/api/v0/users/mfa/trusted_device/register", "/api/v0/users/mfa/trusted_device/verify":
 		order = append([]string{"authorization"}, appHeaderOrder...)
+	case "/api/v0/telemetry":
+		order = []string{
+			"x-request-encryption-key", "x-ds-compression",
+			"x-client-platform", "x-client-version", "x-client-locale", "x-client-bundle-id",
+			"x-client-timezone-offset", "x-device-model", "x-device-id", "user-agent",
+			"authorization", "accept-charset", "accept", "content-type", "content-length", "accept-encoding",
+		}
 	}
 	out := make([]OrderedHeader, 0, len(normalized))
 	appendHeader := func(name string) {
@@ -72,7 +82,7 @@ func BuildOrderedRequestHeaders(method, path string, headers map[string]string, 
 		if !ok {
 			return
 		}
-		out = append(out, OrderedHeader{Name: name, Value: value, Sensitive: name == "authorization" || name == "x-ds-pow-response" || name == "x-settings-token"})
+		out = append(out, OrderedHeader{Name: name, Value: value, Sensitive: name == "authorization" || name == "x-ds-pow-response" || name == "x-ds-guest-pow-response" || name == "x-settings-token" || name == "x-request-encryption-key"})
 		delete(normalized, name)
 	}
 	for _, name := range order {
