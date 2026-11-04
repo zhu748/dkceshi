@@ -171,5 +171,6 @@ HAR 是 Reqable 导出的 HTTP 层记录，包含 CONNECT 也不代表包含原�
 - Go 连接池测试验证省略安装头后，同 token 不同安装身份仍使用独立连接。
 - `./tests/scripts/check-refactor-line-gate.sh`：通过；变更 Go 文件已 gofmt，`git diff --check` 通过。
 
-推送前补充：完整 Go/Node 单测、WebUI 构建和增量 Lint 均通过。全仓格式门禁被 12 个既有、
-本次未修改的 Go 文件阻断；本次变更 Go 文件均已格式化。未做真实上游账号联调。
+验证补充：完整 Go/Node 单测、WebUI 构建通过。此前阻断全仓格式门禁的 12 个既有 Go 文件
+已在后续修复中统一 gofmt，代码差异仅为空白调整；全仓格式及 Lint 门禁现已通过。
+未做真实上游账号联调。
