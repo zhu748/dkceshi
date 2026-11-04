@@ -27,10 +27,11 @@ export function createUsageRecordsResource({ onChange, onError }) {
                     headers: etag ? { 'If-None-Match': etag } : {},
                 })
                 if (!current() || res.status === 304) return
-                const data = await res.json().catch(() => ({}))
+                const data = await res.json()
                 if (!current()) return
                 if (!res.ok) throw new Error(data?.detail || fallbackError)
-                const items = Array.isArray(data.items) ? data.items : []
+                if (!Array.isArray(data?.items)) throw new Error(fallbackError)
+                const items = data.items
                 const records = items.map(entryToRecord).filter((r) => r.created_at > 0)
                 etag = res.headers?.get('ETag') || ''
                 onChange({ records })

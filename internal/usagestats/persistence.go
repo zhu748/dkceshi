@@ -14,6 +14,8 @@ type fileData struct {
 	Version   int     `json:"version"`
 	UpdatedAt int64   `json:"updated_at"`
 	Entries   []Entry `json:"entries"`
+	keys      []string
+	ordered   bool
 }
 
 func (s *Store) startFlusher() {
@@ -59,16 +61,19 @@ func (s *Store) flushWith(write func(string, []byte) error) error {
 	payload := s.snapshotLocked()
 	s.mu.Unlock()
 
-	if err := writeSnapshot(s.path, payload, write); err != nil {
-		return err
-	}
+	writeErr := writeSnapshot(s.path, payload, write)
 
 	s.mu.Lock()
-	if s.revision == revision {
+	// Record only adds keys; import/clear take flushMu and invalidate the cache.
+	// Reuse ordering even after a failed write, while keeping dirty for retry.
+	if len(s.entries) == len(payload.Entries) {
+		s.checkpointOrder = payload.keys
+	}
+	if writeErr == nil && s.revision == revision {
 		s.dirty = false
 	}
 	s.mu.Unlock()
-	return nil
+	return writeErr
 }
 
 func (s *Store) snapshotLocked() fileData {
@@ -77,8 +82,18 @@ func (s *Store) snapshotLocked() fileData {
 		UpdatedAt: time.Now().UnixMilli(),
 		Entries:   make([]Entry, 0, len(s.entries)),
 	}
-	for _, entry := range s.entries {
+	if len(s.checkpointOrder) == len(s.entries) {
+		payload.ordered = true
+		payload.keys = s.checkpointOrder
+		for _, key := range s.checkpointOrder {
+			payload.Entries = append(payload.Entries, *s.entries[key])
+		}
+		return payload
+	}
+	payload.keys = make([]string, 0, len(s.entries))
+	for key, entry := range s.entries {
 		payload.Entries = append(payload.Entries, *entry)
+		payload.keys = append(payload.keys, key)
 	}
 	return payload
 }

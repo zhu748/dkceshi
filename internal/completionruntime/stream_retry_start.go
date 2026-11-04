@@ -37,7 +37,7 @@ func startPayloadCompletionOnce(ctx context.Context, ds DeepSeekCaller, a *auth.
 		}, maxAttempts)
 	}
 	defer pinCompletionAccount(a)()
-	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
+	sessionID, err := createCompletionSession(ctx, ds, a, maxAttempts, opts.CurrentInputFile)
 	if err != nil {
 		return StartResult{}, sessionOutputError(a, err)
 	}

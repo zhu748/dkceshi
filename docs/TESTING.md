@@ -375,3 +375,17 @@ go test -race ./internal/toolcall ./internal/toolstream ./internal/streamwriter
 ```
 
 基准检查调用数量完整性，但不使用机器相关的毫秒阈值作为单测断言，也不代表线上端到端延迟。
+
+
+### 恢复与持久化优化回归（2026-11-04）
+
+`tests/fixtures/completion-account-failures.json` 同时由 Go client 和 Node 使用，覆盖鉴权业务码、限流、禁言、封禁优先级及普通拒绝。`recovery-accounting.test.cjs` 已接入 Node 全量入口，检查 PoW 凭据同步、重试列表重置及 release 返回的最终用量。Go 接口回归检查附件、历史、重试计数，以及慢会话删除不会阻塞 usage 响应。
+
+```bash
+go test ./internal/auth ./internal/completionruntime ./internal/httpapi/openai/chat ./internal/usagestats ./internal/chathistory
+go test -race ./internal/auth ./internal/completionruntime ./internal/httpapi/openai/chat ./internal/usagestats ./internal/chathistory
+go test ./internal/usagestats -run '^$' -bench BenchmarkFlushStableLedger -benchmem -count=3
+go test ./internal/chathistory -run '^$' -bench BenchmarkHistorySummaryUpdate -benchmem -count=3
+```
+
+账本基准包含复制快照、排序和编码，写入替身不执行真实 fsync；首次 flush 建立顺序，后续测量模拟已有聚合键上的持续记账。历史摘要基准以实际最大保留量 50 条，对比完整重建和单条更新；它不包含写盘。缓存回归另外覆盖新增键、导入、清空、写入失败及 flush 过程中并发新增条目。

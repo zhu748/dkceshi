@@ -97,7 +97,7 @@ func (s *Store) Update(id string, params UpdateParams) (Entry, error) {
 	}
 	s.details[target] = item
 	s.markDetailDirtyLocked(target)
-	if err := s.saveLocked(); err != nil {
+	if err := s.saveUpdatedDetailLocked(item); err != nil {
 		return Entry{}, err
 	}
 	return cloneEntry(item), nil

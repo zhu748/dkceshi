@@ -81,6 +81,7 @@ async function detectMutedOrBannedResponse(res) {
       const mutedUntil = extractMuteUntil(data);
       const banned = isBannedJSONResponse(data);
       if (mutedUntil > 0 || banned) return { mutedUntil, banned, response: null };
+      if (isAuthJSONResponse(data)) return { unauthorized: true, response: null };
     } catch (_error) { /* Truncated JSON is replayed unchanged. */ }
     return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
   } finally {
@@ -148,3 +149,13 @@ function extractMuteUntil(data) {
 }
 
 module.exports = { detectMutedOrBannedResponse };
+
+function isAuthJSONResponse(data) {
+  if (!data || typeof data !== 'object') return false;
+  if ([40001, 40002, 40003].some(code => Number(data.code) === code || Number(data.data?.biz_code) === code)) return true;
+  const code = Number(data.code) || 0, bizCode = Number(data.data?.biz_code) || 0;
+  const message = (asString(data.msg) + ' ' + asString(data.data?.biz_msg)).toLowerCase();
+  return ['token', 'unauthorized', 'expired', 'not login', 'login required', 'invalid jwt'].some(word => message.includes(word))
+    || code === 0 && bizCode !== 0
+      && ['auth', 'credential', 'jwt', 'login', '登录', '认证', '凭证', '令牌', '会话过期'].some(word => message.includes(word));
+}

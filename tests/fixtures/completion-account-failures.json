@@ -1,0 +1,112 @@
+[
+  {
+    "name": "top-level auth",
+    "status": 200,
+    "body": {
+      "code": 40001,
+      "msg": "token expired"
+    },
+    "kind": "unauthorized"
+  },
+  {
+    "name": "nested auth",
+    "status": 200,
+    "body": {
+      "code": 0,
+      "data": {
+        "biz_code": 40002
+      }
+    },
+    "kind": "unauthorized"
+  },
+  {
+    "name": "third auth code",
+    "status": 200,
+    "body": {
+      "code": 40003
+    },
+    "kind": "unauthorized"
+  },
+  {
+    "name": "auth message",
+    "status": 200,
+    "body": {
+      "code": 0,
+      "data": {
+        "biz_code": 7,
+        "biz_msg": "credentials expired"
+      }
+    },
+    "kind": "unauthorized"
+  },
+  {
+    "name": "rate limit",
+    "status": 200,
+    "body": {
+      "code": 40029,
+      "msg": "TOO_MANY_REQUESTS"
+    },
+    "kind": "limited"
+  },
+  {
+    "name": "HTTP rate limit",
+    "status": 429,
+    "body": {
+      "msg": "slow down"
+    },
+    "kind": "limited"
+  },
+  {
+    "name": "ban wins over auth text",
+    "status": 403,
+    "body": {
+      "code": 0,
+      "data": {
+        "biz_code": 10,
+        "biz_msg": "USER_IS_BANNED token"
+      }
+    },
+    "kind": "banned"
+  },
+  {
+    "name": "mute wins over auth text",
+    "status": 200,
+    "body": {
+      "code": 0,
+      "data": {
+        "biz_code": 5,
+        "biz_msg": "muted token"
+      }
+    },
+    "kind": "muted"
+  },
+  {
+    "name": "ordinary forbidden",
+    "status": 403,
+    "body": {
+      "code": 1,
+      "msg": "access denied"
+    },
+    "kind": "passthrough"
+  },
+  {
+    "name": "unrelated business error",
+    "status": 200,
+    "body": {
+      "code": 9,
+      "msg": "input too long"
+    },
+    "kind": "passthrough"
+  },
+  {
+    "name": "implicit success code with auth business failure",
+    "status": 200,
+    "body": {
+      "data": {
+        "biz_code": 7,
+        "biz_msg": "认证失败"
+      }
+    },
+    "kind": "unauthorized"
+  }
+]

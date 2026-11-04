@@ -15,13 +15,12 @@ const {
   flushToolSieve,
   parseStandaloneToolCalls,
 } = require('../helpers/stream-tool-sieve');
-const { BASE_HEADERS } = require('../shared/deepseek-constants');
-const { serializeAppPayload } = require('../shared/deepseek-wire');
 const { fetchAppStream } = require('../shared/app-transport');
 const { createStreamLifecycle } = require('./stream_lifecycle');
 const { writeOpenAIError, writeOpenAIErrorWithCode } = require('./error_shape');
 const { parseChunkForContent } = require('./sse_parse');
-const { buildUsage, buildFinalUsage, mergeReasoningForUsage } = require('./token_usage');
+const { mergeReasoningForUsage } = require('./token_usage');
+const { createUsageAccounting } = require('./usage_accounting');
 const {
   resolveToolcallPolicy,
   toolChoiceViolation,
@@ -30,7 +29,6 @@ const { createChatCompletionEmitter, createDeltaCoalescer } = require('./stream_
 const {
   asString,
   fetchStreamPrepare,
-  fetchStreamPow,
   fetchStreamSwitch,
   fetchStreamValidation,
   relayPreparedFailure,
@@ -56,7 +54,6 @@ const {
   isTransientUpstreamMessage,
   EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS,
   clonePayloadForOutputRetry,
-  usagePromptWithRetryPayload,
 } = require('./stream_retry_policy');
 const {
   createContinueState,
@@ -68,16 +65,18 @@ const {
 const { upstreamEmptyOutputDetail } = require('./stream_failure');
 const { createStreamReport } = require('./stream_report');
 const { fetchAccountCompletion } = require('./completion_account_retry');
-const { powAccountFailure } = require('./pow_account_failure');
+const { createUpstreamConnection } = require('./upstream_connection');
 
 const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
 const DEEPSEEK_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
 
 async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAppStream) {
   let leaseCompletion = {};
+  let partialCompletion = () => ({});
+  let usageAccounting;
   const report = createStreamReport();
   const { fail: sendFailedChunk, finishFailure: finishStreamFailure } = report;
-  const lifecycle = createStreamLifecycle(req, res, () => report.snapshot(leaseCompletion));
+  const lifecycle = createStreamLifecycle(req, res, () => report.snapshot({ ...(leaseCompletion.finish_reason ? leaseCompletion : partialCompletion()), ...usageAccounting?.metadata() }));
   const releaseLease = lifecycle.release;
   const watch = createStreamWatch();
   let stopHeartbeat = () => {};
@@ -99,6 +98,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const initialPowHeader = asString(prep.body.pow_header);
     let completionPayload = prep.body.payload && typeof prep.body.payload === 'object' ? prep.body.payload : null;
     let finalPrompt = asString(prep.body.final_prompt);
+    usageAccounting = createUsageAccounting(prep.body);
     let streamStarted = false;
     const thinkingEnabled = toBool(prep.body.thinking_enabled);
     const toolPolicy = resolveToolcallPolicy(prep.body, payload.tools);
@@ -110,83 +110,15 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       return;
     }
 
-    let baseHeaders = prep.body.base_headers && typeof prep.body.base_headers === 'object'
-      ? { ...BASE_HEADERS, ...prep.body.base_headers }
-      : { ...BASE_HEADERS };
-    let headerExpirations = prep.body.base_header_expirations || {};
-    const updateBaseHeaders = (switchedBody) => {
-      if (switchedBody && switchedBody.base_headers && typeof switchedBody.base_headers === 'object') {
-        baseHeaders = { ...BASE_HEADERS, ...switchedBody.base_headers };
-        headerExpirations = switchedBody.base_header_expirations || {};
-      }
-    };
-
-    let currentPowHeader = initialPowHeader;
-    let lastPowFailure = null;
-    const refreshPowHeader = async (roundType) => {
-      lastPowFailure = null;
-      if (lifecycle.closed) return '';
-      try {
-        const pow = await fetchStreamPow(req, leaseID, lifecycle.signal, watch.deadline);
-        if (lifecycle.closed) return '';
-        const nextPowHeader = asString(pow.body && pow.body.pow_header);
-        if (pow.ok && nextPowHeader) {
-          currentPowHeader = nextPowHeader;
-          return currentPowHeader;
-        }
-        lastPowFailure = powAccountFailure(pow);
-        if (lastPowFailure) return '';
-        console.warn('[vercel_stream_pow] refresh failed, reusing previous PoW', {
-          round_type: roundType,
-          status: pow.status || 0,
-        });
-      } catch (err) {
-        if (lifecycle.closed || lifecycle.signal.aborted) {
-          return '';
-        }
-        console.warn('[vercel_stream_pow] refresh failed, reusing previous PoW', {
-          round_type: roundType,
-          error: err,
-        });
-      }
-      return currentPowHeader;
-    };
-
-    const fetchDeepSeekStream = async (url, bodyPayload, powHeader) => {
-      if (lifecycle.closed) return null;
-      try {
-        const response = await appFetch(url, {
-          method: 'POST',
-          headerExpirations,
-          headers: {
-            ...baseHeaders,
-            authorization: `Bearer ${deepseekToken}`,
-            ...(powHeader ? { 'x-ds-pow-response': powHeader } : {}),
-          },
-          body: serializeAppPayload(url, bodyPayload),
-          signal: lifecycle.signal,
-        });
-        if (lifecycle.closed) {
-          try { await response.body?.cancel(); }
-          catch (error) { console.warn('[vercel_stream] late response cancel failed', error.message); }
-          return null;
-        }
-        return response;
-      } catch (err) {
-        if (lifecycle.closed || lifecycle.signal.aborted) {
-          return null;
-        }
-        throw err;
-      }
-    };
+    const connection = createUpstreamConnection({ prepared: prep.body, req, leaseID, lifecycle, deadline: watch.deadline, appFetch });
     const fetchCompletion = (bodyPayload) => fetchAccountCompletion(bodyPayload, {
-      fetch: (body) => fetchDeepSeekStream(DEEPSEEK_COMPLETION_URL, body, currentPowHeader),
+      fetch: (body) => connection.fetch(DEEPSEEK_COMPLETION_URL, body, connection.powHeader),
       closed: () => lifecycle.closed,
       canSwitch: () => !streamStarted || !answerDelivered,
       switch: (options) => switchAccount(options),
       adopt: (switched) => {
         applySwitchedPayload(switched);
-        if (streamStarted) { usagePrompt = finalPrompt; resetForRegeneration(); }
+        if (streamStarted) resetForRegeneration();
       },
       fail: async (failure) => {
         leaseCompletion = { finish_reason: 'error', error: failure.message, error_code: failure.code };
@@ -200,7 +132,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let activeDeepSeekSessionID = responseID;
     const fetchContinue = async (messageID) => {
       try {
-        return await fetchDeepSeekStream(DEEPSEEK_CONTINUE_URL, {
+        return await connection.fetch(DEEPSEEK_CONTINUE_URL, {
           chat_session_id: activeDeepSeekSessionID,
           message_id: messageID,
           fallback_to_resume: true,
@@ -215,10 +147,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const applySwitchedPayload = (switched) => {
       completionPayload = switched.body.payload;
       finalPrompt = asString(switched.body.final_prompt) || finalPrompt;
-      deepseekToken = asString(switched.body.deepseek_token) || deepseekToken;
-      currentPowHeader = asString(switched.body.pow_header) || currentPowHeader;
       activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
-      updateBaseHeaders(switched.body);
+      connection.adopt(switched.body);
+      usageAccounting.reset({ ...switched.body, final_prompt: finalPrompt });
     };
 
     // Let an in-flight Go control operation settle before releasing its lease,
@@ -246,7 +177,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       let switchAttempts = 0;
       while (
         (isTransientUpstreamStatus(status) || isAccountAuthFailureStatus(status))
-        && (status === 429 || switchAttempts < TRANSIENT_SWITCH_MAX_ATTEMPTS)
+        && (prep.body.failover_budget_managed === true || status === 429 || switchAttempts < TRANSIENT_SWITCH_MAX_ATTEMPTS)
       ) {
         const switched = await switchAccount(switchOptionsForStatus(status));
         if (!switched) return;
@@ -295,11 +226,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let detectionThinkingText = '';
     const rawReasoning = () => mergeReasoningForUsage(rawThinkingText, detectionThinkingText, thinkingText);
     let outputText = '';
+    partialCompletion = () => ({ finish_reason: 'stopped', usage: usageAccounting.build(rawReasoning(), outputText), thinking: rawReasoning(), content: outputText, error: '' });
     let hasVisibleOutput = false;
     let deferredToolText = '';
     // Content policy is shared with Go; regeneration resets attempt-local state.
     let contentPolicy = createContentPolicy(finalPrompt);
-    let usagePrompt = finalPrompt;
     const toolSieveEnabled = toolPolicy.toolSieveEnabled;
     let toolSieveState = createToolSieveState();
     toolSieveState.deferMalformed = toolSieveState.cleanVisible = toolSieveState.stripReferences = true;
@@ -367,7 +298,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         ended = true;
         leaseCompletion = {
           finish_reason: 'stopped',
-          usage: buildUsage(usagePrompt, rawReasoning(), outputText),
+          usage: usageAccounting.build(rawReasoning(), outputText),
           thinking: rawReasoning(),
           content: outputText,
           error: '',
@@ -419,7 +350,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       let validatedCalls = null, validatedUsage = null, validatedText = null;
       if ((detected.length || needsToolFinalization(outputText, detectionThinkingText, prep.body, toolSieveState)) && (hasVisibleOutput || detected.length || detectionThinkingText)) {
         try {
-          const validation = await finalValidation.run(() => report.measure('validation_ms', () => fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal, watch.finalDeadline, report.diagnostic(), prep.body.tool_repair_timeout_ms)));
+          const validation = await finalValidation.run(() => report.measure('validation_ms', () => fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal, watch.finalDeadline, { ...report.diagnostic(), ...usageAccounting.validation() }, prep.body.tool_repair_timeout_ms)));
           if (!validation.ok) {
             const error = validation.body.error || {};
             if (options.deferEmpty && !answerDelivered && ['invalid_tool_arguments', 'tool_choice_violation', 'upstream_empty_output', 'upstream_unavailable'].includes(error.code)) {
@@ -437,7 +368,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           detected = validatedCalls.map(call => ({ name: call.function.name }));
         } catch (error) {
           if (lifecycle.closed) {
-            ended = true; leaseCompletion = { finish_reason: 'stopped', usage: buildUsage(usagePrompt, rawReasoning(), outputText), thinking: rawReasoning(), content: outputText, error: '' };
+            ended = true; leaseCompletion = { finish_reason: 'stopped', usage: usageAccounting.build(rawReasoning(), outputText), thinking: rawReasoning(), content: outputText, error: '' };
             await releaseLease(); return true;
           }
           ended = true;
@@ -501,7 +432,12 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         return true;
       }
       ended = true;
-      const finalUsage = buildFinalUsage(usagePrompt, rawReasoning(), outputText, validatedUsage);
+      let finalUsage = usageAccounting.build(rawReasoning(), outputText, validatedUsage);
+      if (usageAccounting.enabled) {
+        leaseCompletion = { finish_reason: reason, usage: finalUsage, thinking: rawReasoning(), content: outputText, error: '' };
+        finalUsage = usageAccounting.authoritative(finalUsage, await releaseLease());
+        if (lifecycle.closed || res.writableEnded || res.destroyed) return true;
+      }
       sendFrame({
         id: responseID,
         object: 'chat.completion.chunk',
@@ -792,7 +728,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           return;
         }
         if (isUpstreamUnavailable || isAccountUnauthorized) {
-          if (answerDelivered || !unavailableEmpty && transientSwitchAttempts >= TRANSIENT_SWITCH_MAX_ATTEMPTS) {
+          if (answerDelivered || prep.body.failover_budget_managed !== true && !unavailableEmpty && transientSwitchAttempts >= TRANSIENT_SWITCH_MAX_ATTEMPTS) {
             await finish('stop');
             return;
           }
@@ -801,7 +737,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           if (!switched) return;
           if (switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object') {
             applySwitchedPayload(switched);
-            usagePrompt = finalPrompt;
             resetForRegeneration();
             completionRes = await fetchCompletion(completionPayload);
             if (completionRes === null) {
@@ -818,7 +753,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           if (!switched) return;
           if (switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object') {
             applySwitchedPayload(switched);
-            usagePrompt = finalPrompt;
             resetForRegeneration();
             completionRes = await fetchCompletion(completionPayload);
             if (completionRes === null) {
@@ -838,25 +772,24 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         parent_message_id: processed.responseMessageID || 0,
       });
       const retryPayload = clonePayloadForOutputRetry(completionPayload, processed.responseMessageID, lastEmptyDetail, outputText || detectionThinkingText);
-      usagePrompt = usagePromptWithRetryPayload(usagePrompt, retryPayload);
-      const retryPowHeader = await refreshPowHeader('retry');
+      const retryPowHeader = await connection.refreshPow('retry');
       if (!retryPowHeader) {
-        if (lastPowFailure && !lifecycle.closed) {
-          const switched = await switchAccount(lastPowFailure.options);
+        if (connection.powFailure && !lifecycle.closed) {
+          const switched = await switchAccount(connection.powFailure.options);
           if (switched?.ok && switched.body?.payload) {
             applySwitchedPayload(switched);
-            usagePrompt = finalPrompt;
             resetForRegeneration();
             completionRes = await fetchCompletion(completionPayload);
             if (completionRes) continue;
           } else {
-            lastEmptyDetail = lastPowFailure;
+            lastEmptyDetail = connection.powFailure;
             await finish('stop');
           }
         }
         return;
       }
-      currentPowHeader = retryPowHeader;
+      connection.powHeader = retryPowHeader;
+      usageAccounting.retry(retryPayload);
       completionRes = await fetchCompletion(retryPayload);
       if (completionRes === null) {
         return;

@@ -2370,7 +2370,7 @@ test('vercel stream replays business-error JSON instead of locking the body', as
       // 200 + JSON that is neither a mute nor a ban notice: the old code
       // returned response:null with the body reader locked, so the downstream
       // getReader() threw "ReadableStream is locked" after headers were sent.
-      return jsonResponse({ code: 40001, msg: 'business error' });
+      return jsonResponse({ code: 49999, msg: 'business error' });
     }
     throw new Error(`unexpected fetch url: ${textURL}`);
   };

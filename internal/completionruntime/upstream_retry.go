@@ -114,6 +114,12 @@ func managedUnauthorizedResponseError(resp *http.Response, a *auth.RequestAuth) 
 // unavailability so the retry machinery can switch accounts instead of passing
 // the raw error downstream.
 func completionCallOutputError(ctx context.Context, err error) *assistantturn.OutputError {
+	if dsclient.IsManagedUnauthorizedError(err) {
+		return &assistantturn.OutputError{Status: http.StatusUnauthorized, Message: "Account token is invalid. Please re-login the account in admin.", Code: OutputCodeAccountUnauthorized}
+	}
+	if dsclient.IsDirectUnauthorizedError(err) {
+		return &assistantturn.OutputError{Status: http.StatusUnauthorized, Message: DirectTokenErrorMessage, Code: "error"}
+	}
 	if dsclient.IsBannedError(err) {
 		return &assistantturn.OutputError{Status: http.StatusForbidden, Message: "Account is banned by upstream.", Code: "account_banned"}
 	}

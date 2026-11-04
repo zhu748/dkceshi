@@ -14,7 +14,10 @@ func (s *Store) saveLocked() error {
 		s.state.Limit = DefaultLimit
 	}
 	s.rebuildIndexLocked()
+	return s.persistLocked()
+}
 
+func (s *Store) persistLocked() error {
 	if err := os.MkdirAll(s.detailDir, 0o755); err != nil {
 		return fmt.Errorf("create chat history detail dir: %w", err)
 	}

@@ -12,6 +12,8 @@ async function fetchAccountCompletion(payload, hooks) {
     if (detection.response) return detection.response;
     const failure = detection.rateLimited
       ? { status: 429, code: 'rate_limit_exceeded', message: 'Upstream requests are rate limited.', options: { rate_limited: true } }
+      : detection.unauthorized
+        ? { status: 401, code: 'account_unauthorized', message: 'Account token is invalid.', options: { auth_failed: true } }
       : detection.banned
         ? { status: 403, code: 'account_banned', message: 'Account is banned by upstream.', options: { banned: true, banned_reason: '账户已被停用' } }
         : { status: 403, code: 'account_muted', message: 'Account is muted by upstream.', options: { mute_until: detection.mutedUntil } };

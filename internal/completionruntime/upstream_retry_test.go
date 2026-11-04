@@ -57,6 +57,19 @@ func TestCompletionCallOutputErrorClassification(t *testing.T) {
 	if got := completionCallOutputError(context.Background(), &dsclient.RequestFailure{Kind: dsclient.FailureMuted}); got == nil || got.Code != "account_muted" {
 		t.Fatalf("muted error should map to account_muted, got %#v", got)
 	}
+	for _, kind := range []dsclient.FailureKind{dsclient.FailureManagedUnauthorized, dsclient.FailureDirectUnauthorized} {
+		got := completionCallOutputError(context.Background(), &dsclient.RequestFailure{Kind: kind})
+		if got.Status != http.StatusUnauthorized {
+			t.Fatalf("auth failure became transient: %#v", got)
+		}
+		if kind == dsclient.FailureManagedUnauthorized && got.Code != OutputCodeAccountUnauthorized {
+			t.Fatalf("lost managed auth code: %#v", got)
+		}
+		if kind == dsclient.FailureDirectUnauthorized && !IsDirectTokenAuthError(got) {
+			t.Fatalf("lost direct token guidance: %#v", got)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if got := completionCallOutputError(ctx, errors.New("boom")); got == nil || got.Code != "error" {

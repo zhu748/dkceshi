@@ -3,21 +3,11 @@ package usagestats
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"time"
 )
 
 func writeSnapshot(path string, payload fileData, write func(string, []byte) error) error {
-	sort.Slice(payload.Entries, func(i, j int) bool {
-		a, b := payload.Entries[i], payload.Entries[j]
-		if a.Date != b.Date {
-			return a.Date < b.Date
-		}
-		if a.Model != b.Model {
-			return a.Model < b.Model
-		}
-		return entryIdentityLess(a, b)
-	})
+	sortCheckpoint(&payload)
 	// A checkpoint is rewritten on every dirty flush. Compact JSON keeps the
 	// same schema while avoiding a second formatting pass and larger writes.
 	body, err := json.Marshal(payload)
@@ -43,6 +33,7 @@ func (s *Store) commitEntriesLocked(entries map[string]*Entry) error {
 		return err
 	}
 	s.entries = entries
+	s.checkpointOrder = nil
 	s.revision++
 	s.dirty = false
 	return nil

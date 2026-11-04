@@ -105,3 +105,24 @@ test('a successful response without ETag clears the previous backend validator',
         return response('new')
     }, 'failed')
 })
+
+for (const failure of ['json', 'shape']) {
+    test(`invalid usage ${failure} preserves the accepted snapshot and ETag`, async () => {
+        const f = fixture()
+        await f.resource.load(async () => response('accepted'), 'failed')
+        const records = f.state.records
+        await f.resource.load(async () => ({
+            ...response('invalid'),
+            json: async () => {
+                if (failure === 'json') throw new SyntaxError('truncated JSON')
+                return { items: null }
+            },
+        }), 'failed')
+        assert.equal(f.state.records, records)
+        assert.equal(f.errors.length, 1)
+        await f.resource.load(async (_url, options) => {
+            assert.equal(options.headers['If-None-Match'], 'accepted')
+            return { status: 304 }
+        }, 'failed')
+    })
+}

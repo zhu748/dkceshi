@@ -72,7 +72,10 @@ func (r *Resolver) performLoginFlight(ctx context.Context, a *RequestAuth, force
 		if !completed {
 			err = errors.New("account login interrupted")
 		}
-		flight.auth, flight.err = *a, err
+		// Waiters need credentials only. Avoid retaining/copying request maps
+		// and resource callbacks while lease expiry may retire those resources.
+		copyLoginCredentials(&flight.auth, a)
+		flight.err = err
 		delete(r.loginFlights, a.AccountID)
 		close(flight.done)
 	}()

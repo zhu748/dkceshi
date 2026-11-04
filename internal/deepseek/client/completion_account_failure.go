@@ -22,5 +22,10 @@ func (c *Client) inspectCompletionFailure(a *auth.RequestAuth, resp *http.Respon
 	if kind := c.observeAccountFailure(a, parsed, source); kind != FailureUnknown {
 		return &RequestFailure{Op: "completion", Kind: kind, Message: failureMessage(msg, bizMsg, "account unavailable")}
 	}
+	// A JSON auth rejection can arrive with HTTP 200. Keep the session owner
+	// fixed here; the outer runtime owns refresh and whole-request replay.
+	if parsed != nil && (resp.StatusCode == http.StatusUnauthorized || shouldAttemptRefresh(http.StatusOK, code, bizCode, msg, bizMsg)) {
+		return &RequestFailure{Op: "completion", Kind: authFailureKind(a != nil && a.UseConfigToken), Message: failureMessage(msg, bizMsg, "token rejected")}
+	}
 	return nil
 }

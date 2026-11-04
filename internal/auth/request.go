@@ -430,62 +430,6 @@ func (r *Resolver) SetAccountBanned(a *RequestAuth, reason string) {
 	})
 }
 
-// SwitchAccount 把当前请求切到下一个可调度账号，并确保新账号持有可用 Token。
-// 逐个尝试，登录被上游明确拒绝（ErrLoginRejected）的账号同样计入连续鉴权失败，
-// 达到阈值后会被移出号池；全部账号都不可用时返回 false。
-func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
-	if a == nil || !a.UseConfigToken {
-		return false
-	}
-	if a.AccountPinned() {
-		return false
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if ctx.Err() != nil {
-		return false
-	}
-	// Share the normal bounded queue rather than failing merely because the
-	// replacement account is busy. The caller's earlier deadline always wins.
-	waitCtx, cancel := context.WithTimeout(ctx, accountSwitchWaitTimeout)
-	defer cancel()
-	if a.TriedAccounts == nil {
-		a.TriedAccounts = map[string]bool{}
-	}
-	if a.AccountID != "" {
-		a.TriedAccounts[a.AccountID] = true
-		r.releaseAccountSlot(a, a.AccountID)
-	}
-	filter := account.AccountFilter(func(acc config.Account) bool {
-		return acc.MatchesPoolType(a.ToolsPresent)
-	})
-	for {
-		acc, ok := r.Pool.AcquireWait(waitCtx, "", a.TriedAccounts, filter)
-		if !ok {
-			// No replacement is available. a.AccountID still names the account whose
-			// slot this call just returned, and releaseAccountSlot remembers that, so
-			// the request-end Release will not return it a second time.
-			return false
-		}
-		a.Account = acc
-		a.AccountID = acc.Identifier()
-		if err := r.ensureManagedToken(ctx, a); err != nil {
-			a.TriedAccounts[a.AccountID] = true
-			r.releaseAccountSlot(a, a.AccountID)
-			if errors.Is(err, ErrLoginRejected) {
-				r.MarkAuthFailure(a, authFailedReasonFromLoginError(err))
-			}
-			continue
-		}
-		a.markAccountUsed()
-		if r.OnAccountUsed != nil {
-			r.OnAccountUsed(a.AccountID)
-		}
-		return true
-	}
-}
-
 // releaseAccountSlot returns one account's slot to the pool, at most once per
 // account per request.
 //

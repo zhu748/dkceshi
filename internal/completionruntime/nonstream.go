@@ -139,7 +139,7 @@ func prepareCompletionPayloadOnce(ctx context.Context, ds DeepSeekCaller, a *aut
 		return StartResult{Request: stdReq}, prepErr
 	}
 	defer pinCompletionAccount(a)()
-	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
+	sessionID, err := createCompletionSession(ctx, ds, a, maxAttempts, opts.CurrentInputFile)
 	if err != nil {
 		return StartResult{Request: stdReq}, sessionOutputError(a, err)
 	}
@@ -168,7 +168,7 @@ func startCompletionOnce(ctx context.Context, ds DeepSeekCaller, a *auth.Request
 		return StartResult{Request: stdReq}, prepErr
 	}
 	defer pinCompletionAccount(a)()
-	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
+	sessionID, err := createCompletionSession(ctx, ds, a, maxAttempts, opts.CurrentInputFile)
 	if err != nil {
 		return StartResult{Request: stdReq}, sessionOutputError(a, err)
 	}

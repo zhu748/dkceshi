@@ -28,7 +28,7 @@ func StartCompletionWithSegments(ctx context.Context, ds DeepSeekCaller, a *auth
 	}
 	defer pinCompletionAccount(a)()
 
-	sessionID, err := ds.CreateSession(ctx, a, maxAttempts)
+	sessionID, err := createCompletionSession(ctx, ds, a, maxAttempts, opts.CurrentInputFile)
 	if err != nil {
 		// Mirror the single-shot path (nonstream.go): only a definite upstream
 		// auth rejection is an account_unauthorized; a network hiccup while

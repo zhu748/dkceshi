@@ -175,7 +175,7 @@ function createLeaseReleaser(req, leaseID, getMeta) {
     }
     released = true;
     try {
-      await releaseStreamLease(req, leaseID, getMeta ? getMeta() : undefined);
+      return await releaseStreamLease(req, leaseID, getMeta ? getMeta() : undefined);
     } catch (error) {
       // Go's lease TTL remains the fallback, but cleanup failures must be visible.
       console.warn('[vercel_stream] lease release failed', error.message);
@@ -192,12 +192,14 @@ async function releaseStreamLease(req, leaseID, meta) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1500);
   try {
-    await fetch(url.toString(), {
+    const response = await fetch(url.toString(), {
       method: 'POST',
       headers: buildInternalGoHeaders(req, { withInternalToken: true, withContentType: true }),
       body,
       signal: controller.signal,
     });
+    if (!response.ok) throw new Error(`lease release failed (${response.status})`);
+    return await response.json();
   } finally {
     clearTimeout(timeout);
   }

@@ -116,24 +116,27 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 	}
 	h.attachLeaseDiagnostics(leaseID, stdReq)
 	leased = h.writePreparedLease(w, r, leaseID, map[string]any{
-		"session_id":              sessionID,
-		"lease_id":                leaseID,
-		"model":                   stdReq.ResponseModel,
-		"final_prompt":            stdReq.FinalPrompt,
-		"thinking_enabled":        stdReq.Thinking,
-		"search_enabled":          stdReq.Search,
-		"tool_choice":             stdReq.ToolChoice,
-		"tool_repair_timeout_ms":  h.leaseRepairTimeoutMS(leaseID),
-		"diagnostic_progress":     h.leaseDiagnosticProgressEnabled(leaseID),
-		"validate_tools":          len(stdReq.ToolNames) > 0 || stdReq.ToolChoice.Constrained() || stdReq.SystemTextToolsApply(),
-		"tool_names":              stdReq.ToolNames,
-		"tool_marker":             stdReq.ToolMarker,
-		"deepseek_token":          a.DeepSeekToken,
-		"managed_account":         a.UseConfigToken,
-		"pow_header":              powHeader,
-		"payload":                 payload,
-		"base_headers":            dsclient.BaseHeadersForAuth(a),
-		"base_header_expirations": map[string]int64{"x-hif-dliq": a.Account.HIFDliqExpiresAt, "x-hif-leim": a.Account.HIFLeimExpiresAt},
+		"session_id":               sessionID,
+		"lease_id":                 leaseID,
+		"model":                    stdReq.ResponseModel,
+		"final_prompt":             stdReq.FinalPrompt,
+		"thinking_enabled":         stdReq.Thinking,
+		"search_enabled":           stdReq.Search,
+		"tool_choice":              stdReq.ToolChoice,
+		"tool_repair_timeout_ms":   h.leaseRepairTimeoutMS(leaseID),
+		"diagnostic_progress":      h.leaseDiagnosticProgressEnabled(leaseID),
+		"validate_tools":           len(stdReq.ToolNames) > 0 || stdReq.ToolChoice.Constrained() || stdReq.SystemTextToolsApply(),
+		"tool_names":               stdReq.ToolNames,
+		"tool_marker":              stdReq.ToolMarker,
+		"deepseek_token":           a.DeepSeekToken,
+		"managed_account":          a.UseConfigToken,
+		"failover_budget_managed":  true,
+		"usage_accounting_version": 1,
+		"prompt_tokens":            vercelPromptTokens(stdReq),
+		"pow_header":               powHeader,
+		"payload":                  payload,
+		"base_headers":             dsclient.BaseHeadersForAuth(a),
+		"base_header_expirations":  map[string]int64{"x-hif-dliq": a.Account.HIFDliqExpiresAt, "x-hif-leim": a.Account.HIFLeimExpiresAt},
 	})
 }
 
@@ -169,12 +172,13 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 	if h.Auth != nil && lease.Auth != nil {
 		defer h.Auth.Release(lease.Auth)
 	}
+	usage := finalizeVercelUsage(lease.Standard, req)
+	finishLeaseDiagnostics(r, lease, req)
+	h.recordVercelStreamCompletion(r, lease.Auth, lease.Standard, req, lease.StartedAt)
+	writeVercelUsageReply(w, usage)
 	if lease.Auth != nil {
 		h.autoDeleteRemoteSession(r.Context(), lease.Auth, lease.SessionID)
 	}
-	finishLeaseDiagnostics(r, lease, req)
-	h.recordVercelStreamCompletion(r, lease.Auth, lease.Standard, req, lease.StartedAt)
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
 func (h *Handler) handleVercelStreamPow(w http.ResponseWriter, r *http.Request) {
@@ -211,7 +215,10 @@ func (h *Handler) handleVercelStreamPow(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"pow_header": powHeader,
+		"pow_header":              powHeader,
+		"deepseek_token":          leaseAuth.DeepSeekToken,
+		"base_headers":            dsclient.BaseHeadersForAuth(leaseAuth),
+		"base_header_expirations": map[string]int64{"x-hif-dliq": leaseAuth.Account.HIFDliqExpiresAt, "x-hif-leim": leaseAuth.Account.HIFLeimExpiresAt},
 	})
 }
 
@@ -332,19 +339,21 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 	}
 	h.updateStreamLeaseState(leaseID, stdReq, sessionID)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id":              sessionID,
-		"lease_id":                leaseID,
-		"model":                   stdReq.ResponseModel,
-		"final_prompt":            stdReq.FinalPrompt,
-		"thinking_enabled":        stdReq.Thinking,
-		"search_enabled":          stdReq.Search,
-		"tool_names":              stdReq.ToolNames,
-		"tool_marker":             stdReq.ToolMarker,
-		"deepseek_token":          a.DeepSeekToken,
-		"pow_header":              powHeader,
-		"payload":                 payload,
-		"base_headers":            dsclient.BaseHeadersForAuth(a),
-		"base_header_expirations": map[string]int64{"x-hif-dliq": a.Account.HIFDliqExpiresAt, "x-hif-leim": a.Account.HIFLeimExpiresAt},
+		"session_id":               sessionID,
+		"lease_id":                 leaseID,
+		"model":                    stdReq.ResponseModel,
+		"final_prompt":             stdReq.FinalPrompt,
+		"thinking_enabled":         stdReq.Thinking,
+		"search_enabled":           stdReq.Search,
+		"tool_names":               stdReq.ToolNames,
+		"usage_accounting_version": 1,
+		"prompt_tokens":            vercelPromptTokens(stdReq),
+		"tool_marker":              stdReq.ToolMarker,
+		"deepseek_token":           a.DeepSeekToken,
+		"pow_header":               powHeader,
+		"payload":                  payload,
+		"base_headers":             dsclient.BaseHeadersForAuth(a),
+		"base_header_expirations":  map[string]int64{"x-hif-dliq": a.Account.HIFDliqExpiresAt, "x-hif-leim": a.Account.HIFLeimExpiresAt},
 	})
 }
 
@@ -501,6 +510,7 @@ func (h *Handler) releaseExpiredAuths(expired []*auth.RequestAuth) {
 		return
 	}
 	for _, a := range expired {
+		a.CleanupAccountResources()
 		h.Auth.Release(a)
 	}
 }
