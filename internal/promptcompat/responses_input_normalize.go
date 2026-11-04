@@ -1,7 +1,7 @@
 package promptcompat
 
 import (
-	"fmt"
+	"encoding/json"
 	"strings"
 )
 
@@ -85,6 +85,7 @@ func normalizeResponsesInputArray(items []any) []any {
 		switch x := item.(type) {
 		case map[string]any:
 			if msg := normalizeResponsesInputItemWithState(x, callNameByID); msg != nil {
+				flushFallback()
 				if reasoning := assistantReasoningOnlyContent(msg); reasoning != "" {
 					if pendingAssistantReasoning == "" {
 						pendingAssistantReasoning = reasoning
@@ -113,10 +114,20 @@ func normalizeResponsesInputArray(items []any) []any {
 				continue
 			}
 			if s := normalizeResponsesFallbackPart(x); s != "" {
+				flushPendingReasoning()
 				fallbackParts = append(fallbackParts, s)
 			}
 		default:
-			if s := strings.TrimSpace(fmt.Sprintf("%v", item)); s != "" {
+			s, ok := item.(string)
+			if !ok {
+				encoded, err := json.Marshal(item)
+				if err != nil {
+					continue
+				}
+				s = string(encoded)
+			}
+			if strings.TrimSpace(s) != "" {
+				flushPendingReasoning()
 				fallbackParts = append(fallbackParts, s)
 			}
 		}
@@ -133,15 +144,16 @@ func assistantReasoningOnlyContent(msg map[string]any) string {
 	if !isAssistantMessage(msg) || isAssistantToolCallMessage(msg) {
 		return ""
 	}
+	if msg["refusal"] != nil || msg["prefix"] != nil || msg["name"] != nil {
+		return ""
+	}
 	if _, hasContent := msg["content"]; hasContent {
-		normalizedContent := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
-		reasoningFromContent := strings.TrimSpace(extractOpenAIReasoningContentFromMessage(msg["content"]))
-		if normalizedContent != "" && normalizedContent != reasoningFromContent {
+		content := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
+		reasoning := strings.TrimSpace(extractOpenAIReasoningContentFromMessage(msg["content"]))
+		if reasoning == "" || content != "" && content != reasoning {
 			return ""
 		}
-		if reasoningFromContent != "" {
-			return reasoningFromContent
-		}
+		return reasoning
 	}
 	return strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
 }

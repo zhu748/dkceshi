@@ -12,6 +12,7 @@ func CollectOpenAIRefFileIDs(req map[string]any) []string {
 		"ref_file_ids",
 		"file_ids",
 		"attachments",
+		"files",
 		"messages",
 		"input",
 		"contents",
@@ -20,14 +21,7 @@ func CollectOpenAIRefFileIDs(req map[string]any) []string {
 		if raw == nil {
 			continue
 		}
-		// Skip top-level strings for 'messages' and 'input' as they are likely plain text content,
-		// not file IDs. String file IDs are expected in 'ref_file_ids' or 'file_ids'.
-		if key == "messages" || key == "input" {
-			if _, ok := raw.(string); ok {
-				continue
-			}
-		}
-		appendOpenAIRefFileIDs(&out, seen, raw)
+		appendOpenAIRefFileIDs(&out, seen, raw, referenceIDContainer(key))
 	}
 	if len(out) == 0 {
 		return nil
@@ -35,28 +29,38 @@ func CollectOpenAIRefFileIDs(req map[string]any) []string {
 	return out
 }
 
-func appendOpenAIRefFileIDs(out *[]string, seen map[string]struct{}, raw any) {
+func referenceIDContainer(key string) bool {
+	return key == "ref_file_ids" || key == "file_ids" || key == "attachments" || key == "files"
+}
+
+func appendOpenAIRefFileIDs(out *[]string, seen map[string]struct{}, raw any, allowStrings bool) {
 	switch x := raw.(type) {
 	case string:
-		addOpenAIRefFileID(out, seen, x)
+		if allowStrings {
+			addOpenAIRefFileID(out, seen, x)
+		}
 	case []string:
-		for _, item := range x {
-			addOpenAIRefFileID(out, seen, item)
+		if allowStrings {
+			for _, item := range x {
+				addOpenAIRefFileID(out, seen, item)
+			}
 		}
 	case []any:
 		for _, item := range x {
-			appendOpenAIRefFileIDs(out, seen, item)
+			appendOpenAIRefFileIDs(out, seen, item, allowStrings)
 		}
 	case map[string]any:
-		if fileID := strings.TrimSpace(asString(x["file_id"])); fileID != "" {
+		kind := strings.ToLower(strings.TrimSpace(asString(x["type"])))
+		attachment := kind == "file" || kind == "input_file" || kind == "file_reference" || kind == "image" || kind == "input_image" || kind == "image_url" || kind == "document"
+		if fileID := strings.TrimSpace(asString(x["file_id"])); fileID != "" && (attachment || allowStrings) {
 			addOpenAIRefFileID(out, seen, fileID)
 		}
-		if strings.Contains(strings.ToLower(strings.TrimSpace(asString(x["type"]))), "file") {
+		if kind == "file" || kind == "input_file" || kind == "file_reference" {
 			if fileID := strings.TrimSpace(asString(x["id"])); fileID != "" {
 				addOpenAIRefFileID(out, seen, fileID)
 			}
 		}
-		if fileMap, ok := x["file"].(map[string]any); ok {
+		if fileMap, ok := x["file"].(map[string]any); ok && (attachment || allowStrings) {
 			if fileID := strings.TrimSpace(asString(fileMap["file_id"])); fileID != "" {
 				addOpenAIRefFileID(out, seen, fileID)
 			}
@@ -64,19 +68,11 @@ func appendOpenAIRefFileIDs(out *[]string, seen map[string]struct{}, raw any) {
 				addOpenAIRefFileID(out, seen, fileID)
 			}
 		}
-		// Recurse into potential containers. Note: we do NOT recurse into 'content' or 'input'
-		// if they are plain strings (handled by the top-level switch), but they are usually
-		// nested inside the map branch anyway.
-		// To be safe, we only recurse into these known container keys.
+		// Bare strings count only inside explicit ID lists. Text arrays and
+		// tool-result data remain conversation content at every nesting level.
 		for _, key := range []string{"ref_file_ids", "file_ids", "attachments", "messages", "input", "content", "files", "items", "data", "source", "contents", "parts"} {
 			if nested, ok := x[key]; ok {
-				// If it's a message content that is a string, we must NOT treat it as an ID.
-				if key == "content" || key == "input" || key == "data" || key == "source" || key == "parts" || key == "contents" {
-					if _, ok := nested.(string); ok {
-						continue
-					}
-				}
-				appendOpenAIRefFileIDs(out, seen, nested)
+				appendOpenAIRefFileIDs(out, seen, nested, referenceIDContainer(key))
 			}
 		}
 	}

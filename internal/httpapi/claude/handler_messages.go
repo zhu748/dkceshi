@@ -210,16 +210,6 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 	model, _ := req["model"].(string)
 	stream := util.ToBool(req["stream"])
 
-	// Use the shared global model resolver so Claude/OpenAI/Gemini stay consistent.
-	translateModel := model
-	if store != nil {
-		if norm, normErr := normalizeClaudeRequest(store, cloneMap(req)); normErr == nil && strings.TrimSpace(norm.Standard.ResolvedModel) != "" {
-			translateModel = strings.TrimSpace(norm.Standard.ResolvedModel)
-		}
-	}
-	translatedReq := translatorcliproxy.ToOpenAI(sdktranslator.FormatClaude, translateModel, raw, stream)
-	exposeThinking := claudeProxyThinkingEnabled(translateModel)
-
 	isVercelPrepare := strings.TrimSpace(r.URL.Query().Get("__stream_prepare")) == "1"
 	isVercelRelease := strings.TrimSpace(r.URL.Query().Get("__stream_release")) == "1"
 
@@ -231,7 +221,11 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 		rec := httptest.NewRecorder()
 		h.OpenAI.ChatCompletions(rec, proxyReq)
 		res := rec.Result()
-		defer func() { _ = res.Body.Close() }()
+		defer func() {
+			if err := res.Body.Close(); err != nil {
+				config.Logger.Warn("[claude] response body close failed", "error", err)
+			}
+		}()
 		body, _ := io.ReadAll(res.Body)
 		for k, vv := range res.Header {
 			for _, v := range vv {
@@ -243,6 +237,18 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 		return true
 	}
 
+	promptcompat.ApplyCallerFlags(h.Auth, r, req)
+	norm, err := normalizeClaudeRequest(store, req)
+	if err != nil {
+		writeClaudeError(w, http.StatusBadRequest, err.Error())
+		return true
+	}
+	translatedReq, err := json.Marshal(norm.Standard.OpenAIChatRequest(req))
+	if err != nil {
+		writeClaudeError(w, http.StatusBadRequest, "invalid normalized request")
+		return true
+	}
+	exposeThinking := norm.Standard.Thinking
 	proxyReq := r.Clone(r.Context())
 	proxyReq.URL.Path = "/v1/chat/completions"
 	proxyReq.Body = io.NopCloser(bytes.NewReader(translatedReq))
@@ -261,7 +267,11 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 	rec := httptest.NewRecorder()
 	h.OpenAI.ChatCompletions(rec, proxyReq)
 	res := rec.Result()
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			config.Logger.Warn("[claude] response body close failed", "error", err)
+		}
+	}()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		for k, vv := range res.Header {
@@ -290,16 +300,6 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(converted)
-	return true
-}
-
-// applyClaudeThinkingPolicyToOpenAIRequest 返回转发路径的思考暴露开关。思考只由
-// 模型名决定：-nothinking 后缀关闭，无后缀开启；Claude 请求里的 thinking 配置
-// 不再参与——内部 OpenAI 出口同样按模型名解析，转发体无需注入任何标记。
-func claudeProxyThinkingEnabled(model string) bool {
-	if thinking, _, ok := config.GetModelConfig(model); ok {
-		return thinking
-	}
 	return true
 }
 

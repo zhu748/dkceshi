@@ -462,6 +462,9 @@ func parseXMLTagAttributes(raw string) map[string]string {
 		if key == "" {
 			continue
 		}
+		if _, duplicate := out[key]; duplicate {
+			return nil
+		}
 		value := m[3]
 		if value == "" {
 			value = m[4]

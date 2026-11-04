@@ -199,16 +199,6 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 		writeGeminiError(w, http.StatusBadRequest, "invalid json")
 		return true
 	}
-	translatedReq := translatorcliproxy.ToOpenAI(sdktranslator.FormatGemini, routeModel, raw, stream)
-	if !strings.Contains(string(translatedReq), `"stream"`) {
-		var reqMap map[string]any
-		if jsonvalue.Unmarshal(translatedReq, &reqMap) == nil {
-			reqMap["stream"] = stream
-			if b, e := json.Marshal(reqMap); e == nil {
-				translatedReq = b
-			}
-		}
-	}
 	// 思考开关只由模型名决定：-nothinking 后缀关闭，无后缀开启。Gemini 请求里的
 	// generationConfig.thinkingConfig 仅兼容接收，不再改写转发体——内部
 	// OpenAI 出口同样按模型名解析。
@@ -240,6 +230,17 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 		return true
 	}
 
+	promptcompat.ApplyCallerFlags(h.Auth, r, req)
+	standard, err := normalizeGeminiRequest(h.Store, routeModel, req, stream)
+	if err != nil {
+		writeGeminiError(w, http.StatusBadRequest, err.Error())
+		return true
+	}
+	translatedReq, err := json.Marshal(standard.OpenAIChatRequest(req))
+	if err != nil {
+		writeGeminiError(w, http.StatusBadRequest, "invalid normalized request")
+		return true
+	}
 	proxyReq := r.Clone(r.Context())
 	proxyReq.URL.Path = "/v1/chat/completions"
 	proxyReq.Body = io.NopCloser(bytes.NewReader(translatedReq))

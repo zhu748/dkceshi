@@ -28,7 +28,7 @@ func normalizeClaudeMessages(messages []any) []any {
 		role := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", msg["role"])))
 		switch content := msg["content"].(type) {
 		case []any:
-			textParts := make([]string, 0, len(content))
+			textParts := make([]any, 0, len(content))
 			pendingThinking := ""
 			flushText := func() {
 				if len(textParts) == 0 {
@@ -36,7 +36,7 @@ func normalizeClaudeMessages(messages []any) []any {
 				}
 				message := map[string]any{
 					"role":    role,
-					"content": strings.Join(textParts, ""),
+					"content": promptcompat.JoinContentText(textParts),
 				}
 				// Thinking stays in reasoning_content instead of being inlined
 				// into content: the shared prompt builder renders the labeled
@@ -95,7 +95,9 @@ func normalizeClaudeMessages(messages []any) []any {
 						out = append(out, toolMsg)
 					}
 				default:
-					if raw := strings.TrimSpace(formatClaudeUnknownBlockForPrompt(b)); raw != "" {
+					if attachment, ok := promptcompat.NormalizeAttachmentContent(b); ok {
+						textParts = append(textParts, attachment)
+					} else if raw := strings.TrimSpace(formatClaudeUnknownBlockForPrompt(b)); raw != "" {
 						textParts = append(textParts, raw)
 					}
 				}
@@ -189,6 +191,9 @@ func normalizeClaudeToolResultToToolMessage(block map[string]any, state *claudeT
 }
 
 func normalizeClaudeToolResultContent(content any) any {
+	if blocks, ok := claudeToolResultAttachments(content); ok {
+		return blocks
+	}
 	if text, ok := content.(string); ok {
 		return text
 	}

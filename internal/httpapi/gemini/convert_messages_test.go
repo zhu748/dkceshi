@@ -112,8 +112,8 @@ func TestGeminiMessagesFromRequestPreservesUnknownPartAsRawJSONText(t *testing.T
 		t.Fatalf("expected one normalized message, got %#v", got)
 	}
 	msg, _ := got[0].(map[string]any)
-	content, _ := msg["content"].(string)
-	if !strings.Contains(content, "hello") || !strings.Contains(content, "inlineData") {
+	content := promptcompat.NormalizeOpenAIContentForPrompt(msg["content"])
+	if !strings.Contains(content, "hello") || !strings.Contains(content, "image_url") {
 		t.Fatalf("expected unknown part preserved as raw json text, got %q", content)
 	}
 	if !strings.Contains(content, "[omitted_binary_payload]") {

@@ -46,6 +46,9 @@ func CaptureMessages(messages []any) []Message {
 			ToolCalls: SnapshotJSON(msg["tool_calls"]), FunctionCall: SnapshotJSON(msg["function_call"]),
 			ReasoningContent: SnapshotJSON(msg["reasoning_content"]),
 		}
+		if role == "assistant" {
+			item.Content = prompt.NormalizeAssistantContent(msg)
+		}
 		if flag, exists := msg["is_error"].(bool); exists {
 			item.IsError = &flag
 		}

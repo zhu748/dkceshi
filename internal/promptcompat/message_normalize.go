@@ -74,7 +74,7 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 }
 
 func buildAssistantContentForPrompt(msg map[string]any, marker string) string {
-	content := NormalizeOpenAIContentForPrompt(msg["content"])
+	content := prompt.NormalizeAssistantContent(msg)
 	reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
 	if reasoning == "" {
 		reasoning = strings.TrimSpace(extractOpenAIReasoningContentFromMessage(msg["content"]))
@@ -126,6 +126,7 @@ func normalizeAssistantToolMarkupContentForPrompt(content, marker string) string
 	if len(parsed.Calls) == 0 || parsed.SawToolCallIntent || strings.TrimSpace(parsed.ResidualProtocolText) != "" {
 		return content
 	}
+	parsed.Calls = toolcall.NormalizeParsedToolCallsForSchemas(parsed.Calls, nil)
 	raw := make([]any, 0, len(parsed.Calls))
 	for _, call := range parsed.Calls {
 		raw = append(raw, map[string]any{

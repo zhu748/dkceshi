@@ -6,6 +6,19 @@ import (
 	"unicode/utf8"
 )
 
+// NormalizeAssistantContent also preserves Chat's top-level refusal field.
+// Both prompt rendering and archived request messages use this text.
+func NormalizeAssistantContent(msg map[string]any) string {
+	content := NormalizeContent(msg["content"])
+	if refusal, _ := msg["refusal"].(string); refusal != "" {
+		if content != "" {
+			content += "\n\n"
+		}
+		content += "[refusal]" + refusal + "[/refusal]"
+	}
+	return content
+}
+
 // Unknown blocks remain visible as labeled data. Binary bodies and opaque
 // signatures cannot meaningfully become chat text and must not flood prompts.
 func unknownContentBlock(block map[string]any) string {

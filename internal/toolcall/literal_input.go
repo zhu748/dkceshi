@@ -11,19 +11,23 @@ func restoreLiteralInput(call ParsedToolCall, schema any, custom bool) map[strin
 	if len(call.StringLiterals) == 0 {
 		return call.Input
 	}
-	compiled, _ := compileToolSchema(schema)
+	var compiled *jsonschema.Schema
+	if schema != nil {
+		compiled, _ = compileToolSchema(schema)
+	}
 	var input map[string]any
 	for key, raw := range call.StringLiterals {
-		if !custom && !propertyExpectsString(compiled, key, 0) {
-			continue
-		}
 		if input == nil {
 			input = make(map[string]any, len(call.Input))
 			for name, value := range call.Input {
 				input[name] = value
 			}
 		}
+		previous := input[key]
 		input[key] = raw
+		if !custom && schema != nil && !propertyExpectsString(compiled, key, 0) && (compiled == nil || compiled.Validate(input) != nil) {
+			input[key] = previous
+		}
 	}
 	if input != nil {
 		return input
@@ -33,7 +37,7 @@ func restoreLiteralInput(call ParsedToolCall, schema any, custom bool) map[strin
 
 // References can form cycles or shared DAGs; visit each compiled node once.
 func propertyExpectsString(schema *jsonschema.Schema, key string, _ int) bool {
-	return schemaGraphAny(schema, func(node *jsonschema.Schema) bool {
+	allows := schemaGraphAny(schema, func(node *jsonschema.Schema) bool {
 		if child := node.Properties[key]; child != nil && schemaExpectsString(child, 0) {
 			return true
 		}
@@ -49,10 +53,17 @@ func propertyExpectsString(schema *jsonschema.Schema, key string, _ int) bool {
 		child, ok := node.AdditionalProperties.(*jsonschema.Schema)
 		return !matched && ok && schemaExpectsString(child, 0)
 	})
+	return allows
 }
 
 func schemaExpectsString(schema *jsonschema.Schema, _ int) bool {
 	return schemaGraphAny(schema, func(node *jsonschema.Schema) bool {
+		if node.Bool != nil {
+			return *node.Bool
+		}
+		if node.Types == nil && node.Const == nil && node.Enum == nil && node.Ref == nil && node.Not == nil && len(node.AllOf) == 0 && len(node.AnyOf) == 0 && len(node.OneOf) == 0 {
+			return true
+		}
 		if node.Types != nil {
 			for _, typ := range node.Types.ToStrings() {
 				if typ == "string" {

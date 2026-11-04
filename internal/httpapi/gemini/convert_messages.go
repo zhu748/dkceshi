@@ -52,7 +52,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 			continue
 		}
 
-		textParts := make([]string, 0, len(parts))
+		textParts := make([]any, 0, len(parts))
 		pendingThinking := ""
 		flushText := func() {
 			if len(textParts) == 0 {
@@ -60,7 +60,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 			}
 			msg := map[string]any{
 				"role":    role,
-				"content": strings.Join(textParts, ""),
+				"content": promptcompat.JoinContentText(textParts),
 			}
 			if role == "assistant" && strings.TrimSpace(pendingThinking) != "" {
 				msg["reasoning_content"] = pendingThinking
@@ -139,7 +139,9 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 				continue
 			}
 
-			if raw := strings.TrimSpace(formatGeminiUnknownPartForPrompt(part)); raw != "" && raw != "null" {
+			if attachment, ok := promptcompat.NormalizeAttachmentContent(part); ok {
+				textParts = append(textParts, attachment)
+			} else if raw := strings.TrimSpace(formatGeminiUnknownPartForPrompt(part)); raw != "" && raw != "null" {
 				textParts = append(textParts, raw)
 			}
 		}
@@ -160,9 +162,6 @@ func isGeminiThoughtPart(part map[string]any) bool {
 	}
 	if v, ok := part["thought"].(bool); ok {
 		return v
-	}
-	if v, ok := part["thoughtSignature"].(string); ok && strings.TrimSpace(v) != "" {
-		return true
 	}
 	return false
 }

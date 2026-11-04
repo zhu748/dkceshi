@@ -152,6 +152,7 @@ function parseTagAttributes(raw) {
     if (!key) {
       continue;
     }
+    if (Object.hasOwn(out, key)) return {};
     out[key] = match.slice(3).find((value) => value !== undefined && value !== '') || '';
   }
   return out;

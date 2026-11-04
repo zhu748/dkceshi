@@ -216,8 +216,8 @@ func TestNormalizeClaudeMessagesMixedContentBlocks(t *testing.T) {
 	}
 	got := normalizeClaudeMessages(msgs)
 	m := got[0].(map[string]any)
-	content, _ := m["content"].(string)
-	if !containsStr(content, "Hello") || !containsStr(content, "World") || !containsStr(content, `"type":"image"`) {
+	content := promptcompat.NormalizeOpenAIContentForPrompt(m["content"])
+	if !containsStr(content, "Hello") || !containsStr(content, "World") || !containsStr(content, `"type":"image_url"`) {
 		t.Fatalf("expected text plus non-text block marker preserved, got %q", content)
 	}
 	if !containsStr(content, omittedBinaryMarker) {
@@ -257,9 +257,9 @@ func TestNormalizeClaudeMessagesToolResultNonTextPayloadStringified(t *testing.T
 	if m["role"] != "tool" {
 		t.Fatalf("expected tool role, got %#v", m["role"])
 	}
-	content, _ := m["content"].(string)
-	if !containsStr(content, `"type":"tool_result"`) || !containsStr(content, `"type":"image"`) {
-		t.Fatalf("expected non-text tool_result payload to be JSON stringified, got %q", content)
+	content := promptcompat.NormalizeOpenAIContentForPrompt(m["content"])
+	if !containsStr(content, "image analysis") || !containsStr(content, `"type":"image_url"`) {
+		t.Fatalf("expected tool-result text and attachment preserved, got %q", content)
 	}
 	if !containsStr(content, omittedBinaryMarker) {
 		t.Fatalf("expected binary data to be sanitized with omitted marker, got %q", content)

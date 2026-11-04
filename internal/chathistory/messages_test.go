@@ -51,3 +51,10 @@ func TestCaptureMessagesPersistsToolOnlyTurnsMetadataAndIndependentSnapshots(t *
 		t.Fatalf("round trip lost tool diagnostics: %#v", reloaded)
 	}
 }
+
+func TestCaptureMessagesRetainsAssistantRefusal(t *testing.T) {
+	messages := CaptureMessages([]any{map[string]any{"role": "assistant", "content": nil, "refusal": "  original refusal  ", "id": "refusal_1"}})
+	if len(messages) != 1 || messages[0].Role != "assistant" || messages[0].Content != "[refusal]  original refusal  [/refusal]" || messages[0].ID != "refusal_1" {
+		t.Fatalf("assistant refusal disappeared from archive: %#v", messages)
+	}
+}

@@ -388,8 +388,8 @@ func TestBuildTurnFromStreamSnapshotSkipsRepairAfterEmittedCalls(t *testing.T) {
 	}
 }
 
-// The defensive syntax path still invokes repair when intent detection misses,
-// but the repair cannot invent a tool identity absent from the source.
+// A missing tool identity cannot be supplied by format repair, including when
+// the defensive syntax path runs without an intent signal.
 func TestBuildTurnFromCollectedDefensiveRepairCannotInventMissingToolName(t *testing.T) {
 	// A canonical (no EPSE prefix) wrapper whose invoke has no name: this
 	// parses to zero calls and, being canonical, produces no EPSE intent
@@ -419,8 +419,8 @@ func TestBuildTurnFromCollectedDefensiveRepairCannotInventMissingToolName(t *tes
 	if len(turn.ToolCalls) != 0 {
 		t.Fatalf("defensive repair invented a missing tool name: %#v", turn.ToolCalls)
 	}
-	if seen == "" {
-		t.Fatalf("expected repair invoker to receive the raw bad code")
+	if seen != "" {
+		t.Fatalf("missing tool identity must be rejected before invoking format repair")
 	}
 }
 

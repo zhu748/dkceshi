@@ -67,6 +67,9 @@ func (s Service) applyCurrentInputFileOnce(ctx context.Context, a *auth.RequestA
 	if err != nil {
 		return stdReq, err
 	}
+	if stdReq.ArchiveUserInput == "" {
+		stdReq.ArchiveUserInput, _ = promptcompat.LatestUserInput(stdReq.Messages)
+	}
 	stdReq.Messages = plan.messages
 	stdReq.HistoryText = plan.historyText
 	stdReq.FinalPrompt = plan.prompt

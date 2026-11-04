@@ -65,7 +65,7 @@ func start(params StartParams) *Session {
 		Surface:     strings.TrimSpace(params.Surface),
 		Model:       strings.TrimSpace(params.Standard.ResponseModel),
 		Stream:      params.Standard.Stream,
-		UserInput:   ExtractSingleUserInput(params.Standard.Messages),
+		UserInput:   requestUserInput(params.Standard),
 		Messages:    ExtractAllMessages(params.Standard.Messages),
 		Tools:       chathistory.SnapshotJSON(params.Standard.ToolsRaw),
 		ToolChoice:  chathistory.SnapshotJSON(params.Standard.ToolChoice),
@@ -112,19 +112,16 @@ func start(params StartParams) *Session {
 	return session
 }
 
+func requestUserInput(req promptcompat.StandardRequest) string {
+	if text := strings.TrimSpace(req.ArchiveUserInput); text != "" {
+		return text
+	}
+	return ExtractSingleUserInput(req.Messages)
+}
+
 func ExtractSingleUserInput(messages []any) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		msg, ok := messages[i].(map[string]any)
-		if !ok {
-			continue
-		}
-		role := strings.ToLower(strings.TrimSpace(asString(msg["role"])))
-		if role != "user" {
-			continue
-		}
-		if normalized := strings.TrimSpace(prompt.NormalizeContent(msg["content"])); normalized != "" {
-			return normalized
-		}
+	if text, ok := promptcompat.LatestUserInput(messages); ok {
+		return strings.TrimSpace(text)
 	}
 	// The current-input-file continuation path replaces every turn with a
 	// single system-role placeholder, so there is no user turn left to label
@@ -332,15 +329,4 @@ func isMissingError(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "not found")
-}
-
-func asString(v any) string {
-	switch x := v.(type) {
-	case string:
-		return x
-	case nil:
-		return ""
-	default:
-		return strings.TrimSpace(prompt.NormalizeContent(x))
-	}
 }

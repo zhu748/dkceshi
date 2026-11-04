@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 var errRepairIntegrity = errors.New("repair integrity check failed")
@@ -15,7 +16,7 @@ var errIncompleteRepair = errors.New("repair output is incomplete")
 
 func repairParametersKnown(source cdataSlotResult, marker string) bool {
 	for _, node := range repairIdentities(closeRepairManifestCDATA(NormalizeMarkerText(source.skeleton, marker))) {
-		if node.kind == "parameter" && !node.known {
+		if node.kind == "unbound" || node.kind == "parameter" && (!node.known || node.name == "") {
 			return false
 		}
 	}
@@ -42,7 +43,7 @@ func validateRepairIntegrity(source cdataSlotResult, output, marker string) erro
 	}
 	for i, node := range expected {
 		got := actual[i]
-		if node.kind == "parameter" && !node.known {
+		if node.kind == "unbound" || node.kind == "parameter" && (!node.known || node.name == "") {
 			return fmt.Errorf("%w: source parameter boundary is unknown at node %d", errRepairIntegrity, i)
 		}
 		if node.kind != got.kind || node.name != got.name {
@@ -91,24 +92,42 @@ func closeRepairManifestCDATA(text string) string {
 
 func repairIdentities(text string) []repairIdentity {
 	var nodes []repairIdentity
+	inInvoke := false
+	inBatch := false
+	unbound := func() {
+		if len(nodes) == 0 || nodes[len(nodes)-1].kind != "unbound" {
+			nodes = append(nodes, repairIdentity{kind: "unbound"})
+		}
+	}
 	for i := 0; i < len(text); {
 		next, advanced, blocked := skipXMLIgnoredSection(text, i)
 		if blocked {
+			if inInvoke || inBatch {
+				unbound()
+			}
 			break
 		}
 		if advanced {
+			if (inInvoke || inBatch) && !emptyToolMarkupGap(text[i:next]) {
+				unbound()
+			}
 			i = next
 			continue
 		}
 		if end, ok := markdownCodeSpanEnd(text, i); ok {
+			if inInvoke || inBatch {
+				unbound()
+			}
 			i = end
 			continue
 		}
 		kind, end, closing := "", -1, false
+		invocationTag := false
 		parameterName := ""
 		closeStart, closeEnd := -1, -1
 		if tag, ok := scanToolMarkupTagAt(text, i); ok {
 			kind, end, closing = tag.Name, tag.End, tag.Closing
+			invocationTag = tag.Name == "invoke"
 			parameterName = tag.ParameterName
 			if kind == "parameter" && tag.NameStart == tag.NameEnd {
 				// The lenient markup scanner also calls unknown named EPSE
@@ -126,6 +145,7 @@ func repairIdentities(text string) []repairIdentity {
 			}
 		} else if tag, ok := scanDSMLTagAt(text, i); ok {
 			kind, end, closing = tag.Name, tag.End, tag.Closing
+			invocationTag = tag.Name == "invoke"
 			if kind == "parameter" && !closing {
 				if close, ok := FindMatchingDSMLClose(text, tag); ok {
 					closeStart, closeEnd = close.Start, close.End
@@ -137,16 +157,32 @@ func repairIdentities(text string) []repairIdentity {
 			kind, end, closing = "invoke", findXMLTagEnd(text, after), isClose
 		}
 		if end < i {
-			i++
+			r, size := utf8.DecodeRuneInString(text[i:])
+			if (inInvoke || inBatch) && !unicode.IsSpace(r) {
+				unbound()
+			}
+			i += size
 			continue
 		}
 		attrs := parseXMLTagAttributes(text[i : end+1])
+		if attrs == nil {
+			unbound()
+		}
 		name := strings.TrimSpace(html.UnescapeString(attrs["name"]))
 		if parameterName != "" {
 			name = parameterName
 		}
+		if invocationTag && !closing && name == "" {
+			unbound()
+		}
 		jsonEnd := -1
-		if !closing && name != "" {
+		if kind == "invoke" {
+			inInvoke = !closing
+		}
+		if kind == "tool_calls" || kind == "calls" {
+			inBatch = !closing
+		}
+		if !closing && (name != "" || kind == "parameter") {
 			if kind != "parameter" {
 				kind = "invoke"
 			}

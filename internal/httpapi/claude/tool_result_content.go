@@ -1,5 +1,25 @@
 package claude
 
+import "ds2api/internal/promptcompat"
+
+func claudeToolResultAttachments(content any) (any, bool) {
+	blocks, ok := content.([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([]any, len(blocks))
+	hasAttachment := false
+	for i, raw := range blocks {
+		out[i] = raw
+		if block, ok := raw.(map[string]any); ok {
+			if attachment, ok := promptcompat.NormalizeAttachmentContent(block); ok {
+				out[i], hasAttachment = attachment, true
+			}
+		}
+	}
+	return out, hasAttachment
+}
+
 // Text blocks are documented tool output, including file bodies and command
 // output. Never apply unknown-block truncation or base64 guessing to their text.
 // Unrecognized blocks retain the existing binary-payload protection.

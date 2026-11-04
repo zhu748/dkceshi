@@ -10,20 +10,21 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 		return calls
 	}
 	schemas := buildToolSchemaIndex(toolsRaw)
-	if len(schemas) == 0 && toolsRaw == nil {
-		return calls
-	}
 
 	var changedAny bool
 	out := make([]ParsedToolCall, len(calls))
 	for i, call := range calls {
 		out[i] = call
 		schema, ok := schemas[strings.TrimSpace(call.Name)]
-		if (!ok && !IsCustomTool(toolsRaw, call.Name)) || call.Input == nil {
+		if (!ok && len(call.StringLiterals) == 0 && !IsCustomTool(toolsRaw, call.Name)) || call.Input == nil {
 			continue
 		}
 		input := restoreLiteralInput(call, schema, IsCustomTool(toolsRaw, call.Name))
-		normalized, changed := normalizeToolValueWithSchema(input, schema)
+		var normalized any = input
+		changed := false
+		if schema != nil {
+			normalized, changed = normalizeToolValueWithSchema(input, schema)
+		}
 		if changed {
 			out[i].RecoverySteps = append(append([]string{}, call.RecoverySteps...), "schema_normalization")
 		}

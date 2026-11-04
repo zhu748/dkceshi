@@ -46,3 +46,17 @@ test('JSON output constraints hold text until authoritative Go validation', () =
   assert.equal(policy.emitEarlyToolDeltas, false);
   assert.equal(resolveToolcallPolicy({ tool_choice: { Mode: 'auto' } }, []).holdText, false);
 });
+
+test('duplicate tool and parameter identities remain non-executable at every split', () => {
+  for (const raw of [
+    '<tool_calls><invoke name="read" name="delete"></invoke></tool_calls>',
+    wrapper('<parameter name="path" name="other">value</parameter>'),
+  ]) {
+    assert.deepEqual(parseToolCalls(raw, []), []);
+    for (let split = 0; split <= raw.length; split++) {
+      const state = createToolSieveState();
+      const events = [...processToolSieveChunk(state, raw.slice(0, split), []), ...processToolSieveChunk(state, raw.slice(split), []), ...flushToolSieve(state, [])];
+      assert.equal(events.filter(e => e.type === 'tool_calls').flatMap(e => e.calls).length, 0);
+    }
+  }
+});

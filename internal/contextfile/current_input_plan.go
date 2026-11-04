@@ -2,6 +2,7 @@ package contextfile
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"ds2api/internal/promptcompat"
 )
@@ -11,6 +12,10 @@ type currentInputPlan struct {
 	historyText, toolsText, prompt string
 	toolNames                      []string
 }
+
+// A large first task must fit the web input box even when instructions precede
+// it. Active assistant/tool loops continue to use the dependency-aware policy.
+const maxInlineFirstTaskChars = 32 * 1024
 
 // Plan without changing message content. Splitting is an input transport mode;
 // it does not depend on token savings or the size of the resulting live prompt.
@@ -35,10 +40,9 @@ func planCurrentInputContext(req promptcompat.StandardRequest) *currentInputPlan
 			return nil
 		}
 		history = req.Messages
-		// Preserve the established first-task policy: instructions remain live,
-		// and a leading instruction block may itself be externalized while the
-		// user task stays inline. A lone user input is externalized in full.
-		if len(live) > 0 {
+		// Keep short first tasks inline with their instructions. Large first
+		// tasks and lone user inputs use the file; instructions remain live.
+		if len(live) > 0 && !largeFirstUserInput(req.Messages) {
 			history, live = live, req.Messages
 		}
 	}
@@ -52,4 +56,18 @@ func planCurrentInputContext(req promptcompat.StandardRequest) *currentInputPlan
 	}
 	plan.historyText = req.WithThinkingInstruction(injectCurrentInputFileContinuation(plan.historyText))
 	return plan
+}
+
+func largeFirstUserInput(messages []any) bool {
+	chars := 0
+	for _, raw := range messages {
+		msg, _ := raw.(map[string]any)
+		if role, _ := msg["role"].(string); strings.EqualFold(strings.TrimSpace(role), "user") {
+			chars += utf8.RuneCountInString(promptcompat.NormalizeOpenAIContentForPrompt(msg["content"]))
+			if chars > maxInlineFirstTaskChars {
+				return true
+			}
+		}
+	}
+	return false
 }
