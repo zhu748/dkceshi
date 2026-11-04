@@ -20,6 +20,7 @@ type Session struct {
 	usage        *usagestats.RequestRecorder
 	entryID      string
 	startedAt    time.Time
+	lastProgress progressSnapshot
 	lastPersist  time.Time
 	recordModel  string
 	usageRequest promptcompat.StandardRequest
@@ -150,24 +151,6 @@ func ExtractAllMessages(messages []any) []chathistory.Message {
 	return chathistory.CaptureMessages(messages)
 }
 
-func (s *Session) Progress(thinking, content string) {
-	if s == nil || s.store == nil || s.disabled {
-		return
-	}
-	now := time.Now()
-	if !progressPersistDue(now, s.lastPersist) {
-		return
-	}
-	s.lastPersist = now
-	s.persistUpdate(chathistory.UpdateParams{
-		Status:           "streaming",
-		ReasoningContent: thinking,
-		Content:          content,
-		StatusCode:       http.StatusOK,
-		ElapsedMs:        time.Since(s.startedAt).Milliseconds(),
-	})
-}
-
 func (s *Session) Success(statusCode int, thinking, content, finishReason string, usage map[string]any) {
 	if s == nil {
 		return
@@ -293,13 +276,15 @@ func (s *Session) retryMissingEntry() bool {
 	return true
 }
 
-func (s *Session) persistUpdate(params chathistory.UpdateParams) {
+func (s *Session) persistUpdate(params chathistory.UpdateParams) bool {
 	if s == nil || s.store == nil || s.disabled {
-		return
+		return false
 	}
 	if _, err := s.store.Update(s.entryID, params); err != nil {
 		s.handlePersistError(params, err)
+		return false
 	}
+	return true
 }
 
 func (s *Session) handlePersistError(params chathistory.UpdateParams, err error) {

@@ -163,9 +163,9 @@ OpenAI `/v1/*` 仍是推荐的规范路径；同时支持 `/models`、`/chat/com
 
 | 模型类型 | 模型 ID | thinking | search |
 | --- | --- | --- | --- |
-| default | `deepseek-v4.1-flash` | 默认开启，可由请求参数控制 | ❌ |
+| default | `deepseek-v4.1-flash` | 开启；仅由模型名决定 | ❌ |
 | default | `deepseek-v4.1-flash-nothinking` | 永久关闭，不受请求参数影响 | ❌ |
-| default | `deepseek-v4.1-flash-search` | 默认开启，可由请求参数控制 | ✅ |
+| default | `deepseek-v4.1-flash-search` | 开启；仅由模型名决定 | ✅ |
 | default | `deepseek-v4.1-flash-search-nothinking` | 永久关闭，不受请求参数影响 | ✅ |
 
 > DeepSeek 网页客户端 2.4.0 把旧 fast / expert / vision 三种模式合并为单一 `default` 模型类型：原生模型只保留 `deepseek-v4.1-flash` 系列，全部具备视觉能力；旧的规范名（`deepseek-v4-flash`、`deepseek-v4-pro`、`deepseek-v4-vision` 及其 search 变体）作为内置 alias 保留，继续可解析到对应的 v4.1 系列。

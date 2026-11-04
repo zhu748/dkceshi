@@ -43,7 +43,7 @@ func TestCompletionAccountPolicyRecognizesLimitsAndBansWithoutBanningGeneric403(
 			defer r.Release(a)
 			c := &Client{Store: store, Auth: r}
 			resp := &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body))}
-			err = c.inspectCompletionFailure(a, resp, "test")
+			err = c.inspectCompletionFailure(context.Background(), a, resp, "test")
 			var limited *FileRateLimitError
 			if errors.As(err, &limited) != tc.limited || IsBannedError(err) != tc.banned {
 				t.Fatalf("wrong classification: %v", err)

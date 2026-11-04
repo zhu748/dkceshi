@@ -132,13 +132,9 @@ test('disconnect while reading a failed response skips account switching', async
     throw new Error('unexpected internal request');
   };
   await handleVercelStream(req, res, Buffer.from('{}'), {}, async () => {
-    const response = new Response('temporary error', { status: 503 });
-    response.text = async () => {
-      res.destroyed = true;
-      res.emit('close');
-      return 'temporary error';
-    };
-    return response;
+    return new Response(new ReadableStream({ pull(controller) {
+      res.destroyed = true; res.emit('close'); controller.close();
+    } }), { status: 503 });
   });
   assert.equal(switches, 0);
   assert.equal(releases, 1);

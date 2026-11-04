@@ -22,7 +22,7 @@ var repairCleanup = struct {
 // Cleanup never delays tool delivery. A fixed queue and two workers bound
 // goroutine count even when the remote delete endpoint is unavailable.
 func enqueueRepairSessionDelete(ds DeepSeekCaller, a *auth.RequestAuth, session string) {
-	if _, ok := ds.(repairSessionDeleter); !ok || a == nil || session == "" {
+	if !canDeleteCompletionSession(ds) || a == nil || session == "" {
 		return
 	}
 	repairCleanup.Do(func() {

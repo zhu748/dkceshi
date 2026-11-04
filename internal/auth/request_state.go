@@ -14,13 +14,16 @@ type RequestAuth struct {
 	AccountID      string
 	TargetAccount  string
 	// FileAccountID binds references whose source bytes cannot be replayed.
-	FileAccountID   string
-	accountPins     int
-	accountSwitches int
-	failoverWait    time.Duration
-	accountCleanup  func()
-	Account         config.Account
-	TriedAccounts   map[string]bool
+	FileAccountID      string
+	accountPins        int
+	accountSwitches    int
+	failoverWait       time.Duration
+	accountCleanup     func()
+	accountFinalize    func()
+	resourcesFinalized bool
+	resourcesManaged   bool
+	Account            config.Account
+	TriedAccounts      map[string]bool
 	// ToolsPresent 表示本次请求是否携带工具定义（请求 body 的 tools 非空）。
 	// 它决定账号池调度：含工具请求走默认/仅工具池，无工具请求走无工具池。
 	// 账号切换重试时沿用该标志，保证切换后仍遵守号池约束。

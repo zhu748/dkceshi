@@ -25,7 +25,7 @@ func (c *Client) CallCompletion(ctx context.Context, a *auth.RequestAuth, payloa
 	if captureSession != nil {
 		resp.Body = captureSession.WrapBody(resp.Body, resp.StatusCode)
 	}
-	if failure := c.inspectCompletionFailure(a, resp, "completion"); failure != nil {
+	if failure := c.inspectCompletionFailure(ctx, a, resp, "completion"); failure != nil {
 		if err := resp.Body.Close(); err != nil {
 			config.Logger.Warn("[completion] close failed", "error", err)
 		}

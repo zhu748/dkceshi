@@ -2,7 +2,7 @@
 const { createLeadingText } = require('./leading_text');
 const { createFinalValidation } = require('./final_validation');
 const { createDiagnosticProgress } = require('./diagnostic_progress');
-const { createStreamWatch } = require('./stream_limits');
+const { createStreamWatch, streamLimit } = require('./stream_limits');
 const { startHeartbeat, waitForDrain } = require('./response_flow');
 const { explicitSnapshotDelta } = require('./dedupe');
 const { flushThinkingState } = require('./sse_thinking');
@@ -47,10 +47,8 @@ const {
 } = require('./marker');
 
 const {
-  isTransientUpstreamStatus,
-  isAccountAuthFailureStatus,
   TRANSIENT_SWITCH_MAX_ATTEMPTS,
-  switchOptionsForStatus, isUnavailableEmptyOutput, switchOptionsForFailure,
+  isUnavailableEmptyOutput, switchOptionsForFailure,
   isTransientUpstreamMessage,
   EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS,
   clonePayloadForOutputRetry,
@@ -74,6 +72,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
   let leaseCompletion = {};
   let partialCompletion = () => ({});
   let usageAccounting;
+  let streamStarted = false;
   const report = createStreamReport();
   const { fail: sendFailedChunk, finishFailure: finishStreamFailure } = report;
   const lifecycle = createStreamLifecycle(req, res, () => report.snapshot({ ...(leaseCompletion.finish_reason ? leaseCompletion : partialCompletion()), ...usageAccounting?.metadata() }));
@@ -99,7 +98,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let completionPayload = prep.body.payload && typeof prep.body.payload === 'object' ? prep.body.payload : null;
     let finalPrompt = asString(prep.body.final_prompt);
     usageAccounting = createUsageAccounting(prep.body);
-    let streamStarted = false;
     const thinkingEnabled = toBool(prep.body.thinking_enabled);
     const toolPolicy = resolveToolcallPolicy(prep.body, payload.tools);
     const toolNames = toolPolicy.toolNames;
@@ -114,6 +112,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     const fetchCompletion = (bodyPayload) => fetchAccountCompletion(bodyPayload, {
       fetch: (body) => connection.fetch(DEEPSEEK_COMPLETION_URL, body, connection.powHeader),
       closed: () => lifecycle.closed,
+      budgetManaged: prep.body.failover_budget_managed,
+      read: reader => watch.read(reader, { signal: lifecycle.signal, countBytes: false, timeoutMs: streamLimit('connect_timeout_ms') }),
       canSwitch: () => !streamStarted || !answerDelivered,
       switch: (options) => switchAccount(options),
       adopt: (switched) => {
@@ -121,7 +121,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (streamStarted) resetForRegeneration();
       },
       fail: async (failure) => {
-        leaseCompletion = { finish_reason: 'error', error: failure.message, error_code: failure.code };
+        leaseCompletion = { ...partialCompletion(), finish_reason: 'error', usage: null, error: failure.message, error_code: failure.code };
         if (streamStarted) {
           sendFailedChunk(res, failure.status, failure.message, failure.code);
           if (!res.writableEnded && !res.destroyed) res.end();
@@ -166,44 +166,6 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     }
     if (lifecycle.closed) {
       return;
-    }
-
-    if (!completionRes.ok || !completionRes.body) {
-      let status = completionRes.ok ? 500 : completionRes.status || 500;
-      let detail = completionRes.body ? await completionRes.text() : '';
-      // 临时上游故障（500/502/503/504）与账号级鉴权失败（401）都先尝试切号重放，
-      // 而不是把上游报错原样透传给客户端；与 Go 侧 StartCompletion 的临时错误
-      // 升级、retryManagedAuthFailure 的刷新 Token 后换号保持一致。
-      let switchAttempts = 0;
-      while (
-        (isTransientUpstreamStatus(status) || isAccountAuthFailureStatus(status))
-        && (prep.body.failover_budget_managed === true || status === 429 || switchAttempts < TRANSIENT_SWITCH_MAX_ATTEMPTS)
-      ) {
-        const switched = await switchAccount(switchOptionsForStatus(status));
-        if (!switched) return;
-        if (!(switched.ok && switched.body && switched.body.payload && typeof switched.body.payload === 'object')) {
-          break;
-        }
-        switchAttempts += 1;
-        console.warn('[vercel_stream_account_switch] retrying after upstream status', {
-          status,
-          switch_count: switchAttempts,
-        });
-        applySwitchedPayload(switched);
-        completionRes = await fetchCompletion(completionPayload);
-        if (completionRes === null) {
-          return;
-        }
-        if (completionRes.ok && completionRes.body) {
-          break;
-        }
-        status = completionRes.ok ? 500 : completionRes.status || 500;
-        detail = completionRes.body ? await completionRes.text() : '';
-      }
-      if (!completionRes.ok || !completionRes.body) {
-        writeOpenAIError(res, status, detail);
-        return;
-      }
     }
 
     if (lifecycle.closed) return;
@@ -481,7 +443,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
               return { terminal: true, retryable: false };
             }
             await waitForDrain(res);
-            const { value, done } = await watch.read(lifecycle.reader);
+            const { value, done } = await watch.read(lifecycle.reader, { signal: lifecycle.signal });
             if (done) {
               break;
             }
@@ -682,24 +644,9 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let accountSwitchAttempted = false;
     let transientSwitchAttempts = 0;
     while (true) {
-      if (!completionRes.ok || !completionRes.body) {
-        const status = completionRes.ok ? 502 : completionRes.status || 502;
-        const message = completionRes.body && !completionRes.bodyUsed ? await completionRes.text() : (lastEmptyDetail && lastEmptyDetail.message) || '';
-        if (!isTransientUpstreamStatus(status) && !isAccountAuthFailureStatus(status) && status !== 429) {
-          ended = true;
-          leaseCompletion = { finish_reason: 'error', usage: null, thinking: rawReasoning(), content: outputText, error: message };
-          sendFailedChunk(res, status, message, 'upstream_error');
-          await releaseLease();
-          if (!res.writableEnded && !res.destroyed) res.end();
-          return;
-        }
-        lastEmptyDetail = { status, message, code: isAccountAuthFailureStatus(status) ? 'account_unauthorized' : 'upstream_unavailable' };
-      }
       const pendingTransient = lastEmptyDetail && ['upstream_unavailable', 'account_unauthorized'].includes(lastEmptyDetail.code);
       const allowDeferEmpty = retryAttempts < EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS || !accountSwitchAttempted || pendingTransient;
-      const processed = completionRes.ok && completionRes.body
-        ? await processStream(completionRes, allowDeferEmpty)
-        : { terminal: false, retryable: true, interrupted: false };
+      const processed = await processStream(completionRes, allowDeferEmpty);
       const isUpstreamUnavailable = lastEmptyDetail && lastEmptyDetail.code === 'upstream_unavailable';
       const unavailableEmpty = prep.body.managed_account === true && isUnavailableEmptyOutput(lastEmptyDetail);
       const isAccountUnauthorized = lastEmptyDetail && lastEmptyDetail.code === 'account_unauthorized';
@@ -794,21 +741,17 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       if (completionRes === null) {
         return;
       }
-      if (!completionRes.ok || !completionRes.body) {
-        const retryStatus = completionRes.ok ? 500 : completionRes.status || 500;
-        if (isTransientUpstreamStatus(retryStatus) || isAccountAuthFailureStatus(retryStatus)) {
-          const retryDetail = completionRes.body ? await completionRes.text() : '';
-          lastEmptyDetail = {
-            status: retryStatus,
-            message: retryDetail,
-            code: isAccountAuthFailureStatus(retryStatus) ? 'account_unauthorized' : 'upstream_unavailable',
-          };
-          continue;
-        }
-        await finish('stop');
-        return;
-      }
       resetForRegeneration();
+    }
+  } catch (error) {
+    if (!lifecycle.closed && !res.writableEnded && !res.destroyed) {
+      const limited = error.code === 'output_limit_exceeded';
+      const status = limited ? 502 : 503, code = limited ? error.code : 'upstream_unavailable';
+      const message = limited ? error.message : 'Upstream request failed.';
+      leaseCompletion = { ...partialCompletion(), finish_reason: 'error', usage: null, error: message, error_code: code };
+      console.warn('[vercel_stream] request failed', error.message);
+      if (streamStarted) { sendFailedChunk(res, status, message, code); res.end(); }
+      else writeOpenAIErrorWithCode(res, status, message, code);
     }
   } finally {
     stopHeartbeat();

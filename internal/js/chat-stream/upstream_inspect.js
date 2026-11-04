@@ -1,6 +1,7 @@
 'use strict';
 
 const { asString } = require('./http_internal');
+const { cancelReader } = require('./upstream_body');
 
 // 检测 DeepSeek 是否返回了封号/停用 JSON 响应（HTTP 200 但 body 是 JSON 而非 SSE）。
 // 与 Go 侧 detectMutedCompletion / isUserBannedResponse 对齐：先 peek 第一个字节，只有 JSON 才读取全部 body。
@@ -8,7 +9,7 @@ const { asString } = require('./http_internal');
 //   - mutedUntil > 0 时表示检测到禁言，response 为 null；
 //   - banned 为 true 时表示检测到 USER_IS_BANNED，response 为 null；
 //   - 均未检测到时，response 为可能经过恢复的 Response（SSE body 未被消耗）。
-async function detectMutedOrBannedResponse(res) {
+async function detectMutedOrBannedResponse(res, read = reader => reader.read()) {
   // Keep non-JSON HTTP failures on the normal error-body path, including its
   // disconnect checks. Only JSON errors need mute/ban/business-code inspection.
   if (Number(res?.status) === 429) {
@@ -21,15 +22,16 @@ async function detectMutedOrBannedResponse(res) {
   const reader = res.body.getReader();
   let firstChunk;
   try {
-    const result = await reader.read();
+    const result = await read(reader);
     if (result.done || !result.value || result.value.length === 0) {
       reader.releaseLock();
       return { mutedUntil: 0, banned: false, response: res };
     }
     firstChunk = result.value;
-  } catch (_err) {
-    try { reader.releaseLock(); } catch (_e) {}
-    return { mutedUntil: 0, banned: false, response: res };
+  } catch (error) {
+    cancelReader(reader);
+    reader.releaseLock();
+    throw error;
   }
   if (firstChunk[0] !== 0x7b) { // '{'
     let cancelled = false;
@@ -71,7 +73,7 @@ async function detectMutedOrBannedResponse(res) {
       if (total > MAX_MUTED_DETECT_JSON_BYTES) {
         return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
       }
-      const { done, value } = await reader.read();
+      const { done, value } = await read(reader);
       if (done) break;
       if (value) { chunks.push(value); total += value.length; }
     }
@@ -85,8 +87,7 @@ async function detectMutedOrBannedResponse(res) {
     } catch (_error) { /* Truncated JSON is replayed unchanged. */ }
     return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
   } finally {
-    try { await reader.cancel(); }
-    catch (error) { console.warn('[vercel_stream_inspect] reader cancel failed', error.message); }
+    cancelReader(reader);
     reader.releaseLock();
   }
 }

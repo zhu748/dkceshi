@@ -3,9 +3,13 @@ const { BASE_HEADERS } = require('../shared/deepseek-constants');
 const { serializeAppPayload } = require('../shared/deepseek-wire');
 const { asString, fetchStreamPow } = require('./http_internal');
 const { powAccountFailure } = require('./pow_account_failure');
+const { resourceLimitError } = require('./stream_limits');
 
 // Credentials and PoW are adopted together after refresh and account failover.
 function createUpstreamConnection({ prepared, req, leaseID, lifecycle, deadline, appFetch }) {
+  const signal = deadline === undefined ? lifecycle.signal : AbortSignal.any([
+    lifecycle.signal, AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+  ]);
   const prep = { body: prepared };
   let deepseekToken = asString(prepared.deepseek_token);
   const initialPowHeader = asString(prepared.pow_header);
@@ -65,7 +69,7 @@ function createUpstreamConnection({ prepared, req, leaseID, lifecycle, deadline,
           ...(powHeader ? { 'x-ds-pow-response': powHeader } : {}),
         },
         body: serializeAppPayload(url, bodyPayload),
-        signal: lifecycle.signal,
+        signal,
       });
       if (lifecycle.closed) {
         try { await response.body?.cancel(); }
@@ -77,6 +81,7 @@ function createUpstreamConnection({ prepared, req, leaseID, lifecycle, deadline,
       if (lifecycle.closed || lifecycle.signal.aborted) {
         return null;
       }
+      if (deadline !== undefined && Date.now() >= deadline) throw resourceLimitError();
       throw err;
     }
   };

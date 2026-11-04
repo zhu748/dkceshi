@@ -171,15 +171,21 @@ func deleteRepairSession(parentCtx context.Context, ds DeepSeekCaller, a *auth.R
 	if sessionID == "" {
 		return
 	}
-	deleter, ok := ds.(repairSessionDeleter)
-	if !ok {
+	if !canDeleteCompletionSession(ds) {
 		return
 	}
 	// Detach from the parent (and the already-expired repair) context so the
 	// delete is not cancelled by a repair timeout or a completed request.
 	deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), toolCallRepairSessionDeleteTimeout)
 	defer cancel()
-	if _, err := deleter.DeleteSession(deleteCtx, a, sessionID, 1); err != nil {
+	deleteCtx = auth.WithAuth(deleteCtx, a)
+	var err error
+	if deleter, ok := ds.(repairSessionDeleter); ok {
+		_, err = deleter.DeleteSession(deleteCtx, a, sessionID, 1)
+	} else {
+		_, err = ds.(tokenSessionDeleter).DeleteSessionForToken(deleteCtx, a.DeepSeekToken, sessionID)
+	}
+	if err != nil {
 		config.Logger.Warn("[toolcall_repair] failed to delete repair session", "session_id", sessionID, "error", err)
 	}
 }

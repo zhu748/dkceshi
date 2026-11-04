@@ -23,18 +23,26 @@ function createStreamWatch() {
   let outputBytes = 0, lineBytes = 0;
   return {
     deadline, finalDeadline,
-    async read(reader) {
-      let timer;
+    async read(reader, { signal, countBytes = true, timeoutMs = idleTimeout } = {}) {
+      let timer, onAbort;
+      const cancel = () => {
+        try { Promise.resolve(reader.cancel()).catch(error => console.warn('[stream_watch] cancel failed', error.message)); }
+        catch (error) { console.warn('[stream_watch] cancel failed', error.message); }
+      };
       const timeout = new Promise((_, reject) => {
         timer = setTimeout(() => {
           reject(Date.now() >= deadline ? resourceLimitError() : new Error('Upstream stream idle timeout.'));
-          try { Promise.resolve(reader.cancel()).catch(error => console.warn('[stream_watch] cancel failed', error.message)); }
-          catch (error) { console.warn('[stream_watch] cancel failed', error.message); }
-        }, Math.max(1, Math.min(idleTimeout, deadline - Date.now())));
+          cancel();
+        }, Math.max(1, Math.min(timeoutMs, idleTimeout, deadline - Date.now())));
+        onAbort = () => { reject(signal.reason || new DOMException('Aborted', 'AbortError')); cancel(); };
+        signal?.addEventListener('abort', onAbort, { once: true });
       });
       try {
-        if (Date.now() >= deadline) throw resourceLimitError();
+        if (signal?.aborted) { onAbort(); return await timeout; }
+        if (Date.now() >= deadline) { cancel(); throw resourceLimitError(); }
         const result = await Promise.race([reader.read(), timeout]);
+        // Inspection replays its bytes; the consumer counts them exactly once.
+        if (!countBytes) return result;
         const bytes = result.value || new Uint8Array();
         outputBytes += bytes.length;
         if (outputBytes > maxOutput) throw resourceLimitError();
@@ -48,7 +56,7 @@ function createStreamWatch() {
         }
         if (result.done) lineBytes = 0;
         return result;
-      } finally { clearTimeout(timer); }
+      } finally { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); }
     },
   };
 }

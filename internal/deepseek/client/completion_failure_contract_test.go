@@ -45,7 +45,7 @@ func TestCompletionFailureContract(t *testing.T) {
 			defer r.Release(a)
 			c := &Client{Store: s, Auth: r}
 			response := &http.Response{StatusCode: tc.Status, Body: io.NopCloser(strings.NewReader(string(tc.Body)))}
-			err = c.inspectCompletionFailure(a, response, "contract")
+			err = c.inspectCompletionFailure(context.Background(), a, response, "contract")
 			if closeErr := response.Body.Close(); closeErr != nil {
 				t.Fatal(closeErr)
 			}

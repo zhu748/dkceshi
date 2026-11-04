@@ -160,9 +160,9 @@ The native model list matches the reference project:
 
 | Model | Thinking | Search | Vision |
 | --- | --- | --- | --- |
-| `deepseek-v4.1-flash` | Default on; request configurable | Off | Yes |
+| `deepseek-v4.1-flash` | On; determined by model name | Off | Yes |
 | `deepseek-v4.1-flash-nothinking` | Always off | Off | Yes |
-| `deepseek-v4.1-flash-search` | Default on; request configurable | On | Yes |
+| `deepseek-v4.1-flash-search` | On; determined by model name | On | Yes |
 | `deepseek-v4.1-flash-search-nothinking` | Always off | On | Yes |
 
 Legacy DeepSeek names and supported OpenAI / Claude / Gemini aliases resolve to

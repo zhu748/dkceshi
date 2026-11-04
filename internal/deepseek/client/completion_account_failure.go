@@ -1,13 +1,14 @@
 package client
 
 import (
+	"context"
 	"net/http"
 
 	"ds2api/internal/auth"
 )
 
-func (c *Client) inspectCompletionFailure(a *auth.RequestAuth, resp *http.Response, source string) error {
-	body, parsed, err := inspectCompletionJSON(resp.Body)
+func (c *Client) inspectCompletionFailure(ctx context.Context, a *auth.RequestAuth, resp *http.Response, source string) error {
+	body, parsed, err := inspectCompletionJSONContext(ctx, resp.Body)
 	if body != nil {
 		resp.Body = body
 	}

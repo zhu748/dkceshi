@@ -1,429 +1,429 @@
 package gemini
 
 import (
-        "bytes"
-        "context"
-        "encoding/json"
-        "errors"
-        "io"
-        "net/http"
-        "net/http/httptest"
-        "strings"
-        "time"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"time"
 
-        "github.com/go-chi/chi/v5"
-        "github.com/google/uuid"
-        sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 
-        "ds2api/internal/assistantturn"
-        "ds2api/internal/auth"
-        "ds2api/internal/completionruntime"
-        "ds2api/internal/config"
-        "ds2api/internal/contextfile"
-        "ds2api/internal/httpapi/openai/files"
-        "ds2api/internal/httpapi/openai/shared"
-        "ds2api/internal/httpapi/requestbody"
-        "ds2api/internal/jsonvalue"
-        "ds2api/internal/promptcompat"
-        "ds2api/internal/responsehistory"
-        "ds2api/internal/sse"
-        "ds2api/internal/toolcall"
-        "ds2api/internal/translatorcliproxy"
-        "ds2api/internal/util"
+	"ds2api/internal/assistantturn"
+	"ds2api/internal/auth"
+	"ds2api/internal/completionruntime"
+	"ds2api/internal/config"
+	"ds2api/internal/contextfile"
+	"ds2api/internal/httpapi/openai/files"
+	"ds2api/internal/httpapi/openai/shared"
+	"ds2api/internal/httpapi/requestbody"
+	"ds2api/internal/jsonvalue"
+	"ds2api/internal/promptcompat"
+	"ds2api/internal/responsehistory"
+	"ds2api/internal/sse"
+	"ds2api/internal/toolcall"
+	"ds2api/internal/translatorcliproxy"
+	"ds2api/internal/util"
 )
 
 func (h *Handler) handleGenerateContent(w http.ResponseWriter, r *http.Request, stream bool) {
-        if isGeminiVercelProxyRequest(r) && h.proxyViaOpenAI(w, r, stream) {
-                return
-        }
-        if h.Auth == nil || h.DS == nil {
-                if h.OpenAI != nil && h.proxyViaOpenAI(w, r, stream) {
-                        return
-                }
-                writeGeminiError(w, http.StatusInternalServerError, "Gemini runtime backend unavailable.")
-                return
-        }
-        if h.handleGeminiDirect(w, r, stream) {
-                return
-        }
-        writeGeminiError(w, http.StatusBadGateway, "Failed to handle Gemini request.")
+	if isGeminiVercelProxyRequest(r) && h.proxyViaOpenAI(w, r, stream) {
+		return
+	}
+	if h.Auth == nil || h.DS == nil {
+		if h.OpenAI != nil && h.proxyViaOpenAI(w, r, stream) {
+			return
+		}
+		writeGeminiError(w, http.StatusInternalServerError, "Gemini runtime backend unavailable.")
+		return
+	}
+	if h.handleGeminiDirect(w, r, stream) {
+		return
+	}
+	writeGeminiError(w, http.StatusBadGateway, "Failed to handle Gemini request.")
 }
 
 func isGeminiVercelProxyRequest(r *http.Request) bool {
-        if r == nil || r.URL == nil {
-                return false
-        }
-        return strings.TrimSpace(r.URL.Query().Get("__stream_prepare")) == "1" ||
-                strings.TrimSpace(r.URL.Query().Get("__stream_release")) == "1"
+	if r == nil || r.URL == nil {
+		return false
+	}
+	return strings.TrimSpace(r.URL.Query().Get("__stream_prepare")) == "1" ||
+		strings.TrimSpace(r.URL.Query().Get("__stream_release")) == "1"
 }
 
 func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, stream bool) bool {
-        startedAt := time.Now()
-        r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
-        // Decode the existing replay body directly.
-        var req map[string]any
-        if err := jsonvalue.Decode(r.Body, &req); err != nil {
-                switch {
-                case requestbody.IsTooLarge(err):
-                        writeGeminiError(w, http.StatusRequestEntityTooLarge, "request body too large")
-                case errors.Is(err, requestbody.ErrInvalidUTF8Body), errors.Is(err, requestbody.ErrInvalidJSONBody):
-                        writeGeminiError(w, http.StatusBadRequest, "invalid json")
-                default:
-                        writeGeminiError(w, http.StatusBadRequest, "invalid body")
-                }
-                return true
-        }
-        routeModel := strings.TrimSpace(chi.URLParam(r, "model"))
-        // 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。
-        // 按 Key 的开关由 promptcompat.ApplyCallerFlags 在判定之前应用。
-        r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
-        stdReq, err := normalizeGeminiRequest(h.Store, routeModel, req, stream)
-        if err != nil {
-                writeGeminiError(w, http.StatusBadRequest, err.Error())
-                return true
-        }
-        if stdReq.SystemTextToolsApply() {
-                r = r.WithContext(auth.WithToolsPresent(r.Context(), true))
-        }
-        a, err := h.Auth.Determine(r)
-        if err != nil {
-                writeGeminiError(w, auth.RequestErrorStatus(err), err.Error())
-                return true
-        }
-        defer h.Auth.Release(a)
-        if err := files.PreprocessInlineFiles(r.Context(), a, req, h.DS, stdReq.ResolvedModel, stdReq.Thinking); err != nil {
-                h.writePreparationError(w, r, a, stdReq, err, startedAt, true)
-                return true
-        }
-        stdReq, err = normalizeGeminiRequest(h.Store, routeModel, req, stream)
-        if err != nil {
-                writeGeminiError(w, http.StatusBadRequest, err.Error())
-                return true
-        }
-        stdReq.ToolMarker = a.ToolMarker
-        stdReq.FinalPrompt, stdReq.ToolNames = stdReq.BuildPromptFromMessages(stdReq.Messages)
-        // 与 OpenAI 出口保持一致：usage 按实际发送的 prompt 计数，
-        // 包括思考注入和 input_file 续写对 prompt 的改写。
-        stdReq.PromptTokenText = stdReq.FinalPrompt
-        stdReq = h.withInputReplay(stdReq, a, req, routeModel, stream)
-        stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
-        if err != nil {
-                h.writePreparationError(w, r, a, stdReq, err, startedAt, false)
-                return true
-        }
-        historySession := responsehistory.Start(responsehistory.StartParams{
-                Usage:    h.Usage,
-                Store:    h.ChatHistory,
-                Request:  r,
-                Auth:     a,
-                Surface:  "gemini.generate_content",
-                Standard: stdReq,
-        })
-        if stream {
-                h.handleGeminiDirectStream(w, r, a, stdReq, historySession)
-                return true
-        }
-        result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-                RetryEnabled:          true,
-                CurrentInputFile:      h.Store,
-                ExpertPromptSegment:   h.Store,
-                ToolCallRepairEnabled: true,
-                ChatHistory:           h.ChatHistory,
-        })
-        if outErr != nil {
-                if historySession != nil {
-                        if completionruntime.IsDirectTokenAuthError(outErr) {
-                                historySession.Discard()
-                        } else {
-                                historySession.ErrorTurn(outErr.Status, outErr.Message, outErr.Code, result.Turn)
-                        }
-                }
-                writeGeminiError(w, outErr.Status, outErr.Message)
-                return true
-        }
-        if historySession != nil {
-                historySession.SuccessTurn(http.StatusOK, result.Turn, responsehistory.GenericUsage(result.Turn))
-        }
-        writeJSON(w, http.StatusOK, buildGeminiGenerateContentResponseFromTurn(result.Turn))
-        return true
+	startedAt := time.Now()
+	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
+	// Decode the existing replay body directly.
+	var req map[string]any
+	if err := jsonvalue.Decode(r.Body, &req); err != nil {
+		switch {
+		case requestbody.IsTooLarge(err):
+			writeGeminiError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		case errors.Is(err, requestbody.ErrInvalidUTF8Body), errors.Is(err, requestbody.ErrInvalidJSONBody):
+			writeGeminiError(w, http.StatusBadRequest, "invalid json")
+		default:
+			writeGeminiError(w, http.StatusBadRequest, "invalid body")
+		}
+		return true
+	}
+	routeModel := strings.TrimSpace(chi.URLParam(r, "model"))
+	// 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。
+	// 按 Key 的开关由 promptcompat.ApplyCallerFlags 在判定之前应用。
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
+	stdReq, err := normalizeGeminiRequest(h.Store, routeModel, req, stream)
+	if err != nil {
+		writeGeminiError(w, http.StatusBadRequest, err.Error())
+		return true
+	}
+	if stdReq.SystemTextToolsApply() {
+		r = r.WithContext(auth.WithToolsPresent(r.Context(), true))
+	}
+	a, err := h.Auth.Determine(r)
+	if err != nil {
+		writeGeminiError(w, auth.RequestErrorStatus(err), err.Error())
+		return true
+	}
+	defer h.Auth.Release(a)
+	if err := files.PreprocessInlineFiles(r.Context(), a, req, h.DS, stdReq.ResolvedModel, stdReq.Thinking); err != nil {
+		h.writePreparationError(w, r, a, stdReq, err, startedAt, true)
+		return true
+	}
+	stdReq, err = normalizeGeminiRequest(h.Store, routeModel, req, stream)
+	if err != nil {
+		writeGeminiError(w, http.StatusBadRequest, err.Error())
+		return true
+	}
+	stdReq.ToolMarker = a.ToolMarker
+	stdReq.FinalPrompt, stdReq.ToolNames = stdReq.BuildPromptFromMessages(stdReq.Messages)
+	// 与 OpenAI 出口保持一致：usage 按实际发送的 prompt 计数，
+	// 包括思考注入和 input_file 续写对 prompt 的改写。
+	stdReq.PromptTokenText = stdReq.FinalPrompt
+	stdReq = h.withInputReplay(stdReq, a, req, routeModel, stream)
+	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
+	if err != nil {
+		h.writePreparationError(w, r, a, stdReq, err, startedAt, false)
+		return true
+	}
+	historySession := responsehistory.Start(responsehistory.StartParams{
+		Usage:    h.Usage,
+		Store:    h.ChatHistory,
+		Request:  r,
+		Auth:     a,
+		Surface:  "gemini.generate_content",
+		Standard: stdReq,
+	})
+	if stream {
+		h.handleGeminiDirectStream(w, r, a, stdReq, historySession)
+		return true
+	}
+	result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
+		RetryEnabled:          true,
+		CurrentInputFile:      h.Store,
+		ExpertPromptSegment:   h.Store,
+		ToolCallRepairEnabled: true,
+		ChatHistory:           h.ChatHistory,
+	})
+	if outErr != nil {
+		if historySession != nil {
+			if completionruntime.IsDirectTokenAuthError(outErr) {
+				historySession.Discard()
+			} else {
+				historySession.ErrorTurn(outErr.Status, outErr.Message, outErr.Code, result.Turn)
+			}
+		}
+		writeGeminiError(w, outErr.Status, outErr.Message)
+		return true
+	}
+	if historySession != nil {
+		historySession.SuccessTurn(http.StatusOK, result.Turn, responsehistory.GenericUsage(result.Turn))
+	}
+	writeJSON(w, http.StatusOK, buildGeminiGenerateContentResponseFromTurn(result.Turn))
+	return true
 }
 
 func (h *Handler) applyCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
-        if h == nil {
-                return stdReq, nil
-        }
-        stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
-        return (contextfile.Service{Store: h.Store, DS: h.DS}).ApplyCurrentInputFile(ctx, a, stdReq)
+	if h == nil {
+		return stdReq, nil
+	}
+	stdReq = promptcompat.ApplyThinkingInjection(h.Store, stdReq)
+	return (contextfile.Service{Store: h.Store, DS: h.DS}).ApplyCurrentInputFile(ctx, a, stdReq)
 }
 
 func mapCurrentInputFileError(err error) (int, string) {
-        return contextfile.MapError(err)
+	return contextfile.MapError(err)
 }
 
 func (h *Handler) handleGeminiDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session) {
-        start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-                CurrentInputFile:    h.Store,
-                ExpertPromptSegment: h.Store,
-        })
-        if outErr != nil {
-                if historySession != nil {
-                        if completionruntime.IsDirectTokenAuthError(outErr) {
-                                historySession.Discard()
-                        } else {
-                                historySession.Error(outErr.Status, outErr.Message, outErr.Code, "", "")
-                        }
-                }
-                writeGeminiError(w, outErr.Status, outErr.Message)
-                return
-        }
-        streamReq := start.Request
-        h.handleStreamGenerateContentWithRetry(w, r, a, start.Response, start.Payload, start.Pow, streamReq, streamReq.ResponseModel, streamReq.PromptTokenText, streamReq.Thinking, streamReq.Search, streamReq.ToolNames, streamReq.ToolsRaw, historySession)
+	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
+		CurrentInputFile:    h.Store,
+		ExpertPromptSegment: h.Store,
+	})
+	if outErr != nil {
+		if historySession != nil {
+			if completionruntime.IsDirectTokenAuthError(outErr) {
+				historySession.Discard()
+			} else {
+				historySession.Error(outErr.Status, outErr.Message, outErr.Code, "", "")
+			}
+		}
+		writeGeminiError(w, outErr.Status, outErr.Message)
+		return
+	}
+	streamReq := start.Request
+	h.handleStreamGenerateContentWithRetry(w, r, a, start.Response, start.Payload, start.Pow, streamReq, streamReq.ResponseModel, streamReq.PromptTokenText, streamReq.Thinking, streamReq.Search, streamReq.ToolNames, streamReq.ToolsRaw, historySession)
 }
 
 func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream bool) bool {
-        r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
-        raw, err := io.ReadAll(r.Body)
-        if err != nil {
-                if requestbody.IsTooLarge(err) {
-                        writeGeminiError(w, http.StatusRequestEntityTooLarge, "request body too large")
-                } else if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
-                        writeGeminiError(w, http.StatusBadRequest, "invalid json")
-                } else {
-                        writeGeminiError(w, http.StatusBadRequest, "invalid body")
-                }
-                return true
-        }
-        routeModel := strings.TrimSpace(chi.URLParam(r, "model"))
-        var req map[string]any
-        if err := jsonvalue.Unmarshal(raw, &req); err != nil {
-                writeGeminiError(w, http.StatusBadRequest, "invalid json")
-                return true
-        }
-        translatedReq := translatorcliproxy.ToOpenAI(sdktranslator.FormatGemini, routeModel, raw, stream)
-        if !strings.Contains(string(translatedReq), `"stream"`) {
-                var reqMap map[string]any
-                if jsonvalue.Unmarshal(translatedReq, &reqMap) == nil {
-                        reqMap["stream"] = stream
-                        if b, e := json.Marshal(reqMap); e == nil {
-                                translatedReq = b
-                        }
-                }
-        }
-        // 思考开关只由模型名决定：-nothinking 后缀关闭，无后缀开启。Gemini 请求里的
-        // generationConfig.thinkingConfig 仅兼容接收，不再改写转发体——内部
-        // OpenAI 出口同样按模型名解析。
+	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		if requestbody.IsTooLarge(err) {
+			writeGeminiError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		} else if errors.Is(err, requestbody.ErrInvalidUTF8Body) {
+			writeGeminiError(w, http.StatusBadRequest, "invalid json")
+		} else {
+			writeGeminiError(w, http.StatusBadRequest, "invalid body")
+		}
+		return true
+	}
+	routeModel := strings.TrimSpace(chi.URLParam(r, "model"))
+	var req map[string]any
+	if err := jsonvalue.Unmarshal(raw, &req); err != nil {
+		writeGeminiError(w, http.StatusBadRequest, "invalid json")
+		return true
+	}
+	translatedReq := translatorcliproxy.ToOpenAI(sdktranslator.FormatGemini, routeModel, raw, stream)
+	if !strings.Contains(string(translatedReq), `"stream"`) {
+		var reqMap map[string]any
+		if jsonvalue.Unmarshal(translatedReq, &reqMap) == nil {
+			reqMap["stream"] = stream
+			if b, e := json.Marshal(reqMap); e == nil {
+				translatedReq = b
+			}
+		}
+	}
+	// 思考开关只由模型名决定：-nothinking 后缀关闭，无后缀开启。Gemini 请求里的
+	// generationConfig.thinkingConfig 仅兼容接收，不再改写转发体——内部
+	// OpenAI 出口同样按模型名解析。
 
-        isVercelPrepare := strings.TrimSpace(r.URL.Query().Get("__stream_prepare")) == "1"
-        isVercelRelease := strings.TrimSpace(r.URL.Query().Get("__stream_release")) == "1"
+	isVercelPrepare := strings.TrimSpace(r.URL.Query().Get("__stream_prepare")) == "1"
+	isVercelRelease := strings.TrimSpace(r.URL.Query().Get("__stream_release")) == "1"
 
-        if isVercelRelease {
-                proxyReq := r.Clone(r.Context())
-                proxyReq.URL.Path = "/v1/chat/completions"
-                proxyReq.Body = io.NopCloser(bytes.NewReader(raw))
-                proxyReq.ContentLength = int64(len(raw))
-                rec := httptest.NewRecorder()
-                h.OpenAI.ChatCompletions(rec, proxyReq)
-                res := rec.Result()
-                defer func() {
-                        if err := res.Body.Close(); err != nil {
-                                config.Logger.Warn("[gemini] response body close failed", "error", err)
-                        }
-                }()
-                body, _ := io.ReadAll(res.Body)
-                for k, vv := range res.Header {
-                        for _, v := range vv {
-                                w.Header().Add(k, v)
-                        }
-                }
-                w.WriteHeader(res.StatusCode)
-                _, _ = w.Write(body)
-                return true
-        }
+	if isVercelRelease {
+		proxyReq := r.Clone(r.Context())
+		proxyReq.URL.Path = "/v1/chat/completions"
+		proxyReq.Body = io.NopCloser(bytes.NewReader(raw))
+		proxyReq.ContentLength = int64(len(raw))
+		rec := httptest.NewRecorder()
+		h.OpenAI.ChatCompletions(rec, proxyReq)
+		res := rec.Result()
+		defer func() {
+			if err := res.Body.Close(); err != nil {
+				config.Logger.Warn("[gemini] response body close failed", "error", err)
+			}
+		}()
+		body, _ := io.ReadAll(res.Body)
+		for k, vv := range res.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(res.StatusCode)
+		_, _ = w.Write(body)
+		return true
+	}
 
-        proxyReq := r.Clone(r.Context())
-        proxyReq.URL.Path = "/v1/chat/completions"
-        proxyReq.Body = io.NopCloser(bytes.NewReader(translatedReq))
-        proxyReq.ContentLength = int64(len(translatedReq))
+	proxyReq := r.Clone(r.Context())
+	proxyReq.URL.Path = "/v1/chat/completions"
+	proxyReq.Body = io.NopCloser(bytes.NewReader(translatedReq))
+	proxyReq.ContentLength = int64(len(translatedReq))
 
-        if stream && !isVercelPrepare {
-                w.Header().Set("Content-Type", "text/event-stream")
-                w.Header().Set("Cache-Control", "no-cache, no-transform")
-                w.Header().Set("Connection", "keep-alive")
-                w.Header().Set("X-Accel-Buffering", "no")
-                streamWriter := translatorcliproxy.NewOpenAIStreamTranslatorWriter(w, sdktranslator.FormatGemini, routeModel, raw, translatedReq)
-                h.OpenAI.ChatCompletions(streamWriter, proxyReq)
-                return true
-        }
+	if stream && !isVercelPrepare {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache, no-transform")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		streamWriter := translatorcliproxy.NewOpenAIStreamTranslatorWriter(w, sdktranslator.FormatGemini, routeModel, raw, translatedReq)
+		h.OpenAI.ChatCompletions(streamWriter, proxyReq)
+		return true
+	}
 
-        rec := httptest.NewRecorder()
-        h.OpenAI.ChatCompletions(rec, proxyReq)
-        res := rec.Result()
-        defer func() {
-                if err := res.Body.Close(); err != nil {
-                        config.Logger.Warn("[gemini] response body close failed", "error", err)
-                }
-        }()
-        body, _ := io.ReadAll(res.Body)
-        if res.StatusCode < 200 || res.StatusCode >= 300 {
-                for k, vv := range res.Header {
-                        for _, v := range vv {
-                                w.Header().Add(k, v)
-                        }
-                }
-                writeGeminiErrorFromOpenAI(w, res.StatusCode, body)
-                return true
-        }
-        if isVercelPrepare {
-                for k, vv := range res.Header {
-                        for _, v := range vv {
-                                w.Header().Add(k, v)
-                        }
-                }
-                w.WriteHeader(res.StatusCode)
-                _, _ = w.Write(body)
-                return true
-        }
-        converted := translatorcliproxy.FromOpenAINonStream(sdktranslator.FormatGemini, routeModel, raw, translatedReq, body)
-        w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(http.StatusOK)
-        _, _ = w.Write(converted)
-        return true
+	rec := httptest.NewRecorder()
+	h.OpenAI.ChatCompletions(rec, proxyReq)
+	res := rec.Result()
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			config.Logger.Warn("[gemini] response body close failed", "error", err)
+		}
+	}()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		for k, vv := range res.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+		writeGeminiErrorFromOpenAI(w, res.StatusCode, body)
+		return true
+	}
+	if isVercelPrepare {
+		for k, vv := range res.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(res.StatusCode)
+		_, _ = w.Write(body)
+		return true
+	}
+	converted := translatorcliproxy.FromOpenAINonStream(sdktranslator.FormatGemini, routeModel, raw, translatedReq, body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(converted)
+	return true
 }
 
 func writeGeminiErrorFromOpenAI(w http.ResponseWriter, status int, raw []byte) {
-        message := strings.TrimSpace(string(raw))
-        var parsed map[string]any
-        if err := jsonvalue.Unmarshal(raw, &parsed); err == nil {
-                if errObj, ok := parsed["error"].(map[string]any); ok {
-                        if msg, ok := errObj["message"].(string); ok && strings.TrimSpace(msg) != "" {
-                                message = strings.TrimSpace(msg)
-                        }
-                }
-        }
-        if message == "" {
-                message = http.StatusText(status)
-        }
-        writeGeminiError(w, status, message)
+	message := strings.TrimSpace(string(raw))
+	var parsed map[string]any
+	if err := jsonvalue.Unmarshal(raw, &parsed); err == nil {
+		if errObj, ok := parsed["error"].(map[string]any); ok {
+			if msg, ok := errObj["message"].(string); ok && strings.TrimSpace(msg) != "" {
+				message = strings.TrimSpace(msg)
+			}
+		}
+	}
+	if message == "" {
+		message = http.StatusText(status)
+	}
+	writeGeminiError(w, status, message)
 }
 
 //nolint:unused // compatibility entry point.
 func (h *Handler) handleNonStreamGenerateContent(w http.ResponseWriter, resp *http.Response, model, finalPrompt string, thinkingEnabled bool, toolNames []string) {
-        defer func() {
-                if err := resp.Body.Close(); err != nil {
-                        config.Logger.Warn("[gemini] response body close failed", "error", err)
-                }
-        }()
-        if resp.StatusCode != http.StatusOK {
-                body, _ := io.ReadAll(resp.Body)
-                if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
-                        config.Logger.Warn("[gemini_nonstream] captcha challenge detected on initial response", "detail", detail)
-                }
-                writeGeminiError(w, resp.StatusCode, strings.TrimSpace(string(body)))
-                return
-        }
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			config.Logger.Warn("[gemini] response body close failed", "error", err)
+		}
+	}()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
+			config.Logger.Warn("[gemini_nonstream] captcha challenge detected on initial response", "detail", detail)
+		}
+		writeGeminiError(w, resp.StatusCode, strings.TrimSpace(string(body)))
+		return
+	}
 
-        result := sse.CollectStream(resp, thinkingEnabled, true)
-        if result.ReadError != nil {
-                writeGeminiError(w, http.StatusBadGateway, result.ReadError.Error())
-                return
-        }
-        writeJSON(w, http.StatusOK, buildGeminiGenerateContentResponse(
-                model,
-                finalPrompt,
-                cleanVisibleOutput(result.Thinking, false),
-                cleanVisibleOutput(result.Text, false),
-                toolNames,
-        ))
+	result := sse.CollectStream(resp, thinkingEnabled, true)
+	if result.ReadError != nil {
+		writeGeminiError(w, http.StatusBadGateway, result.ReadError.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, buildGeminiGenerateContentResponse(
+		model,
+		finalPrompt,
+		cleanVisibleOutput(result.Thinking, false),
+		cleanVisibleOutput(result.Text, false),
+		toolNames,
+	))
 }
 
 //nolint:unused // compatibility entry point.
 func buildGeminiGenerateContentResponse(model, finalPrompt, finalThinking, finalText string, toolNames []string) map[string]any {
-        parts := buildGeminiPartsFromFinal(finalText, finalThinking, toolNames)
-        usage := buildGeminiUsage(model, finalPrompt, finalThinking, finalText)
-        return map[string]any{
-                "candidates": []map[string]any{
-                        {
-                                "index": 0,
-                                "content": map[string]any{
-                                        "role":  "model",
-                                        "parts": parts,
-                                },
-                                "finishReason": "STOP",
-                        },
-                },
-                "modelVersion":  model,
-                "usageMetadata": usage,
-        }
+	parts := buildGeminiPartsFromFinal(finalText, finalThinking, toolNames)
+	usage := buildGeminiUsage(model, finalPrompt, finalThinking, finalText)
+	return map[string]any{
+		"candidates": []map[string]any{
+			{
+				"index": 0,
+				"content": map[string]any{
+					"role":  "model",
+					"parts": parts,
+				},
+				"finishReason": "STOP",
+			},
+		},
+		"modelVersion":  model,
+		"usageMetadata": usage,
+	}
 }
 
 func buildGeminiGenerateContentResponseFromTurn(turn assistantturn.Turn) map[string]any {
-        parts := buildGeminiPartsFromTurn(turn)
-        return map[string]any{
-                "candidates": []map[string]any{
-                        {
-                                "index": 0,
-                                "content": map[string]any{
-                                        "role":  "model",
-                                        "parts": parts,
-                                },
-                                "finishReason": "STOP",
-                        },
-                },
-                "modelVersion": turn.Model,
-                "usageMetadata": map[string]any{
-                        "promptTokenCount":     turn.Usage.InputTokens,
-                        "candidatesTokenCount": turn.Usage.OutputTokens,
-                        "totalTokenCount":      turn.Usage.TotalTokens,
-                },
-        }
+	parts := buildGeminiPartsFromTurn(turn)
+	return map[string]any{
+		"candidates": []map[string]any{
+			{
+				"index": 0,
+				"content": map[string]any{
+					"role":  "model",
+					"parts": parts,
+				},
+				"finishReason": "STOP",
+			},
+		},
+		"modelVersion": turn.Model,
+		"usageMetadata": map[string]any{
+			"promptTokenCount":     turn.Usage.InputTokens,
+			"candidatesTokenCount": turn.Usage.OutputTokens,
+			"totalTokenCount":      turn.Usage.TotalTokens,
+		},
+	}
 }
 
 //nolint:unused // compatibility entry point.
 func buildGeminiUsage(model, finalPrompt, finalThinking, finalText string) map[string]any {
-        promptTokens := util.CountPromptTokens(finalPrompt, model)
-        reasoningTokens := util.CountOutputTokens(finalThinking, model)
-        completionTokens := util.CountOutputTokens(finalText, model)
-        return map[string]any{
-                "promptTokenCount":     promptTokens,
-                "candidatesTokenCount": reasoningTokens + completionTokens,
-                "totalTokenCount":      promptTokens + reasoningTokens + completionTokens,
-        }
+	promptTokens := util.CountPromptTokens(finalPrompt, model)
+	reasoningTokens := util.CountOutputTokens(finalThinking, model)
+	completionTokens := util.CountOutputTokens(finalText, model)
+	return map[string]any{
+		"promptTokenCount":     promptTokens,
+		"candidatesTokenCount": reasoningTokens + completionTokens,
+		"totalTokenCount":      promptTokens + reasoningTokens + completionTokens,
+	}
 }
 
 func buildGeminiPartsFromFinal(finalText, finalThinking string, toolNames []string) []map[string]any {
-        detected := toolcall.ParseToolCalls(finalText, toolNames)
-        if len(detected) == 0 && finalThinking != "" {
-                detected = toolcall.ParseToolCalls(finalThinking, toolNames)
-        }
-        thinkingPart := func() []map[string]any {
-                if finalThinking == "" {
-                        return nil
-                }
-                return []map[string]any{{"text": finalThinking, "thought": true}}
-        }
-        if len(detected) > 0 {
-                parts := thinkingPart()
-                if parts == nil {
-                        parts = make([]map[string]any, 0, len(detected))
-                }
-                for _, tc := range detected {
-                        parts = append(parts, map[string]any{
-                                "functionCall": map[string]any{
-                                        "id":   "call_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
-                                        "name": tc.Name,
-                                        "args": tc.Input,
-                                },
-                        })
-                }
-                return parts
-        }
+	detected := toolcall.ParseToolCalls(finalText, toolNames)
+	if len(detected) == 0 && finalThinking != "" {
+		detected = toolcall.ParseToolCalls(finalThinking, toolNames)
+	}
+	thinkingPart := func() []map[string]any {
+		if finalThinking == "" {
+			return nil
+		}
+		return []map[string]any{{"text": finalThinking, "thought": true}}
+	}
+	if len(detected) > 0 {
+		parts := thinkingPart()
+		if parts == nil {
+			parts = make([]map[string]any, 0, len(detected))
+		}
+		for _, tc := range detected {
+			parts = append(parts, map[string]any{
+				"functionCall": map[string]any{
+					"id":   "call_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+					"name": tc.Name,
+					"args": tc.Input,
+				},
+			})
+		}
+		return parts
+	}
 
-        parts := thinkingPart()
-        if finalText != "" {
-                parts = append(parts, map[string]any{"text": finalText})
-        }
-        if len(parts) == 0 {
-                parts = append(parts, map[string]any{"text": ""})
-        }
-        return parts
+	parts := thinkingPart()
+	if finalText != "" {
+		parts = append(parts, map[string]any{"text": finalText})
+	}
+	if len(parts) == 0 {
+		parts = append(parts, map[string]any{"text": ""})
+	}
+	return parts
 }

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../i18n'
 import { useTheme } from '../../themeProvider'
 import './usage.css'
@@ -19,7 +19,7 @@ import {
 } from './usageUtils'
 
 // Summary, filters and export become usable before the chart engine loads.
-const EChart = lazy(() => import('./EChart'))
+import EChart from './DeferredChart'
 
 export default function TokenUsageContainer({ authFetch, onMessage }) {
     const { lang, t } = useI18n()
@@ -423,9 +423,7 @@ export default function TokenUsageContainer({ authFetch, onMessage }) {
                                         </div>
                                     </div>
                                 </div>
-                                <Suspense fallback={<div role="status" style={{ height: 272 }}>{t('usage.loading')}</div>}>
-                                    <EChart option={mainOption} height={272} ariaLabel={costMode ? t('usage.costUsage') : t('usage.tokenUsage')} />
-                                </Suspense>
+                                    <EChart option={mainOption} loadingLabel={t('usage.loading')} height={272} ariaLabel={costMode ? t('usage.costUsage') : t('usage.tokenUsage')} />
                                 <div className="usage-legend">
                                     {topSeries.map((s) => (
                                         <span

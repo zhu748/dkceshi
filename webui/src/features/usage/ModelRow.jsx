@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useI18n } from '../../i18n'
-import EChart from './EChart'
+import EChart from './DeferredChart'
 import { buildLineOption, buildStackedOption } from './chartOptions'
 import { fmtCompact, fmtMoney, fmtNumber } from './usageUtils'
 import { splitCacheHitTokens } from './usagePricing'
@@ -99,7 +99,7 @@ export default function ModelRow({ row, dark, costMode, cacheHit }) {
                             <span className="usage-model-card-value">{fmt(row.calls)}</span>
                         </div>
                         <div className="usage-model-card-chart">
-                            <EChart option={requestsOption} height={272} />
+                            <EChart option={requestsOption} height={272} loadingLabel={t('usage.loading')} ariaLabel={t('usage.apiRequests')} />
                         </div>
                     </div>
                     <div className="usage-model-card">
@@ -108,7 +108,7 @@ export default function ModelRow({ row, dark, costMode, cacheHit }) {
                             <span className="usage-model-card-value">{costMode ? fmtMoneyLocal(row.cost) : fmt(row.total)}</span>
                         </div>
                         <div className="usage-model-card-chart">
-                            <EChart option={chartOption} height={272} />
+                            <EChart option={chartOption} height={272} loadingLabel={t('usage.loading')} ariaLabel={costMode ? t('usage.cost') : t('usage.totalTokens')} />
                         </div>
                     </div>
                 </div>
