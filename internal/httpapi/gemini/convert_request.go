@@ -1,84 +1,80 @@
 package gemini
 
 import (
-	"fmt"
-	"strings"
+        "fmt"
+        "strings"
 
-	"ds2api/internal/config"
-	"ds2api/internal/promptcompat"
-	"ds2api/internal/util"
+        "ds2api/internal/config"
+        "ds2api/internal/promptcompat"
 )
 
 //nolint:unused // kept for native Gemini adapter route compatibility.
 func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[string]any, stream bool) (promptcompat.StandardRequest, error) {
-	requestedModel := strings.TrimSpace(routeModel)
-	if requestedModel == "" {
-		return promptcompat.StandardRequest{}, fmt.Errorf("model is required in request path")
-	}
+        requestedModel := strings.TrimSpace(routeModel)
+        if requestedModel == "" {
+                return promptcompat.StandardRequest{}, fmt.Errorf("model is required in request path")
+        }
 
-	resolvedModel, ok := config.ResolveModel(store, requestedModel)
-	if !ok {
-		return promptcompat.StandardRequest{}, fmt.Errorf("model %q is not available", requestedModel)
-	}
-	defaultThinkingEnabled, searchEnabled, _ := config.GetModelConfig(resolvedModel)
-	thinkingEnabled := util.ResolveThinkingEnabled(req, defaultThinkingEnabled)
-	if config.IsNoThinkingModel(resolvedModel) {
-		thinkingEnabled = false
-	}
+        resolvedModel, ok := config.ResolveModel(store, requestedModel)
+        if !ok {
+                return promptcompat.StandardRequest{}, fmt.Errorf("model %q is not available", requestedModel)
+        }
+        defaultThinkingEnabled, searchEnabled, _ := config.GetModelConfig(resolvedModel)
+        // 思考开关只由模型名决定：-nothinking 后缀关闭，无后缀开启。请求里的
+        // thinkingConfig / reasoning_effort 仅兼容接收，不参与开关。
+        thinkingEnabled := defaultThinkingEnabled
 
-	messagesRaw := geminiMessagesFromRequest(req)
-	if err := promptcompat.ValidateToolHistory(messagesRaw); err != nil {
-		return promptcompat.StandardRequest{}, err
-	}
-	if len(messagesRaw) == 0 {
-		return promptcompat.StandardRequest{}, fmt.Errorf("request must include non-empty contents")
-	}
+        messagesRaw := geminiMessagesFromRequest(req)
+        if err := promptcompat.ValidateToolHistory(messagesRaw); err != nil {
+                return promptcompat.StandardRequest{}, err
+        }
+        if len(messagesRaw) == 0 {
+                return promptcompat.StandardRequest{}, fmt.Errorf("request must include non-empty contents")
+        }
 
-	toolsDisabled := promptcompat.ToolsForceDisabledInRequest(req)
-	if req["tools"] != nil {
-		if _, ok := req["tools"].([]any); !ok && !toolsDisabled {
-			return promptcompat.StandardRequest{}, fmt.Errorf("tools must be an array")
-		}
-	}
-	toolsRaw := convertGeminiTools(req["tools"])
-	toolPolicy, err := geminiToolPolicy(req, toolsRaw)
-	if err != nil {
-		return promptcompat.StandardRequest{}, err
-	}
-	if toolsDisabled {
-		// API Key 上的「强制禁用工具调用」：请求侧工具定义已被清除，这里再
-		// 把工具策略钉成 none，使工具提示词与 EPSE 格式规范都不注入。
-		toolsRaw = nil
-		toolPolicy = promptcompat.ToolChoicePolicy{Mode: promptcompat.ToolChoiceNone}
-	}
-	toolPolicy = promptcompat.ApplyToolSafetySettings(store, toolPolicy)
-	reminder := promptcompat.ResolveToolReminder(store)
-	finalPrompt, toolNames := promptcompat.BuildOpenAIPrompt(messagesRaw, toolsRaw, "", toolPolicy, thinkingEnabled, reminder)
-	if len(toolNames) == 0 && len(toolsRaw) > 0 {
-		toolNames = []string{"__any_tool__"}
-	}
-	passThrough := collectGeminiPassThrough(req)
+        toolsDisabled := promptcompat.ToolsForceDisabledInRequest(req)
+        if req["tools"] != nil {
+                if _, ok := req["tools"].([]any); !ok && !toolsDisabled {
+                        return promptcompat.StandardRequest{}, fmt.Errorf("tools must be an array")
+                }
+        }
+        toolsRaw := convertGeminiTools(req["tools"])
+        toolPolicy, err := geminiToolPolicy(req, toolsRaw)
+        if err != nil {
+                return promptcompat.StandardRequest{}, err
+        }
+        if toolsDisabled {
+                // API Key 上的「强制禁用工具调用」：请求侧工具定义已被清除，这里再
+                // 把工具策略钉成 none，使工具提示词与 EPSE 格式规范都不注入。
+                toolsRaw = nil
+                toolPolicy = promptcompat.ToolChoicePolicy{Mode: promptcompat.ToolChoiceNone}
+        }
+        toolPolicy = promptcompat.ApplyToolSafetySettings(store, toolPolicy)
+        reminder := promptcompat.ResolveToolReminder(store)
+        finalPrompt, toolNames := promptcompat.BuildOpenAIPrompt(messagesRaw, toolsRaw, "", toolPolicy, thinkingEnabled, reminder)
+        if len(toolNames) == 0 && len(toolsRaw) > 0 {
+                toolNames = []string{"__any_tool__"}
+        }
 
-	standard := promptcompat.StandardRequest{
-		Surface:              "google_gemini",
-		RequestedModel:       requestedModel,
-		ResolvedModel:        resolvedModel,
-		ResponseModel:        requestedModel,
-		Messages:             messagesRaw,
-		RefFileIDs:           promptcompat.CollectOpenAIRefFileIDs(req),
-		RefFileTokens:        promptcompat.EstimateInlineFileTokens(req),
-		PromptTokenText:      finalPrompt,
-		ToolsRaw:             toolsRaw,
-		FinalPrompt:          finalPrompt,
-		ToolNames:            toolNames,
-		ToolChoice:           toolPolicy,
-		ToolsDisabled:        toolsDisabled,
-		Stream:               stream,
-		Thinking:             thinkingEnabled,
-		Search:               searchEnabled,
-		PassThrough:          passThrough,
-		ToolReminderDisabled: !reminder.Enabled,
-		ToolReminderPrompt:   reminder.Prompt,
-	}
-	return applyGeminiOutputFormat(standard, req)
+        standard := promptcompat.StandardRequest{
+                Surface:              "google_gemini",
+                RequestedModel:       requestedModel,
+                ResolvedModel:        resolvedModel,
+                ResponseModel:        requestedModel,
+                Messages:             messagesRaw,
+                RefFileIDs:           promptcompat.CollectOpenAIRefFileIDs(req),
+                RefFileTokens:        promptcompat.EstimateInlineFileTokens(req),
+                PromptTokenText:      finalPrompt,
+                ToolsRaw:             toolsRaw,
+                FinalPrompt:          finalPrompt,
+                ToolNames:            toolNames,
+                ToolChoice:           toolPolicy,
+                ToolsDisabled:        toolsDisabled,
+                Stream:               stream,
+                Thinking:             thinkingEnabled,
+                Search:               searchEnabled,
+                ToolReminderDisabled: !reminder.Enabled,
+                ToolReminderPrompt:   reminder.Prompt,
+        }
+        return applyGeminiOutputFormat(standard, req)
 }

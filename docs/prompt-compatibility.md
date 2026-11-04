@@ -800,10 +800,34 @@ CDATA 与尾随普通文本混合的参数必须完整保留文本，并区分 C
 - 共享 turn 在原始工具边界截断可见正文。四种非流式协议与流式协议均保留调用前的说明，
   不返回调用后编造的结果；Responses 的正文项排在工具项之前。
 
+### 采样参数与上游请求体边界（2026-11-04）
+
+上游 completion 请求体的键集与真实 App 严格一致：`chat_session_id`、`parent_message_id`、
+`prompt`、`ref_file_ids`、`thinking_enabled`、`search_enabled`、`audio_id`、`preempt`、
+`model_type`、`action`。此前 OpenAI Chat / Responses 与 Gemini 出口会把 `temperature`、
+`top_p`、`max_tokens`、`max_completion_tokens`、`presence_penalty`、`frequency_penalty`、
+`stop`（Gemini 侧来自 `generationConfig` 的 `temperature`/`topP`/`maxOutputTokens`/
+`stopSequences`）合并进请求体，Claude 转换层也会复制 `temperature`/`top_p`/`stop`。
+这些键在真实客户端中不存在，属于请求形状偏差，现已全部移除：
+
+- 各出口仍兼容接收这些字段（含 `reasoning_effort`、`thinking` 等思考强度形态），请求不会报错；
+  `StandardRequest` 不再保留透传通道，`CompletionPayload` 只输出 App 真实键集。
+- 思考开关完全由模型名决定：`-nothinking` 后缀关闭，无后缀开启（`config.GetModelConfig`
+  按后缀返回开关）。请求里的 `thinking` / `reasoning` / `reasoning_effort` 不再折叠成
+  `thinking_enabled` 布尔——App 的真实开关就是所选模型，请求参数无法改变它；文件上传
+  路径的表单 `thinking_enabled` 与 `X-Thinking-Enabled` 请求头同样仅兼容接收。Claude
+  代理转发体不再注入 thinking 标记，Gemini 代理不再改写 `thinkingConfig`，响应侧是否
+  暴露思考块均按转发模型的开关决定。
+- 出站请求头继续全部由服务端按账号档案重建，客户端请求头不进入上游；`max_tokens`
+  的 Claude 缺省补齐仅用于协议层校验，不发送上游。
+- 工具调用修复链路是例外：它调用的是管理员配置的外部 OpenAI/Claude/Gemini 兼容 API，
+  `reasoning_effort`/`thinking`/`max_tokens` 按该 API 的语义正常组装，不属于上游透传。
+
 ### 文本输出格式约束
 
-本服务反代 App，不提供原生温度、采样参数或思考强度控制，本次不新增这些字段的映射。
-已有思考开关与提示词注入设置沿用现有行为。输出格式采用提示词约束及最终校验实现，
+本服务反代 App，不提供原生温度、采样参数或思考强度控制；这些字段在各出口仅做兼容接收，
+一律不进入上游请求体。思考开关完全由模型名决定（`-nothinking` 后缀关闭，无后缀开启），
+与 App 内选模型的行为一致；提示词注入设置沿用现有行为。输出格式采用提示词约束及最终校验实现，
 不声称上游具有原生 JSON / Schema 模式，也不靠格式修复猜测或修改答案内容。
 
 - Chat 接受 `response_format` 的 `text`、`json_object`、`json_schema`；Responses 接受 `text.format`。

@@ -53,14 +53,8 @@ func ConvertClaudeToDeepSeek(claudeReq map[string]any, aliasProvider config.Mode
 	}
 	convertedMessages = append(convertedMessages, messages...)
 
-	out := map[string]any{"model": dsModel, "messages": convertedMessages}
-	for _, k := range []string{"temperature", "top_p", "stream"} {
-		if v, ok := claudeReq[k]; ok {
-			out[k] = v
-		}
-	}
-	if stopSeq, ok := claudeReq["stop_sequences"]; ok {
-		out["stop"] = stopSeq
-	}
-	return out
+	// 只保留对话内容与模型解析结果。采样参数（temperature/top_p）、停止序列与
+	// 思考强度在 App 反代上没有对应控制，一律不进入内部请求形态，避免下游
+	// 误把它们透传到上游请求体。
+	return map[string]any{"model": dsModel, "messages": convertedMessages}
 }

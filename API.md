@@ -220,7 +220,7 @@ OpenAI `/v1/*` 仍是规范路径。对于只配置 DS2API 根地址的客户端
 }
 ```
 
-> 说明：`/v1/models` 返回的是规范化后的 DeepSeek 原生模型 ID；常见 alias 仅用于请求入参解析，不会在该接口中单独展开返回。带 `-nothinking` 后缀的模型表示无论请求里是否显式开启 thinking / reasoning，都会强制关闭思考输出。
+> 说明：`/v1/models` 返回的是规范化后的 DeepSeek 原生模型 ID；常见 alias 仅用于请求入参解析，不会在该接口中单独展开返回。思考开关完全由模型名决定：带 `-nothinking` 后缀关闭思考，无后缀开启；请求里的 `thinking` / `reasoning` / `reasoning_effort` 字段仅兼容接收，不影响开关。
 
 ### 模型 alias 解析策略
 
@@ -263,7 +263,7 @@ Content-Type: application/json
 | `messages` | array | ✅ | OpenAI 风格消息数组 |
 | `stream` | boolean | ❌ | 默认 `false` |
 | `tools` | array | ❌ | Function Calling 定义 |
-| `temperature` 等 | any | ❌ | 兼容透传字段（最终效果由上游决定） |
+| `temperature` 等 | any | ❌ | 兼容接收但不发送上游；App 请求体仅含对话内容与 App 自身开关，采样参数不生效 |
 
 #### 非流式响应
 
@@ -516,17 +516,17 @@ anthropic-version: 2023-06-01
 | --- | --- | --- | --- |
 | `model` | string | ✅ | 例如 `claude-sonnet-4-6` / `claude-opus-4-6` / `claude-haiku-4-5`（兼容 `claude-sonnet-4-5`、`claude-3-5-haiku-latest`），并支持历史 Claude 模型 ID；若模型名带 `-nothinking` 后缀，则强制关闭 thinking / reasoning |
 | `messages` | array | ✅ | Claude 风格消息数组 |
-| `max_tokens` | number | ❌ | 缺省自动补 `8192`；当前实现不会硬性截断上游输出 |
+| `max_tokens` | number | ❌ | 缺省自动补 `8192`；仅协议层接收，不会截断上游输出，也不发送上游 |
 | `stream` | boolean | ❌ | 默认 `false` |
 | `system` | string | ❌ | 可选系统提示 |
 | `tools` | array | ❌ | Claude tool 定义 |
-| `thinking` | object | ❌ | Anthropic thinking 配置；会转译为下游 reasoning 控制，`-nothinking` 模型会忽略 |
-| `temperature` | number | ❌ | 兼容接收；App 反代不提供原生温度控制 |
-| `top_p` | number | ❌ | 兼容接收；App 反代不提供原生采样控制 |
-| `stop_sequences` | array | ❌ | 兼容接收；当前原生 App 路径不保证停止序列控制 |
+| `thinking` | object | ❌ | 仅兼容接收；思考开关由模型名决定（`-nothinking` 后缀关闭），请求参数无法改变 |
+| `temperature` | number | ❌ | 兼容接收但不发送上游；App 反代不提供原生温度控制 |
+| `top_p` | number | ❌ | 兼容接收但不发送上游；App 反代不提供原生采样控制 |
+| `stop_sequences` | array | ❌ | 兼容接收但不发送上游；App 反代不提供停止序列控制 |
 | `tool_choice` | object | ❌ | 支持 `auto` / `none` / `any` / `tool`，以及 `disable_parallel_tool_use`；统一校验工具策略 |
 
-> 工具选择由共享策略校验。App 反代不提供原生温度或思考强度调节；已有 thinking 开关不等同于强度映射。
+> 工具选择由共享策略校验。App 反代不提供原生温度或思考强度调节；思考开关完全由模型名决定（`-nothinking` 后缀关闭，无后缀开启），请求里的 thinking 配置与强度档位仅做兼容接收，一律不进入上游请求体。
 
 #### 非流式响应
 
@@ -579,8 +579,8 @@ data: {"type":"message_stop"}
 
 **说明**：
 
-- 默认支持 thinking 的模型会输出 `thinking` block / `thinking_delta`；请求显式关闭 thinking 或使用 `-nothinking` 模型时不会输出
-- 带 `-nothinking` 后缀的模型会强制关闭 thinking，即使请求显式传了 `thinking` / `reasoning` / `reasoning_effort` 也不会输出 `thinking_delta`
+- 思考输出与否完全由模型名决定：无后缀模型输出 `thinking` block / `thinking_delta`，`-nothinking` 模型不输出
+- 请求里传 `thinking` / `reasoning` / `reasoning_effort`（无论开关或档位）均不影响上述行为，仅兼容接收
 - 不会输出 `signature_delta`（上游 DeepSeek 未提供可验证签名）
 - `tools` 场景优先避免泄露原始工具 JSON，不强制发送 `input_json_delta`
 
@@ -623,7 +623,7 @@ data: {"type":"message_stop"}
 
 ### `POST /v1beta/models/{model}:generateContent`
 
-请求体兼容 Gemini `contents` / `tools` 字段，模型名可用 alias 自动映射到 DeepSeek 模型；若路径中的模型名带 `-nothinking` 后缀，则最终会映射到对应的无思考模型。
+请求体兼容 Gemini `contents` / `tools` 字段，模型名可用 alias 自动映射到 DeepSeek 模型；思考开关完全由模型名决定：路径中的模型名带 `-nothinking` 后缀关闭思考，无后缀开启，`generationConfig.thinkingConfig` 仅兼容接收、不影响开关。
 
 响应为 Gemini 兼容结构，核心字段包括：
 

@@ -285,7 +285,7 @@ func TestConvertClaudeToDeepSeekDefaultModel(t *testing.T) {
 	}
 }
 
-func TestConvertClaudeToDeepSeekWithStopSequences(t *testing.T) {
+func TestConvertClaudeToDeepSeekDropsStopSequences(t *testing.T) {
 	store := config.LoadStore()
 	req := map[string]any{
 		"model":          "claude-sonnet-4-5",
@@ -293,25 +293,25 @@ func TestConvertClaudeToDeepSeekWithStopSequences(t *testing.T) {
 		"stop_sequences": []any{"\n\n"},
 	}
 	out := ConvertClaudeToDeepSeek(req, store)
-	if out["stop"] == nil {
-		t.Fatal("expected stop field from stop_sequences")
+	if out["stop"] != nil {
+		t.Fatalf("stop sequences must not enter the internal request shape, got %#v", out["stop"])
 	}
 }
 
-func TestConvertClaudeToDeepSeekWithTemperature(t *testing.T) {
+func TestConvertClaudeToDeepSeekDropsSamplingParameters(t *testing.T) {
 	store := config.LoadStore()
 	req := map[string]any{
 		"model":       "claude-sonnet-4-5",
 		"messages":    []any{map[string]any{"role": "user", "content": "Hi"}},
 		"temperature": 0.7,
 		"top_p":       0.9,
+		"stream":      true,
 	}
 	out := ConvertClaudeToDeepSeek(req, store)
-	if out["temperature"] != 0.7 {
-		t.Fatalf("expected temperature 0.7, got %v", out["temperature"])
-	}
-	if out["top_p"] != 0.9 {
-		t.Fatalf("expected top_p 0.9, got %v", out["top_p"])
+	for _, key := range []string{"temperature", "top_p", "stream"} {
+		if _, exists := out[key]; exists {
+			t.Fatalf("sampling parameter %q must not enter the internal request shape", key)
+		}
 	}
 }
 

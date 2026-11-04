@@ -214,7 +214,7 @@ No auth required. Returns the currently supported DeepSeek native model list.
 }
 ```
 
-> Note: `/v1/models` returns normalized DeepSeek native model IDs. Common aliases are accepted only as request input and are not expanded as separate items in this endpoint.
+> Note: `/v1/models` returns normalized DeepSeek native model IDs. Common aliases are accepted only as request input and are not expanded as separate items in this endpoint. The thinking switch is controlled solely by the model name: a `-nothinking` suffix turns thinking off, no suffix keeps it on; request fields such as `thinking` / `reasoning` / `reasoning_effort` are accepted for compatibility only and never change the switch.
 
 ### Model Alias Resolution
 
@@ -258,7 +258,7 @@ Content-Type: application/json
 | `messages` | array | ✅ | OpenAI-style messages |
 | `stream` | boolean | ❌ | Default `false` |
 | `tools` | array | ❌ | Function calling schema |
-| `temperature`, etc. | any | ❌ | Accepted but final behavior depends on upstream |
+| `temperature`, etc. | any | ❌ | Accepted for compatibility but never sent upstream; the app request body carries only conversation content and the app's own toggles, so sampling parameters have no effect |
 
 #### Non-Stream Response
 
@@ -508,17 +508,17 @@ anthropic-version: 2023-06-01
 | --- | --- | --- | --- |
 | `model` | string | ✅ | For example `claude-sonnet-4-6` / `claude-opus-4-6` / `claude-haiku-4-5` (compatible with `claude-3-5-haiku-latest`), plus historical Claude model IDs |
 | `messages` | array | ✅ | Claude-style messages |
-| `max_tokens` | number | ❌ | Auto-filled to `8192` when omitted; not strictly enforced by upstream bridge |
+| `max_tokens` | number | ❌ | Auto-filled to `8192` when omitted; accepted at the protocol layer only, never sent upstream and not enforced |
 | `stream` | boolean | ❌ | Default `false` |
 | `system` | string | ❌ | Optional system prompt |
 | `tools` | array | ❌ | Claude tool schema |
-| `thinking` | object | ❌ | Anthropic thinking config; translated into downstream reasoning control, and ignored by `-nothinking` models |
-| `temperature` | number | ❌ | Accepted for compatibility; the app proxy provides no native temperature control |
-| `top_p` | number | ❌ | Accepted for compatibility; the app proxy provides no native sampling control |
-| `stop_sequences` | array | ❌ | Accepted for compatibility; the native app path does not guarantee stop-sequence control |
+| `thinking` | object | ❌ | Accepted for compatibility only; the thinking switch is decided by the model name (`-nothinking` suffix off) and cannot be changed by request parameters |
+| `temperature` | number | ❌ | Accepted for compatibility but never sent upstream; the app proxy provides no native temperature control |
+| `top_p` | number | ❌ | Accepted for compatibility but never sent upstream; the app proxy provides no native sampling control |
+| `stop_sequences` | array | ❌ | Accepted for compatibility but never sent upstream; the app proxy provides no stop-sequence control |
 | `tool_choice` | object | ❌ | Supports `auto` / `none` / `any` / `tool` and `disable_parallel_tool_use`, enforced by shared policy |
 
-> Shared policy validates tool choice. The app proxy provides no native temperature or reasoning-effort control; the existing thinking toggle is not an effort mapping.
+> Shared policy validates tool choice. The app proxy provides no native temperature or reasoning-effort control; the thinking switch is decided solely by the model name (`-nothinking` suffix off, no suffix on). Thinking configs and effort levels are accepted at each surface for compatibility only and never enter the upstream request body.
 
 #### Non-Stream Response
 
@@ -571,7 +571,8 @@ data: {"type":"message_stop"}
 
 **Notes**:
 
-- Models that support thinking emit `thinking` blocks / `thinking_delta` by default; explicit thinking disablement or `-nothinking` models suppress them
+- Thinking output is decided solely by the model name: no-suffix models emit `thinking` blocks / `thinking_delta`, `-nothinking` models never do
+- Request fields `thinking` / `reasoning` / `reasoning_effort` (any toggle or level) do not affect this behavior and are accepted for compatibility only
 - `signature_delta` is not emitted (DeepSeek does not provide verifiable thinking signatures)
 - In `tools` mode, the stream avoids leaking raw tool JSON and does not force `input_json_delta`
 
@@ -614,7 +615,7 @@ Implementation-wise this path is unified on the OpenAI Chat Completions parse-an
 
 ### `POST /v1beta/models/{model}:generateContent`
 
-Request body accepts Gemini-style `contents` / `tools`. Model names can use aliases and are mapped to DeepSeek models.
+Request body accepts Gemini-style `contents` / `tools`. Model names can use aliases and are mapped to DeepSeek models. The thinking switch is decided solely by the model name: a `-nothinking` suffix in the path turns thinking off, no suffix keeps it on; `generationConfig.thinkingConfig` is accepted for compatibility only and never changes the switch.
 
 Response uses Gemini-compatible fields, including:
 

@@ -64,7 +64,6 @@ type StandardRequest struct {
 	Search                  bool
 	RefFileIDs              []string
 	RefFileTokens           int
-	PassThrough             map[string]any
 	// ToolMarker 是本次调用者专属的工具调用标识。提示词构建完成后用它把
 	// 规范里的 EPSE 渲染成随机标识；下游重建提示词时沿用同一值。
 	ToolMarker string
@@ -169,6 +168,11 @@ func (r StandardRequest) CompletionPayload(sessionID string) map[string]any {
 }
 
 func (r StandardRequest) CompletionPayloadWithParentAndPrompt(sessionID string, parentMessageID int, prompt string) map[string]any {
+	// 上游 completion 请求体只携带 App 真实会发送的字段：对话内容、会话/父消息
+	// 标识、文件引用与 App 自身的 thinking/search 开关。客户端传来的采样参数
+	// （temperature/top_p/max_tokens/penalty/stop）与思考强度档位在出口处仅做
+	// 兼容接收，绝不合并进请求体——App 反代不存在这些控制，多余键会破坏与
+	// 真实客户端的请求形状对齐。
 	modelID := r.ResolvedModel
 	if modelID == "" {
 		modelID = r.RequestedModel
@@ -200,9 +204,6 @@ func (r StandardRequest) CompletionPayloadWithParentAndPrompt(sessionID string, 
 		"search_enabled":    r.Search,
 		"action":            nil,
 		"preempt":           false,
-	}
-	for k, v := range r.PassThrough {
-		payload[k] = v
 	}
 	return payload
 }
