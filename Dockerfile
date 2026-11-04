@@ -67,9 +67,8 @@ COPY --from=dist-extract --chown=ds2api:ds2api /out/config.example.json /app/con
 COPY --from=dist-extract --chown=ds2api:ds2api /out/static/admin /app/static/admin
 USER ds2api
 
-# Optional target: includes the Node runner, while SDK assets remain an
-# external read-only mount and generated archives use a writable state volume.
-FROM node:24-bookworm-slim AS runtime-with-sdk
+# Node runtime shared by externally mounted and release-bundled SDK images.
+FROM node:24-bookworm-slim AS sdk-runtime-base
 USER root
 WORKDIR /app
 RUN apt-get update \
@@ -78,15 +77,31 @@ RUN apt-get update \
     && mkdir -p /app/scripts /app/internal/config /data/devid-state \
     && chown -R ds2api:ds2api /app /data \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=runtime-from-source /usr/local/bin/ds2api /usr/local/bin/ds2api
-COPY --from=runtime-from-source --chown=ds2api:ds2api /app/config.example.json /app/config.example.json
-COPY --from=runtime-from-source --chown=ds2api:ds2api /app/static/admin /app/static/admin
-COPY --from=go-builder /app/scripts/devid-*.cjs /app/scripts/devid-files.json /app/scripts/
-COPY --from=go-builder /app/internal/config/android_device_specs.json /app/internal/config/android_device_specs.json
+COPY --from=busybox-tools /bin/busybox /usr/local/bin/busybox
+COPY scripts/devid-*.cjs scripts/devid-files.json /app/scripts/
+COPY internal/config/android_device_specs.json /app/internal/config/android_device_specs.json
 ENV DS2API_DEVID_DIR=/opt/devid-assets
 ENV DS2API_DEVID_STATE_DIR=/data/devid-state
 EXPOSE 5001
 CMD ["/usr/local/bin/ds2api"]
 USER ds2api
+
+FROM sdk-runtime-base AS runtime-with-sdk
+COPY --from=runtime-from-source /usr/local/bin/ds2api /usr/local/bin/ds2api
+COPY --from=runtime-from-source --chown=ds2api:ds2api /app/config.example.json /app/config.example.json
+COPY --from=runtime-from-source --chown=ds2api:ds2api /app/static/admin /app/static/admin
+
+FROM busybox-tools AS devid-assets-extract
+COPY dist/docker-input/devid-assets.tar.gz /tmp/devid-assets.tar.gz
+RUN mkdir -p /out/devid-assets && tar -xzf /tmp/devid-assets.tar.gz -C /out/devid-assets
+
+# Published images use prebuilt binaries and verified static SDK resources.
+# Account data, generated IDs and per-account profiles are never build inputs.
+FROM sdk-runtime-base AS runtime-with-devid-from-dist
+COPY --from=dist-extract /out/ds2api /usr/local/bin/ds2api
+COPY --from=dist-extract --chown=ds2api:ds2api /out/config.example.json /app/config.example.json
+COPY --from=dist-extract --chown=ds2api:ds2api /out/static/admin /app/static/admin
+COPY --from=devid-assets-extract /out/devid-assets /opt/devid-assets
+RUN node /app/scripts/devid-generate.cjs --selftest --timeout 30
 
 FROM runtime-from-source AS final

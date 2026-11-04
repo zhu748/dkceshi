@@ -29,7 +29,8 @@ python3 scripts/install-devid-assets.py /path/to/devid-android-websdk-v1.zip
 账号管理的「登录设备 ID」入口随 manual/auto 模式打开手工池或 SDK ID 清单；
 「Android 设备资料」用于型号和安装身份，不能替代登录设备 ID 来源设置。
 本包不包含账号、密码、token、已生成的 ID 或设备存档。Go 编译不会打包 Node 和这些文件，
-运行时需要同时提供；默认 Docker 镜像保持精简；需要自动生成时使用下方 `runtime-with-sdk` 构建目标。
+运行时需要同时提供。自 v1.0.2 起，本仓库 GHCR 发布镜像内置 Node、生成器和已校验资源，
+不需要额外挂载 SDK；源码构建的默认目标仍保持精简，挂载自有资源时使用下方 `runtime-with-sdk` 目标。
 如果配置了 `DS2API_DEVID_SCRIPT` 或另有 `data/devid/generate.cjs`，它们会覆盖仓库内置生成器，
 需将覆盖项指向本包的 `scripts/devid-generate.cjs`。
 
@@ -82,6 +83,17 @@ stdout 只有一行结果 JSON，成功时包含 `device_id`、`smid_v2`、`envi
 
 ## Docker SDK 镜像
 
+发布镜像 `ghcr.io/zhu748/dkceshi:v1.0.2`（以及 `1.0.2`、`latest`）内置 SDK，支持
+`linux/amd64` 与 `linux/arm64`。普通 `docker-compose.yml` 已使用该镜像并持久化
+`/data/devid-state`；后台将设备 ID 来源设为 auto 后即可使用。静态资源位于 `/opt/devid-assets`，
+账号、已生成的设备 ID 和档案不会打包进镜像。
+
+发布流水线从固定版本资源包读取白名单文件，核对 SHA-256 和包内清单，用当前运行器执行
+离线载荷自检，再构建 `runtime-with-devid-from-dist`；镜像构建与发布后各执行一次离线自检。
+Release 同时提供当前生成器配套的 `devid-android-websdk_<tag>.zip` 和包含 SDK 的 Docker 导出包。
+
+需要自行构建并挂载资源时，沿用以下方式。
+
 先用安装器准备本机资源，再执行：
 
 ```sh
@@ -89,7 +101,7 @@ docker compose -f docker-compose.yml -f docker-compose.sdk.yml up -d --build
 ```
 
 覆盖文件使用 `runtime-with-sdk` 目标，包含 Node 和当前生成器。资源只读挂载到
-`/opt/devid-assets`；可写档案保存在独立 `devid_state` 卷。资源与档案都不会编进镜像。
+`/opt/devid-assets`；可写档案保存在独立 `devid_state` 卷。这个源码构建目标不编入挂载的资源与档案。
 进入后台把设备 ID 来源保存为 auto，SDK 未就绪时弹窗会显示原因并禁用生成按钮。
 
 ## 适配范围

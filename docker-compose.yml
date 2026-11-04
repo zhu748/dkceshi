@@ -1,6 +1,6 @@
 services:
   ds2api:
-    image: ghcr.io/cjackhwang/ds2api:latest
+    image: ghcr.io/zhu748/dkceshi:latest
     container_name: ds2api
     restart: always
     env_file:
@@ -10,8 +10,11 @@ services:
       - "${DS2API_HOST_PORT:-6011}:5001"
     volumes:
       - ./config.json:/data/config.json   # 配置文件（持久化推荐路径）
+      - devid_state:/data/devid-state
     environment:
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
       - DS2API_ADMIN_KEY=${DS2API_ADMIN_KEY:-ds2api}
       - DS2API_CONFIG_PATH=/data/config.json
+volumes:
+  devid_state:

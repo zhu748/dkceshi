@@ -22,6 +22,9 @@ concurrency:
 env:
   GO_VERSION: "1.26.x"
   NODE_VERSION: "24"
+  DEVID_SOURCE_TAG: "v1.0.0"
+  DEVID_SOURCE_ASSET: "devid-android-websdk-v4.6.7.zip"
+  DEVID_SOURCE_SHA256: "32276a0e8dcceacd7267b29c614936834e085f33eb10ea3cb14a374b136af559"
 
 jobs:
   build-and-upload:
@@ -52,6 +55,7 @@ jobs:
 
       - name: Release Blocking Gates
         run: |
+          ./scripts/lint.sh
           ./tests/scripts/check-refactor-line-gate.sh
           ./tests/scripts/run-unit-all.sh
 
@@ -62,6 +66,22 @@ jobs:
         env:
           RELEASE_BUILD_JOBS: "3"
         run: ./scripts/build-release-archives.sh
+
+      - name: Prepare verified bundled devid resources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/sdk-source dist/docker-input
+          gh release download "${DEVID_SOURCE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+            --pattern "${DEVID_SOURCE_ASSET}" --dir dist/sdk-source
+          printf '%s  %s\n' "${DEVID_SOURCE_SHA256}" "dist/sdk-source/${DEVID_SOURCE_ASSET}" | sha256sum --check
+          python3 scripts/install-devid-assets.py "dist/sdk-source/${DEVID_SOURCE_ASSET}" --assets-dir dist/sdk-source/verified
+          python3 scripts/build-android-devid.py --assets dist/sdk-source/verified --output "dist/devid-android-websdk_${RELEASE_TAG}.zip"
+          python3 scripts/install-devid-assets.py "dist/devid-android-websdk_${RELEASE_TAG}.zip" --assets-dir dist/devid-assets
+          tar -C dist/devid-assets -czf dist/docker-input/devid-assets.tar.gz \
+            fp-1.min.js gpus.json patches.json profiles.json verify.js public_key \
+            browser_env.js fonts.json ANDROID-PACKAGE.json
 
       - name: Upload binary release assets
         env:
@@ -122,6 +142,7 @@ jobs:
             ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=${{ env.RELEASE_TAG }}
+            type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
             type=raw,value=latest
 
       - name: Build and Push Docker Image
@@ -132,13 +153,21 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          target: runtime-from-dist
+          target: runtime-with-devid-from-dist
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta_release.outputs.tags }}
           labels: ${{ steps.meta_release.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify published image contains working devid
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${RELEASE_TAG}"
+          docker pull --platform linux/amd64 "${IMAGE}"
+          docker run --rm --entrypoint sh "${IMAGE}" -c \
+            'test "$(id -u)" -ne 0 && test -w "$DS2API_DEVID_STATE_DIR" && node /app/scripts/devid-generate.cjs --selftest --timeout 30'
 
       - name: Export Docker image archives for release assets
         run: |
@@ -147,14 +176,16 @@ jobs:
 
           docker buildx build \
             --platform linux/amd64 \
-            --target runtime-from-dist \
+            --target runtime-with-devid-from-dist \
+            --tag "ghcr.io/${GITHUB_REPOSITORY,,}:${TAG}" \
             --cache-from type=gha \
             --output type=docker,dest="dist/ds2api_${TAG}_docker_linux_amd64.tar" \
             .
 
           docker buildx build \
             --platform linux/arm64 \
-            --target runtime-from-dist \
+            --target runtime-with-devid-from-dist \
+            --tag "ghcr.io/${GITHUB_REPOSITORY,,}:${TAG}" \
             --cache-from type=gha \
             --output type=docker,dest="dist/ds2api_${TAG}_docker_linux_arm64.tar" \
             .
