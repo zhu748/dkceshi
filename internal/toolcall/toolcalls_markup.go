@@ -110,7 +110,13 @@ func extractStandaloneCDATA(inner string) (string, bool) {
 	trimmed := strings.TrimSpace(inner)
 	if openLen := toolCDATAOpenLenAt(trimmed, 0); openLen > 0 {
 		if closeStart := findTrailingToolCDATACloseStart(trimmed); closeStart >= openLen {
-			return trimmed[openLen:closeStart], true
+			body := trimmed[openLen:closeStart]
+			if indexToolCDATAClose(body, 0) >= 0 {
+				if text, ok := parseMixedCDATAString(trimmed); ok {
+					return text, true
+				}
+			}
+			return body, true
 		}
 		if end := findToolCDATAEnd(trimmed, openLen); end >= 0 {
 			// Mixed XML/text must be consumed in full by the XML reader.

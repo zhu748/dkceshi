@@ -55,6 +55,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		ToolNames:             s.toolNames,
 		ToolsRaw:              s.toolsRaw,
 		ToolChoice:            s.toolChoice,
+		OutputFormat:          s.outputFormat,
 		ToolCallRepair:        s.toolCallRepair,
 		ToolCallRepairCtx:     s.toolCallRepairCtx,
 		ToolMarker:            s.sieve.Marker,
@@ -73,7 +74,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		return true
 	}
 
-	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
+	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
 		s.emitTextDelta(completionruntime.ValidatedToolText(turn, s.toolNames, s.sieve.Marker, s.stripReferenceMarkers))
 	}
 	if len(detected) == 0 && s.deferredText.Len() > 0 {

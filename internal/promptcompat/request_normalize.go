@@ -33,6 +33,11 @@ func applyGeneratedToolMarker(text, marker string) string {
 }
 
 func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]any, traceID string, toolMarker ...string) (StandardRequest, error) {
+	var err error
+	req, err = NormalizeLegacyToolDefinitions(req)
+	if err != nil {
+		return StandardRequest{}, err
+	}
 	marker := firstToolMarker(toolMarker)
 	model, _ := req["model"].(string)
 	messagesRaw, _ := req["messages"].([]any)
@@ -74,7 +79,7 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 	passThrough := collectOpenAIChatPassThrough(req)
 	refFileIDs := CollectOpenAIRefFileIDs(req)
 
-	return StandardRequest{
+	standard := StandardRequest{
 		Surface:              "openai_chat",
 		RequestedModel:       strings.TrimSpace(model),
 		ResolvedModel:        resolvedModel,
@@ -95,10 +100,16 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 		ToolMarker:           marker,
 		ToolReminderDisabled: !reminder.Enabled,
 		ToolReminderPrompt:   reminder.Prompt,
-	}, nil
+	}
+	return applyOpenAIOutputFormat(standard, req)
 }
 
 func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[string]any, traceID string, toolMarker ...string) (StandardRequest, error) {
+	var err error
+	req, err = NormalizeLegacyToolDefinitions(req)
+	if err != nil {
+		return StandardRequest{}, err
+	}
 	marker := firstToolMarker(toolMarker)
 	model, _ := req["model"].(string)
 	model = strings.TrimSpace(model)
@@ -146,7 +157,7 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 	passThrough := collectOpenAIChatPassThrough(req)
 	refFileIDs := CollectOpenAIRefFileIDs(req)
 
-	return StandardRequest{
+	standard := StandardRequest{
 		Surface:              "openai_responses",
 		RequestedModel:       model,
 		ResolvedModel:        resolvedModel,
@@ -167,7 +178,8 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 		ToolMarker:           marker,
 		ToolReminderDisabled: !reminder.Enabled,
 		ToolReminderPrompt:   reminder.Prompt,
-	}, nil
+	}
+	return applyOpenAIOutputFormat(standard, req)
 }
 
 func ensureToolDetectionEnabled(toolNames []string, toolsRaw any) []string {

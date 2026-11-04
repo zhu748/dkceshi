@@ -29,7 +29,7 @@ func claudeSystemText(system any) string {
 				parts = append(parts, text)
 			}
 		}
-		return strings.Join(parts, "\n")
+		return strings.Join(parts, "")
 	default:
 		return ""
 	}

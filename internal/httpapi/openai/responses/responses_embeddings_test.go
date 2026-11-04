@@ -51,7 +51,7 @@ func TestNormalizeResponsesInputAsMessagesObjectRoleContentBlocks(t *testing.T) 
 	if m["role"] != "user" {
 		t.Fatalf("unexpected role: %#v", m)
 	}
-	if strings.TrimSpace(promptcompat.NormalizeOpenAIContentForPrompt(m["content"])) != "line-1\nline-2" {
+	if strings.TrimSpace(promptcompat.NormalizeOpenAIContentForPrompt(m["content"])) != "line-1line-2" {
 		t.Fatalf("unexpected content: %#v", m["content"])
 	}
 }

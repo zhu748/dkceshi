@@ -65,10 +65,6 @@ function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
     if (literalCDATA || preservesCDATAStringParameter(paramName)) return cdata.value;
     const literal = parseJSONLiteralValue(cdata.value);
     if (literal.ok) {
-      const literalArray = coerceArrayValue(literal.value, paramName);
-      if (literalArray.ok) {
-        return literalArray.value;
-      }
       return literal.value;
     }
     const structured = parseStructuredCDATAParameterValue(paramName, cdata.value);
@@ -86,8 +82,7 @@ function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
   }
   const exact = parseJSONLiteralValue(toRawString(raw).trim());
   if (exact.ok) {
-    const array = coerceArrayValue(exact.value, paramName);
-    return array.ok ? array.value : exact.value;
+    return exact.value;
   }
   const source = toRawString(raw).trim();
   const s = source.includes('<') && source.includes('>') ? source : toRawString(extractRawTagValue(raw)).trim();
@@ -116,10 +111,6 @@ function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
 
   const literal = parseJSONLiteralValue(s);
   if (literal.ok) {
-    const literalArray = coerceArrayValue(literal.value, paramName);
-    if (literalArray.ok) {
-      return literalArray.value;
-    }
     return literal.value;
   }
   const looseArray = parseLooseJSONArrayValue(s, paramName);

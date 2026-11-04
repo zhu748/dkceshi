@@ -60,8 +60,7 @@ func isGeminiVercelProxyRequest(r *http.Request) bool {
 func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, stream bool) bool {
 	startedAt := time.Now()
 	r.Body = http.MaxBytesReader(w, r.Body, shared.GeneralMaxSize)
-	// See handleClaudeDirect: decode from the replay body instead of double
-	// buffering the payload.
+	// Decode the existing replay body directly.
 	var req map[string]any
 	if err := jsonvalue.Decode(r.Body, &req); err != nil {
 		switch {
@@ -371,7 +370,7 @@ func writeGeminiErrorFromOpenAI(w http.ResponseWriter, status int, raw []byte) {
 	writeGeminiError(w, status, message)
 }
 
-//nolint:unused // retained for native Gemini non-stream handling path.
+//nolint:unused // compatibility entry point.
 func (h *Handler) handleNonStreamGenerateContent(w http.ResponseWriter, resp *http.Response, model, finalPrompt string, thinkingEnabled bool, toolNames []string) {
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -401,7 +400,7 @@ func (h *Handler) handleNonStreamGenerateContent(w http.ResponseWriter, resp *ht
 	))
 }
 
-//nolint:unused // retained for native Gemini non-stream handling path.
+//nolint:unused // compatibility entry point.
 func buildGeminiGenerateContentResponse(model, finalPrompt, finalThinking, finalText string, toolNames []string) map[string]any {
 	parts := buildGeminiPartsFromFinal(finalText, finalThinking, toolNames)
 	usage := buildGeminiUsage(model, finalPrompt, finalThinking, finalText)
@@ -443,40 +442,7 @@ func buildGeminiGenerateContentResponseFromTurn(turn assistantturn.Turn) map[str
 	}
 }
 
-func buildGeminiPartsFromTurn(turn assistantturn.Turn) []map[string]any {
-	thinkingPart := func() []map[string]any {
-		if turn.Thinking == "" {
-			return nil
-		}
-		return []map[string]any{{"text": turn.Thinking, "thought": true}}
-	}
-	if len(turn.ToolCalls) > 0 {
-		parts := thinkingPart()
-		if parts == nil {
-			parts = make([]map[string]any, 0, len(turn.ToolCalls))
-		}
-		for _, tc := range turn.ToolCalls {
-			parts = append(parts, map[string]any{
-				"functionCall": map[string]any{
-					"id":   "call_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
-					"name": tc.Name,
-					"args": tc.Input,
-				},
-			})
-		}
-		return parts
-	}
-	parts := thinkingPart()
-	if turn.Text != "" {
-		parts = append(parts, map[string]any{"text": turn.Text})
-	}
-	if len(parts) == 0 {
-		parts = append(parts, map[string]any{"text": ""})
-	}
-	return parts
-}
-
-//nolint:unused // retained for native Gemini non-stream handling path.
+//nolint:unused // compatibility entry point.
 func buildGeminiUsage(model, finalPrompt, finalThinking, finalText string) map[string]any {
 	promptTokens := util.CountPromptTokens(finalPrompt, model)
 	reasoningTokens := util.CountOutputTokens(finalThinking, model)
@@ -488,7 +454,6 @@ func buildGeminiUsage(model, finalPrompt, finalThinking, finalText string) map[s
 	}
 }
 
-//nolint:unused // retained for native Gemini non-stream handling path.
 func buildGeminiPartsFromFinal(finalText, finalThinking string, toolNames []string) []map[string]any {
 	detected := toolcall.ParseToolCalls(finalText, toolNames)
 	if len(detected) == 0 && finalThinking != "" {

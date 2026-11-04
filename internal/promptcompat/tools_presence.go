@@ -40,6 +40,9 @@ func RequestBodyHasTools(req map[string]any) bool {
 	if tools, ok := req["tools"].([]any); ok && tools != nil {
 		return len(tools) > 0
 	}
+	if functions, ok := req["functions"].([]any); ok && functions != nil {
+		return len(functions) > 0
+	}
 	return systemMessagesMentionTools(req)
 }
 

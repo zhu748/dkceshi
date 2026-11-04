@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"ds2api/internal/outputformat"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
 	"ds2api/internal/textclean"
@@ -74,6 +75,7 @@ type FinalOutcome struct {
 }
 
 type BuildOptions struct {
+	OutputFormat          outputformat.Format
 	Model                 string
 	Prompt                string
 	RefFileTokens         int
@@ -156,35 +158,6 @@ func maybeRepairToolCalls(parsed toolcall.ToolCallParseResult, rawText string, o
 	return normalized, parsed.ResidualIntentText
 }
 
-// deductRepairedSource removes the bad tool-markup regions that a successful
-// LLM repair replaced from the visible text.
-//
-// Removal is span based rather than verbatim-residual based. The residual
-// handed to the repair layer is not necessarily a contiguous substring of the
-// visible text (a successfully parsed wrapper is cut out of its middle, leaving
-// head and tail) and it can carry legitimate prose next to the bad call, so
-// only the markup spans themselves are deducted and the prose survives. When no
-// markup span is locatable (for example an EPSE shell whose local name is
-// outside the markup name table), the residual is removed verbatim as a
-// fallback, which preserves the previous behaviour for contiguous residuals.
-func deductRepairedSource(text, residual string) string {
-	if text == "" {
-		return text
-	}
-	if spans := toolcall.BadToolMarkupSpans(text); len(spans) > 0 {
-		return toolcall.RemoveTextSpans(text, spans)
-	}
-	replaced := strings.TrimSpace(residual)
-	if replaced == "" {
-		return text
-	}
-	idx := strings.Index(text, replaced)
-	if idx < 0 {
-		return text
-	}
-	return strings.TrimSpace(text[:idx] + text[idx+len(replaced):])
-}
-
 type StreamSnapshot struct {
 	ContentCut            sse.CutReason
 	RawText               string
@@ -230,14 +203,13 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) (built 
 	calls := toolcall.NormalizeParsedToolCallsForSchemas(parsed.Calls, opts.ToolsRaw)
 	repairCompleted := false
 	if result.ReadError == nil && !result.ContentFilter && result.UpstreamError == "" && result.Cut != sse.CutPromptEcho && result.Cut != sse.CutOutputLimit {
-		if repaired, replaced := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
+		if repaired, _ := maybeRepairToolCalls(parsed, result.Text, opts); len(repaired) > 0 {
 			calls = repaired
-			text = deductRepairedSource(text, replaced)
 			repairCompleted = true
 		}
 	}
 	parsed.Calls = calls
-	text = toolstream.FilterVisible(text, opts.ToolMarker)
+	text = toolTextForTurn(result.Text, text, calls, opts, result.CitationLinks)
 
 	stopReason := StopReasonStop
 	if result.ContentFilter {
@@ -317,14 +289,13 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) (bu
 	// finalize replaces it with the repaired tool_calls. Partial success is
 	// repaired as one ordered batch without value-based deduplication.
 	if !snapshot.AlreadyEmittedCalls && !snapshot.AlreadyEmittedToolRaw && !snapshot.ContentFilter && snapshot.UpstreamError == "" && snapshot.ContentCut != sse.CutPromptEcho && snapshot.ContentCut != sse.CutOutputLimit {
-		if repaired, replaced := maybeRepairToolCalls(parsed, snapshot.RawText, opts); len(repaired) > 0 {
+		if repaired, _ := maybeRepairToolCalls(parsed, snapshot.RawText, opts); len(repaired) > 0 {
 			calls = repaired
-			text = deductRepairedSource(text, replaced)
 			repairCompleted = true
 		}
 	}
 	parsed.Calls = calls
-	text = toolstream.FilterVisible(text, opts.ToolMarker)
+	text = toolTextForTurn(snapshot.RawText, text, calls, opts, snapshot.CitationLinks)
 
 	stopReason := StopReasonStop
 	if snapshot.ContentFilter {

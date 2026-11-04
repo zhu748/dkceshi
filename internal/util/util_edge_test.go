@@ -234,8 +234,8 @@ func TestNormalizeContentArray(t *testing.T) {
 		map[string]any{"type": "text", "text": "line1"},
 		map[string]any{"type": "text", "text": "line2"},
 	})
-	if got != "line1\nline2" {
-		t.Fatalf("expected 'line1\\nline2', got %q", got)
+	if got != "line1line2" {
+		t.Fatalf("expected adjacent text without inserted separators, got %q", got)
 	}
 }
 
@@ -248,23 +248,20 @@ func TestNormalizeContentArrayWithContentField(t *testing.T) {
 	}
 }
 
-func TestNormalizeContentArraySkipsImage(t *testing.T) {
+func TestNormalizeContentArrayLabelsUnsupportedImage(t *testing.T) {
 	got := normalizeContent([]any{
 		map[string]any{"type": "image_url", "image_url": "https://example.com/img.png"},
 		map[string]any{"type": "text", "text": "caption"},
 	})
-	if strings.Contains(got, "image") {
-		t.Fatalf("expected image skipped, got %q", got)
-	}
-	if got != "caption" {
-		t.Fatalf("expected 'caption', got %q", got)
+	if !strings.Contains(got, "[Unsupported content block]") || !strings.Contains(got, "https://example.com/img.png") || !strings.HasSuffix(got, "caption") {
+		t.Fatalf("expected image metadata and caption preserved, got %q", got)
 	}
 }
 
 func TestNormalizeContentArrayNonMapItems(t *testing.T) {
 	got := normalizeContent([]any{"string item", 42})
-	if got != "" {
-		t.Fatalf("expected empty for non-map items, got %q", got)
+	if got != "string item42" {
+		t.Fatalf("expected scalar content preserved, got %q", got)
 	}
 }
 

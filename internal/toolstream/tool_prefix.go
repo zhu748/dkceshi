@@ -11,3 +11,13 @@ func TextBeforeToolBoundary(text string) string {
 	}
 	return ""
 }
+
+// ToolResponseText also accepts an already-cleaned prefix from a validated
+// turn. It must not erase that prefix simply because its tags were removed.
+func ToolResponseText(text string) string {
+	state := State{DeferMalformed: true}
+	if start := findToolSegmentStart(&state, text); start >= 0 {
+		text = text[:start]
+	}
+	return FilterVisible(text, "")
+}

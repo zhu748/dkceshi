@@ -96,8 +96,14 @@ func NormalizeContent(v any) string {
 	case []any:
 		parts := make([]string, 0, len(x))
 		for _, item := range x {
+			if text, ok := item.(string); ok {
+				parts = append(parts, text)
+				continue
+			}
 			m, ok := item.(map[string]any)
 			if !ok {
+				encoded, _ := json.Marshal(item)
+				parts = append(parts, string(encoded))
 				continue
 			}
 			typeStr, _ := m["type"].(string)
@@ -106,17 +112,28 @@ func NormalizeContent(v any) string {
 				parts = append(parts, ref)
 				continue
 			}
+			if typeStr == "reasoning" || typeStr == "thinking" {
+				continue // Assistant reasoning is rendered from its own field.
+			}
+			if typeStr == "refusal" {
+				if text, ok := m["refusal"].(string); ok {
+					parts = append(parts, "[refusal]"+text+"[/refusal]")
+					continue
+				}
+			}
 			if typeStr == "text" || typeStr == "output_text" || typeStr == "input_text" {
 				if txt, ok := m["text"].(string); ok && txt != "" {
 					parts = append(parts, txt)
 					continue
 				}
-				if txt, ok := m["content"].(string); ok && txt != "" {
+				if txt, ok := m["content"].(string); ok {
 					parts = append(parts, txt)
 				}
+				continue
 			}
+			parts = append(parts, unknownContentBlock(m))
 		}
-		return strings.Join(parts, "\n")
+		return strings.Join(parts, "")
 	default:
 		b, err := json.Marshal(v)
 		if err != nil {

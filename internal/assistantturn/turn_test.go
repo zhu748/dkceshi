@@ -446,9 +446,8 @@ func TestBuildTurnFromCollectedNoDefensiveRepairWithoutSyntax(t *testing.T) {
 	}
 }
 
-// TestBuildTurnFromCollectedRepairDeductsDSMLKeepsProse covers span-based
-// deduction: only the DSML wrapper is removed, so prose that travelled next to
-// the bad call stays visible instead of being deducted with the whole residual.
+// Repaired calls retain the leading explanation, while text after the first
+// executable boundary cannot masquerade as a real tool result.
 func TestBuildTurnFromCollectedRepairDeductsDSMLKeepsProse(t *testing.T) {
 	text := `before <DSML calls><DSML invoke name="read"><DSML parameter name="path">/tmp/a.txt</DSML parameter></DSML invoke></DSML calls> after`
 	invoke := func(_ context.Context, _ string) (string, error) {
@@ -465,17 +464,13 @@ func TestBuildTurnFromCollectedRepairDeductsDSMLKeepsProse(t *testing.T) {
 	if strings.Contains(turn.Text, "DSML") {
 		t.Fatalf("expected DSML wrapper deducted from visible text, got %q", turn.Text)
 	}
-	for _, want := range []string{"before", "after"} {
-		if !strings.Contains(turn.Text, want) {
-			t.Fatalf("expected prose %q preserved, got %q", want, turn.Text)
-		}
+	if turn.Text != "before " {
+		t.Fatalf("expected only prose before the repaired call, got %q", turn.Text)
 	}
 }
 
-// TestBuildTurnFromCollectedRepairDeductsDSMLPartialSuccess covers the
-// partial-success case: a successfully parsed wrapper sits between prose, so the
-// residual is not a contiguous substring of the visible text. Span-based
-// deduction must still remove the trailing DSML block.
+// Mixed parsed/repaired batches preserve call order and expose only the text
+// before the first invocation, including when another damaged shell follows.
 func TestBuildTurnFromCollectedRepairDeductsDSMLPartialSuccess(t *testing.T) {
 	good := `<|EPSE|tool_calls><|EPSE|invoke name="Write"><|EPSE|parameter name="content">hi</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
 	bad := `<DSML calls><DSML invoke name="read"><DSML parameter name="path">/tmp/a.txt</DSML parameter></DSML invoke></DSML calls>`
@@ -493,9 +488,7 @@ func TestBuildTurnFromCollectedRepairDeductsDSMLPartialSuccess(t *testing.T) {
 	if strings.Contains(turn.Text, "DSML") {
 		t.Fatalf("expected DSML wrapper deducted from visible text, got %q", turn.Text)
 	}
-	for _, want := range []string{"intro", "tail"} {
-		if !strings.Contains(turn.Text, want) {
-			t.Fatalf("expected prose %q preserved, got %q", want, turn.Text)
-		}
+	if turn.Text != "intro " {
+		t.Fatalf("expected only prose before the first call, got %q", turn.Text)
 	}
 }

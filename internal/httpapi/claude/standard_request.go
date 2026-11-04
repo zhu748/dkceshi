@@ -69,7 +69,7 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 		toolNames = []string{"__any_tool__"}
 	}
 
-	return claudeNormalizedRequest{
+	result := claudeNormalizedRequest{
 		Standard: promptcompat.StandardRequest{
 			Surface:        "anthropic_messages",
 			RequestedModel: strings.TrimSpace(model),
@@ -95,5 +95,9 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 			ToolReminderDisabled:    !reminder.Enabled,
 			ToolReminderPrompt:      reminder.Prompt,
 		},
-	}, nil
+	}
+	if output, ok := req["output_config"].(map[string]any); ok {
+		result.Standard, err = promptcompat.ApplyOutputFormat(result.Standard, output["format"])
+	}
+	return result, err
 }

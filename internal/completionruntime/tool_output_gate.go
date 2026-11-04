@@ -2,6 +2,7 @@ package completionruntime
 
 import (
 	"ds2api/internal/assistantturn"
+	"ds2api/internal/outputformat"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/textclean"
 	"ds2api/internal/toolcall"
@@ -12,8 +13,8 @@ import (
 // tool history is present. Only required/forced turns hold prose: an answer
 // without a call violates that policy and must remain replaceable.
 // Executable tool batches always wait for shared final validation.
-func HoldToolOutput(_ []string, _ any, choice promptcompat.ToolChoicePolicy) bool {
-	return choice.IsRequired()
+func HoldToolOutput(_ []string, _ any, choice promptcompat.ToolChoicePolicy, formats ...outputformat.Format) bool {
+	return choice.IsRequired() || len(formats) > 0 && formats[0].Enabled()
 }
 
 // Preserve the stream contract after validation: prose before a call is part

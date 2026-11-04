@@ -3,9 +3,11 @@ package promptcompat
 import (
 	"context"
 	"ds2api/internal/config"
+	"ds2api/internal/outputformat"
 )
 
 type StandardRequest struct {
+	OutputFormat outputformat.Format
 	// ReplayInput reconstructs normalized input from retained attachment bytes.
 	// It is request-local and must never be serialized into diagnostics or leases.
 	ReplayInput    func(context.Context) (StandardRequest, error) `json:"-"`
@@ -86,7 +88,7 @@ func (r StandardRequest) BuildPromptFromMessages(messages []any) (string, []stri
 	} else {
 		finalPrompt, toolNames = BuildOpenAIPrompt(messages, r.ToolsRaw, "", r.ToolChoice, r.Thinking, r.ToolReminderConfig(), r.ToolMarker)
 	}
-	finalPrompt = r.WithThinkingInstruction(finalPrompt)
+	finalPrompt = r.WithThinkingInstruction(r.withOutputInstruction(finalPrompt))
 	return finalPrompt, toolNames
 }
 
@@ -101,7 +103,7 @@ func (r StandardRequest) BuildPromptWithExternalTools(messages []any, readGuard 
 	} else {
 		text, names = buildOpenAIPromptWithReadGuard(messages, r.ToolsRaw, "", r.ToolChoice, r.Thinking, false, readGuard, !r.SystemTextToolsDisabled, r.ToolReminderConfig(), r.ToolMarker)
 	}
-	return r.WithThinkingInstruction(text), names
+	return r.WithThinkingInstruction(r.withOutputInstruction(text)), names
 }
 
 // SystemTextToolsApply 报告本请求是否适用「system 文本声明工具」分支：出口允许该

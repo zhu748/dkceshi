@@ -3,6 +3,7 @@ package openai
 import (
 	"ds2api/internal/jsonvalue"
 	"ds2api/internal/toolcall"
+	"ds2api/internal/toolstream"
 	"encoding/json"
 	"strings"
 	"time"
@@ -18,28 +19,25 @@ func BuildResponseObject(responseID, model, finalPrompt, finalThinking, finalTex
 }
 
 func BuildResponseObjectWithToolCalls(responseID, model, finalPrompt, finalThinking, finalText string, detected []toolcall.ParsedToolCall, toolsRaw any) map[string]any {
+	if len(detected) > 0 {
+		finalText = toolstream.ToolResponseText(finalText)
+	}
 	exposedOutputText := finalText
 	output := make([]any, 0, 3)
 	if strings.TrimSpace(finalThinking) != "" {
 		output = append(output, buildResponsesReasoningItem(finalThinking))
 	}
+	if strings.TrimSpace(finalText) != "" {
+		output = append(output, map[string]any{
+			"type": "message", "id": "msg_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+			"role": "assistant", "status": "completed",
+			"content": []any{map[string]any{"type": "output_text", "text": finalText}},
+		})
+	}
 	if len(detected) > 0 {
-		exposedOutputText = ""
 		output = append(output, toResponsesFunctionCallItems(detected, toolsRaw)...)
-	} else {
-		if strings.TrimSpace(finalText) == "" {
-			if strings.TrimSpace(finalThinking) != "" {
-				exposedOutputText = finalThinking
-			}
-		} else {
-			output = append(output, map[string]any{
-				"type":    "message",
-				"id":      "msg_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
-				"role":    "assistant",
-				"status":  "completed",
-				"content": []any{map[string]any{"type": "output_text", "text": finalText}},
-			})
-		}
+	} else if strings.TrimSpace(finalText) == "" && strings.TrimSpace(finalThinking) != "" {
+		exposedOutputText = finalThinking
 	}
 	return BuildResponseObjectFromItems(
 		responseID,

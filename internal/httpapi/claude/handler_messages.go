@@ -453,8 +453,8 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		historySession,
 	)
 	streamRuntime.toolChoice = stdReq.ToolChoice
+	streamRuntime.outputFormat = stdReq.OutputFormat
 	streamRuntime.sieve.Marker = a.ToolMarker
-	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
 	streamRuntime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory, stdReq)
 	streamRuntime.toolCallRepairCtx = r.Context()
 	streamRuntime.sendMessageStart()

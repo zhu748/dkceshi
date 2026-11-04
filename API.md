@@ -40,7 +40,7 @@
 
 - OpenAI / Claude / Gemini 三套协议已统一挂在同一 `chi` 路由树上，由 `internal/server/router.go` 负责装配。
 - 适配器层职责收敛为：**请求归一化 → DeepSeek 调用 → 协议形态渲染**，减少历史版本中“同能力多处实现”的分叉。
-- Tool Calling 的解析策略在 Go 与 Node Runtime 间保持一致：推荐模型输出半角管道符 DSML 外壳 `<|DSML|tool_calls>` → `<|DSML|invoke name="...">` → `<|DSML|parameter name="...">`；兼容层也接受 DSML wrapper 别名 `<dsml|tool_calls>`、`<|tool_calls>`、常见 DSML 分隔符漏写形态（如 `<|DSML tool_calls>`）、`DSML` 与工具标签名黏连的常见 typo（如 `<DSMLtool_calls>`）、控制分隔符漂移（如 `<DSML␂tool_calls>` / 原始 STX `\x02`）、CJK 尖括号、全角感叹号、顿号、PascalCase 本地名、弯引号属性值与属性尾部分隔符漂移（如 `<DSM|parameter name="command"|>...〈/DSM|parameter〉` / `<！DSML！invoke name=“Bash”>` / `<、DSML、tool_calls>` / `<DSmartToolCalls>` / `<DSMLtool_calls※>`）、任意协议前缀壳（如 `<proto💥tool_calls>`），以及旧式 canonical XML `<tool_calls>` → `<invoke name="...">` → `<parameter name="...">`。实现上采用结构扫描：只要固定本地标签名是 `tool_calls` / `invoke` / `parameter`，标签名前或标签名后的非结构性分隔符会在解析入口归一化；CDATA 开头也会容错 `<！[CDATA[` / `<、[CDATA[` 这类分隔符漂移；只有 `tool_calls` wrapper 或可修复的缺失 opening wrapper 会进入工具路径，裸 `<invoke>` 不计为已支持语法；流式场景继续执行防泄漏筛分。若参数体本身是合法 JSON 字面量（如 `123`、`true`、`null`、数组或对象），会按结构化值输出，不再一律当作字符串；显式空字符串和纯空白参数会结构化保留为空字符串，是否拒绝缺参由工具执行侧决定；完整但 malformed 的 wrapper 会作为普通文本释放，不会吞掉或伪造成工具调用；若 CDATA 偶发漏闭合，则会在最终 parse / flush 恢复阶段做窄修复，尽量保住已完整包裹的外层工具调用。
+- 工具提示词使用调用者专属标记的 EPSE 格式，保留旧 canonical XML 兼容。Go/Node 的工具候选统一经共享收尾解析、策略及 Schema 校验后整批交付；无法安全恢复时返回明确错误。详见 [兼容说明](docs/prompt-compatibility.md)。
 - `Admin API` 将配置与运行时策略分开：`/admin/config*` 管静态配置，`/admin/settings*` 管运行时行为。
 - 当上游返回 thinking-only 响应（模型输出了推理链但无可见文本）时，Go 主路径与 Vercel Node 流式路径都会先自动重试一次：以多轮对话 follow-up 方式追加 prompt 后缀 `"Previous reply had no visible output. Please regenerate the visible final answer or tool call now."` 并设置 `parent_message_id` 在同一 DeepSeek session 内让模型重新输出；同账号重试最大 1 次。若同账号重试后仍即将返回 `429 upstream_empty_output`，托管账号模式会在返回 429 前自动切换到下一个可用账号，新建 session，用原始 payload 再 fresh retry 一次。
 - 模型生成的工具参数/选择错误（`invalid_tool_arguments` / `tool_choice_violation`）在格式修复失败后，同账号补偿一次；仍失败时，托管账号可切换到一个未尝试且匹配工具池的账号重新生成。输入请求本身的参数错误直接返回。
@@ -323,7 +323,7 @@ data: [DONE]
 
 当请求中含 `tools` 时，DS2API 做防泄漏处理：
 
-**非流式**：识别到工具调用时，返回 `message.tool_calls`，设置 `finish_reason=tool_calls`，`message.content=null`。
+**非流式**：返回 `message.tool_calls` 并设置 `finish_reason=tool_calls`；保留调用前的有效说明，没有说明时 `message.content=null`。调用后的虚构结果不交付。
 
 ```json
 {
@@ -350,13 +350,13 @@ data: [DONE]
 }
 ```
 
-**流式**：命中高置信特征后立即输出 `delta.tool_calls`（不等待完整工具参数闭合），并持续发送 arguments 增量；已确认的工具调用片段不会回流到 `delta.content`。
+**流式**：正文可增量交付；工具批次等待完整解析、必要修复、策略及 Schema 校验后输出标准 `delta.tool_calls`。原始工具代码不进入可见正文。
 
 补充说明：
 
-- **非代码块上下文**下，工具负载即使与普通文本混合，也会按特征识别并产出可执行 tool call（前后普通文本仍可透传）。
-- 解析器当前把推荐半角管道符 DSML 外壳（`<|DSML|tool_calls>` / `<|DSML|invoke name="...">` / `<|DSML|parameter name="...">`）、DSML wrapper 别名（`<dsml|tool_calls>`、`<|tool_calls>`）、常见 DSML 分隔符漏写形态（如 `<|DSML tool_calls>` / `<|DSML invoke>` / `<|DSML parameter>`）、`DSML` 与工具标签名黏连的常见 typo（如 `<DSMLtool_calls>` / `<DSMLinvoke>` / `<DSMLparameter>`）、控制分隔符漂移（如 `<DSML␂tool_calls>` / 原始 STX `\x02`）、CJK 尖括号、全角感叹号、顿号、PascalCase 本地名、弯引号属性值与属性尾部分隔符漂移（如 `<DSM|parameter name="command"|>...〈/DSM|parameter〉` / `<！DSML！invoke name=“Bash”>` / `<、DSML、tool_calls>` / `<DSmartToolCalls>` / `<DSMLtool_calls※>`）、任意协议前缀壳（如 `<proto💥tool_calls>`）和旧式 canonical XML 工具块（`<tool_calls>` / `<invoke name="...">` / `<parameter name="...">`）作为可执行调用解析；这些非结构性分隔符壳会先归一化回 XML，内部仍以 XML 解析语义为准，CDATA 开头也会容错 `<！[CDATA[` / `<、[CDATA[`。旧式 `<tools>`、`<tool_call>`、`<tool_name>`、`<param>`、`<function_call>`、`tool_use`、antml 风格与纯 JSON `tool_calls` 片段默认都会按普通文本处理；完整但 malformed 的 wrapper 同样会作为普通文本释放。
-- 解析层不会因为参数值为空而丢弃工具调用；显式空字符串或纯空白参数会按空字符串进入结构化 `tool_calls`。Prompt 会要求模型不要主动输出空参数，缺参/空命令的拒绝应由工具执行侧或客户端 schema 校验负责。
+- 工具块之前的正常说明保留；工具块之后的正文不透传。代码、引文和 CDATA 中的示例按字面内容处理。
+- 模型使用本次提示词给出的专属标记，不应主动改用 DSML。完整原生 DSML 可经保守本地恢复后继续校验；损坏调用进入受保真约束的修复流程，最终无法通过时返回 422 / SSE 错误，不作为普通正文释放。合法 JSON 参数保持类型与对象结构，连续 CDATA 分段保留原始字符串。
+- Schema 允许的空字符串、null、空对象及空数组均保留；服务端在交付前检查必填参数、类型、enum、嵌套约束和额外字段，执行端仍应校验权限与业务条件。
 - 当最终可见正文为空但思维链里包含可执行工具调用时，Chat / Responses 会在收尾阶段补发标准 OpenAI `tool_calls` / `function_call` 输出；如果客户端未开启 thinking / reasoning，该思维链只用于检测，不会作为可见正文或 `reasoning_content` 暴露。
 - Markdown fenced code block（例如 ```json ... ```）和行内 code span（例如 `` `<tool_calls>...</tool_calls>` ``）中的 `tool_calls` 仅视为示例文本，不会被执行。
 
@@ -521,12 +521,12 @@ anthropic-version: 2023-06-01
 | `system` | string | ❌ | 可选系统提示 |
 | `tools` | array | ❌ | Claude tool 定义 |
 | `thinking` | object | ❌ | Anthropic thinking 配置；会转译为下游 reasoning 控制，`-nothinking` 模型会忽略 |
-| `temperature` | number | ❌ | 透传到下游；若同时提供 `top_p`，以 `temperature` 为准 |
-| `top_p` | number | ❌ | 当未提供 `temperature` 时透传到下游 |
-| `stop_sequences` | array | ❌ | 透传到下游停用序列 |
-| `tool_choice` | string/object | ❌ | 支持 `auto` / `none` / `required` / `{"type":"function","name":"..."}`，并会转译为下游工具选择 |
+| `temperature` | number | ❌ | 兼容接收；App 反代不提供原生温度控制 |
+| `top_p` | number | ❌ | 兼容接收；App 反代不提供原生采样控制 |
+| `stop_sequences` | array | ❌ | 兼容接收；当前原生 App 路径不保证停止序列控制 |
+| `tool_choice` | object | ❌ | 支持 `auto` / `none` / `any` / `tool`，以及 `disable_parallel_tool_use`；统一校验工具策略 |
 
-> 说明：上述 `thinking`、`temperature`、`top_p`、`stop_sequences`、`tool_choice` 都会走兼容层转译；最终是否生效仍取决于当前模型和上游能力。`temperature` 与 `top_p` 同时存在时，`temperature` 优先。
+> 工具选择由共享策略校验。App 反代不提供原生温度或思考强度调节；已有 thinking 开关不等同于强度映射。
 
 #### 非流式响应
 
@@ -1503,3 +1503,12 @@ curl http://localhost:5001/v1/chat/completions \
 Vercel Node 流式路径会释放 prepare 已返回的租约，包括字段不完整或客户端已断开的情形。上游 401 的内部恢复请求保留 `auth_failed` 标志，继续由 Go 的共享鉴权逻辑执行凭据恢复。不可恢复的断流会先发出已缓冲的有效片段，再发送 `upstream_interrupted`、`[DONE]` 并结束 HTTP 响应。
 
 管理台批量刷新 Token 运行期间可点击“取消”；取消或离开账号页面会停止后续账号请求并忽略迟到结果。主动取消保留已完成进度，已由服务端完成的刷新不会被撤回。
+
+
+### 文本输出格式兼容
+
+Chat 的 `response_format`、Responses 的 `text.format`、Gemini 的 JSON MIME/Schema 与
+Claude 的 `output_config.format` 转为统一的提示词约束和最终 JSON/Schema 校验。
+这不是 App 原生的结构化生成模式；不合规答案返回 `invalid_response_format`，流式正文
+校验通过后才交付。工具轮仍先返回经过校验的工具调用，格式约束作用于最终文本答案。
+参见 [兼容说明](docs/prompt-compatibility.md#文本输出格式约束)。

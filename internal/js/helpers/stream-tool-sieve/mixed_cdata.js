@@ -37,7 +37,12 @@ function extractStandaloneCDATA(inner) {
   }
   const closeStart = findTrailingToolCDATACloseStart(s);
   if (closeStart >= openLen) {
-    return { ok: true, value: s.slice(openLen, closeStart) };
+    const body = s.slice(openLen, closeStart);
+    if (findToolCDATAEnd(body, 0) >= 0) {
+      const mixed = parseMixedCDATAString(s);
+      if (mixed.ok) return mixed;
+    }
+    return { ok: true, value: body };
   }
   const end = findToolCDATAEnd(s, openLen);
   if (end >= 0) {

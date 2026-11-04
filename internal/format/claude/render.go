@@ -3,6 +3,7 @@ package claude
 import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/toolcall"
+	"ds2api/internal/toolstream"
 	"github.com/google/uuid"
 	"strings"
 
@@ -17,6 +18,9 @@ func BuildMessageResponseFromTurn(messageID, model string, turn assistantturn.Tu
 	}
 	stopReason := "end_turn"
 	if len(turn.ToolCalls) > 0 {
+		if strings.TrimSpace(turn.Text) != "" {
+			content = append(content, map[string]any{"type": "text", "text": turn.Text})
+		}
 		stopReason = "tool_use"
 		for _, tc := range turn.ToolCalls {
 			content = append(content, map[string]any{
@@ -66,6 +70,9 @@ func BuildMessageResponse(messageID, model string, normalizedMessages []any, fin
 	}
 	stopReason := "end_turn"
 	if len(detected) > 0 {
+		if prefix := toolstream.ToolResponseText(finalText); strings.TrimSpace(prefix) != "" {
+			content = append(content, map[string]any{"type": "text", "text": prefix})
+		}
 		stopReason = "tool_use"
 		for _, tc := range detected {
 			content = append(content, map[string]any{

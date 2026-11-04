@@ -9,6 +9,7 @@ import (
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
 	openaifmt "ds2api/internal/format/openai"
+	"ds2api/internal/outputformat"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
@@ -34,6 +35,7 @@ type responsesStreamRuntime struct {
 	toolsRaw      any
 	traceID       string
 	toolChoice    promptcompat.ToolChoicePolicy
+	outputFormat  outputformat.Format
 
 	thinkingEnabled       bool
 	searchEnabled         bool
@@ -232,7 +234,7 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 		if p.CitationOnly {
 			continue
 		}
-		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
+		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
 			continue
 		}
 		if !s.bufferToolContent {

@@ -30,6 +30,12 @@ var compiledSchemas = struct {
 	order   [][32]byte
 }{entries: map[[32]byte]*jsonschema.Schema{}, pending: map[[32]byte]*schemaBuild{}}
 
+// CompileLocalJSONSchema shares the bounded, local-only compiler with response
+// format validation. Neither tools nor output schemas may fetch external refs.
+func CompileLocalJSONSchema(raw any) (*jsonschema.Schema, error) {
+	return compileToolSchema(raw)
+}
+
 func compileToolSchema(raw any) (*jsonschema.Schema, error) {
 	data, err := json.Marshal(raw)
 	if err != nil {

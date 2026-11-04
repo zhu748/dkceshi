@@ -13,6 +13,7 @@ import (
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
 	dsprotocol "ds2api/internal/deepseek/protocol"
+	"ds2api/internal/outputformat"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
@@ -117,6 +118,7 @@ type geminiStreamRuntime struct {
 	toolCallRepairCtx context.Context
 	toolMarker        string
 	toolChoice        promptcompat.ToolChoicePolicy
+	outputFormat      outputformat.Format
 }
 
 func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow string, stdReq promptcompat.StandardRequest, model, finalPrompt string, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, historySession *responsehistory.Session) {
@@ -149,7 +151,8 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 	runtime.toolMarker = a.ToolMarker
 	runtime.toolSieve.Marker = a.ToolMarker
 	runtime.toolChoice = stdReq.ToolChoice
-	runtime.bufferContent = completionruntime.HoldToolOutput(toolNames, toolsRaw, stdReq.ToolChoice)
+	runtime.outputFormat = stdReq.OutputFormat
+	runtime.bufferContent = completionruntime.HoldToolOutput(toolNames, toolsRaw, stdReq.ToolChoice, stdReq.OutputFormat)
 
 	completionruntime.ExecuteStreamWithRetry(r.Context(), h.DS, a, resp, payload, pow, completionruntime.StreamRetryOptions{
 		Surface:             "gemini.generate_content",
@@ -416,6 +419,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 		ToolNames:             s.toolNames,
 		ToolsRaw:              s.toolsRaw,
 		ToolChoice:            s.toolChoice,
+		OutputFormat:          s.outputFormat,
 		ToolCallRepair:        s.toolCallRepair,
 		ToolCallRepairCtx:     s.toolCallRepairCtx,
 		ToolMarker:            s.toolMarker,
@@ -449,6 +453,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 		s.emitStreamText(completionruntime.ValidatedToolText(turn, s.toolNames, s.toolMarker, s.stripReferenceMarkers))
 	}
 	if len(turn.ToolCalls) > 0 {
+		turn.Text = "" // The prefix was delivered incrementally or flushed above.
 		s.sendParts(buildGeminiPartsFromTurn(turn))
 	} else if !s.bufferContent {
 		s.emitStreamText(toolstream.FilterVisible(s.deferredText.String(), ""))

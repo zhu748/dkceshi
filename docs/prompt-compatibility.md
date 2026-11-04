@@ -783,3 +783,39 @@ CDATA 与尾随普通文本混合的参数必须完整保留文本，并区分 C
 - 开启 `auto_delete` 时，在更换账号、同账号建立替代会话及回收过期租约前，将已登记会话交给现有固定大小的异步清理队列。删除使用离开前快照的所属账号凭据；队列满或删除失败记录日志，不阻塞输出。最终会话继续执行原有 single/all 策略。
 - Prepare 下发包含引用文件的初始 `prompt_tokens`。Node 只回传实际发送的 `retry_prompts`；换号后清空上一账号的重试列表。Go 校验和收尾以租约持有的 `PromptTokenText`、附件计数与这些提示词调用共享计算器，确保 HISTORY/TOOLS 和附件仅计一次。收尾响应返回同一份 usage，Node 复用为最终 SSE usage，无新增控制请求。返回 usage 后再执行远端清理，避免慢删除延迟最终帧。
 - Release 失败时 Node 保留 prepare 提供的完整输入 token 基数并估算重试增量；旧 Go/Node 组合继续支持原有回退。错误请求不写消费账本。
+
+
+## 参数与请求转录保真完善（2026-11-04）
+
+- 完整合法的 JSON 参数保留原有类型与对象外层，包括仅含 `item` 或与参数同名键的对象。
+  XML 的 `<item>` 列表与旧式不完整 JSON 容错继续保留，不能用其规则拆解已经合法的 JSON。
+- 顶层 parameter 和嵌套文本均支持连续 CDATA 分段；历史渲染对 `]]>` 的标准分段可无损回读，
+  保留 CR/LF、缩进、实体字面量及分段后的文本。原有参数内工具代码示例的兼容处理继续保留。
+- OpenAI 顶层 `functions` / `function_call` 在路由、工具策略及提示词构建前按兼容路径处理；
+  旧声明归一化为 `tools` / `tool_choice`，不修改调用者原数据。新旧声明冲突返回 400。
+  输出继续使用该接口的现代 `tool_calls` 形态；旧客户端需要识别现代响应字段。
+- OpenAI、Claude 和 Gemini 的已知正文文本块按顺序直接拼接，不裁剪原文或额外插入换行。
+  OpenAI refusal 块以标签保留全文；未识别块作为有标记的数据转录，显式二进制字段与
+  不透明签名省略，降级 JSON 最多 4096 UTF-8 字节，截断有标记。助手拒绝回答不会消失。
+- 共享 turn 在原始工具边界截断可见正文。四种非流式协议与流式协议均保留调用前的说明，
+  不返回调用后编造的结果；Responses 的正文项排在工具项之前。
+
+### 文本输出格式约束
+
+本服务反代 App，不提供原生温度、采样参数或思考强度控制，本次不新增这些字段的映射。
+已有思考开关与提示词注入设置沿用现有行为。输出格式采用提示词约束及最终校验实现，
+不声称上游具有原生 JSON / Schema 模式，也不靠格式修复猜测或修改答案内容。
+
+- Chat 接受 `response_format` 的 `text`、`json_object`、`json_schema`；Responses 接受 `text.format`。
+- Gemini 接受 `generationConfig.responseMimeType=application/json`，以及 `responseSchema`
+  （适配其大写类型）或 `responseJsonSchema`；两种 Schema 同时提供或与 text/plain 冲突时返回 400。
+- Claude 的 `output_config.format` 可使用 `json_schema`。格式约束独立保存在标准请求中，
+  思考注入、附件重放及 HISTORY/TOOLS 外置后重建提示词仍保留，客户端消息本体不被改写。
+- JSON 答案必须为一个完整 JSON 值；json_object 必须是对象，json_schema 再验证全部 Schema。
+  编译复用有界缓存，只允许本地引用，不访问网络或文件。请求 Schema 无效时返回 400。
+- 工具调用先经过原有完整批次、名称、策略及参数校验；输出格式约束只检查无工具的最终答案，
+  允许 Agent 先调用工具取得信息。格式不合规返回 `invalid_response_format`（HTTP 422 / SSE 错误），
+  不把不合规文本作为成功答案交付，也不针对这类错误自动重新生成。
+- 仅对有输出格式约束的请求暂存正文，完成共享校验后再交付；思考仍可按现有策略实时显示。
+  Go 四协议和 Vercel Node 使用相同校验，Node prepare 的 validate_output 控制正文暂存，
+  已通过 Go 校验的正文原文用于交付。普通文本与既有工具请求继续沿用原先的交付边界。

@@ -40,7 +40,7 @@ Docs: [Overview](README.en.md) / [Architecture](docs/ARCHITECTURE.en.md) / [Depl
 
 - OpenAI / Claude / Gemini protocols are now mounted on one shared `chi` router tree assembled in `internal/server/router.go`.
 - Adapter responsibilities are streamlined to: **request normalization → DeepSeek invocation → protocol-shaped rendering**, reducing legacy split-logic paths.
-- Tool-calling semantics are aligned between Go and Node runtime: models should output the halfwidth-pipe DSML shell `<|DSML|tool_calls>` → `<|DSML|invoke name="...">` → `<|DSML|parameter name="...">`; DS2API also accepts DSML wrapper aliases such as `<dsml|tool_calls>` and `<|tool_calls>`, common DSML separator drift such as `<|DSML tool_calls>`, collapsed DSML local names such as `<DSMLtool_calls>`, control-separator drift such as `<DSML␂tool_calls>` / raw STX `\x02`, CJK angle bracket, fullwidth-bang / ideographic-comma separator drift, PascalCase local-name drift, and trailing attribute separator drift such as `<DSM|parameter name="command"|>...〈/DSM|parameter〉`, `<！DSML！invoke name=“Bash”>`, `<、DSML、tool_calls>`, `<DSmartToolCalls>`, or `<DSMLtool_calls※>`, arbitrary protocol prefixes such as `<proto💥tool_calls>`, and legacy canonical XML `<tool_calls>` → `<invoke name="...">` → `<parameter name="...">`. The scanner normalizes fixed local names (`tool_calls` / `invoke` / `parameter`) with non-structural separators before or after them back to XML before parsing, and also tolerates CDATA opener drift such as `<！[CDATA[` / `<、[CDATA[`; only wrapped tool blocks or the narrow missing-opening-wrapper repair path enter the tool path, while bare `<invoke>` does not count as supported syntax. JSON literal parameter bodies are preserved as structured values, explicit empty or whitespace-only parameters are preserved as empty strings, malformed complete wrappers are released as plain text, and loose CDATA is narrowly repaired at final parse/flush when it can preserve a complete outer tool call.
+- Tool prompts use caller-specific EPSE markers with legacy canonical XML compatibility. Go/Node deliver complete tool batches only after shared final parsing, policy and Schema validation; unsafe recovery returns an explicit error. See [compatibility details](docs/prompt-compatibility.md).
 - `Admin API` separates static config from runtime policy: `/admin/config*` for configuration state, `/admin/settings*` for runtime behavior.
 - When upstream returns a thinking-only response with no visible text, the Go main path and the Vercel Node streaming path retry once in the same DeepSeek session: it appends the prompt suffix `"Previous reply had no visible output. Please regenerate the visible final answer or tool call now."` and sets `parent_message_id`. If that same-account retry would still end as `429 upstream_empty_output`, managed-account mode switches to the next available account, creates a fresh session, and retries the original payload once before returning 429.
 - Citation/reference marker boundary: streaming output hides upstream `[citation:N]` / `[reference:N]` placeholders by default; non-stream output converts DeepSeek search reference markers into Markdown links.
@@ -318,7 +318,7 @@ data: [DONE]
 
 When `tools` is present, DS2API performs anti-leak handling:
 
-**Non-stream**: If detected, returns `message.tool_calls`, `finish_reason=tool_calls`, `message.content=null`.
+**Non-stream**: Return `message.tool_calls` and `finish_reason=tool_calls`. Preserve valid prose before the calls; use `message.content=null` when no prose exists. Fabricated results after calls are not delivered.
 
 ```json
 {
@@ -345,12 +345,12 @@ When `tools` is present, DS2API performs anti-leak handling:
 }
 ```
 
-**Stream**: Once high-confidence toolcall features are matched, DS2API emits `delta.tool_calls` immediately (without waiting for full argument closure), then keeps sending argument deltas; confirmed tool-call fragments are not forwarded as `delta.content`.
+**Stream**: Prose may stream incrementally. Structured tool batches wait for complete parsing, any required repair, policy and Schema validation. Raw tool protocol never enters visible text.
 
 Additional notes:
 
-- The parser treats the recommended halfwidth-pipe DSML shell tool blocks (`<|DSML|tool_calls>` / `<|DSML|invoke name="...">` / `<|DSML|parameter name="...">`), DSML wrapper aliases (`<dsml|tool_calls>`, `<|tool_calls>`), common DSML separator drift (`<|DSML tool_calls>` / `<|DSML invoke>` / `<|DSML parameter>`), collapsed DSML local names (`<DSMLtool_calls>` / `<DSMLinvoke>` / `<DSMLparameter>`), control-separator drift (`<DSML␂tool_calls>` / raw STX `\x02`), CJK angle bracket, fullwidth-bang / ideographic-comma separator drift, PascalCase local-name drift, and trailing attribute separator drift (`<DSM|parameter name="command"|>...〈/DSM|parameter〉` / `<！DSML！invoke name=“Bash”>` / `<、DSML、tool_calls>` / `<DSmartToolCalls>` / `<DSMLtool_calls※>`), arbitrary protocol prefixes (`<proto💥tool_calls>`), and legacy canonical XML tool blocks (`<tool_calls>` / `<invoke name="...">` / `<parameter name="...">`) as executable tool calls. These shells normalize non-structural separators back to XML first, while internal parsing remains XML-based; CDATA opener drift such as `<！[CDATA[` / `<、[CDATA[` is also normalized for parameter bodies. Legacy `<tools>`, `<tool_call>`, `<tool_name>`, `<param>`, `<function_call>`, `tool_use`, antml variants, and standalone JSON `tool_calls` payloads are treated as plain text; complete but malformed wrappers are also released as plain text.
-- The parser no longer drops tool calls solely because parameter values are empty; explicit empty strings or whitespace-only parameters become empty strings in structured `tool_calls`. Prompting still tells the model not to emit blank parameters, and missing/empty argument rejection belongs in the tool executor or client schema validation.
+- Models follow the caller marker supplied in the prompt. Complete native DSML may undergo conservative local recovery and validation. Damaged calls enter integrity-checked repair; unresolved failures return 422 / an SSE error instead of plain text. Valid JSON types and object structure, and strings split across adjacent CDATA sections, are preserved.
+- Empty strings, nulls, empty objects and arrays remain valid when allowed by the Schema. Shared validation checks required fields, types, enum, nested constraints and additional properties before delivery; executors must still check authorization and business rules.
 - If the final visible response text is empty but the reasoning stream contains an executable tool call, Chat / Responses emits a standard OpenAI `tool_calls` / `function_call` output during finalization. If thinking/reasoning was not enabled by the client, that reasoning text is used only for detection and is not exposed as visible text or `reasoning_content`.
 - `tool_calls` shown inside fenced markdown code blocks (for example, ```json ... ```) are treated as examples, not executable calls.
 
@@ -513,12 +513,12 @@ anthropic-version: 2023-06-01
 | `system` | string | ❌ | Optional system prompt |
 | `tools` | array | ❌ | Claude tool schema |
 | `thinking` | object | ❌ | Anthropic thinking config; translated into downstream reasoning control, and ignored by `-nothinking` models |
-| `temperature` | number | ❌ | Passed through to the downstream bridge; if `temperature` and `top_p` are both present, `temperature` wins |
-| `top_p` | number | ❌ | Passed through when `temperature` is absent |
-| `stop_sequences` | array | ❌ | Passed through as downstream stop sequences |
-| `tool_choice` | string/object | ❌ | Supports `auto` / `none` / `required` / `{"type":"function","name":"..."}` and is translated to downstream tool choice |
+| `temperature` | number | ❌ | Accepted for compatibility; the app proxy provides no native temperature control |
+| `top_p` | number | ❌ | Accepted for compatibility; the app proxy provides no native sampling control |
+| `stop_sequences` | array | ❌ | Accepted for compatibility; the native app path does not guarantee stop-sequence control |
+| `tool_choice` | object | ❌ | Supports `auto` / `none` / `any` / `tool` and `disable_parallel_tool_use`, enforced by shared policy |
 
-> Note: `thinking`, `temperature`, `top_p`, `stop_sequences`, and `tool_choice` are translated through the compatibility bridge. Final behavior still depends on the selected model and upstream support. When both `temperature` and `top_p` are present, `temperature` takes precedence.
+> Shared policy validates tool choice. The app proxy provides no native temperature or reasoning-effort control; the existing thinking toggle is not an effort mapping.
 
 #### Non-Stream Response
 
@@ -1490,3 +1490,13 @@ Shared SSE handling treats `response/fragments/N/status`, `fragments/N/status` a
 The Vercel Node stream releases any lease returned by prepare, including malformed preparation or a disconnected client. Internal recovery for upstream 401 preserves `auth_failed`, leaving credential recovery to Go's shared auth logic. An unrecoverable interruption flushes valid buffered deltas before sending `upstream_interrupted`, `[DONE]`, and ending the HTTP response.
 
 While the admin batch Token refresh runs, its button becomes Cancel. Canceling or leaving the accounts page stops subsequent account requests and ignores late results. Explicit cancellation retains completed progress; refreshes already completed by the server are not rolled back.
+
+
+### Text output format compatibility
+
+Chat `response_format`, Responses `text.format`, Gemini JSON MIME/Schema and Claude
+`output_config.format` use shared prompt instructions and final JSON/Schema validation.
+This is not a native app generation mode. Invalid answers return `invalid_response_format`;
+constrained stream text is delivered only after validation. Intermediate tool turns still
+return validated calls; format validation applies to the final text answer.
+See [compatibility details](docs/prompt-compatibility.md#文本输出格式约束).

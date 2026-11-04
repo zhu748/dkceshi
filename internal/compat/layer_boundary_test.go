@@ -15,7 +15,7 @@ import (
 func TestSharedBusinessPackagesDoNotImportHTTPSurfaces(t *testing.T) {
 	for _, pkg := range []string{
 		"assistantturn", "completionruntime", "contextfile", "textclean",
-		"promptcompat", "prompt", "toolcall", "toolstream", "sse", "stream",
+		"outputformat", "promptcompat", "prompt", "toolcall", "toolstream", "sse", "stream",
 	} {
 		t.Run(pkg, func(t *testing.T) {
 			dir := filepath.Join("..", pkg)

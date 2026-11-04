@@ -83,6 +83,7 @@ func (h *Handler) handleStreamWithRetry(w http.ResponseWriter, r *http.Request, 
 	// final frame is delivered. The per-chunk sieve never receives the invoker.
 	streamRuntime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory, stdReq)
 	streamRuntime.toolCallRepairCtx = r.Context()
+	streamRuntime.outputFormat = stdReq.OutputFormat
 	streamRuntime.toolSieve.Marker = a.ToolMarker
 	completionruntime.ExecuteStreamWithRetry(r.Context(), h.DS, a, resp, payload, pow, completionruntime.StreamRetryOptions{
 		Surface:             "chat.completions",

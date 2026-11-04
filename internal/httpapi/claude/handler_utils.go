@@ -36,7 +36,7 @@ func normalizeClaudeMessages(messages []any) []any {
 				}
 				message := map[string]any{
 					"role":    role,
-					"content": strings.Join(textParts, "\n"),
+					"content": strings.Join(textParts, ""),
 				}
 				// Thinking stays in reasoning_content instead of being inlined
 				// into content: the shared prompt builder renders the labeled

@@ -8,6 +8,7 @@ import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/completionruntime"
 	openaifmt "ds2api/internal/format/openai"
+	"ds2api/internal/outputformat"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
@@ -32,6 +33,7 @@ type chatStreamRuntime struct {
 	toolNames     []string
 	toolsRaw      any
 	toolChoice    promptcompat.ToolChoicePolicy
+	outputFormat  outputformat.Format
 
 	thinkingEnabled       bool
 	searchEnabled         bool
@@ -255,6 +257,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		ToolNames:             s.toolNames,
 		ToolsRaw:              s.toolsRaw,
 		ToolChoice:            s.toolChoice,
+		OutputFormat:          s.outputFormat,
 		ToolCallRepair:        s.toolCallRepair,
 		ToolCallRepairCtx:     s.toolCallRepairCtx,
 		ToolMarker:            s.toolSieve.Marker,
@@ -269,7 +272,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	}
 	s.finalThinking = turn.Thinking
 	s.finalText = turn.Text
-	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
+	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
 		if text := completionruntime.ValidatedToolText(turn, s.toolNames, s.toolSieve.Marker, s.stripReferenceMarkers); text != "" {
 			s.sendDelta(map[string]any{"content": text})
 		}
@@ -371,7 +374,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 		if p.CitationOnly {
 			continue
 		}
-		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
+		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
 			continue
 		}
 		if !s.bufferToolContent {

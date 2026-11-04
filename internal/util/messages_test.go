@@ -75,7 +75,7 @@ func TestMessagesPrepareArrayTextVariants(t *testing.T) {
 		},
 	}
 	got := MessagesPrepare(messages)
-	if !contains(got, "line1\nline2") {
+	if !contains(got, "line1line2") {
 		t.Fatalf("unexpected content from text variants: %q", got)
 	}
 }

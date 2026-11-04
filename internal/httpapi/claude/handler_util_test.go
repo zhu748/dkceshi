@@ -35,7 +35,7 @@ func TestNormalizeClaudeMessagesArrayContent(t *testing.T) {
 	}
 	got := normalizeClaudeMessages(msgs)
 	m := got[0].(map[string]any)
-	if m["content"] != "line1\nline2" {
+	if m["content"] != "line1line2" {
 		t.Fatalf("expected joined text, got %q", m["content"])
 	}
 }

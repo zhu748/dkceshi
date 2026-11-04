@@ -43,7 +43,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 		}
 		parts, _ := content["parts"].([]any)
 		if len(parts) == 0 {
-			if text := strings.TrimSpace(asString(content["text"])); text != "" {
+			if text, ok := content["text"].(string); ok {
 				out = append(out, map[string]any{
 					"role":    role,
 					"content": text,
@@ -60,7 +60,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 			}
 			msg := map[string]any{
 				"role":    role,
-				"content": strings.Join(textParts, "\n"),
+				"content": strings.Join(textParts, ""),
 			}
 			if role == "assistant" && strings.TrimSpace(pendingThinking) != "" {
 				msg["reasoning_content"] = pendingThinking
@@ -75,7 +75,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 			if !ok {
 				continue
 			}
-			if text := strings.TrimSpace(asString(part["text"])); text != "" {
+			if text, ok := part["text"].(string); ok {
 				if role == "assistant" && isGeminiThoughtPart(part) {
 					if pendingThinking == "" {
 						pendingThinking = text
@@ -170,7 +170,7 @@ func isGeminiThoughtPart(part map[string]any) bool {
 func normalizeGeminiSystemInstruction(raw any) string {
 	switch v := raw.(type) {
 	case string:
-		return strings.TrimSpace(v)
+		return v
 	case map[string]any:
 		if parts, ok := v["parts"].([]any); ok {
 			texts := make([]string, 0, len(parts))
@@ -179,13 +179,13 @@ func normalizeGeminiSystemInstruction(raw any) string {
 				if !ok {
 					continue
 				}
-				if text := strings.TrimSpace(asString(part["text"])); text != "" {
+				if text, ok := part["text"].(string); ok {
 					texts = append(texts, text)
 				}
 			}
-			return strings.Join(texts, "\n")
+			return strings.Join(texts, "")
 		}
-		if text := strings.TrimSpace(asString(v["text"])); text != "" {
+		if text, ok := v["text"].(string); ok {
 			return text
 		}
 	}

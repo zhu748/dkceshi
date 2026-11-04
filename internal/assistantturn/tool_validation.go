@@ -50,6 +50,11 @@ func validateToolOutput(turn *Turn, opts BuildOptions, repaired bool) *OutputErr
 	if err != nil {
 		return &OutputError{Status: http.StatusUnprocessableEntity, Message: err.Error(), Code: "invalid_tool_arguments"}
 	}
+	if len(turn.ToolCalls) == 0 && opts.OutputFormat.Enabled() {
+		if err := opts.OutputFormat.Validate(turn.Text); err != nil {
+			return &OutputError{Status: http.StatusUnprocessableEntity, Code: "invalid_response_format", Message: err.Error()}
+		}
+	}
 	return nil
 }
 

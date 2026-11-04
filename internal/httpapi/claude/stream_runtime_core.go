@@ -9,6 +9,7 @@ import (
 
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/completionruntime"
+	"ds2api/internal/outputformat"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
@@ -32,6 +33,7 @@ type claudeStreamRuntime struct {
 	messages        []any
 	toolsRaw        any
 	toolChoice      promptcompat.ToolChoicePolicy
+	outputFormat    outputformat.Format
 	promptTokenText string
 	// inputTokenCounts memoizes prompt token counts so message_start, finalize
 	// and retry attempts encode each distinct prompt only once.
@@ -203,7 +205,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 			continue
 		}
 		s.text.WriteString(rawTrimmed)
-		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice) {
+		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
 			continue
 		}
 

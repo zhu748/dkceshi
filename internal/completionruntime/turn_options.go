@@ -20,6 +20,7 @@ func buildOptions(stdReq promptcompat.StandardRequest, prompt string, opts Optio
 func buildOptionsWithoutRepair(stdReq promptcompat.StandardRequest, prompt string, opts Options) assistantturn.BuildOptions {
 	return assistantturn.BuildOptions{
 		Model:                 stdReq.ResponseModel,
+		OutputFormat:          stdReq.OutputFormat,
 		Prompt:                prompt,
 		RefFileTokens:         stdReq.RefFileTokens,
 		SearchEnabled:         stdReq.Search,

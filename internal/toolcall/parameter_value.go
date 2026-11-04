@@ -12,9 +12,6 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 			return value
 		}
 		if parsed, ok := parseJSONLiteralValue(value); ok {
-			if parsedArray, ok := coerceArrayValue(parsed, paramName); ok {
-				return parsedArray
-			}
 			return parsed
 		}
 		if parsed, ok := parseStructuredCDATAParameterValue(paramName, value); ok {
@@ -27,9 +24,6 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 	}
 	// Valid JSON is already unambiguous; XML/HTML recovery must not rewrite it.
 	if parsed, ok := parseJSONLiteralValue(trimmed); ok {
-		if array, ok := coerceArrayValue(parsed, paramName); ok {
-			return array
-		}
 		return parsed
 	}
 	// Nested XML decodes its own leaf values. Pre-decoding the entire tree
@@ -39,9 +33,6 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 		decoded = extractRawTagValue(trimmed)
 	}
 	if parsed, ok := parseJSONLiteralValue(decoded); ok {
-		if parsedArray, ok := coerceArrayValue(parsed, paramName); ok {
-			return parsedArray
-		}
 		return parsed
 	}
 	if strings.Contains(decoded, "<") && strings.Contains(decoded, ">") {
@@ -65,9 +56,6 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 					return ""
 				}
 				if parsedText, ok := parseJSONLiteralValue(text); ok {
-					if parsedArray, ok := coerceArrayValue(parsedText, paramName); ok {
-						return parsedArray
-					}
 					return parsedText
 				}
 				if parsedText, ok := parseLooseJSONArrayValue(text, paramName, recovery...); ok {
@@ -86,9 +74,6 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 					}
 					return rawValue
 				}
-			}
-			if parsedArray, ok := coerceArrayValue(parsed, paramName); ok {
-				return parsedArray
 			}
 			return parsed
 		}
