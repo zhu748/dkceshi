@@ -2,9 +2,9 @@
 
 // Public payload parser facade and tool-call assembly.
 const { toRawString } = require('./state');
+const { parseJSONStrict, hasDuplicateJSONKeys } = require('./strict_json');
 const { emptyToolMarkupGap } = require('./body_integrity');
 const {
-  repairSwallowedCDATARanges,
   sanitizeLooseCDATA,
 } = require('./cdata_repair');
 const {
@@ -121,7 +121,7 @@ function parseMarkupSingleToolCall(block) {
 
   if (inner) {
     try {
-      const decoded = JSON.parse(inner);
+      const decoded = parseJSONStrict(inner);
       if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) {
         const key = Object.hasOwn(decoded, 'input') ? 'input' : Object.hasOwn(decoded, 'parameters') ? 'parameters' : null;
         if (!key) return Object.keys(decoded).length === 0 ? { name, input: {} } : null;
@@ -144,6 +144,8 @@ function parseMarkupSingleToolCall(block) {
     if (!paramName) {
       return null;
     }
+    const body = toRawString(match.body).trim();
+    if ((body.startsWith('{') || body.startsWith('[')) && hasDuplicateJSONKeys(body)) return null;
     appendMarkupValue(input, counts, paramName, parseMarkupValue(match.body, paramName));
     prev = match.end;
   }
@@ -226,7 +228,6 @@ module.exports = {
   indexToolCDATAOpen,
   normalizeEPSEToolCallMarkup,
   parseMarkupToolCalls,
-  repairSwallowedCDATARanges,
   sanitizeLooseCDATA,
   stripDSMLResidue,
   stripFencedCodeBlocks,

@@ -129,41 +129,24 @@ func TestBoundedSlottingPreservesAllParameterNodes(t *testing.T) {
 	}
 }
 
-// TestBuildToolCallRepairPlanPromotesBounded verifies the repair plan picks the
-// bounded interpretation for this input, keeps greedy as the alternate, and
-// records a degrade reason.
-func TestBuildToolCallRepairPlanPromotesBounded(t *testing.T) {
+// Closed literal content takes precedence over a competing interpretation
+// that discovers additional parameter tags inside it.
+func TestBuildToolCallRepairPlanProtectsClosedLiteralSlots(t *testing.T) {
 	plan := buildToolCallRepairPlan(realWorldSwallowedStructureBadCode, "")
-	if plan.interpretation != "bounded" {
-		t.Fatalf("interpretation = %q, want bounded", plan.interpretation)
-	}
-	if plan.degradeReason != "swallowed_structure" {
-		t.Fatalf("degradeReason = %q, want swallowed_structure", plan.degradeReason)
-	}
-	if !plan.alternate.slotted {
-		t.Fatal("expected greedy to be retained as the alternate interpretation")
-	}
-	if !strings.Contains(plan.prompt, "DS_SLOT_8") {
-		t.Fatal("prompt should carry all nine placeholders")
+	greedy := slotCDATAContent(realWorldSwallowedStructureBadCode)
+	if plan.interpretation != "greedy" || plan.primary.skeleton != greedy.skeleton || plan.alternate.slotted {
+		t.Fatal("closed literal ranges were split into a competing parameter manifest")
 	}
 	if !strings.Contains(plan.prompt, "个参数占位符") {
-		t.Fatal("prompt should carry the placeholder checklist")
+		t.Fatal("missing placeholder checklist")
 	}
 }
 
-// TestRepairToolCallsWithLLMRecoversSwallowedParameter is the end-to-end fix: a
-// model that repairs the bounded skeleton (adding the two missing `]]>` and
-// fixing nothing else) now yields three complete edit calls. Before the fix the
-// skeleton was missing a parameter node, so this was unreachable.
-func TestRepairToolCallsWithLLMRecoversSwallowedParameter(t *testing.T) {
-	var seen string
-	invoke := func(_ context.Context, prompt string) (string, error) {
-		seen = prompt
-		// Emulate a well-behaved model: copy the skeleton verbatim and supply
-		// the missing `]]>` before each unclosed parameter close tag, changing
-		// nothing else. LastIndex, not Index: the format spec that prefixes the
-		// prompt contains `<|EPSE|tool_calls>` samples of its own.
-		skeleton := prompt[strings.LastIndex(prompt, "<|EPSE|tool_calls>"):]
+func TestRepairToolCallsRejectsSplittingClosedLiteralParameters(t *testing.T) {
+	invoke := func(_ context.Context, _ string) (string, error) {
+		// Reproduce the old bounded repair, which silently invented source nodes
+		// from text within an already closed CDATA range.
+		skeleton := slotCDATAContentBounded(realWorldSwallowedStructureBadCode).skeleton
 		for i := 0; i < 9; i++ {
 			unclosed := "DS_SLOT_" + strconv.Itoa(i) + "</|EPSE|parameter>"
 			closed := "DS_SLOT_" + strconv.Itoa(i) + "]]></|EPSE|parameter>"
@@ -171,30 +154,8 @@ func TestRepairToolCallsWithLLMRecoversSwallowedParameter(t *testing.T) {
 		}
 		return skeleton, nil
 	}
-	calls, ok := RepairToolCallsWithLLM(context.Background(), realWorldSwallowedStructureBadCode, invoke)
-	if !ok {
-		t.Fatal("expected repair to succeed")
-	}
-	if len(calls) != 3 {
-		t.Fatalf("repaired call count = %d, want 3", len(calls))
-	}
-	for i, c := range calls {
-		if c.Name != "edit" {
-			t.Fatalf("call %d name = %q, want edit", i, c.Name)
-		}
-		for _, key := range []string{"file_path", "old_string", "new_string"} {
-			if _, ok := c.Input[key]; !ok {
-				t.Fatalf("call %d missing parameter %q (input=%#v)", i, key, c.Input)
-			}
-		}
-	}
-	// The second invoke's new_string must be the original bytes, restored.
-	second, _ := calls[1].Input["new_string"].(string)
-	if !strings.Contains(second, "// It covers the common formats") {
-		t.Fatalf("second call new_string not restored verbatim: %q", second)
-	}
-	if strings.Contains(seen, "func ExtensionSet(exts []string)") {
-		t.Fatal("prompt must not carry raw parameter bodies")
+	if calls, ok := RepairToolCallsWithLLM(context.Background(), realWorldSwallowedStructureBadCode, invoke); ok || len(calls) != 0 {
+		t.Fatalf("ambiguous boundary rewrite accepted: %#v", calls)
 	}
 }
 

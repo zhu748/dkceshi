@@ -58,8 +58,12 @@ func normalizeClaudeMessages(messages []any) []any {
 				typeStr := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", b["type"])))
 				switch typeStr {
 				case "text":
-					if t, ok := b["text"].(string); ok {
-						textParts = append(textParts, t)
+					if text, ok := b["text"].(string); ok {
+						if prompt.TextBlockMetadata(b) == "" {
+							textParts = append(textParts, text)
+						} else {
+							textParts = append(textParts, b)
+						}
 					}
 				case "thinking":
 					if role == "assistant" {

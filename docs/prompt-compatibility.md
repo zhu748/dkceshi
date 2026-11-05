@@ -2,6 +2,31 @@
 
 本项目最初基于 `ouqiting20/ds2api` 的 `f9d2085` 对齐提示词、工具调用、历史拆分和模型目录；当前消息保真与任务拆分规则以本文为准。请求头、登录及上游传输继续使用本项目原有实现。
 
+## 上下文与纠错保真
+
+已闭合 CDATA 的原文是确定的字符串边界。即使其中出现 `</parameter>`、`<invoke>`、
+另一个 `<![CDATA[`，也不能通过插入闭合符增加参数或调用。旧的“调用/参数数量更多优先”
+本地边界恢复已移除。格式修复对这类闭合内容采用完整的贪婪占位符，禁止切换到边界受限
+解释；确实缺少关闭符且原文未形成闭合字面量时，仍保留原有窄修复。
+缺失必填字段由共享 Schema 校验和纠正生成处理，不能靠拆分字符串补出字段。
+
+JSON 对象的重复键（含转义后同名键）在 API 输入和工具结构化参数中拒绝，避免默认解码
+静默覆盖前值。CDATA 内作为普通字符串引用的重复键示例不受影响；大整数仍无损保存。
+
+`output_text` / 普通文本块附带的 annotations、citations 等上下文元数据保存在正文旁；
+Claude 转换与 HISTORY.txt 共用同一渲染器。assistant 历史已有的 `audio.transcript` 及音频 ID
+作为转录/引用保留，不从远程音频 ID 推测内容。Responses 的内置工具历史及未知 typed items
+以完整、标明类型的数据块保留，不转换为新的可执行客户端调用。
+Responses `tool_choice.type=custom` 映射为共享指定工具策略。
+
+响应详情增加 `context_manifest`：记录标准化 API 消息的逐条字节长度与 SHA-256、
+实际 live 消息、最终 prompt / HISTORY.txt / 工具目录摘要及附件 ID。历史外置前保存原消息
+摘要，使诊断能比较拆分前后。摘要范围是标准化上下文，不代表原始 HTTP 报文字节，也不能
+证明上游模型已读取或理解文件；它不重复保存正文或二进制载荷。
+
+Schema 编译缓存同时限制为 128 项及 8 MiB 源数据，单项最高 1 MiB。
+较大目录可以复用编译结果，超限项继续按需编译，并发同项编译仍合并。
+
 ## Responses 历史合并边界
 
 Responses 的同一 assistant 工具批次可由多个独立 `reasoning` / `function_call` 项组成。
@@ -10,8 +35,7 @@ Responses 的同一 assistant 工具批次可由多个独立 `reasoning` / `func
 仍保留消息边界，不跨工具结果合并。
 
 Claude 与 Gemini 的请求适配器和 OpenAI 使用同一账号错误分类：账号暂不可用或日额度耗尽
-返回 429，各自渲染相应协议错误体；鉴权失败继续返回 401。Gemini 未知文本块的大小限制在
-UTF-8 字符边界截断，避免在转录中插入破损字符。
+返回 429，各自渲染相应协议错误体；鉴权失败继续返回 401。未知文本块与已知文本块共同保留完整文本，由请求总大小和外置文件传输控制容量。
 
 ## 统一请求链路
 
@@ -20,7 +44,9 @@ UTF-8 字符边界截断，避免在转录中插入破损字符。
 Claude 的 `document.source.type=text` 按纯文本保留 `source.data`，包括首尾空白、长正文和
 形似 Base64 / Data URL 的普通内容。`search_result.content` 及 `document.source.type=content`
 中的已知文本块递归保留完整正文；普通 prompt 与 HISTORY.txt 使用同一内容块序列化。
-已知内容块不使用未知块的长度截断和二进制猜测，真正的二进制字段仍不进入聊天文本。
+已知及未知内容块均不按单块长度截断，也不根据字符串长度或 Base64 外观猜测二进制。
+普通 `data` / `bytes` 业务字段完整保留；显式媒体类型、Base64 编码对象、文件载荷、
+签名和加密内容仍使用省略标记。Claude、Gemini 和 OpenAI 共用此规则。
 
 Gemini 的 `functionResponse.parts` 与 JSON `response` 保存在同一标准 tool 消息中。
 其中的媒体经共享文件预处理上传，结果保留调用 ID、附件顺序、文件引用和 `display_name`，
@@ -60,7 +86,7 @@ CDATA、双引号字符串、Markdown 围栏和行内代码里的字面量保留
 
 Claude 的已知 `tool_result.content` 文本块保留完整原文，包括长文件正文、首尾空白和
 看似 Base64 的普通字符串；不再套用未知内容块的 1024 字节截断或 Base64 猜测。
-未知二进制块继续清洗，必要截断按 UTF-8 字符边界进行。旧式历史
+未知块中的明确二进制继续清洗，普通文本不截断。旧式历史
 `assistant.function_call` / `role:function` 先转换为标准调用和结果，分配的兼容 ID
 避开整个请求已有 ID，转换不修改调用者的原消息。
 

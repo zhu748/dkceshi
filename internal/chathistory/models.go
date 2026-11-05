@@ -40,6 +40,7 @@ type Entry struct {
 	Tools            json.RawMessage `json:"tools,omitempty"`
 	ToolChoice       json.RawMessage `json:"tool_choice_policy,omitempty"`
 	ToolMarker       string          `json:"tool_marker,omitempty"`
+	ContextManifest  json.RawMessage `json:"context_manifest,omitempty"`
 	HistoryText      string          `json:"history_text,omitempty"`
 	FinalPrompt      string          `json:"final_prompt,omitempty"`
 	ReasoningContent string          `json:"reasoning_content,omitempty"`
@@ -92,20 +93,21 @@ type File struct {
 }
 
 type StartParams struct {
-	CreatedAt   int64 // original request time; zero starts a new clock
-	CallerID    string
-	UserAgent   string
-	AccountID   string
-	Surface     string
-	Model       string
-	Stream      bool
-	UserInput   string
-	Messages    []Message
-	Tools       json.RawMessage
-	ToolChoice  json.RawMessage
-	ToolMarker  string
-	HistoryText string
-	FinalPrompt string
+	CreatedAt       int64 // original request time; zero starts a new clock
+	CallerID        string
+	UserAgent       string
+	AccountID       string
+	Surface         string
+	Model           string
+	Stream          bool
+	UserInput       string
+	Messages        []Message
+	Tools           json.RawMessage
+	ToolChoice      json.RawMessage
+	ToolMarker      string
+	ContextManifest json.RawMessage
+	HistoryText     string
+	FinalPrompt     string
 }
 
 type UpdateParams struct {

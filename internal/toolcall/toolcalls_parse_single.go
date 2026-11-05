@@ -38,6 +38,11 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 		if paramName == "" {
 			return ParsedToolCall{}, false
 		}
+		// CDATA is literal text. An unquoted JSON container with conflicting
+		// keys is ambiguous and cannot become an executable parameter.
+		if conflictingJSONKeys(paramMatch.Body) {
+			return ParsedToolCall{}, false
+		}
 		value := parseInvokeParameterValue(paramName, paramMatch.Body, &recovery)
 		recordStringLiteral(literals, input, paramName, paramMatch.Body, value)
 		appendMarkupValue(input, counts, paramName, value)

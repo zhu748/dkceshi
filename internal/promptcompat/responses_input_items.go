@@ -171,6 +171,15 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 		}
 	}
 
+	if itemType != "" {
+		role := "user"
+		if strings.HasSuffix(itemType, "_call") || strings.HasSuffix(itemType, "_call_output") || strings.HasPrefix(itemType, "mcp_") {
+			role = "assistant"
+		}
+		// Built-in tool records are historical context, never executable calls.
+		// Keep their complete typed data rather than extracting only text/content.
+		return map[string]any{"role": role, "content": []any{m}}
+	}
 	if txt, _ := m["text"].(string); strings.TrimSpace(txt) != "" {
 		return map[string]any{
 			"role":    "user",
@@ -192,7 +201,7 @@ func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
 	out := map[string]any{
 		"role": "assistant",
 	}
-	for _, key := range []string{"refusal", "id", "prefix", "name"} {
+	for _, key := range []string{"refusal", "id", "prefix", "name", "audio"} {
 		if value, exists := m[key]; exists {
 			out[key] = value
 		}

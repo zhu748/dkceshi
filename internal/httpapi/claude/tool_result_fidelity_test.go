@@ -33,11 +33,11 @@ func TestRegressionClaudeToolResultPreservesText(t *testing.T) {
 	}
 }
 
-func TestUnknownClaudeBlockTruncationKeepsUTF8(t *testing.T) {
+func TestUnknownClaudeBlockPreservesLongUTF8(t *testing.T) {
 	block := map[string]any{"type": "unknown", "text": strings.Repeat("中", 400)}
 	for _, text := range []string{formatClaudeUnknownBlockForPrompt(block), sanitizeClaudeStringForPrompt("text", block["text"].(string))} {
-		if !utf8.ValidString(text) || strings.ContainsRune(text, '\uFFFD') || !strings.HasSuffix(text, "...(truncated)") {
-			t.Fatal("unknown block truncation corrupted UTF-8")
+		if !utf8.ValidString(text) || strings.ContainsRune(text, '\uFFFD') || !strings.Contains(text, strings.Repeat("中", 400)) {
+			t.Fatal("unknown block lost textual context")
 		}
 	}
 }

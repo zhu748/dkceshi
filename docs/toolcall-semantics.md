@@ -76,7 +76,7 @@
 - 对 `command` / `content` 等长文本参数，CDATA 内部如果包含 Markdown fenced EPSE / XML 示例，即使示例里出现 `]]></parameter>` / `</tool_calls>` 这类看起来像外层结束标签的片段，也会继续按参数原文保留，直到真正位于围栏外的外层结束标签
 - CDATA 开头也按扫描式识别，除了标准 `<![CDATA[`，还会接受 `<！[CDATA[`、`<、[CDATA[` 这类分隔符漂移，并统一还原为原文字段内容。
 - 如果模型把 `<![CDATA[` 打开后却没有闭合，流式扫描阶段仍会保守地继续缓冲，不会误把 CDATA 里的示例 XML 当成真实工具调用；在最终 parse / flush 恢复阶段，会对这类 loose CDATA 做窄修复，尽量保住外层已完整包裹的真实工具调用
-- 某个 `parameter` 的 `<![CDATA[` 漏了自己的 `]]>` 时，CDATA 结束符查找本身没有元素边界，会一路命中**后一个** `parameter` 的 `]]>`，把 `</|EPSE|parameter><|EPSE|parameter name="…">` 外壳和后一个参数的正文一起吞进前一个参数值，同时让后一个参数从解析结果里消失。最终 parse 阶段会识别这种“越界”形态，按元素边界补上 `]]>` 后重解一次，并只在重解结果的 call 数 / 参数数**严格更优**时采用（择优口径与兜底修复的 `pickBetterRepairResult` 一致），因此贪婪解释对它能正确处理的输入保持权威。判定要求参数体内同时出现「自己的 `</parameter>` 闭合标签」和「其后一个未配对的 `<![CDATA[`」两个特征，所以参数正文里合法引用的完整工具调用示例、以及只在正文里提到裸 `<![CDATA[` 的情形都不会触发该修复，值保持逐字节原样。相邻两个参数都漏 `]]>` 时会迭代到不动点。Go 侧实现 `internal/toolcall/toolcalls_cdata_boundary_repair.go`，Node / Vercel 侧对齐实现在 `internal/js/helpers/stream-tool-sieve/cdata_repair.js` 与 `parse.js`。
+- 已闭合 CDATA 的内容保持字面量，不再按“更多调用/参数”选择另一组元素边界。类似缺少 `]]>` 的形态与合法 XML 示例可能完全相同；已有完整解析保持原文，缺参交给共享 Schema 校验和纠正生成。Go 与 Node 使用相同规则。
 - 当文本中 mention 了某种标签名（如 `<epse|tool_calls>` 或 Markdown inline code 里的 `<|EPSE|tool_calls>`）而后面紧跟真正工具调用时，sieve 会跳过不可解析的 mention 候选并继续匹配后续真实工具块；行内 code span 中即使出现完整 `<tool_calls>...</tool_calls>` 示例也不会执行，不会因 mention 导致工具调用丢失，也不会截断 mention 后的正文
 - Go 侧 SSE 读取不再使用 `bufio.Scanner` 的固定 token 上限；单个 `data:` 行中包含很长的写文件参数时，非流式收集、流式解析与 auto-continue 透传都应保留完整行，再交给 tool parser 处理
 
@@ -159,9 +159,13 @@ go test -v -run 'TestParseToolCalls|TestProcessToolSieve' ./internal/toolcall ./
 - **边界受限扫描（仅 repair 路径）**：每个 opener 先定位其所属元素的边界（下一个工具结构标签），只在边界之前找 `]]>`。它解决贪婪扫描在坏格式输入上的两种失效：
   - 参数缺 `]]>` 时，贪婪扫描会一路吃到**下一个**参数的 `]]>`，把 `</|EPSE|parameter><|EPSE|parameter name="...">` 整段吞进一个 slot，导致交给修复层的骨架**整体丢失一个参数节点** —— 模型看不见就不可能修对，且即使骨架修得完美，还原后坏格式仍逐字节复现。
   - 元素内确实没有 `]]>` 的区间，贪婪扫描完全跳过，超长原文直接进 prompt，slot 机制在最需要它的场景失效。边界受限扫描改为 slot 该区间且不输出闭合符，骨架渲染成 `<![CDATA[DS_SLOT_4</|EPSE|parameter>`，长内容被抽走、同时把「缺 `]]>`」这个病灶留在模型视野里。
-- **歧义与择优**：参数正文本身可能合法地包含 `</|EPSE|parameter>` 字样甚至嵌套 `<![CDATA[` 示例。吞噬签名要求「slot 内容含结构标签 **且** 该标签之后还有 CDATA open 标记」，仅含前半条的合法长参数保持贪婪解释不变。命中签名时边界受限骨架升为主解释、贪婪保留为备选；**只发一次 LLM 请求**，用同一份输出分别按两份 slot 表还原并解析，取 call 更多、参数更齐者（完全打平时主解释优先）。
+- **闭合字面量保护**：贪婪扫描已得到闭合 CDATA 时，其内部结构标签不能证明边界错误；完整内容保存在一个 slot 中，不创建边界受限备选。只有未形成闭合字面量的输入才使用受限 slot 恢复，修复后仍校验原调用顺序、参数值和占位符归属。
 - 还原必须用与 slot 时相同的扫描重扫：边界受限骨架可能带元素内未闭合 CDATA，用贪婪重扫会越过这些 opener 并吞掉后面的占位符。
 - 对应实现：`internal/toolcall/toolcalls_cdata_slots.go`（贪婪 + 替换）、`toolcalls_cdata_slots_bounded.go`（边界受限扫描、吞噬判定、占位符清单）、`toolcalls_cdata_slots_restore.go`（还原）。
+
+闭合 CDATA 内的结构形态不能证明发生吞噬。此时生产修复始终使用完整贪婪 slot，
+不产生边界受限备选。仅没有形成闭合字面量的缺失闭合符输入，才允许原有受限恢复；
+参数/调用来源完整性校验仍然适用。
 
 ### 7.3 LLM 修复（finalize 兜底）
 

@@ -195,6 +195,9 @@ func repairIdentities(text string) []repairIdentity {
 					var value map[string]any
 					if dec.Decode(&value) == nil {
 						node.value, node.known = value, true
+						if conflictingJSONKeys(raw[:dec.InputOffset()]) {
+							node.kind, node.known = "unbound", false
+						}
 						jsonEnd = end + 1 + len(text[end+1:]) - len(raw) + int(dec.InputOffset())
 					}
 				}
@@ -202,6 +205,9 @@ func repairIdentities(text string) []repairIdentity {
 			if kind == "parameter" && closeStart >= 0 {
 				node.value = parseInvokeParameterValue(name, text[end+1:closeStart])
 				node.known = true
+				if conflictingJSONKeys(text[end+1 : closeStart]) {
+					node.kind, node.known = "unbound", false
+				}
 			}
 			nodes = append(nodes, node)
 		}

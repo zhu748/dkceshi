@@ -1584,7 +1584,7 @@ func TestProcessToolSieveKeepsConfusableNearMissWrapperAsText(t *testing.T) {
 // following parameter: the unbounded CDATA-end search would otherwise terminate
 // on the NEXT parameter's `]]>`, dropping that parameter and leaking
 // `</|EPSE|parameter><|EPSE|parameter name="...">` into the first value.
-func TestProcessToolSieveUnclosedCDATADoesNotSwallowNextParameter(t *testing.T) {
+func TestProcessToolSievePreservesAmbiguousClosedCDATA(t *testing.T) {
 	var state State
 	command := "$files = Get-ChildItem -Recurse -Filter *.go -File\nWrite-Host \"TOTAL: $($all.Count)\""
 	chunks := []string{
@@ -1614,13 +1614,9 @@ func TestProcessToolSieveUnclosedCDATADoesNotSwallowNextParameter(t *testing.T) 
 	if textContent.Len() != 0 {
 		t.Fatalf("expected no leaked text, got %q", textContent.String())
 	}
-	if len(parsed[0].Input) != 2 {
-		t.Fatalf("expected both parameters to survive, got %#v", parsed[0].Input)
+	want := command + "</|EPSE|parameter>\n    <|EPSE|parameter name=\"description\"><![CDATA[Count duplicate error strings"
+	if len(parsed[0].Input) != 1 || parsed[0].Input["command"] != want {
+		t.Fatalf("closed CDATA was reinterpreted as extra parameters: %#v", parsed[0].Input)
 	}
-	if got, _ := parsed[0].Input["command"].(string); got != command {
-		t.Fatalf("command value not bounded to its own element:\n got: %q\nwant: %q", got, command)
-	}
-	if got, _ := parsed[0].Input["description"].(string); got != "Count duplicate error strings" {
-		t.Fatalf("description = %q, want %q", got, "Count duplicate error strings")
-	}
+
 }

@@ -11,7 +11,6 @@ const {
   hasRepairableXMLToolCallsWrapper,
   indexToolCDATAOpen,
   sanitizeLooseCDATA,
-  repairSwallowedCDATARanges,
 } = require('./parse_payload');
 
 function extractToolNames(tools) {
@@ -62,7 +61,6 @@ function parseToolCallsDetailed(text, toolNames) {
       parsed = parseMarkupToolCalls(recovered);
     }
   }
-  parsed = reparseWithCDATAElementBoundaries(parsed, original);
   if (parsed.length === 0) {
     return result;
   }
@@ -72,48 +70,6 @@ function parseToolCallsDetailed(text, toolNames) {
   result.rejectedToolNames = filtered.rejectedToolNames;
   result.rejectedByPolicy = filtered.rejectedToolNames.length > 0 && filtered.calls.length === 0;
   return result;
-}
-
-// reparseWithCDATAElementBoundaries retries parsing with swallowed CDATA ranges
-// closed at their element boundary (Go parity:
-// internal/toolcall/toolcalls_cdata_boundary_repair.go). The greedy result is
-// kept unless the boundary interpretation parses strictly better, so every input
-// greedy handles correctly is left alone.
-//
-// The repair runs on the pre-normalization original: the tail a greedy range
-// swallowed was inside a CDATA body when normalizeEPSEToolCallMarkup ran, so its
-// EPSE tags survived as parameter content. Releasing that tail is only useful if
-// it is normalized afterwards, which means repairing first and normalizing
-// second.
-function reparseWithCDATAElementBoundaries(parsed, original) {
-  const repaired = repairSwallowedCDATARanges(original);
-  if (repaired === original) {
-    return parsed;
-  }
-  const candidate = parseMarkupToolCalls(repaired);
-  return boundaryRepairOutranks(candidate, parsed) ? candidate : parsed;
-}
-
-// boundaryRepairOutranks applies the same arbitration as the LLM repair path:
-// more tool calls wins, then more populated parameters. Ties keep greedy.
-function boundaryRepairOutranks(candidate, current) {
-  if (candidate.length === 0) {
-    return false;
-  }
-  if (candidate.length !== current.length) {
-    return candidate.length > current.length;
-  }
-  return countToolCallInputs(candidate) > countToolCallInputs(current);
-}
-
-function countToolCallInputs(calls) {
-  let total = 0;
-  for (const call of calls) {
-    if (call && call.input && typeof call.input === 'object') {
-      total += Object.keys(call.input).length;
-    }
-  }
-  return total;
 }
 
 function emptyParseResult() {

@@ -15,8 +15,8 @@ func Unmarshal(data []byte, dst any) error { return Decode(bytes.NewReader(data)
 
 func Decode(r io.Reader, dst any) error {
 	d := json.NewDecoder(r)
-	d.UseNumber()
-	if err := d.Decode(dst); err != nil {
+	var raw json.RawMessage
+	if err := d.Decode(&raw); err != nil {
 		return err
 	}
 	var extra any
@@ -25,6 +25,14 @@ func Decode(r io.Reader, dst any) error {
 			return err
 		}
 		return fmt.Errorf("unexpected trailing JSON value")
+	}
+	if err := CheckDuplicateKeys(raw); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(dst); err != nil {
+		return err
 	}
 	switch v := dst.(type) {
 	case *any:

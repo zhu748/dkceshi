@@ -21,64 +21,24 @@ Write-Host "TOTAL: $($all.Count)"</|EPSE|parameter>
   </|EPSE|invoke>
 </|EPSE|tool_calls>`
 
-const swallowedNextParameterWantCommand = `$files = Get-ChildItem -Recurse -Filter *.go -File
-$rx = [regex]'(?:errors\.New|fmt\.Errorf)\s*\(\s*"([^"]*)"'
-Write-Host "TOTAL: $($all.Count)"`
-
-// TestUnclosedCDATADoesNotSwallowNextParameter is the core assertion: both
-// parameters survive and neither value carries tool-call framing.
-func TestUnclosedCDATADoesNotSwallowNextParameter(t *testing.T) {
+// The old recovery inferred extra parameters from a syntactically closed
+// literal. The same bytes can be valid code/documentation; preserve them and
+// let required-field validation trigger corrective generation when necessary.
+func TestAmbiguousClosedCDATAPreservesOriginalValue(t *testing.T) {
 	calls := ParseToolCalls(swallowedNextParameterBadCode, nil)
-	if len(calls) != 1 {
-		t.Fatalf("call count = %d, want 1 (calls=%#v)", len(calls), calls)
-	}
-	if calls[0].Name != "pwsh" {
-		t.Fatalf("call name = %q, want pwsh", calls[0].Name)
-	}
-	if len(calls[0].Input) != 2 {
-		t.Fatalf("parameter count = %d, want 2 (input=%#v)", len(calls[0].Input), calls[0].Input)
-	}
-	command, _ := calls[0].Input["command"].(string)
-	if command != swallowedNextParameterWantCommand {
-		t.Fatalf("command value not bounded to its own element:\n got: %q\nwant: %q",
-			command, swallowedNextParameterWantCommand)
-	}
-	if want := "Extract and count duplicate error message strings in Go files"; calls[0].Input["description"] != want {
-		t.Fatalf("description = %#v, want %q", calls[0].Input["description"], want)
-	}
-	// The leak this regression is about: no tool-call framing inside a value.
-	for name, value := range calls[0].Input {
-		text, _ := value.(string)
-		for _, marker := range []string{"EPSE", "<![CDATA[", "</parameter", "<parameter"} {
-			if strings.Contains(text, marker) {
-				t.Fatalf("parameter %q leaked tool-call framing %q: %q", name, marker, text)
-			}
-		}
+	start := strings.Index(swallowedNextParameterBadCode, "<![CDATA[") + len("<![CDATA[")
+	end := strings.LastIndex(swallowedNextParameterBadCode, "]]>")
+	if len(calls) != 1 || len(calls[0].Input) != 1 || calls[0].Input["command"] != swallowedNextParameterBadCode[start:end] {
+		t.Fatalf("closed literal was reinterpreted: %#v", calls)
 	}
 }
 
-// TestConsecutiveUnclosedCDATAParametersAllSurvive covers the chained shape: two
-// adjacent parameters both missing `]]>` present as one greedy range, so the
-// repair has to run to a fixpoint rather than a single pass.
-func TestConsecutiveUnclosedCDATAParametersAllSurvive(t *testing.T) {
-	text := `<|EPSE|tool_calls><|EPSE|invoke name="Bash">` +
-		`<|EPSE|parameter name="command"><![CDATA[echo one</|EPSE|parameter>` +
-		`<|EPSE|parameter name="description"><![CDATA[two</|EPSE|parameter>` +
-		`<|EPSE|parameter name="workdir"><![CDATA[/tmp]]></|EPSE|parameter>` +
-		`</|EPSE|invoke></|EPSE|tool_calls>`
-
+func TestConsecutiveCDATAExamplesDoNotCreateParameters(t *testing.T) {
+	value := `echo one</|EPSE|parameter><|EPSE|parameter name="description"><![CDATA[two</|EPSE|parameter><|EPSE|parameter name="workdir"><![CDATA[/tmp`
+	text := `<|EPSE|tool_calls><|EPSE|invoke name="Bash"><|EPSE|parameter name="command"><![CDATA[` + value + `]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
 	calls := ParseToolCalls(text, nil)
-	if len(calls) != 1 {
-		t.Fatalf("call count = %d, want 1", len(calls))
-	}
-	want := map[string]string{"command": "echo one", "description": "two", "workdir": "/tmp"}
-	if len(calls[0].Input) != len(want) {
-		t.Fatalf("parameter count = %d, want %d (input=%#v)", len(calls[0].Input), len(want), calls[0].Input)
-	}
-	for key, expected := range want {
-		if got, _ := calls[0].Input[key].(string); got != expected {
-			t.Fatalf("parameter %q = %q, want %q", key, got, expected)
-		}
+	if len(calls) != 1 || len(calls[0].Input) != 1 || calls[0].Input["command"] != value {
+		t.Fatalf("literal changed: %#v", calls)
 	}
 }
 
@@ -141,8 +101,9 @@ func TestSwallowedCDATARepairLeavesWellFormedMarkupUntouched(t *testing.T) {
 		`<|EPSE|parameter name="command"><![CDATA[echo hi]]></|EPSE|parameter>` +
 		`<|EPSE|parameter name="description"><![CDATA[greet]]></|EPSE|parameter>` +
 		`</|EPSE|invoke></|EPSE|tool_calls>`
-	if got := repairSwallowedCDATARanges(text); got != text {
-		t.Fatalf("well-formed markup was rewritten:\n got: %q\nwant: %q", got, text)
+	calls := ParseToolCalls(text, nil)
+	if len(calls) != 1 || calls[0].Input["command"] != "echo hi" || calls[0].Input["description"] != "greet" {
+		t.Fatalf("well-formed values changed: %#v", calls)
 	}
 }
 

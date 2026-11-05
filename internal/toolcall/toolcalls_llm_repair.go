@@ -89,16 +89,15 @@ type toolCallRepairPlan struct {
 //
 // The greedy scan (slotCDATAContent) is the default and matches the
 // deterministic parser's CDATA interpretation exactly. When it mishandles the
-// input — a slot body that swallowed the following parameter shell, or an
-// unclosed CDATA left entirely unslotted — the bounded scan is promoted to
-// primary and greedy is kept as the alternate, so a genuine long parameter that
-// merely mentions tool markup in its text can still win on re-parse.
+// input because an unclosed CDATA was left unslotted, the bounded scan is
+// promoted. Closed literal bodies that resemble parameter shells remain one
+// greedy slot: splitting them would invent source identities and change bytes.
 func buildToolCallRepairPlan(badCode string, marker string) toolCallRepairPlan {
 	greedy := slotCDATAContent(badCode)
 	bounded := slotCDATAContentBounded(badCode)
 
 	plan := toolCallRepairPlan{primary: greedy, interpretation: "greedy"}
-	if degraded, reason := greedySlottingDegraded(greedy, bounded); degraded {
+	if degraded, reason := greedySlottingDegraded(greedy, bounded); degraded && reason == "unslotted_unclosed_cdata" {
 		plan = toolCallRepairPlan{
 			primary:        bounded,
 			alternate:      greedy,

@@ -71,15 +71,9 @@ func parseToolCallsDetailedXMLOnly(text string) ToolCallParseResult {
 			}
 		}
 	}
-	// A CDATA missing its own `]]>` makes findToolCDATAEnd run past the element
-	// and terminate on a LATER parameter's close marker, silently absorbing that
-	// parameter into the value. Retry with such ranges closed at their element
-	// boundary and keep the result only when it parses strictly better.
-	if boundaryParsed, boundarySource, ok := reparseWithCDATAElementBoundaries(parsed, original); ok {
-		parsed = boundaryParsed
-		result.RecoverySteps = append(result.RecoverySteps, "cdata_element_boundary")
-		parseSource = boundarySource
-	}
+	// Closed CDATA is authoritative literal input. Apparent parameter tags in
+	// its body cannot establish a different boundary; schemas detect missing
+	// fields and the shared runtime can request corrective generation.
 
 	// Residual intent detection: deduct the source regions of fully-successful
 	// wrappers from the original, then probe the remainder for EPSE/DSML intent

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"ds2api/internal/jsonvalue"
 	"ds2api/internal/toolcall"
 )
 
@@ -212,6 +213,9 @@ func normalizePromptToolCallValue(raw any) any {
 		s := strings.TrimSpace(x)
 		if s == "" {
 			return ""
+		}
+		if json.Valid([]byte(s)) && jsonvalue.CheckDuplicateKeys([]byte(s)) != nil {
+			return x // Preserve conflicting historical arguments as raw text.
 		}
 		var parsed any
 		decoder := json.NewDecoder(bytes.NewBufferString(s))

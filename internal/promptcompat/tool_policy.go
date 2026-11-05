@@ -104,7 +104,7 @@ func parseToolChoicePolicy(toolChoiceRaw any, toolsRaw any) (ToolChoicePolicy, e
 			policy.Allowed = nil
 		case "required":
 			policy.Mode = ToolChoiceRequired
-		case "function":
+		case "function", "custom":
 			name, err := parseForcedToolName(v)
 			if err != nil {
 				return ToolChoicePolicy{}, err

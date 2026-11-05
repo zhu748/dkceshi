@@ -129,12 +129,14 @@ func NormalizeContent(v any) string {
 				}
 			}
 			if typeStr == "text" || typeStr == "output_text" || typeStr == "input_text" {
-				if txt, ok := m["text"].(string); ok && txt != "" {
+				if txt, ok := m["text"].(string); ok && (txt != "" || m["content"] == nil) {
 					parts = append(parts, txt)
+					parts = append(parts, TextBlockMetadata(m))
 					continue
 				}
 				if txt, ok := m["content"].(string); ok {
 					parts = append(parts, txt)
+					parts = append(parts, TextBlockMetadata(m))
 				}
 				continue
 			}

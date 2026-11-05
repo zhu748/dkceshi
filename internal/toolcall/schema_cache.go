@@ -23,12 +23,19 @@ type schemaBuild struct {
 	err    error
 }
 
+// Bound retained schema source bytes as well as entry count. Larger catalogs
+// can now share compilation across normalization, validation and requests.
+const schemaCacheByteLimit = 8 << 20
+const schemaCacheEntryLimit = 1 << 20
+
 var compiledSchemas = struct {
 	sync.Mutex
 	entries map[[32]byte]*jsonschema.Schema
 	pending map[[32]byte]*schemaBuild
 	order   [][32]byte
-}{entries: map[[32]byte]*jsonschema.Schema{}, pending: map[[32]byte]*schemaBuild{}}
+	sizes   map[[32]byte]int
+	bytes   int
+}{entries: map[[32]byte]*jsonschema.Schema{}, pending: map[[32]byte]*schemaBuild{}, sizes: map[[32]byte]int{}}
 
 // CompileLocalJSONSchema shares the bounded, local-only compiler with response
 // format validation. Neither tools nor output schemas may fetch external refs.
@@ -57,13 +64,17 @@ func compileToolSchema(raw any) (*jsonschema.Schema, error) {
 	compiledSchemas.Unlock()
 	build.schema, build.err = compileSchemaBytes(data)
 	compiledSchemas.Lock()
-	// Keep the existing cache size bounds; coalesce large concurrent builds too.
-	if build.err == nil && len(data) <= 65536 {
-		if len(compiledSchemas.order) >= 128 {
-			delete(compiledSchemas.entries, compiledSchemas.order[0])
+	if build.err == nil && len(data) <= schemaCacheEntryLimit {
+		for len(compiledSchemas.order) >= 128 || compiledSchemas.bytes+len(data) > schemaCacheByteLimit {
+			oldest := compiledSchemas.order[0]
+			delete(compiledSchemas.entries, oldest)
+			compiledSchemas.bytes -= compiledSchemas.sizes[oldest]
+			delete(compiledSchemas.sizes, oldest)
 			compiledSchemas.order = compiledSchemas.order[1:]
 		}
 		compiledSchemas.entries[key] = build.schema
+		compiledSchemas.sizes[key] = len(data)
+		compiledSchemas.bytes += len(data)
 		compiledSchemas.order = append(compiledSchemas.order, key)
 	}
 	delete(compiledSchemas.pending, key)

@@ -20,6 +20,7 @@ func cloneEntry(item Entry) Entry {
 	item.Messages = cloneMessages(item.Messages)
 	item.Tools = append(json.RawMessage(nil), item.Tools...)
 	item.ToolChoice = append(json.RawMessage(nil), item.ToolChoice...)
+	item.ContextManifest = append(json.RawMessage(nil), item.ContextManifest...)
 	return item
 }
 

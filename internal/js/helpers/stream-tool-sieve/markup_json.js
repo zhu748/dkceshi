@@ -1,4 +1,5 @@
 'use strict';
+const { parseJSONStrict } = require('./strict_json');
 
 // JSON literal parsing, array coercion and conservative JSON repairs.
 const { toRawString } = require('./state');
@@ -13,7 +14,7 @@ function parseJSONLiteralValue(raw) {
     return { ok: false, value: null };
   }
   try {
-    return { ok: true, value: JSON.parse(s) };
+    return { ok: true, value: parseJSONStrict(s) };
   } catch (_err) {
     return { ok: false, value: null };
   }

@@ -475,7 +475,7 @@ test('parseToolCalls recovers when CDATA never closes inside a valid wrapper', (
 // parameter: the unbounded CDATA-end search would otherwise terminate on the
 // NEXT parameter's `]]>`, dropping that parameter and leaking
 // `</|EPSE|parameter><|EPSE|parameter name="...">` into the first value.
-test('parseToolCalls bounds an unclosed CDATA to its own parameter element', () => {
+test('parseToolCalls preserves ambiguous closed CDATA literally', () => {
   const command = '$files = Get-ChildItem -Recurse -Filter *.go -File\nWrite-Host "TOTAL: $($all.Count)"';
   const payload = [
     '<|EPSE|tool_calls>',
@@ -489,12 +489,11 @@ test('parseToolCalls bounds an unclosed CDATA to its own parameter element', () 
   const calls = parseToolCalls(payload, ['pwsh']);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'pwsh');
-  assert.deepEqual(Object.keys(calls[0].input).sort(), ['command', 'description']);
-  assert.equal(calls[0].input.command, command);
-  assert.equal(calls[0].input.description, 'Count duplicate error strings');
+  assert.deepEqual(Object.keys(calls[0].input), ['command']);
+  assert.equal(calls[0].input.command, command + '</|EPSE|parameter>\n    <|EPSE|parameter name="description"><![CDATA[Count duplicate error strings');
 });
 
-test('parseToolCalls bounds consecutive unclosed CDATA parameters', () => {
+test('parseToolCalls preserves consecutive parameter examples as literal text', () => {
   const payload = '<|EPSE|tool_calls><|EPSE|invoke name="Bash">'
     + '<|EPSE|parameter name="command"><![CDATA[echo one</|EPSE|parameter>'
     + '<|EPSE|parameter name="description"><![CDATA[two</|EPSE|parameter>'
@@ -502,7 +501,7 @@ test('parseToolCalls bounds consecutive unclosed CDATA parameters', () => {
     + '</|EPSE|invoke></|EPSE|tool_calls>';
   const calls = parseToolCalls(payload, ['Bash']);
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].input, { command: 'echo one', description: 'two', workdir: '/tmp' });
+  assert.deepEqual(calls[0].input, { command: 'echo one</|EPSE|parameter><|EPSE|parameter name="description"><![CDATA[two</|EPSE|parameter><|EPSE|parameter name="workdir"><![CDATA[/tmp' });
 });
 
 // The negative that bounds the repair: a value quoting a complete tool-call
@@ -530,7 +529,7 @@ test('parseToolCalls keeps a quoted tool-call example intact', () => {
   assert.equal(calls[0].input.file_path, 'docs/tools.md');
 });
 
-test('sieve bounds an unclosed CDATA to its own parameter element', () => {
+test('sieve preserves ambiguous CDATA literally', () => {
   const command = '$files = Get-ChildItem -Recurse\nWrite-Host "TOTAL"';
   const events = runSieve([
     '<|EPSE|tool_calls>\n',
@@ -545,9 +544,8 @@ test('sieve bounds an unclosed CDATA to its own parameter element', () => {
   const calls = events.flatMap((evt) => (Array.isArray(evt.calls) ? evt.calls : []));
   assert.equal(calls.length, 1);
   assert.equal(collectText(events), '');
-  assert.deepEqual(Object.keys(calls[0].input).sort(), ['command', 'description']);
-  assert.equal(calls[0].input.command, command);
-  assert.equal(calls[0].input.description, 'Count duplicate error strings');
+  assert.deepEqual(Object.keys(calls[0].input), ['command']);
+  assert.equal(calls[0].input.command, command + '</|EPSE|parameter>\n    <|EPSE|parameter name="description"><![CDATA[Count duplicate error strings');
 });
 
 test('parseToolCalls supports JSON scalar parameters', () => {

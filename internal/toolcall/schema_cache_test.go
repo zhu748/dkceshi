@@ -1,6 +1,7 @@
 package toolcall
 
 import (
+	"strings"
 	"sync"
 	"testing"
 
@@ -24,6 +25,23 @@ func TestConcurrentSchemaCompilesShareTheResult(t *testing.T) {
 		if errors[i] != nil || results[i] == nil || results[i] != results[0] {
 			t.Fatalf("duplicate/failed compile %d: %p %v", i, results[i], errors[i])
 		}
+	}
+}
+
+func TestLargeSchemaCompilationIsReusedWithinByteBudget(t *testing.T) {
+	raw := map[string]any{"type": "object", "description": strings.Repeat("schema context ", 6000)}
+	first, err := compileToolSchema(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := compileToolSchema(raw)
+	if err != nil || first != second {
+		t.Fatal("large schema was compiled again", err)
+	}
+	compiledSchemas.Lock()
+	defer compiledSchemas.Unlock()
+	if compiledSchemas.bytes > schemaCacheByteLimit || len(compiledSchemas.order) > 128 {
+		t.Fatal("schema cache exceeded retention budget")
 	}
 }
 

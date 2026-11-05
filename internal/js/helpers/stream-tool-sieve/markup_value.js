@@ -1,4 +1,5 @@
 'use strict';
+const { parseJSONStrict } = require('./strict_json');
 
 const { toRawString } = require('./state');
 const { unescapeHtml } = require('./entities');
@@ -251,7 +252,7 @@ function parseLooseArrayElementValue(raw) {
   const repairedBackslashes = repairInvalidJSONBackslashes(s);
   if (repairedBackslashes !== s) {
     try {
-      const parsed = JSON.parse(repairedBackslashes);
+      const parsed = parseJSONStrict(repairedBackslashes);
       return { ok: true, value: parsed };
     } catch (_err) {
       // Fall through.
@@ -261,7 +262,7 @@ function parseLooseArrayElementValue(raw) {
   const repairedLoose = repairLooseJSON(s);
   if (repairedLoose !== s) {
     try {
-      const parsed = JSON.parse(repairedLoose);
+      const parsed = parseJSONStrict(repairedLoose);
       return { ok: true, value: parsed };
     } catch (_err) {
       // Fall through.
@@ -291,7 +292,7 @@ function parseToolCallInput(v) {
       return {};
     }
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = parseJSONStrict(raw);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         return parsed;
       }
@@ -304,7 +305,7 @@ function parseToolCallInput(v) {
     return v;
   }
   try {
-    const parsed = JSON.parse(JSON.stringify(v));
+    const parsed = parseJSONStrict(JSON.stringify(v));
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed;
     }

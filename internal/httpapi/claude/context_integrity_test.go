@@ -46,7 +46,7 @@ func TestClaudeMixedToolAttachmentsPreserveTextAndCleanUnknowns(t *testing.T) {
 	blocks := []any{
 		map[string]any{"type": "document", "source": map[string]any{"type": "text", "media_type": "text/plain", "data": body}},
 		map[string]any{"type": "input_image", "file_id": "file-screenshot"},
-		map[string]any{"type": "future", "data": "PRIVATE_BINARY"},
+		map[string]any{"type": "future", "encoding": "base64", "data": "PRIVATE_BINARY"},
 	}
 	result := normalizeClaudeToolResultContent(blocks).([]any)
 	if result[0].(map[string]any)["source"].(map[string]any)["data"] != body {

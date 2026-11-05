@@ -59,19 +59,20 @@ func start(params StartParams) *Session {
 		return nil
 	}
 	startParams := chathistory.StartParams{
-		CallerID:    strings.TrimSpace(params.Auth.CallerID),
-		UserAgent:   strings.TrimSpace(params.Auth.UserAgent),
-		AccountID:   strings.TrimSpace(params.Auth.AccountID),
-		Surface:     strings.TrimSpace(params.Surface),
-		Model:       strings.TrimSpace(params.Standard.ResponseModel),
-		Stream:      params.Standard.Stream,
-		UserInput:   requestUserInput(params.Standard),
-		Messages:    ExtractAllMessages(params.Standard.Messages),
-		Tools:       chathistory.SnapshotJSON(params.Standard.ToolsRaw),
-		ToolChoice:  chathistory.SnapshotJSON(params.Standard.ToolChoice),
-		ToolMarker:  params.Standard.ToolMarker,
-		HistoryText: params.Standard.HistoryText,
-		FinalPrompt: params.Standard.FinalPrompt,
+		CallerID:        strings.TrimSpace(params.Auth.CallerID),
+		UserAgent:       strings.TrimSpace(params.Auth.UserAgent),
+		AccountID:       strings.TrimSpace(params.Auth.AccountID),
+		Surface:         strings.TrimSpace(params.Surface),
+		Model:           strings.TrimSpace(params.Standard.ResponseModel),
+		Stream:          params.Standard.Stream,
+		UserInput:       requestUserInput(params.Standard),
+		Messages:        ExtractAllMessages(params.Standard.Messages),
+		Tools:           chathistory.SnapshotJSON(params.Standard.ToolsRaw),
+		ToolChoice:      chathistory.SnapshotJSON(params.Standard.ToolChoice),
+		ToolMarker:      params.Standard.ToolMarker,
+		ContextManifest: chathistory.SnapshotJSON(params.Standard.ContextManifest()),
+		HistoryText:     params.Standard.HistoryText,
+		FinalPrompt:     params.Standard.FinalPrompt,
 	}
 	startedAt := time.Now()
 	if !params.StartedAt.IsZero() && params.StartedAt.Before(startedAt) {
