@@ -120,17 +120,10 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 				name := strings.TrimSpace(asString(fnResp["name"]))
 				callID := geminiFunctionCallID(fnResp)
 				callID, name = links.Result(name, callID)
-				content := fnResp["response"]
-				if content == nil {
-					content = fnResp["output"]
-				}
-				if content == nil {
-					content = ""
-				}
 				msg := map[string]any{
 					"role":         "tool",
 					"tool_call_id": callID,
-					"content":      content,
+					"content":      geminiFunctionResponseContent(fnResp),
 				}
 				if name != "" {
 					msg["name"] = name

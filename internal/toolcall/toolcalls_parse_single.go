@@ -25,6 +25,7 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 	}
 
 	input := map[string]any{}
+	counts := map[string]int{}
 	var recovery []string
 	literals := map[string]string{}
 	prev := 0
@@ -39,7 +40,7 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 		}
 		value := parseInvokeParameterValue(paramName, paramMatch.Body, &recovery)
 		recordStringLiteral(literals, input, paramName, paramMatch.Body, value)
-		appendMarkupValue(input, paramName, value)
+		appendMarkupValue(input, counts, paramName, value)
 		prev = paramMatch.End
 	}
 	if !emptyToolMarkupGap(inner[prev:]) {

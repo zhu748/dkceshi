@@ -77,6 +77,7 @@ type inlineDecodedFile struct {
 	ContentType     string
 	Filename        string
 	ReplacementType string
+	DisplayName     string
 }
 
 func (h *Handler) PreprocessInlineFileInputs(ctx context.Context, a *auth.RequestAuth, req map[string]any) error {
@@ -164,7 +165,7 @@ func (s *inlineUploadState) walk(raw any) (any, error) {
 		if replacement, replaced, err := s.tryUploadBlock(x); replaced || err != nil {
 			return replacement, err
 		}
-		for _, key := range []string{"messages", "input", "attachments", "content", "files", "items", "data", "source", "file", "image_url", "contents", "parts"} {
+		for _, key := range promptcompat.FileInputChildKeys(x) {
 			if nested, ok := x[key]; ok {
 				updated, err := s.walk(nested)
 				if err != nil {
@@ -205,6 +206,9 @@ func (s *inlineUploadState) tryUploadBlock(block map[string]any) (map[string]any
 	}
 	if decoded.ContentType != "" {
 		replacement["mime_type"] = decoded.ContentType
+	}
+	if decoded.DisplayName != "" {
+		replacement["display_name"] = decoded.DisplayName
 	}
 	return replacement, true, nil
 }
@@ -248,7 +252,7 @@ func (s *inlineUploadState) uploadInlineFile(file inlineDecodedFile) (string, er
 }
 
 func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool, error) {
-	if block == nil {
+	if !promptcompat.IsInlineAttachmentBlock(block) {
 		return inlineDecodedFile{}, false, nil
 	}
 	if strings.TrimSpace(shared.AsString(block["file_id"])) != "" {

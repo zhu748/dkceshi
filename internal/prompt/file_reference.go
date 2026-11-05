@@ -24,7 +24,7 @@ func FileReferenceText(block map[string]any) string {
 		return ""
 	}
 	ref := map[string]any{"type": kind, "file_id": id}
-	for _, key := range []string{"filename", "mime_type"} {
+	for _, key := range []string{"filename", "mime_type", "display_name"} {
 		if value, ok := source[key].(string); ok && value != "" {
 			ref[key] = value
 		}

@@ -70,7 +70,7 @@ func appendOpenAIRefFileIDs(out *[]string, seen map[string]struct{}, raw any, al
 		}
 		// Bare strings count only inside explicit ID lists. Text arrays and
 		// tool-result data remain conversation content at every nesting level.
-		for _, key := range []string{"ref_file_ids", "file_ids", "attachments", "messages", "input", "content", "files", "items", "data", "source", "contents", "parts"} {
+		for _, key := range FileInputChildKeys(x) {
 			if nested, ok := x[key]; ok {
 				appendOpenAIRefFileIDs(out, seen, nested, referenceIDContainer(key))
 			}

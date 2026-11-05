@@ -135,6 +135,7 @@ function parseMarkupSingleToolCall(block) {
     }
   }
   const input = {};
+  const counts = new Map();
   let prev = 0;
   for (const match of findXmlElementBlocks(inner, 'parameter')) {
     if (!emptyToolMarkupGap(inner.slice(prev, match.start))) return null;
@@ -143,7 +144,7 @@ function parseMarkupSingleToolCall(block) {
     if (!paramName) {
       return null;
     }
-    appendMarkupValue(input, paramName, parseMarkupValue(match.body, paramName));
+    appendMarkupValue(input, counts, paramName, parseMarkupValue(match.body, paramName));
     prev = match.end;
   }
   if (!emptyToolMarkupGap(inner.slice(prev))) return null;

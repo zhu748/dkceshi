@@ -2,6 +2,7 @@
 
 // JSON literal parsing, array coercion and conservative JSON repairs.
 const { toRawString } = require('./state');
+const { repairLooseJSON } = require('./loose_json_structure');
 
 function parseJSONLiteralValue(raw) {
   const s = toRawString(raw).trim();
@@ -144,16 +145,6 @@ function repairInvalidJSONBackslashes(s) {
     }
     out += '\\\\';
   }
-  return out;
-}
-
-function repairLooseJSON(s) {
-  const raw = toRawString(s).trim();
-  if (!raw) {
-    return raw;
-  }
-  let out = raw.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-  out = out.replace(/(:\s*)(\{(?:[^{}]|\{[^{}]*\})*\}(?:\s*,\s*\{(?:[^{}]|\{[^{}]*\})*\})+)/g, '$1[$2]');
   return out;
 }
 

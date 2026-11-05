@@ -15,6 +15,26 @@ UTF-8 字符边界截断，避免在转录中插入破损字符。
 
 ## 统一请求链路
 
+### 文本、检索结果和工具媒体的完整性
+
+Claude 的 `document.source.type=text` 按纯文本保留 `source.data`，包括首尾空白、长正文和
+形似 Base64 / Data URL 的普通内容。`search_result.content` 及 `document.source.type=content`
+中的已知文本块递归保留完整正文；普通 prompt 与 HISTORY.txt 使用同一内容块序列化。
+已知内容块不使用未知块的长度截断和二进制猜测，真正的二进制字段仍不进入聊天文本。
+
+Gemini 的 `functionResponse.parts` 与 JSON `response` 保存在同一标准 tool 消息中。
+其中的媒体经共享文件预处理上传，结果保留调用 ID、附件顺序、文件引用和 `display_name`，
+用于对应 JSON 响应中的 `$ref`。历史拆分和换号重放沿用相同附件信息。
+附件上传与引用发现共用容器遍历规则；工具结果的普通 JSON 对象、函数参数和文本块
+内部数据不作为附件容器。文件识别需要明确类型或文件/图片载荷字段，不能仅凭
+`name` / `filename` 与 `data` 将业务结果替换为文件。
+
+Go 与 Node 的宽松 JSON 修复只在引号外补键名引号和对象列表的数组括号，按原始位置插入
+结构字符，保留字符串、转义、Unicode 和正文空白。未闭合字符串不执行这种结构修复。
+XML 重复节点按独立出现次数累积，区分原值中的数组与重复节点列表；单个 `<item>[1,2]</item>`
+保留为 `[[1,2]]`，多个数组 item 保留完整层级，不展平。两种运行时共用完整性测试样例，
+Node 同时检查所有流式切分位置。
+
 OpenAI Chat、Responses、Claude 和 Gemini 先转换为标准消息，再通过
 `internal/promptcompat` 统一生成提示词。协议适配器负责输入和输出格式，工具规则、
 思考注入和历史拆分使用共享逻辑。Vercel Node 使用 Go prepare 返回的最终提示词，

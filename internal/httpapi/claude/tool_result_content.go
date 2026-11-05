@@ -1,6 +1,9 @@
 package claude
 
-import "ds2api/internal/promptcompat"
+import (
+	"ds2api/internal/prompt"
+	"ds2api/internal/promptcompat"
+)
 
 func claudeToolResultAttachments(content any) (any, bool) {
 	blocks, ok := content.([]any)
@@ -10,7 +13,7 @@ func claudeToolResultAttachments(content any) (any, bool) {
 	out := make([]any, len(blocks))
 	hasAttachment := false
 	for i, raw := range blocks {
-		out[i] = raw
+		out[i] = preserveClaudeToolResultContent(raw)
 		if block, ok := raw.(map[string]any); ok {
 			if attachment, ok := promptcompat.NormalizeAttachmentContent(block); ok {
 				out[i], hasAttachment = attachment, true
@@ -32,13 +35,10 @@ func preserveClaudeToolResultContent(content any) any {
 		}
 		return out
 	case map[string]any:
-		out := sanitizeClaudeBlockForPrompt(value)
-		if value["type"] == "text" {
-			if text, ok := value["text"].(string); ok {
-				out["text"] = text
-			}
+		if block, ok := prompt.PreserveTextContextBlock(value); ok {
+			return block
 		}
-		return out
+		return sanitizeClaudeBlockForPrompt(value)
 	default:
 		return content
 	}

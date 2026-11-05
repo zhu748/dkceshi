@@ -112,6 +112,13 @@ func NormalizeContent(v any) string {
 				parts = append(parts, ref)
 				continue
 			}
+			if typeStr == "document" || typeStr == "search_result" {
+				if block, ok := PreserveTextContextBlock(m); ok {
+					encoded, _ := json.Marshal(block)
+					parts = append(parts, "[Context block] "+string(encoded))
+					continue
+				}
+			}
 			if typeStr == "reasoning" || typeStr == "thinking" {
 				continue // Assistant reasoning is rendered from its own field.
 			}

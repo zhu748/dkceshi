@@ -16,6 +16,7 @@ func parseMarkupKVObject(text string) map[string]any {
 		return nil
 	}
 	out := map[string]any{}
+	counts := map[string]int{}
 	prev := 0
 	for _, m := range matches {
 		if len(m) < 8 || !emptyToolMarkupGap(text[prev:m[0]]) {
@@ -33,7 +34,7 @@ func parseMarkupKVObject(text string) map[string]any {
 		if value == nil {
 			continue
 		}
-		appendMarkupValue(out, key, value)
+		appendMarkupValue(out, counts, key, value)
 		prev = m[1]
 	}
 	if len(out) == 0 || !emptyToolMarkupGap(text[prev:]) {
@@ -69,17 +70,16 @@ func parseMarkupValue(inner string) any {
 	return value
 }
 
-func appendMarkupValue(out map[string]any, key string, value any) {
-	if existing, ok := out[key]; ok {
-		switch current := existing.(type) {
-		case []any:
-			out[key] = append(current, value)
-		default:
-			out[key] = []any{current, value}
-		}
-		return
+func appendMarkupValue(out map[string]any, counts map[string]int, key string, value any) {
+	switch counts[key] {
+	case 0:
+		out[key] = value
+	case 1:
+		out[key] = []any{out[key], value}
+	default:
+		out[key] = append(out[key].([]any), value)
 	}
-	out[key] = value
+	counts[key]++
 }
 
 // extractRawTagValue treats the inner content of a tag robustly.

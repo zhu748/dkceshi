@@ -1,0 +1,139 @@
+[
+  {
+    "name": "nested XML arrays",
+    "parameter": "matrix",
+    "body": "<item>[1,2]</item><item>[3,4]</item>",
+    "expected": [
+      [
+        1,
+        2
+      ],
+      [
+        3,
+        4
+      ]
+    ]
+  },
+  {
+    "name": "single XML array item",
+    "parameter": "matrix",
+    "body": "<item>[1,2]</item>",
+    "expected": [
+      [
+        1,
+        2
+      ]
+    ]
+  },
+  {
+    "name": "empty nested arrays",
+    "parameter": "matrix",
+    "body": "<item>[]</item><item>[]</item>",
+    "expected": [
+      [],
+      []
+    ]
+  },
+  {
+    "name": "nested XML item containers",
+    "parameter": "matrix",
+    "body": "<item><item>1</item><item>2</item></item><item><item>3</item></item>",
+    "expected": [
+      [
+        1,
+        2
+      ],
+      [
+        3
+      ]
+    ]
+  },
+  {
+    "name": "null and array items",
+    "parameter": "matrix",
+    "body": "<item>null</item><item>[3,4]</item>",
+    "expected": [
+      null,
+      [
+        3,
+        4
+      ]
+    ]
+  },
+  {
+    "name": "literal item keys",
+    "parameter": "matrix",
+    "body": "<item>{\"item\":[1,2]}</item><item>{\"item\":[]}</item>",
+    "expected": [
+      {
+        "item": [
+          1,
+          2
+        ]
+      },
+      {
+        "item": []
+      }
+    ]
+  },
+  {
+    "name": "quoted pseudo objects",
+    "parameter": "items",
+    "body": "[{\"note\":\"sample: {first}, {second}\", k:3}]",
+    "expected": [
+      {
+        "note": "sample: {first}, {second}",
+        "k": 3
+      }
+    ]
+  },
+  {
+    "name": "quoted pseudo keys",
+    "parameter": "items",
+    "body": "[{\"note\":\"literal {fake: 1}, next: 2\", k:3}]",
+    "expected": [
+      {
+        "note": "literal {fake: 1}, next: 2",
+        "k": 3
+      }
+    ]
+  },
+  {
+    "name": "escaped quotes and braces",
+    "parameter": "items",
+    "body": "[{\"note\":\"Unicode 中文 \\\"{first}, {second}\\\"\", k:3}]",
+    "expected": [
+      {
+        "note": "Unicode 中文 \"{first}, {second}\"",
+        "k": 3
+      }
+    ]
+  },
+  {
+    "name": "missing object list brackets",
+    "parameter": "items",
+    "body": "{ \"item\": {\"a\":{\"b\":{\"c\":1}}}, {\"a\":{\"b\":{\"c\":2}}} }",
+    "expected": [
+      {
+        "a": {
+          "b": {
+            "c": 1
+          }
+        }
+      },
+      {
+        "a": {
+          "b": {
+            "c": 2
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "prototype parameter name",
+    "parameter": "__proto__",
+    "body": "<![CDATA[exact string]]>",
+    "expected": "exact string"
+  }
+]

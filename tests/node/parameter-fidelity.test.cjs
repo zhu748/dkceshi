@@ -9,6 +9,19 @@ function wrapper(body) {
   return `<tool_calls><invoke name="write">${body}</invoke></tool_calls>`;
 }
 
+for (const entry of require('../fixtures/tool-context-fidelity.json')) {
+  test(`shared context integrity: ${entry.name}`, () => {
+    const raw = wrapper(`<parameter name="${entry.parameter}">${entry.body}</parameter>`);
+    const expected = [{ name: 'write', input: { [entry.parameter]: entry.expected } }];
+    assert.deepEqual(parseToolCalls(raw, []), expected);
+    for (let split = 0; split <= raw.length; split++) {
+      const state = createToolSieveState();
+      const events = [...processToolSieveChunk(state, raw.slice(0, split), []), ...processToolSieveChunk(state, raw.slice(split), []), ...flushToolSieve(state, [])];
+      assert.deepEqual(events.filter(e => e.type === 'tool_calls').flatMap(e => e.calls), expected, `split=${split}`);
+    }
+  });
+}
+
 test('valid JSON objects retain item and same-name keys at every stream split', () => {
   for (const value of [{ item: 42 }, { item: [] }, { options: [1, 2] }, { item: { item: [1] } }]) {
     for (const body of [JSON.stringify(value), `<![CDATA[${JSON.stringify(value)}]]>`]) {

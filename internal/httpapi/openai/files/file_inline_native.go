@@ -36,7 +36,16 @@ func decodeNativeInlineBlock(block map[string]any, kind string) (inlineDecodedFi
 	if kind == "image" || strings.HasPrefix(strings.ToLower(mime), "image/") {
 		replacement, prefix = "input_image", "image"
 	}
-	return inlineDecodedFile{Data: data, ContentType: mime, Filename: pickInlineFilename(block, mime, prefix), ReplacementType: replacement}, true, nil
+	return inlineDecodedFile{Data: data, ContentType: mime, Filename: pickInlineFilename(block, mime, prefix), ReplacementType: replacement, DisplayName: inlineDisplayName(source)}, true, nil
+}
+
+func inlineDisplayName(source map[string]any) string {
+	for _, key := range []string{"displayName", "display_name"} {
+		if name, ok := source[key].(string); ok && name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 func InlineFileErrorDetails(err error) (int, string) {

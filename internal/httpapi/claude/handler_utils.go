@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"ds2api/internal/prompt"
 	"ds2api/internal/promptcompat"
 	"encoding/json"
 	"fmt"
@@ -95,7 +96,9 @@ func normalizeClaudeMessages(messages []any) []any {
 						out = append(out, toolMsg)
 					}
 				default:
-					if attachment, ok := promptcompat.NormalizeAttachmentContent(b); ok {
+					if text, ok := prompt.PreserveTextContextBlock(b); ok {
+						textParts = append(textParts, text)
+					} else if attachment, ok := promptcompat.NormalizeAttachmentContent(b); ok {
 						textParts = append(textParts, attachment)
 					} else if raw := strings.TrimSpace(formatClaudeUnknownBlockForPrompt(b)); raw != "" {
 						textParts = append(textParts, raw)

@@ -20,7 +20,7 @@ function parseMarkupInput(raw) {
     return {};
   }
   // Prioritize XML-style KV tags (e.g., <arg>val</arg>)
-  const kv = unwrapItemOnlyMarkupValue(parseMarkupKVObject(s));
+  const kv = parseMarkupKVObject(s);
   if (Array.isArray(kv)) {
     return kv;
   }
@@ -45,16 +45,20 @@ function parseMarkupKVObject(text) {
     return {};
   }
   const out = {};
+  const counts = new Map();
   for (const block of findGenericXmlElementBlocks(raw)) {
     const key = toRawString(block.localName).trim();
     if (!key) {
       continue;
     }
     const value = parseMarkupValue(block.body, key, true);
-    if (value === undefined || value === null) {
+    if (value === undefined) {
       continue;
     }
-    appendMarkupValue(out, key, value);
+    appendMarkupValue(out, counts, key, value);
+  }
+  if (Object.keys(out).length === 1 && Object.hasOwn(out, 'item')) {
+    return counts.get('item') === 1 ? [out.item] : out.item;
   }
   return out;
 }
@@ -91,7 +95,7 @@ function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
   }
 
   if (s.includes('<') && s.includes('>')) {
-    const nested = unwrapItemOnlyMarkupValue(parseMarkupInput(s));
+    const nested = parseMarkupInput(s);
     if (Array.isArray(nested)) {
       return nested;
     }
@@ -177,25 +181,6 @@ function preservesCDATAStringParameter(name) {
     'path',
     'file_path',
   ]).has(toRawString(name).trim().toLowerCase());
-}
-
-function unwrapItemOnlyMarkupValue(value) {
-  if (Array.isArray(value)) {
-    return value.map(unwrapItemOnlyMarkupValue);
-  }
-  if (!value || typeof value !== 'object') {
-    return value;
-  }
-  const keys = Object.keys(value);
-  if (keys.length === 1 && keys[0] === 'item') {
-    const items = unwrapItemOnlyMarkupValue(value.item);
-    return Array.isArray(items) ? items : [items];
-  }
-  const out = {};
-  for (const key of keys) {
-    out[key] = unwrapItemOnlyMarkupValue(value[key]);
-  }
-  return out;
 }
 
 function extractRawTagValue(inner) {
@@ -329,17 +314,11 @@ function parseToolCallInput(v) {
   return {};
 }
 
-function appendMarkupValue(out, key, value) {
-  if (Object.prototype.hasOwnProperty.call(out, key)) {
-    const current = out[key];
-    if (Array.isArray(current)) {
-      current.push(value);
-      return;
-    }
-    out[key] = [current, value];
-    return;
-  }
-  out[key] = value;
+function appendMarkupValue(out, counts, key, value) {
+  const count = counts.get(key) || 0;
+  if (count >= 2) out[key].push(value);
+  else Object.defineProperty(out, key, { value: count === 0 ? value : [out[key], value], enumerable: true, configurable: true, writable: true });
+  counts.set(key, count + 1);
 }
 
 function isOnlyRawValue(obj) {

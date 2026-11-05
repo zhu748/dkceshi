@@ -82,6 +82,7 @@ func parseXMLFragmentValue(raw string) (any, bool) {
 
 func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement, source string) (any, error) {
 	children := map[string]any{}
+	counts := map[string]int{}
 	var text strings.Builder
 	hasChild := false
 	literalCDATA := false
@@ -111,7 +112,7 @@ func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement, source string) 
 			if err != nil {
 				return nil, err
 			}
-			appendXMLChildValue(children, t.Name.Local, child)
+			appendMarkupValue(children, counts, t.Name.Local, child)
 		case xml.EndElement:
 			if t.Name.Local != start.Name.Local {
 				return nil, errXMLMismatch(start.Name.Local, t.Name.Local)
@@ -134,33 +135,15 @@ func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement, source string) 
 			}
 			if len(children) == 1 {
 				if items, ok := children["item"]; ok {
-					switch v := items.(type) {
-					case []any:
-						return v, nil
-					default:
-						return []any{v}, nil
+					if counts["item"] == 1 {
+						return []any{items}, nil
 					}
+					return items, nil
 				}
 			}
 			return children, nil
 		}
 	}
-}
-
-func appendXMLChildValue(dst map[string]any, key string, value any) {
-	if key == "" {
-		return
-	}
-	if existing, ok := dst[key]; ok {
-		switch current := existing.(type) {
-		case []any:
-			dst[key] = append(current, value)
-		default:
-			dst[key] = []any{current, value}
-		}
-		return
-	}
-	dst[key] = value
 }
 
 func isOnlyRawValue(m map[string]any, raw string) bool {
