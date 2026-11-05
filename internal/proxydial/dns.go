@@ -16,7 +16,7 @@ var defaultHostLookup hostLookupFunc = func(ctx context.Context, _ string, host 
 
 // Local DNS must try the remaining addresses when the first family or route fails.
 func dialSOCKS5(ctx context.Context, kind, network, target string, lookup hostLookupFunc, dial DialFunc) (net.Conn, error) {
-	if kind != "socks5" {
+	if kind != "socks5" && kind != "socks4" {
 		return dial(ctx, network, target)
 	}
 	host, port, err := net.SplitHostPort(target)
@@ -29,7 +29,12 @@ func dialSOCKS5(ctx context.Context, kind, network, target string, lookup hostLo
 	if lookup == nil {
 		lookup = defaultHostLookup
 	}
-	addresses, err := lookup(ctx, "ip", host)
+	query := "ip"
+	if kind == "socks4" {
+		query = "ip4"
+		network = "tcp4"
+	}
+	addresses, err := lookup(ctx, query, host)
 	if err != nil {
 		return nil, err
 	}

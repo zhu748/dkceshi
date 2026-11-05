@@ -176,6 +176,7 @@ func TestProxyConnectivity(ctx context.Context, proxyCfg config.Proxy) map[strin
 		"proxy_id":      proxyCfg.ID,
 		"proxy_type":    proxyCfg.Type,
 		"response_time": 0,
+		"tested_at":     start.UnixMilli(),
 	}
 
 	if err := config.ValidateProxyConfig([]config.Proxy{proxyCfg}); err != nil {

@@ -20,21 +20,23 @@ import (
 )
 
 type instance struct {
-	mu       sync.Mutex
-	refs     atomic.Int64
-	last     atomic.Int64
-	cmd      *exec.Cmd
-	done     chan struct{}
-	port     int
-	lifetime context.Context
-	cancel   context.CancelFunc
-	input    io.WriteCloser
+	mu          sync.Mutex
+	refs        atomic.Int64
+	last        atomic.Int64
+	cmd         *exec.Cmd
+	done        chan struct{}
+	port        int
+	lifetime    context.Context
+	cancel      context.CancelFunc
+	input       io.WriteCloser
+	diagnostics *helperDiagnostics
 }
 
 var registry = struct {
 	sync.Mutex
-	items map[string]*instance
-	once  sync.Once
+	items    map[string]*instance
+	failures map[string]startFailure
+	once     sync.Once
 }{items: map[string]*instance{}}
 
 func binaryPath() (string, error) {
@@ -99,6 +101,7 @@ func Dial(ctx context.Context, p config.Proxy, network, target string) (net.Conn
 		return nil, err
 	}
 	port, err := e.ensure(ctx, p)
+	diagnostics := e.diagnostics
 	e.mu.Unlock()
 	if err != nil {
 		release()
@@ -111,13 +114,18 @@ func Dial(ctx context.Context, p config.Proxy, network, target string) (net.Conn
 	}
 	connectCtx, cancelConnect := context.WithTimeout(ctx, 35*time.Second)
 	defer cancelConnect()
+	started := time.Now()
 	conn, err := d.(proxy.ContextDialer).DialContext(connectCtx, "tcp", target)
 	if err != nil {
 		release()
 		if connectCtx.Err() != nil {
 			return nil, connectCtx.Err()
 		}
-		return nil, errors.New("TURN/SSTP 代理目标连接失败，请检查 TCP 中继支持、出口策略及凭据")
+		message := "TURN/SSTP 代理目标连接失败，请检查 TCP 中继支持、出口策略及凭据"
+		if diagnostics != nil {
+			message = diagnostics.recentFailure(started, message)
+		}
+		return nil, errors.New(message)
 	}
 	return &leasedConn{Conn: conn, release: release}, nil
 }

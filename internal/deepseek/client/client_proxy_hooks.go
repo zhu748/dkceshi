@@ -5,7 +5,9 @@ import (
 	trans "ds2api/internal/deepseek/transport"
 	"ds2api/internal/proxybridge"
 	"errors"
+	"io"
 	"net/http"
+	"sync"
 )
 
 func (c *Client) ResetProxyClients() {
@@ -54,10 +56,43 @@ type reportingDoer struct {
 
 func (d reportingDoer) Do(r *http.Request) (*http.Response, error) {
 	resp, err := d.inner.Do(r)
-	if err == nil || (!errors.Is(err, context.Canceled) && r.Context().Err() == nil) {
-		d.report(d.id, err == nil)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) && r.Context().Err() == nil {
+			d.report(d.id, false)
+		}
+	} else if resp != nil && resp.Body != nil && resp.Body != http.NoBody {
+		resp.Body = &reportingBody{ReadCloser: resp.Body, ctx: r.Context(), report: func(success bool) { d.report(d.id, success) }}
+	} else {
+		d.report(d.id, true)
 	}
 	return resp, err
+}
+
+type reportingBody struct {
+	io.ReadCloser
+	ctx    context.Context
+	once   sync.Once
+	report func(bool)
+}
+
+func (b *reportingBody) finish(err error) {
+	b.once.Do(func() {
+		if b.ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+			b.report(err == nil || errors.Is(err, io.EOF))
+		}
+	})
+}
+func (b *reportingBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil {
+		b.finish(err)
+	}
+	return n, err
+}
+func (b *reportingBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.finish(err)
+	return err
 }
 
 func (d reportingDoer) CloseIdleConnections() {

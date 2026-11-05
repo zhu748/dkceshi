@@ -175,7 +175,7 @@ func (h *Handler) deleteProxy(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) testProxy(w http.ResponseWriter, r *http.Request) {
 	var req map[string]any
-	if !decodeProxyRequest(w, r, &req, "proxy_id") {
+	if !decodeProxyRequest(w, r, &req, "proxy_id", "base_proxy_id") {
 		return
 	}
 	proxyID := fieldString(req, "proxy_id")
@@ -194,6 +194,16 @@ func (h *Handler) testProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		proxy = toProxy(req)
+		if baseID := fieldString(req, "base_proxy_id"); baseID != "" {
+			existing, ok := findProxyByID(h.Store.Snapshot(), baseID)
+			if !ok {
+				writeJSON(w, 404, map[string]any{"detail": "代理不存在"})
+				return
+			}
+			if proxy.Password == "" && req["clear_password"] != true {
+				proxy.Password = existing.Password
+			}
+		}
 	}
 
 	result := proxyConnectivityTester(r.Context(), proxy)

@@ -41,7 +41,21 @@ func tlsConfig(p config.Proxy) (*tls.Config, error) {
 	}
 	return cfg, nil
 }
-func connect(ctx context.Context, d *net.Dialer, p config.Proxy, cfg *tls.Config, network, target string) (result net.Conn, resultErr error) {
+
+// ConnectHTTP shares bounded CONNECT handling with environment proxies.
+func ConnectHTTP(ctx context.Context, dial DialFunc, p config.Proxy, network, target string) (net.Conn, error) {
+	p = config.NormalizeProxy(p)
+	if err := config.ValidateProxyConfig([]config.Proxy{p}); err != nil {
+		return nil, err
+	}
+	cfg, err := tlsConfig(p)
+	if err != nil {
+		return nil, err
+	}
+	return connect(ctx, dial, p, cfg, network, target)
+}
+
+func connect(ctx context.Context, dial DialFunc, p config.Proxy, cfg *tls.Config, network, target string) (result net.Conn, resultErr error) {
 	if network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return nil, fmt.Errorf("HTTP 代理仅支持 TCP")
 	}
@@ -50,7 +64,7 @@ func connect(ctx context.Context, d *net.Dialer, p config.Proxy, cfg *tls.Config
 	defer func() {
 		resultErr = contextFailure(ctx, resultErr)
 	}()
-	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(p.Host, strconv.Itoa(p.Port)))
+	conn, err := dial(ctx, "tcp", net.JoinHostPort(p.Host, strconv.Itoa(p.Port)))
 	if err != nil {
 		return nil, err
 	}

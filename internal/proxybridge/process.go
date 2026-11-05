@@ -14,10 +14,19 @@ import (
 	"time"
 )
 
-func (e *instance) ensure(ctx context.Context, p config.Proxy) (int, error) {
+func (e *instance) ensure(ctx context.Context, p config.Proxy) (port int, resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
+	key := config.ProxyIdentity(p)
+	if err := cachedStartFailure(key); err != nil {
+		return 0, err
+	}
+	defer func() {
+		if resultErr != nil && ctx.Err() == nil {
+			rememberStartFailure(key, resultErr)
+		}
+	}()
 	if e.cmd != nil {
 		select {
 		case <-e.done:
@@ -36,7 +45,7 @@ func (e *instance) ensure(ctx context.Context, p config.Proxy) (int, error) {
 	if err != nil {
 		return 0, errors.New("无法分配本地代理端口")
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
+	port = listener.Addr().(*net.TCPAddr).Port
 	if err = listener.Close(); err != nil {
 		return 0, err
 	}
@@ -66,7 +75,9 @@ func (e *instance) ensure(ctx context.Context, p config.Proxy) (int, error) {
 	if err != nil {
 		return 0, errors.New("无法创建代理生命周期管道")
 	}
-	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+	diagnostics := &helperDiagnostics{}
+	e.diagnostics = diagnostics
+	cmd.Stdout, cmd.Stderr = diagnostics, io.Discard
 	if err = cmd.Start(); err != nil {
 		closeInput(input)
 		return 0, errors.New("无法启动 TURN/SSTP 转换器")
@@ -93,7 +104,7 @@ func (e *instance) ensure(ctx context.Context, p config.Proxy) (int, error) {
 			closeInput(e.input)
 			e.input = nil
 			e.cmd = nil
-			return 0, errors.New("TURN/SSTP 启动失败，请检查服务器、证书、凭据及 RFC 6062 / MS-CHAPv2 支持")
+			return 0, errors.New(diagnostics.failure("TURN/SSTP 启动失败，请检查服务器、证书、凭据及 RFC 6062 / MS-CHAPv2 支持"))
 		case <-startCtx.Done():
 			e.stop()
 			return 0, fmt.Errorf("TURN/SSTP 启动超时或请求已取消: %w", startCtx.Err())

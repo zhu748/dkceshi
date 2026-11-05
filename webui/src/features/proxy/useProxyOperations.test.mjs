@@ -98,3 +98,45 @@ test('bulk import completion cannot close a new modal while refresh is pending',
         assert.equal(closed, 0)
     } finally {harness.close()}
 })
+
+test('draft tests use saved credentials without saving and discard results after modal changes', async () => {
+    const tested=deferred(); let body, signal, generation=0
+    const messages=[]
+    const apiFetch=async (_url, options) => {body=JSON.parse(options.body); signal=options.signal; return tested.promise}
+    const options={apiFetch, editingProxy:node, getModalGeneration:() => generation, onMessage:(...args) => messages.push(args)}
+    const harness=await mount({...options, modalGeneration:0})
+    try {
+        let pending
+        act(() => {pending=harness.current.testDraft(); harness.current.testDraft()})
+        assert.equal(body.base_proxy_id, 'p')
+        assert.equal(body.password, '')
+        assert.equal(body.proxy_id, undefined)
+        generation++
+        await harness.update({...options, modalGeneration:1})
+        assert.equal(signal.aborted, true)
+        await act(async () => {tested.resolve(response({success:true, message:'old draft'})); await pending})
+        assert.deepEqual(messages, [])
+        assert.equal(harness.current.testingDraft, false)
+    } finally {harness.close()}
+})
+
+test('bulk connectivity checks run at most four requests and include failures in the summary', async () => {
+    const nodes=Array.from({length:7}, (_,index) => ({...node,id:`p${index}`}))
+    let inFlight=0, maximum=0, sends=0
+    const messages=[]
+    const apiFetch=async () => {
+        sends++; inFlight++; maximum=Math.max(maximum,inFlight)
+        await new Promise(resolve => setTimeout(resolve, 5))
+        inFlight--
+        return response({success:false})
+    }
+    const harness=await mount({apiFetch,proxies:nodes,t:(key,values) => key==='proxyManager.batchTestResult' ? JSON.stringify(values) : key,onMessage:(...args) => messages.push(args)})
+    try {
+        let pending
+        act(() => {pending=harness.current.testAll(); harness.current.testAll()})
+        await act(async () => pending)
+        assert.equal(sends,7)
+        assert.equal(maximum,4)
+        assert.deepEqual(messages,[['error',JSON.stringify({passed:0,total:7})]])
+    } finally {harness.close()}
+})

@@ -156,3 +156,26 @@ test('auto-detecting a different protocol fills once and preserves subsequent ma
         assert.equal(current.name, 'edited name')
     } finally {act(() => view.unmount())}
 })
+
+test('an import from an old authentication source cannot complete in the new session', async () => {
+    let resolveImport, signal, imported=0, view
+    const parsed={ok:true,json:async () => ({items:[{status:'ready',proxy:{type:'turn',host:'one',port:3478}},{status:'ready',proxy:{type:'turn',host:'two',port:3478}}]})}
+    const oldFetch=async (url,options) => {
+        if (url.endsWith('/import')) {signal=options.signal;return new Promise(resolve => {resolveImport=resolve})}
+        return parsed
+    }
+    const newFetch=async () => parsed
+    const props={t:translate,form:EMPTY_PROXY_FORM,setForm:noop,onImported:async () => {imported++},onBlocksSave:noop}
+    await act(async () => {view=create(React.createElement(Paste,{...props,apiFetch:oldFetch}))})
+    try {
+        act(() => view.root.findByType('textarea').props.onChange({target:{value:'one\ntwo'}}))
+        await act(settle)
+        let pending
+        act(() => {pending=view.root.findByType('button').props.onClick()})
+        await act(async () => view.update(React.createElement(Paste,{...props,apiFetch:newFetch})))
+        assert.equal(signal.aborted,true)
+        await act(async () => {resolveImport({ok:true,json:async () => ({added:2,skipped:0})});await pending})
+        assert.equal(imported,0)
+        assert.equal(view.root.findByType('textarea').props.value,'one\ntwo')
+    } finally {act(() => view.unmount())}
+})

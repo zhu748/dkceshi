@@ -11,12 +11,23 @@ export default function useProxyOperations(props) {
     const savingRequest = useRef(null)
     const testRequests = useRef(new Map())
     const deleteRequests = useRef(new Map())
+    const draftRequest = useRef(null)
+    const batchRequest = useRef(null)
+    const [testingDraft, setTestingDraft] = useState(false)
+    const [testingAll, setTestingAll] = useState(false)
     const [saving, setSaving] = useState(false)
     const [testing, setTesting] = useState({})
     const [testResults, setTestResults] = useState({})
     useEffect(() => {
+        draftRequest.current?.controller.abort()
+        draftRequest.current = null
+        setTestingDraft(false)
+    }, [props.modalGeneration])
+    useEffect(() => {
         alive.current = true
         setSaving(false)
+        setTestingDraft(false)
+        setTestingAll(false)
         return () => {
             alive.current = false
             for (const operation of operations.current) operation.controller.abort()
@@ -24,6 +35,8 @@ export default function useProxyOperations(props) {
             savingRequest.current = null
             testRequests.current.clear()
             deleteRequests.current.clear()
+            draftRequest.current = null
+            batchRequest.current = null
         }
     }, [apiFetch])
     useEffect(() => {
@@ -97,7 +110,7 @@ export default function useProxyOperations(props) {
         } catch (err) {if (active(operation)) message('error', err.message || t('messages.networkError'))}
         finally {finish(operation); if (deleteRequests.current.get(proxy.id) === operation) deleteRequests.current.delete(proxy.id)}
     }
-    const testProxy = async proxy => {
+    const testProxy = async (proxy, {quiet = false} = {}) => {
         if (testRequests.current.has(proxy.id)) return
         const {t} = latest.current
         const operation = start()
@@ -109,12 +122,48 @@ export default function useProxyOperations(props) {
             if (!active(operation) || testRequests.current.get(proxy.id) !== operation) return
             if (!res.ok) {message('error', data.detail || t('messages.requestFailed')); return}
             setTestResults(previous => ({...previous, [proxy.id]:data}))
-            message(data.success ? 'success' : 'error', data.message || t('messages.requestFailed'))
-        } catch (err) {if (active(operation)) message('error', err.message || t('messages.networkError'))}
+            if (!quiet) message(data.success ? 'success' : 'error', data.message || t('messages.requestFailed'))
+            return data
+        } catch (err) {if (active(operation) && !quiet) message('error', err.message || t('messages.networkError'))}
         finally {
             finish(operation)
             if (testRequests.current.get(proxy.id) === operation) {testRequests.current.delete(proxy.id); if (active(operation)) setTesting(previous => ({...previous,[proxy.id]:false}))}
         }
+    }
+    const testDraft = async () => {
+        if (draftRequest.current) return
+        const {form, editingProxy, t, getModalGeneration} = latest.current
+        let payload
+        try {payload = proxyPayload(form)} catch (err) {message('error', t(err.message)); return}
+        if (editingProxy?.id) payload.base_proxy_id = editingProxy.id
+        const operation = start(), generation = getModalGeneration()
+        draftRequest.current = operation
+        setTestingDraft(true)
+        try {
+            const res = await apiFetch('/admin/proxies/test', {method:'POST', signal:operation.controller.signal, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+            const data = await readProxyResponse(res, t)
+            if (active(operation) && latest.current.getModalGeneration() === generation) message(res.ok && data.success ? 'success' : 'error', data.message || data.detail || t('messages.requestFailed'))
+        } catch (err) {if (active(operation) && latest.current.getModalGeneration() === generation) message('error', err.message || t('messages.networkError'))}
+        finally {finish(operation); if (draftRequest.current === operation) {draftRequest.current = null; if (active(operation)) setTestingDraft(false)}}
+    }
+    const testAll = async () => {
+        if (batchRequest.current) return
+        const snapshot = latest.current, operation = start()
+        batchRequest.current = operation
+        setTestingAll(true)
+        let cursor = 0, passed = 0, completed = 0
+        const current = () => active(operation) && latest.current.proxies === snapshot.proxies
+        const worker = async () => {
+            while (current() && cursor < snapshot.proxies.length) {
+                const result = await testProxy(snapshot.proxies[cursor++], {quiet:true})
+                completed++
+                if (result?.success) passed++
+            }
+        }
+        try {
+            await Promise.all(Array.from({length:Math.min(4, snapshot.proxies.length)}, worker))
+            if (current()) message(passed === completed ? 'success' : 'error', snapshot.t('proxyManager.batchTestResult', {passed, total:completed}))
+        } finally {finish(operation); if (batchRequest.current === operation) {batchRequest.current = null; if (active(operation)) setTestingAll(false)}}
     }
     const finishImport = async data => {
         const snapshot = latest.current
@@ -127,5 +176,5 @@ export default function useProxyOperations(props) {
             if (latest.current.getModalGeneration() === generation) latest.current.onSaved()
         } finally {finish(operation)}
     }
-    return {saving, testing, testResults, saveProxy, deleteProxy, testProxy, finishImport}
+    return {saving, testing, testResults, testingDraft, testingAll, saveProxy, deleteProxy, testProxy, testDraft, testAll, finishImport}
 }

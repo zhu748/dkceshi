@@ -51,6 +51,8 @@ function ProxiesTable({
     onTest,
     onEdit,
     onDelete,
+    onTestAll,
+    testingAll,
 }) {
     return (
         <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
@@ -59,6 +61,8 @@ function ProxiesTable({
                     <h2 className="text-lg font-semibold">{t('proxyManager.title')}</h2>
                     <p className="text-sm text-muted-foreground">{t('proxyManager.desc')}</p>
                 </div>
+                <div className="flex gap-2">
+                <button onClick={onTestAll} disabled={testingAll || proxies.length === 0} className="px-4 py-2 rounded-lg border border-border text-sm disabled:opacity-50">{t(testingAll ? 'proxyManager.testing' : 'proxyManager.testAll')}</button>
                 <button
                     onClick={onCreate}
                     className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium text-sm shadow-sm"
@@ -66,6 +70,7 @@ function ProxiesTable({
                     <Plus className="w-4 h-4" />
                     {t('proxyManager.addProxy')}
                 </button>
+                </div>
             </div>
 
             {proxies.length === 0 ? (
@@ -105,6 +110,7 @@ function ProxiesTable({
                                         {result?.message && (
                                             <span className="truncate max-w-full">{result.message}</span>
                                         )}
+                                        {result?.tested_at && <span>{t('proxyManager.testedAt', {time:new Date(result.tested_at).toLocaleTimeString()})}</span>}
                                     </div>
                                 </div>
 
@@ -176,8 +182,9 @@ export default function ProxyManagerContainer({ config, onRefresh, onMessage, au
         setForm(current => ({...EMPTY_PROXY_FORM, type: current.type, port: current.port}))
     }
 
-    const {saving, testing, testResults, saveProxy, deleteProxy, testProxy, finishImport} = useProxyOperations({
+    const {saving, testing, testResults, testingDraft, testingAll, saveProxy, deleteProxy, testProxy, testDraft, testAll, finishImport} = useProxyOperations({
         apiFetch, proxies, form, editingProxy, t, onRefresh, onMessage,
+        modalGeneration: modalGeneration.current,
         getModalGeneration: () => modalGeneration.current, onSaved: closeModal,
     })
 
@@ -207,6 +214,8 @@ export default function ProxyManagerContainer({ config, onRefresh, onMessage, au
                 onTest={testProxy}
                 onEdit={openEdit}
                 onDelete={deleteProxy}
+                onTestAll={testAll}
+                testingAll={testingAll}
             />
 
             <ProxyFormModal
@@ -220,6 +229,8 @@ export default function ProxyManagerContainer({ config, onRefresh, onMessage, au
                 onSubmit={saveProxy}
                 apiFetch={apiFetch}
                 onImported={finishImport}
+                onTest={testDraft}
+                testing={testingDraft}
             />
         </div>
     )

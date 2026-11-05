@@ -27,7 +27,7 @@ func (p *Pool) AcquireKeepAlive(target string) (config.Account, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.closed {
+	if p.closed || p.proxyPauses > 0 {
 		return config.Account{}, false
 	}
 	acc, ok := p.store.FindAccount(target)
@@ -86,7 +86,7 @@ func (p *Pool) AcquireWait(ctx context.Context, target string, exclude map[strin
 }
 
 func (p *Pool) acquireLocked(target string, exclude map[string]bool, filter AccountFilter) (config.Account, bool) {
-	if p.closed {
+	if p.closed || p.proxyPauses > 0 {
 		return config.Account{}, false
 	}
 	// A saturated global limit cannot be repaired by scanning other accounts.

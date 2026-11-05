@@ -19,7 +19,12 @@ var explicitScheme = regexp.MustCompile(`(?i)^([a-z][a-z0-9+.-]*)://`)
 var supplierRecord = regexp.MustCompile(`^(\[[^\]]+\]|[^:@/?#\s]+):([0-9]+):([^:]+):(.+)$`)
 
 func Parse(value, selected string) (config.Proxy, error) {
-	value = strings.TrimSpace(value)
+	// Pipe credentials are literal, including leading/trailing spaces.
+	if !strings.Contains(value, "|") {
+		value = strings.TrimSpace(value)
+	} else {
+		value = strings.TrimLeftFunc(value, unicode.IsSpace)
+	}
 	p := config.Proxy{Type: config.NormalizeProxyType(selected)}
 	if strings.ContainsFunc(value, unicode.IsControl) || value == "" {
 		return p, errors.New("代理地址为空或含控制字符")
@@ -40,7 +45,14 @@ func Parse(value, selected string) (config.Proxy, error) {
 	}
 	p.Type = config.NormalizeProxyType(p.Type)
 	// Literal four-field formats are recognized before URL punctuation in credentials.
-	fields := strings.FieldsFunc(value, func(r rune) bool { return r == '|' || unicode.IsSpace(r) })
+	fields := strings.Fields(value)
+	if strings.Contains(value, "|") {
+		fields = strings.Split(value, "|")
+		if len(fields) != 4 {
+			return p, errors.New("管道格式必须为主机|端口|用户名|密码")
+		}
+		fields[0], fields[1] = strings.TrimSpace(fields[0]), strings.TrimSpace(fields[1])
+	}
 	if len(fields) == 4 && (strings.Contains(value, "|") || strings.ContainsAny(value, " \t")) {
 		p.Host, p.Username, p.Password = fields[0], fields[2], fields[3]
 		port, err := strconv.Atoi(fields[1])

@@ -9,9 +9,11 @@ import (
 )
 
 type Pool struct {
-	store *config.Store
-	mu    sync.Mutex
-	queue []string
+	proxyPauses int
+	proxyIdle   chan struct{}
+	store       *config.Store
+	mu          sync.Mutex
+	queue       []string
 	// queueHead is the logical start of the rotation ring stored in queue.
 	// bumpQueue used to memmove the whole slice (O(N) per acquire on a
 	// 5000-account pool) just to move the acquired account to the tail;
@@ -130,6 +132,7 @@ func (p *Pool) Reset() {
 		}
 	}
 	p.pruneDailyCountsLocked(configured)
+	p.signalProxyIdleLocked()
 	p.scheduleExpiryLocked(accounts)
 	p.recommendedConcurrency = recommended
 	p.maxQueueSize = queueLimit
@@ -155,6 +158,7 @@ func (p *Pool) Release(accountID string) {
 		return
 	}
 	p.inUseTotal--
+	p.signalProxyIdleLocked()
 	if count == 1 {
 		delete(p.inUse, accountID)
 		p.notifyWaiterLocked()

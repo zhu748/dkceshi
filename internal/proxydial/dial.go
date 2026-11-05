@@ -31,11 +31,19 @@ func New(p config.Proxy) (DialFunc, error) {
 			return nil, err
 		}
 		return func(ctx context.Context, network, target string) (net.Conn, error) {
-			return connect(ctx, forward, p, cfg, network, target)
+			return connect(ctx, forward.DialContext, p, cfg, network, target)
 		}, nil
 	case "socks4", "socks4a":
 		return func(ctx context.Context, network, target string) (net.Conn, error) {
-			return socks4(ctx, forward, p, network, target)
+			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			if network != "tcp" && network != "tcp4" {
+				return nil, fmt.Errorf("SOCKS4/4A 仅支持 IPv4 TCP")
+			}
+			conn, err := dialSOCKS5(ctx, p.Type, network, target, nil, func(ctx context.Context, network, target string) (net.Conn, error) {
+				return socks4(ctx, forward, p, network, target)
+			})
+			return conn, contextFailure(ctx, err)
 		}, nil
 	case "socks5", "socks5h":
 		var auth *proxy.Auth

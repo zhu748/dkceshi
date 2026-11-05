@@ -156,6 +156,7 @@ func handleSOCKS(ctx context.Context, conn net.Conn, dial dialFunc) {
 	upstream, err := dial(dialCtx, net.JoinHostPort(host, strconv.Itoa(int(port[0])<<8|int(port[1]))))
 	cancel()
 	if err != nil {
+		diagnosticError(err)
 		diagnostic(err.Error())
 		socksReply(conn, 1)
 		return

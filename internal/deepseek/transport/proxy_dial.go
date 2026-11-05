@@ -1,15 +1,16 @@
 package transport
 
 import (
-	"bufio"
 	"context"
-	"crypto/tls"
-	"encoding/base64"
+	"ds2api/internal/config"
+	"ds2api/internal/proxydial"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 
 	"golang.org/x/net/proxy"
 )
@@ -27,6 +28,8 @@ func environmentProxyDialer(dial DialContextFunc) DialContextFunc {
 			return dial(ctx, network, addr)
 		}
 		if proxyURL.Scheme == "socks5" || proxyURL.Scheme == "socks5h" {
+			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
 			d, err := proxy.FromURL(proxyURL, contextDialer{dial})
 			if err != nil {
 				return nil, err
@@ -53,53 +56,17 @@ func (d contextDialer) DialContext(ctx context.Context, network, addr string) (n
 }
 
 func dialConnectTunnel(ctx context.Context, dial DialContextFunc, proxyURL *url.URL, target string) (net.Conn, error) {
-	addr := proxyURL.Host
-	if proxyURL.Port() == "" {
-		port := "80"
-		if proxyURL.Scheme == "https" {
-			port = "443"
+	p := config.Proxy{Type: proxyURL.Scheme, Host: proxyURL.Hostname(), Port: config.ProxyDefaultPort(proxyURL.Scheme)}
+	if proxyURL.Port() != "" {
+		var err error
+		p.Port, err = strconv.Atoi(proxyURL.Port())
+		if err != nil {
+			return nil, err
 		}
-		addr = net.JoinHostPort(proxyURL.Hostname(), port)
 	}
-	conn, err := dial(ctx, "tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-	rawConn := conn
-	stop := context.AfterFunc(ctx, func() { closeTransportConn(rawConn) })
-	defer stop()
-	if proxyURL.Scheme == "https" {
-		secure := tls.Client(conn, &tls.Config{MinVersion: tls.VersionTLS12, ServerName: proxyURL.Hostname()})
-		if err := secure.HandshakeContext(ctx); err != nil {
-			return nil, errors.Join(err, conn.Close())
-		}
-		conn = secure
-	}
-	request := &http.Request{Method: http.MethodConnect, URL: &url.URL{Opaque: target}, Host: target, Header: make(http.Header)}
 	if proxyURL.User != nil {
-		password, _ := proxyURL.User.Password()
-		request.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(proxyURL.User.Username()+":"+password)))
+		p.Username = proxyURL.User.Username()
+		p.Password, _ = proxyURL.User.Password()
 	}
-	if err := request.Write(conn); err != nil {
-		return nil, errors.Join(err, conn.Close())
-	}
-	reader := bufio.NewReader(conn)
-	response, err := http.ReadResponse(reader, request)
-	if err != nil {
-		return nil, errors.Join(err, conn.Close())
-	}
-	if response.StatusCode != http.StatusOK {
-		return nil, errors.Join(fmt.Errorf("proxy CONNECT returned HTTP %d", response.StatusCode), conn.Close())
-	}
-	if reader.Buffered() > 0 {
-		return &bufferedProxyConn{Conn: conn, reader: reader}, nil
-	}
-	return conn, nil
+	return proxydial.ConnectHTTP(ctx, proxydial.DialFunc(dial), p, "tcp", target)
 }
-
-type bufferedProxyConn struct {
-	net.Conn
-	reader *bufio.Reader
-}
-
-func (c *bufferedProxyConn) Read(p []byte) (int, error) { return c.reader.Read(p) }

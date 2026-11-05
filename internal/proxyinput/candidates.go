@@ -83,9 +83,12 @@ func collectCandidates(text string) ([]candidate, error) {
 		}
 	}
 	for i, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		line = strings.TrimSuffix(line, "\r")
+		if strings.TrimSpace(line) == "" {
 			continue
+		}
+		if !strings.Contains(line, "|") {
+			line = strings.TrimSpace(line)
 		}
 		var value any = line
 		if looksJSON(line) {

@@ -15,6 +15,8 @@ export default function ProxyFormModal({
     onSubmit,
     apiFetch,
     onImported,
+    onTest,
+    testing,
 }) {
     const [pasteBlocksSave, setPasteBlocksSave] = useState(false)
     if (!show) {
@@ -121,7 +123,8 @@ export default function ProxyFormModal({
                         {t('proxyManager.typeHelp')}
                     </div>
 
-                    <div className="flex justify-end gap-2 pt-2">
+                    <div className="flex flex-wrap justify-end gap-2 pt-2">
+                        <button onClick={onTest} disabled={loading || testing || pasteBlocksSave || !form.host?.trim()} className="px-4 py-2 rounded-lg border border-border text-sm disabled:opacity-50">{t(testing ? 'proxyManager.testing' : 'proxyManager.testDraft')}</button>
                         <button
                             onClick={onClose}
                             className="px-4 py-2 rounded-lg border border-border hover:bg-secondary transition-colors text-sm font-medium"

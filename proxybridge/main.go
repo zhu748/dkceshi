@@ -76,6 +76,7 @@ func main() {
 		parent = os.Stdin
 	}
 	if err := runWithParent(*path, parent); err != nil {
+		diagnosticError(err)
 		diagnostic(err.Error())
 		os.Exit(1)
 	}
@@ -138,7 +139,7 @@ func runWithParent(path string, parent io.Reader) error {
 		// a 401 challenge first), so they get the raw dialer instead.
 		mode, err := detectTURNMode(ctx, cfg, tlsConfig)
 		if err != nil {
-			return errors.New("turn_probe_failed_check_server")
+			return err
 		}
 		dial = func(ctx context.Context, target string) (net.Conn, error) {
 			return dialResolved(ctx, target, false, func(ctx context.Context, addr *net.TCPAddr) (net.Conn, error) {

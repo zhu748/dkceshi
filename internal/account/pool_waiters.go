@@ -68,7 +68,7 @@ func (p *Pool) canQueueLocked(target string, exclude map[string]bool, filter Acc
 // Build the free-account view once per notification, rather than repeating
 // store lookups, daily-limit checks and a queue copy for every blocked waiter.
 func (p *Pool) notifyWaiterLocked() {
-	if p.closed || len(p.waiters) == 0 || (p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight) {
+	if p.closed || p.proxyPauses > 0 || len(p.waiters) == 0 || (p.globalMaxInflight > 0 && p.currentInUseLocked() >= p.globalMaxInflight) {
 		return
 	}
 	view := waiterAvailability{pool: p, checks: p.acquireChecksLocked()}

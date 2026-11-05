@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -46,6 +47,7 @@ func NewWithDialContext(timeout time.Duration, dialContext DialContextFunc) *Cli
 		MaxIdleConns:        200,
 		MaxIdleConnsPerHost: 100,
 		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 15 * time.Second,
 		DialContext:         dialContext,
 		DialTLSContext:      fingerprintTLSDialer(dialContext, http1FingerprintProfiles()),
 		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
@@ -107,6 +109,7 @@ func NewFallbackClient(timeout time.Duration, dialContext DialContextFunc) *http
 		MaxIdleConns:        200,
 		MaxIdleConnsPerHost: 100,
 		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 15 * time.Second,
 		DialContext:         dialContext,
 		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
 	}
@@ -138,7 +141,10 @@ func fingerprintTLSDialer(dialContext DialContextFunc, profiles []fingerprintPro
 				errs = append(errs, fmt.Errorf("%s build handshake: %w", profile.name, err))
 				continue
 			}
-			if err := uConn.HandshakeContext(ctx); err != nil {
+			handshakeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			err = uConn.HandshakeContext(handshakeCtx)
+			cancel()
+			if err != nil {
 				closeTransportConn(plainConn)
 				errs = append(errs, fmt.Errorf("%s handshake: %w", profile.name, err))
 				continue
@@ -187,15 +193,9 @@ func allowedNegotiatedALPN(negotiated string, allowed []string) bool {
 }
 
 func joinDialErrors(addr string, errs []error) error {
-	if len(errs) == 0 {
+	joined := errors.Join(errs...)
+	if joined == nil {
 		return fmt.Errorf("tls fingerprint dial failed for %s", addr)
 	}
-	msg := "tls fingerprint dial failed for " + addr
-	for _, err := range errs {
-		if err == nil {
-			continue
-		}
-		msg += "; " + err.Error()
-	}
-	return fmt.Errorf("%s", msg)
+	return fmt.Errorf("tls fingerprint dial failed for %s: %w", addr, joined)
 }

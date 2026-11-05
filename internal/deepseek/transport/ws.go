@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
-	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -103,6 +102,8 @@ func DialWebSocket(ctx context.Context, opts WebSocketDialOptions) (*WSConn, *ht
 	if err != nil {
 		return nil, nil, err
 	}
+	stopHandshake := context.AfterFunc(dialCtx, func() { closeTransportConn(rawConn) })
+	defer stopHandshake()
 
 	uconn := tls.UClient(rawConn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}, defaultTLSFingerprintProfiles[0].helloID)
 	if err := forceALPN(uconn, []string{"http/1.1"}); err != nil {
@@ -113,7 +114,8 @@ func DialWebSocket(ctx context.Context, opts WebSocketDialOptions) (*WSConn, *ht
 		closeTransportConn(rawConn)
 		return nil, nil, fmt.Errorf("websocket tls handshake: %w", err)
 	}
-	if err := uconn.SetDeadline(time.Now().Add(timeout)); err != nil {
+	deadline, _ := dialCtx.Deadline()
+	if err := uconn.SetDeadline(deadline); err != nil {
 		closeTransportConn(uconn)
 		return nil, nil, err
 	}
@@ -205,6 +207,10 @@ func DialWebSocket(ctx context.Context, opts WebSocketDialOptions) (*WSConn, *ht
 		closeTransportConn(uconn)
 		return nil, resp, err
 	}
+	if !stopHandshake() || dialCtx.Err() != nil {
+		closeTransportConn(uconn)
+		return nil, resp, dialCtx.Err()
+	}
 	return &WSConn{conn: uconn, br: br}, resp, nil
 }
 
@@ -228,11 +234,6 @@ func dialWebSocketTCP(ctx context.Context, proxyURL, addr string) (net.Conn, err
 		return d.DialContext(ctx, "tcp", addr)
 	}
 	return nil, errors.New("websocket proxy has no context dialer")
-}
-
-func sha1Sum(value string) []byte {
-	sum := sha1.Sum([]byte(value))
-	return sum[:]
 }
 
 // SetReadDeadline bounds the next read; pass the zero time to clear it.
@@ -411,23 +412,4 @@ func (c *WSConn) Close() error {
 		c.closeErr = errors.Join(deadlineErr, frameErr, c.conn.Close())
 	})
 	return c.closeErr
-}
-
-func writeAll(w io.Writer, payload []byte) error {
-	for len(payload) > 0 {
-		n, err := w.Write(payload)
-		if err != nil {
-			return err
-		}
-		if n <= 0 {
-			return io.ErrShortWrite
-		}
-		payload = payload[n:]
-	}
-	return nil
-}
-
-// NewWSConnForTest constructs a minimal WSConn wrapping conn for internal test suites.
-func NewWSConnForTest(conn net.Conn) *WSConn {
-	return &WSConn{conn: conn, br: bufio.NewReaderSize(conn, 64*1024)}
 }

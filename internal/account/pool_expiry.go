@@ -66,6 +66,7 @@ func (p *Pool) Close() {
 		return
 	}
 	p.closed = true
+	p.signalProxyIdleLocked()
 	if p.expiryTimer != nil {
 		p.expiryTimer.Stop()
 	}

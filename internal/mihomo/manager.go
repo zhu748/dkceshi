@@ -39,8 +39,13 @@ type procHandle struct {
 // Manager 负责 mihomo 子进程的生命周期与运行时配置热更新。
 // 所有配置读写经由 config.Store 事务完成；Apply 重新生成 YAML 并重启进程。
 type Manager struct {
-	store *config.Store
-	pool  PoolResetter
+	reconcileMu  sync.Mutex
+	drainMu      sync.Mutex
+	drainPending bool
+	drainStop    chan struct{}
+	drainOnce    sync.Once
+	store        *config.Store
+	pool         PoolResetter
 	// proxyReset 在绑定/订阅变更后清理 DeepSeek client 侧的按账号代理连接池缓存，
 	// 防止监听端口变化后旧 httpcloak/H2 连接一直被复用。
 	proxyReset func()
@@ -94,6 +99,7 @@ type Manager struct {
 
 func NewManager(store *config.Store, pool PoolResetter) *Manager {
 	return &Manager{
+		drainStop:      make(chan struct{}),
 		store:          store,
 		pool:           pool,
 		failStreak:     map[string]int{},
@@ -368,15 +374,6 @@ func (m *Manager) doApply() error {
 	m.rebuildProxyNodeIndex()
 	config.Logger.Info("[mihomo] bridge applied", "binary", binary, "listeners", len(bindings), "ports", ports)
 	return nil
-}
-
-// Stop 终止 mihomo 子进程与健康巡检（服务退出时调用）。
-func (m *Manager) Stop() {
-	if m == nil {
-		return
-	}
-	m.stopWatcher()
-	m.stopProcess()
 }
 
 // Status 汇总运行状态供管理接口展示。

@@ -69,6 +69,7 @@ func CloseAll() {
 		}
 	}
 	registry.items = map[string]*instance{}
+	registry.failures = nil
 	registry.Unlock()
 	for _, e := range old {
 		e.mu.Lock()

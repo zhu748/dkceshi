@@ -86,7 +86,10 @@ func (c *H2FramedClient) connect(ctx context.Context, req *http.Request) (*h2Ses
 				cfg.ServerName = req.URL.Hostname()
 			}
 			secure := tls.Client(conn, cfg)
-			if err := secure.HandshakeContext(ctx); err != nil {
+			handshakeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			err := secure.HandshakeContext(handshakeCtx)
+			cancel()
+			if err != nil {
 				return nil, errors.Join(err, conn.Close())
 			}
 			if secure.ConnectionState().NegotiatedProtocol != "h2" {

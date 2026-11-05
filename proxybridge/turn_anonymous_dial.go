@@ -23,6 +23,8 @@ func (c config) dialTURNAnonymous(ctx context.Context, peer *net.TCPAddr, tlsCon
 		return nil, err
 	}
 	complete := false
+	stopControl := context.AfterFunc(ctx, func() { closeBridge(control) })
+	defer stopControl()
 	defer func() {
 		if !complete {
 			closeBridge(control)
@@ -90,6 +92,8 @@ func (c config) dialTURNAnonymous(ctx context.Context, peer *net.TCPAddr, tlsCon
 	if err != nil {
 		return nil, err
 	}
+	stopData := context.AfterFunc(ctx, func() { closeBridge(data) })
+	defer stopData()
 	// Keep a floor on the binding exchange even when the caller passes a
 	// context without a deadline: a silent server would otherwise block
 	// this dial forever instead of failing within seconds.
@@ -130,6 +134,10 @@ func (c config) dialTURNAnonymous(ctx context.Context, peer *net.TCPAddr, tlsCon
 	}
 	adapter.binding = false
 	data.SetDeadline(time.Time{})
+	if ctx.Err() != nil || !stopControl() || !stopData() {
+		closeBridge(data)
+		return nil, errors.New("turn_dial_cancelled")
+	}
 	complete = true
 
 	// Single ownership: rawAllocation.stop() is the ONLY closer of the

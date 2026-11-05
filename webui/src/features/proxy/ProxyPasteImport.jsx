@@ -16,12 +16,15 @@ export default function ProxyPasteImport({t, apiFetch, form, setForm, isEditing,
     translate.current = t
     useEffect(() => {
         alive.current = true
+        setBusy(false)
         return () => {
             alive.current = false
             generation.current++
             importController.current?.abort()
+            importController.current = null
+            importing.current = false
         }
-    }, [])
+    }, [apiFetch])
     const ready = rows.filter(row => row.status === 'ready')
     useEffect(() => {
         onBlocksSave(parsing || busy || rows.length > 1 || rows.some(row => row.status === 'invalid') || (rows.length === 1 && !['ready', 'duplicate', 'incomplete'].includes(rows[0].status)) || Boolean(error))
@@ -70,11 +73,11 @@ export default function ProxyPasteImport({t, apiFetch, form, setForm, isEditing,
             const res = await apiFetch('/admin/proxies/import', {method: 'POST', signal: controller.signal, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({items: ready.map(row => row.proxy)})})
             const data = await res.json()
             if (!res.ok) throw new Error(data.detail || translate.current('messages.requestFailed'))
-            if (!alive.current) return
+            if (!alive.current || importController.current !== controller) return
             setText('')
             await onImported(data)
-        } catch (err) {if (alive.current && err.name !== 'AbortError') setError(err.message || translate.current('messages.networkError'))}
-        finally {importing.current = false; if (alive.current) setBusy(false)}
+        } catch (err) {if (alive.current && importController.current === controller && err.name !== 'AbortError') setError(err.message || translate.current('messages.networkError'))}
+        finally {if (importController.current === controller) {importing.current = false; importController.current = null; if (alive.current) setBusy(false)}}
     }
     const updateText = value => {
         appliedType.current = null
