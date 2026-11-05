@@ -1,4 +1,6 @@
 <p align="center">
+
+代理 IP 支持 HTTP/HTTPS、SOCKS4/4A/5/5H、TURN/TURNS、SSTP，支持智能识别和多行导入。详见 [代理协议与导入说明](docs/proxy-protocols.md)。
   <img src="webui/public/ds2api-favicon.svg" width="128" height="128" alt="DS2API icon" />
 </p>
 

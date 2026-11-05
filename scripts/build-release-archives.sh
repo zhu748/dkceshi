@@ -29,6 +29,14 @@ build_one() {
       go build -buildvcs=false -trimpath -ldflags="-s -w -X ds2api/internal/version.BuildVersion=${build_version}" -o "${stage}/${bin}" ./cmd/ds2api
   fi
 
+  local bridge_bin="ds2api-proxy-bridge"
+  if [[ "$goos" == "windows" ]]; then bridge_bin+=".exe"; fi
+  (cd proxybridge && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="${goarm/-/}" \
+    go build -buildvcs=false -trimpath -ldflags="-s -w" -o "${ROOT_DIR}/${stage}/${bridge_bin}" .)
+  mkdir -p "${stage}/proxybridge-licenses"
+  cp proxybridge/LICENSE proxybridge/NOTICE.txt "${stage}/proxybridge-licenses/"
+  cp docs/proxy-protocols.md "${stage}/PROXY-README.md"
+
   cp config.example.json .env.example LICENSE README.MD README.en.md "${stage}/"
   cp -R static/admin "${stage}/static/admin"
 

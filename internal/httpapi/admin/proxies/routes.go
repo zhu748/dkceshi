@@ -12,6 +12,8 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 	r.Put("/proxies/{proxyID}", h.updateProxy)
 	r.Delete("/proxies/{proxyID}", h.deleteProxy)
 	r.Post("/proxies/test", h.testProxy)
+	r.Post("/proxies/parse", h.parseProxies)
+	r.Post("/proxies/import", h.importProxies)
 	r.Put("/accounts/{identifier}/proxy", h.updateAccountProxy)
 }
 

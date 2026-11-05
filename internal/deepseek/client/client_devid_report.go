@@ -17,6 +17,9 @@ import (
 // SDK collection has browser headers, not App credentials or App TLS presets.
 // It shares only the account's egress selection with normal upstream requests.
 func (c *Client) deviceReporter(acc config.Account) (devid.Reporter, func(), error) {
+	if c.clientsClosed() {
+		return nil, nil, errClientClosed
+	}
 	var dial trans.DialContextFunc
 	if p, ok := c.resolveProxyForAccount(acc); ok {
 		var err error

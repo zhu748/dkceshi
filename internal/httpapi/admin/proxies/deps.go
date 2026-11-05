@@ -4,6 +4,7 @@ import (
 	"ds2api/internal/chathistory"
 	"ds2api/internal/config"
 	adminshared "ds2api/internal/httpapi/admin/shared"
+	"net/http"
 )
 
 type Handler struct {
@@ -35,4 +36,16 @@ func findProxyByID(c config.Config, proxyID string) (config.Proxy, bool) {
 func newRequestError(detail string) error { return adminshared.NewRequestError(detail) }
 func requestErrorDetail(err error) (string, bool) {
 	return adminshared.RequestErrorDetail(err)
+}
+
+func proxySnapshot(store interface{ Snapshot() config.Config }) []config.Proxy {
+	if reader, ok := store.(interface{ ProxySnapshot() []config.Proxy }); ok {
+		return reader.ProxySnapshot()
+	}
+	return store.Snapshot().Proxies
+}
+
+func decodeProxyRequest(w http.ResponseWriter, r *http.Request, req *map[string]any, extra ...string) bool {
+	fields := []string{"id", "name", "type", "host", "port", "username", "password", "tls_server_name", "ca_file", "insecure", "realm", "mtu", "clear_password"}
+	return decodeRequest(w, r, req, append(fields, extra...)...)
 }

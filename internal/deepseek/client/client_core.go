@@ -38,6 +38,8 @@ type Client struct {
 
 	proxyClientsMu sync.RWMutex
 	proxyClients   map[string]requestClients
+	proxyEpoch     uint64
+	proxyClosed    bool
 
 	// powCache 是 PoW 预取缓存，复刻真实 Android App 在每次 completion 后异步
 	// 预取下一个 PoW 的行为，让下一次 completion 几乎零延迟拿到 PoW。

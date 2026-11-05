@@ -1,49 +1,11 @@
 package client
 
 import (
-	"context"
 	dsprotocol "ds2api/internal/deepseek/protocol"
 	"net/http"
 	"strings"
 	"testing"
 )
-
-func TestProxyDialAddressUsesLocalResolutionForSocks5(t *testing.T) {
-	ctx := context.Background()
-	resolved, err := proxyDialAddress(ctx, "socks5", "example.com:443", func(_ context.Context, network, host string) ([]string, error) {
-		if network != "ip" {
-			t.Fatalf("unexpected lookup network: %q", network)
-		}
-		if host != "example.com" {
-			t.Fatalf("unexpected lookup host: %q", host)
-		}
-		return []string{"203.0.113.10"}, nil
-	})
-	if err != nil {
-		t.Fatalf("proxyDialAddress returned error: %v", err)
-	}
-	if resolved != "203.0.113.10:443" {
-		t.Fatalf("expected locally resolved address, got %q", resolved)
-	}
-}
-
-func TestProxyDialAddressKeepsHostnameForSocks5h(t *testing.T) {
-	ctx := context.Background()
-	lookups := 0
-	resolved, err := proxyDialAddress(ctx, "socks5h", "example.com:443", func(_ context.Context, network, host string) ([]string, error) {
-		lookups++
-		return []string{"203.0.113.10"}, nil
-	})
-	if err != nil {
-		t.Fatalf("proxyDialAddress returned error: %v", err)
-	}
-	if resolved != "example.com:443" {
-		t.Fatalf("expected hostname preserved for remote DNS, got %q", resolved)
-	}
-	if lookups != 0 {
-		t.Fatalf("expected no local DNS lookup for socks5h, got %d", lookups)
-	}
-}
 
 func TestApplyProxyConnectivityHeadersUsesBaseHeaders(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet, "https://chat.deepseek.com/", nil)

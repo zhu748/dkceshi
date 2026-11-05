@@ -63,15 +63,7 @@ func (h *Handler) getConfig(w http.ResponseWriter, _ *http.Request) {
 	proxies := make([]map[string]any, 0, len(snap.Proxies))
 	for _, proxy := range snap.Proxies {
 		proxy = config.NormalizeProxy(proxy)
-		proxies = append(proxies, map[string]any{
-			"id":           proxy.ID,
-			"name":         proxy.Name,
-			"type":         proxy.Type,
-			"host":         proxy.Host,
-			"port":         proxy.Port,
-			"username":     proxy.Username,
-			"has_password": strings.TrimSpace(proxy.Password) != "",
-		})
+		proxies = append(proxies, config.PublicProxy(proxy))
 	}
 	safe["proxies"] = proxies
 	writeJSON(w, http.StatusOK, safe)

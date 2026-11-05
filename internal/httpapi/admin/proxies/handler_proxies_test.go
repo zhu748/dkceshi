@@ -54,8 +54,8 @@ func TestAddProxyPersistsNormalizedProxy(t *testing.T) {
 	if proxies[0].Type != "socks5h" {
 		t.Fatalf("unexpected proxy type: %#v", proxies[0])
 	}
-	if proxies[0].Username != "user" || proxies[0].Password != "pass" {
-		t.Fatalf("expected trimmed credentials, got %#v", proxies[0])
+	if proxies[0].Username != " user " || proxies[0].Password != " pass " {
+		t.Fatalf("expected exact credentials, got %#v", proxies[0])
 	}
 	if proxies[0].ID == "" {
 		t.Fatalf("expected generated proxy id, got %#v", proxies[0])

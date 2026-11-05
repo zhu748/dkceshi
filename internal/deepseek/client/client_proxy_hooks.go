@@ -1,22 +1,43 @@
 package client
 
 import (
+	"context"
 	trans "ds2api/internal/deepseek/transport"
+	"ds2api/internal/proxybridge"
+	"errors"
 	"net/http"
 )
 
 func (c *Client) ResetProxyClients() {
+	if c == nil {
+		return
+	}
 	c.proxyClientsMu.Lock()
+	c.proxyEpoch++
 	old := c.proxyClients
 	c.proxyClients = make(map[string]requestClients)
 	c.proxyClientsMu.Unlock()
-	for _, bundle := range old {
+	closeProxyBundles(old)
+}
+func closeProxyBundles(items map[string]requestClients) {
+	for _, bundle := range items {
 		for _, d := range []trans.Doer{bundle.regular, bundle.stream, bundle.fallback, bundle.fallbackS} {
 			if closer, ok := d.(interface{ CloseIdleConnections() }); ok {
 				closer.CloseIdleConnections()
 			}
 		}
 	}
+}
+
+var errClientClosed = errors.New("上游客户端已关闭")
+
+func (c *Client) clientsClosed() bool {
+	if c == nil {
+		return true
+	}
+	c.proxyClientsMu.RLock()
+	defer c.proxyClientsMu.RUnlock()
+	return c.proxyClosed
 }
 
 func (c *Client) SetNodeFailureReporter(fn func(string, bool)) {
@@ -33,7 +54,9 @@ type reportingDoer struct {
 
 func (d reportingDoer) Do(r *http.Request) (*http.Response, error) {
 	resp, err := d.inner.Do(r)
-	d.report(d.id, err == nil)
+	if err == nil || (!errors.Is(err, context.Canceled) && r.Context().Err() == nil) {
+		d.report(d.id, err == nil)
+	}
 	return resp, err
 }
 
@@ -65,7 +88,18 @@ func (c *Client) Close() {
 	if c == nil {
 		return
 	}
-	c.ResetProxyClients()
+	c.proxyClientsMu.Lock()
+	if c.proxyClosed {
+		c.proxyClientsMu.Unlock()
+		return
+	}
+	c.proxyClosed = true
+	c.proxyEpoch++
+	old := c.proxyClients
+	c.proxyClients = nil
+	c.proxyClientsMu.Unlock()
+	closeProxyBundles(old)
+	proxybridge.CloseAll()
 	for _, d := range []trans.Doer{c.regular, c.stream, c.fallback, c.fallbackS} {
 		if closer, ok := d.(interface{ CloseIdleConnections() }); ok {
 			closer.CloseIdleConnections()

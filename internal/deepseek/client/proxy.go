@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
-	"golang.org/x/net/proxy"
+	"ds2api/internal/proxydial"
 
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
@@ -24,75 +23,22 @@ type requestClients struct {
 	fallbackS trans.Doer
 }
 
-type hostLookupFunc func(ctx context.Context, network, host string) ([]string, error)
-
 var proxyConnectivityTestURL = "https://chat.deepseek.com/"
 
-var defaultHostLookup hostLookupFunc = func(ctx context.Context, _ string, host string) ([]string, error) {
-	return net.DefaultResolver.LookupHost(ctx, host)
-}
-
-func proxyDialAddress(ctx context.Context, proxyType, address string, lookup hostLookupFunc) (string, error) {
-	proxyType = strings.ToLower(strings.TrimSpace(proxyType))
-	if proxyType != "socks5" {
-		return address, nil
-	}
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return "", err
-	}
-	if net.ParseIP(host) != nil {
-		return address, nil
-	}
-	if lookup == nil {
-		lookup = defaultHostLookup
-	}
-	addrs, err := lookup(ctx, "ip", host)
-	if err != nil {
-		return "", err
-	}
-	if len(addrs) == 0 {
-		return "", fmt.Errorf("no ip address resolved for %s", host)
-	}
-	return net.JoinHostPort(addrs[0], port), nil
-}
-
-func proxyCacheKey(proxyCfg config.Proxy) string {
-	proxyCfg = config.NormalizeProxy(proxyCfg)
-	return strings.Join([]string{
-		proxyCfg.ID,
-		proxyCfg.Type,
-		strings.ToLower(proxyCfg.Host),
-		strconv.Itoa(proxyCfg.Port),
-		proxyCfg.Username,
-		proxyCfg.Password,
-	}, "|")
+func proxyCacheKey(p config.Proxy) string {
+	p = config.NormalizeProxy(p)
+	return p.ID + "|" + config.ProxyIdentity(p)
 }
 
 func proxyDialContext(proxyCfg config.Proxy) (trans.DialContextFunc, error) {
-	proxyCfg = config.NormalizeProxy(proxyCfg)
-	var authCfg *proxy.Auth
-	if proxyCfg.Username != "" || proxyCfg.Password != "" {
-		authCfg = &proxy.Auth{User: proxyCfg.Username, Password: proxyCfg.Password}
-	}
-	forward := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
-	dialer, err := proxy.SOCKS5("tcp", net.JoinHostPort(proxyCfg.Host, strconv.Itoa(proxyCfg.Port)), authCfg, forward)
-	if err != nil {
-		return nil, err
-	}
-	return func(ctx context.Context, network, address string) (net.Conn, error) {
-		target, err := proxyDialAddress(ctx, proxyCfg.Type, address, defaultHostLookup)
-		if err != nil {
-			return nil, err
-		}
-		if ctxDialer, ok := dialer.(proxy.ContextDialer); ok {
-			return ctxDialer.DialContext(ctx, network, target)
-		}
-		return dialer.Dial(network, target)
-	}, nil
+	dial, err := proxydial.New(proxyCfg)
+	return trans.DialContextFunc(dial), err
 }
 
 func (c *Client) defaultRequestClients() requestClients {
+	if c.clientsClosed() {
+		return failedProxyClients(errClientClosed)
+	}
 	return requestClients{
 		regular:   c.regular,
 		stream:    c.stream,
@@ -129,46 +75,69 @@ func (c *Client) requestClientsForAuth(ctx context.Context, a *auth.RequestAuth)
 }
 
 func (c *Client) requestClientsForAccount(acc config.Account) requestClients {
-	proxyCfg, proxied := c.resolveProxyForAccount(acc)
-	if !proxied && !acc.NoProxy {
-		return c.defaultRequestClients()
-	}
-	key := "direct"
-	if proxied {
-		key = proxyCacheKey(proxyCfg)
-	}
-	c.proxyClientsMu.RLock()
-	cached, ok := c.proxyClients[key]
-	c.proxyClientsMu.RUnlock()
-	if ok {
-		return c.reportingBundle(proxyCfg.ID, cached)
-	}
-	dialContext := trans.DialContextFunc((&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext)
-	if proxied {
-		var err error
-		dialContext, err = proxyDialContext(proxyCfg)
-		if err != nil {
-			config.Logger.Warn("[proxy] build dialer failed", "proxy_id", proxyCfg.ID, "error", err)
+	return c.requestClientsWithDialer(acc, proxyDialContext)
+}
+
+// Epoch checks prevent a slow dialer build from repopulating a reset cache.
+func (c *Client) requestClientsWithDialer(acc config.Account, build func(config.Proxy) (trans.DialContextFunc, error)) requestClients {
+	for attempt := 0; attempt < 3; attempt++ {
+		c.proxyClientsMu.RLock()
+		epoch, closed := c.proxyEpoch, c.proxyClosed
+		c.proxyClientsMu.RUnlock()
+		if closed {
+			return failedProxyClients(errClientClosed)
+		}
+		proxyCfg, proxied := c.resolveProxyForAccount(acc)
+		if !proxied && acc.ProxyID != "" && !acc.NoProxy {
+			return failedProxyClients(fmt.Errorf("账号绑定的代理不可用"))
+		}
+		if !proxied && !acc.NoProxy {
 			return c.defaultRequestClients()
 		}
-	}
-	// Build once under the lock so concurrent first requests share one bundle.
-	c.proxyClientsMu.Lock()
-	defer c.proxyClientsMu.Unlock()
-	if cached, ok := c.proxyClients[key]; ok {
+		key := "direct"
+		if proxied {
+			key = proxyCacheKey(proxyCfg)
+		}
+		c.proxyClientsMu.RLock()
+		cached, ok := c.proxyClients[key]
+		current := epoch == c.proxyEpoch && !c.proxyClosed
+		c.proxyClientsMu.RUnlock()
+		if !current {
+			continue
+		}
+		if ok {
+			return c.reportingBundle(proxyCfg.ID, cached)
+		}
+		dial := trans.DialContextFunc((&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext)
+		if proxied {
+			var err error
+			dial, err = build(proxyCfg)
+			if err != nil {
+				c.proxyClientsMu.RLock()
+				current = epoch == c.proxyEpoch && !c.proxyClosed
+				c.proxyClientsMu.RUnlock()
+				if !current {
+					continue
+				}
+				return failedProxyClients(err)
+			}
+		}
+		c.proxyClientsMu.Lock()
+		if epoch != c.proxyEpoch || c.proxyClosed {
+			c.proxyClientsMu.Unlock()
+			continue
+		}
+		if cached, ok = c.proxyClients[key]; !ok {
+			cached = requestClients{regular: trans.NewWithDialContext(60*time.Second, dial), stream: trans.NewWithDialContext(0, dial), fallback: trans.NewFallbackClient(60*time.Second, dial), fallbackS: trans.NewFallbackClient(0, dial)}
+			if c.proxyClients == nil {
+				c.proxyClients = map[string]requestClients{}
+			}
+			c.proxyClients[key] = cached
+		}
+		c.proxyClientsMu.Unlock()
 		return c.reportingBundle(proxyCfg.ID, cached)
 	}
-	bundle := requestClients{
-		regular:   trans.NewWithDialContext(60*time.Second, dialContext),
-		stream:    trans.NewWithDialContext(0, dialContext),
-		fallback:  trans.NewFallbackClient(60*time.Second, dialContext),
-		fallbackS: trans.NewFallbackClient(0, dialContext),
-	}
-	if c.proxyClients == nil {
-		c.proxyClients = make(map[string]requestClients)
-	}
-	c.proxyClients[key] = bundle
-	return c.reportingBundle(proxyCfg.ID, bundle)
+	return failedProxyClients(fmt.Errorf("代理配置连续变更，请重试"))
 }
 
 func applyProxyConnectivityHeaders(req *http.Request) {
@@ -219,7 +188,12 @@ func TestProxyConnectivity(ctx context.Context, proxyCfg config.Proxy) map[strin
 		return result
 	}
 
-	client := trans.NewFallbackClient(15*time.Second, dialContext)
+	timeout := 15 * time.Second
+	if proxyCfg.Type == "sstp" {
+		timeout = 60 * time.Second
+	}
+	client := trans.NewFallbackClient(timeout, dialContext)
+	defer client.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, proxyConnectivityTestURL, nil)
 	if err != nil {
 		result["message"] = err.Error()
@@ -242,4 +216,12 @@ func TestProxyConnectivity(ctx context.Context, proxyCfg config.Proxy) map[strin
 	result["status_code"] = resp.StatusCode
 	result["success"], result["message"] = proxyConnectivityStatus(resp.StatusCode)
 	return result
+}
+
+type failedProxyDoer struct{ err error }
+
+func (d failedProxyDoer) Do(*http.Request) (*http.Response, error) { return nil, d.err }
+func failedProxyClients(err error) requestClients {
+	d := failedProxyDoer{err}
+	return requestClients{regular: d, stream: d, fallback: d, fallbackS: d}
 }

@@ -27,32 +27,6 @@ func ValidateConfig(c Config) error {
 	return nil
 }
 
-func ValidateProxyConfig(proxies []Proxy) error {
-	seen := make(map[string]struct{}, len(proxies))
-	for _, proxy := range proxies {
-		proxy = NormalizeProxy(proxy)
-		if err := ValidateTrimmedString("proxies.id", proxy.ID, true); err != nil {
-			return err
-		}
-		switch proxy.Type {
-		case "socks5", "socks5h":
-		default:
-			return fmt.Errorf("proxies.type must be one of socks5, socks5h")
-		}
-		if err := ValidateTrimmedString("proxies.host", proxy.Host, true); err != nil {
-			return err
-		}
-		if err := ValidateIntRange("proxies.port", proxy.Port, 1, 65535, true); err != nil {
-			return err
-		}
-		if _, ok := seen[proxy.ID]; ok {
-			return fmt.Errorf("duplicate proxy id: %s", proxy.ID)
-		}
-		seen[proxy.ID] = struct{}{}
-	}
-	return nil
-}
-
 func ValidateAccountProxyReferences(accounts []Account, proxies []Proxy) error {
 	if len(accounts) == 0 {
 		return nil

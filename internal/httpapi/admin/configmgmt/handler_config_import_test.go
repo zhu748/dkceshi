@@ -362,3 +362,38 @@ func TestConfigImportFuzzyMatchByNodeName(t *testing.T) {
 		t.Fatalf("manual_binding flag must be preserved")
 	}
 }
+
+func TestConfigImportRefreshesProxyPoolsOnlyAfterProxyChanges(t *testing.T) {
+	h := newAdminTestHandler(t, `{"keys":["k1"],"proxies":[{"id":"p","type":"turns","host":"old.example","port":5349}]}`)
+	resets := 0
+	h.ResetProxyClients = func() { resets++ }
+	rec := postConfigImport(t, h, map[string]any{"mode": "replace", "config": map[string]any{"keys": []any{"k1"}, "proxies": []any{map[string]any{"id": "p", "type": "turns", "host": "new.example", "port": 5349}}}})
+	if rec.Code != 200 || resets != 1 {
+		t.Fatalf("changed proxies did not reset pools: %d %s", resets, rec.Body.String())
+	}
+	rec = postConfigImport(t, h, map[string]any{"mode": "merge", "config": map[string]any{"keys": []any{"another"}}})
+	if rec.Code != 200 || resets != 1 {
+		t.Fatalf("unrelated import reset pools: %d %s", resets, rec.Body.String())
+	}
+	rec = postConfigImport(t, h, map[string]any{"mode": "replace", "config": map[string]any{"proxies": []any{map[string]any{"type": "unsupported", "host": "bad.example", "port": 1}}}})
+	if rec.Code == 200 || resets != 1 {
+		t.Fatal("failed import changed runtime proxy pools")
+	}
+}
+
+func TestImportedBridgeProxyDropsForeignProtocolAndCredentials(t *testing.T) {
+	key := config.MihomoNodeKey("sub", "node")
+	id := config.MihomoManagedProxyID(key)
+	cfg := config.Config{Accounts: []config.Account{{Email: "a@example.com", ProxyID: id}}, Proxies: []config.Proxy{{ID: id, Name: "node", Type: "turns", Host: "old.example", Port: 5349, Username: "foreign", Password: "secret", ServerName: "cert.example", CAFile: "old.pem", Insecure: true, Realm: "old", MTU: 1280}}, Mihomo: config.MihomoConfig{Subscriptions: []config.MihomoSubscription{{ID: "sub", Nodes: []config.MihomoNode{{Name: "node"}}}}}}
+	reconcileImportedBindings(&cfg, cfg.Clone(), "replace")
+	if len(cfg.Proxies) != 1 {
+		t.Fatal("managed proxy disappeared")
+	}
+	p := cfg.Proxies[0]
+	if p.Type != "socks5" || p.Host != "127.0.0.1" || p.Username != "" || p.Password != "" || p.ServerName != "" || p.CAFile != "" || p.Insecure || p.Realm != "" || p.MTU != 0 {
+		t.Fatalf("foreign settings survived bridge restoration: %#v", p)
+	}
+	if err := config.ValidateProxyConfig(cfg.Proxies); err != nil {
+		t.Fatal(err)
+	}
+}

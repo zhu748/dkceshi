@@ -1,3 +1,13 @@
+FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm AS proxy-bridge-builder
+WORKDIR /src
+COPY proxybridge/go.mod proxybridge/go.sum ./
+RUN go mod download
+COPY proxybridge/*.go ./
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} GOARM=${TARGETVARIANT#v} go build -trimpath -ldflags="-s -w" -o /out/ds2api-proxy-bridge .
+
 FROM node:24 AS webui-builder
 
 WORKDIR /app/webui
@@ -37,6 +47,8 @@ CMD ["/usr/local/bin/ds2api"]
 
 FROM runtime-base AS runtime-from-source
 COPY --from=go-builder /out/ds2api /usr/local/bin/ds2api
+COPY --from=proxy-bridge-builder /out/ds2api-proxy-bridge /usr/local/bin/ds2api-proxy-bridge
+COPY proxybridge/NOTICE.txt proxybridge/LICENSE /usr/local/share/ds2api-proxy-bridge/
 
 COPY --from=go-builder --chown=ds2api:ds2api /app/config.example.json /app/config.example.json
 COPY --from=webui-builder --chown=ds2api:ds2api /app/static/admin /app/static/admin
@@ -57,11 +69,15 @@ RUN set -eux; \
     test -n "${PKG_DIR}"; \
     mkdir -p /out/static; \
     cp "${PKG_DIR}/ds2api" /out/ds2api; \
+    cp "${PKG_DIR}/ds2api-proxy-bridge" /out/ds2api-proxy-bridge; \
+    cp -R "${PKG_DIR}/proxybridge-licenses" /out/proxybridge-licenses; \
     cp "${PKG_DIR}/config.example.json" /out/config.example.json; \
     cp -R "${PKG_DIR}/static/admin" /out/static/admin
 
 FROM runtime-base AS runtime-from-dist
 COPY --from=dist-extract /out/ds2api /usr/local/bin/ds2api
+COPY --from=dist-extract /out/ds2api-proxy-bridge /usr/local/bin/ds2api-proxy-bridge
+COPY --from=dist-extract /out/proxybridge-licenses /usr/local/share/ds2api-proxy-bridge
 
 COPY --from=dist-extract --chown=ds2api:ds2api /out/config.example.json /app/config.example.json
 COPY --from=dist-extract --chown=ds2api:ds2api /out/static/admin /app/static/admin
@@ -88,6 +104,8 @@ USER ds2api
 
 FROM sdk-runtime-base AS runtime-with-sdk
 COPY --from=runtime-from-source /usr/local/bin/ds2api /usr/local/bin/ds2api
+COPY --from=runtime-from-source /usr/local/bin/ds2api-proxy-bridge /usr/local/bin/ds2api-proxy-bridge
+COPY --from=runtime-from-source /usr/local/share/ds2api-proxy-bridge /usr/local/share/ds2api-proxy-bridge
 COPY --from=runtime-from-source --chown=ds2api:ds2api /app/config.example.json /app/config.example.json
 COPY --from=runtime-from-source --chown=ds2api:ds2api /app/static/admin /app/static/admin
 
@@ -99,6 +117,8 @@ RUN mkdir -p /out/devid-assets && tar -xzf /tmp/devid-assets.tar.gz -C /out/devi
 # Account data, generated IDs and per-account profiles are never build inputs.
 FROM sdk-runtime-base AS runtime-with-devid-from-dist
 COPY --from=dist-extract /out/ds2api /usr/local/bin/ds2api
+COPY --from=dist-extract /out/ds2api-proxy-bridge /usr/local/bin/ds2api-proxy-bridge
+COPY --from=dist-extract /out/proxybridge-licenses /usr/local/share/ds2api-proxy-bridge
 COPY --from=dist-extract --chown=ds2api:ds2api /out/config.example.json /app/config.example.json
 COPY --from=dist-extract --chown=ds2api:ds2api /out/static/admin /app/static/admin
 COPY --from=devid-assets-extract /out/devid-assets /opt/devid-assets

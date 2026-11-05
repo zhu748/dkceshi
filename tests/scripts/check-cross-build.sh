@@ -25,6 +25,11 @@ build_one() {
     CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="$goarm" \
       go build -buildvcs=false -trimpath -o "$out" ./cmd/ds2api
   fi
+  local bridge_out="$(dirname "$out")/ds2api-proxy-bridge"
+  if [[ "$goos" == "windows" ]]; then bridge_out+=".exe"; fi
+  (cd proxybridge && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="${goarm/-/}" \
+    go build -buildvcs=false -trimpath -o "$bridge_out" .)
+
 }
 
 if [[ "${1:-}" == "--build-one" ]]; then

@@ -151,6 +151,8 @@ Gemini 兼容客户端还可以使用 `x-goog-api-key`、`?key=` 或 `?api_key=`
 | PUT | `/admin/proxies/{proxyID}` | Admin | 更新代理（留空 password 表示保留原密码） |
 | DELETE | `/admin/proxies/{proxyID}` | Admin | 删除代理（自动解绑引用该代理的账号） |
 | POST | `/admin/proxies/test` | Admin | 测试代理连通性 |
+| POST | `/admin/proxies/parse` | Admin | Parse proxy input and preview bulk import |
+| POST | `/admin/proxies/import` | Admin | Import valid proxy nodes; skip duplicates |
 | GET | `/admin/accounts` | Admin | 分页账号列表 |
 | POST | `/admin/accounts` | Admin | 添加账号 |
 | PUT | `/admin/accounts/{identifier}` | Admin | 更新账号 name/remark |
@@ -868,7 +870,7 @@ data: {"type":"message_stop"}
 
 ### `POST /admin/proxies`
 
-新增代理。请求体支持 `id`（可选，未传则自动生成）、`name`、`type`（`http` / `socks5`）、`host`、`port`、`username`、`password`。
+新增代理。请求体支持 `id`（可选，未传则自动生成）、`name`、`type`（`http` / `https` / `socks4` / `socks4a` / `socks5` / `socks5h` / `turn` / `turns` / `sstp`）、`host`、`port`、`username`、`password`。
 
 ### `PUT /admin/proxies/{proxyID}`
 
@@ -1514,3 +1516,31 @@ Claude 的 `output_config.format` 转为统一的提示词约束和最终 JSON/S
 这不是 App 原生的结构化生成模式；不合规答案返回 `invalid_response_format`，流式正文
 校验通过后才交付。工具轮仍先返回经过校验的工具调用，格式约束作用于最终文本答案。
 参见 [兼容说明](docs/prompt-compatibility.md#文本输出格式约束)。
+
+
+### Proxy parsing and bulk import
+
+`POST /admin/proxies/parse` accepts `{ "text": "one node per line, node JSON or ICE JSON", "type": "socks5h" }`.
+Explicit URI prefixes determine the protocol; records without a prefix use `type`. A port never changes the protocol.
+Returns `items` with `source`, `status` (`ready`, `incomplete`, `invalid`, `duplicate`, `skipped`), `message`, and parsed `proxy` fields.
+The response may echo credentials supplied in this request; saved proxy passwords are never returned.
+Limits: 200 candidates, 256 KiB of input text. Parsing makes no network requests.
+
+`POST /admin/proxies/import` accepts `{ "items": [ { "type": "turns", "host": "relay.example", "port": 5349 } ] }`.
+The client submits selected valid preview rows. All submitted rows are validated before an atomic save.
+Existing identical connections are skipped; differing credentials/options create separate nodes. Existing nodes and bindings are never overwritten.
+Returns `{ "success": true, "added": 1, "skipped": 0 }`.
+
+Proxy CRUD also supports `tls_server_name`, `ca_file`, `insecure`, `realm`, `mtu`.
+`PUT /admin/proxies/{proxyID}` preserves a blank password; set `clear_password: true` to explicitly clear it.
+SOCKS4/4A reject passwords (user ID only). SSTP requires username and password.
+See [proxy protocols and deployment](docs/proxy-protocols.md) for compatibility limits and examples.
+
+Proxy request bodies must be JSON objects. Null bodies, duplicate/unknown fields and incorrect field types are rejected.
+`incomplete` preview rows contain only a valid SSTP endpoint whose credentials still need completion.
+Invalid rows never expose partially parsed fields for saving. Text remains limited to 256 KiB; the JSON request envelope allows 2 MiB for escaping overhead.
+
+Binding requires an explicit `proxy_id` (empty string means direct) or `mode: "auto"`. Empty objects, unknown modes and conflicting nonempty proxy IDs are rejected.
+`mihomo-` IDs are reserved: manual create rejects them (400), and manual update/delete of bridge-managed proxies returns 409.
+A saved proxy test accepts only `proxy_id`; mixing temporary override fields is rejected.
+Full config imports refresh proxy client pools when proxy settings change.

@@ -13,6 +13,7 @@ type Handler struct {
 	OpenAI            adminshared.OpenAIChatCaller
 	ChatHistory       *chathistory.Store
 	OnAccountsChanged func()
+	ResetProxyClients func()
 }
 
 var writeJSON = adminshared.WriteJSON

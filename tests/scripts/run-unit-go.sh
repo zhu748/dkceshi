@@ -8,3 +8,5 @@ export GOCACHE="${GOCACHE:-${ROOT_DIR}/.tmp/go-build-cache}"
 mkdir -p "$GOCACHE"
 
 go test ./... "$@"
+
+go -C proxybridge test ./... "$@"

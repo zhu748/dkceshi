@@ -54,7 +54,7 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		onAccountsChanged = bridge.RequestReconcile
 	}
 	accountsHandler := &adminaccounts.Handler{Store: deps.Store, Pool: deps.Pool, DS: deps.DS, OpenAI: deps.OpenAI, ChatHistory: deps.ChatHistory, OnAccountsChanged: onAccountsChanged}
-	configHandler := &adminconfig.Handler{Store: deps.Store, Pool: deps.Pool, DS: deps.DS, OpenAI: deps.OpenAI, ChatHistory: deps.ChatHistory, OnAccountsChanged: onAccountsChanged}
+	configHandler := &adminconfig.Handler{Store: deps.Store, Pool: deps.Pool, DS: deps.DS, OpenAI: deps.OpenAI, ChatHistory: deps.ChatHistory, OnAccountsChanged: onAccountsChanged, ResetProxyClients: h.ResetProxyClients}
 	settingsHandler := &adminsettings.Handler{Store: deps.Store, Pool: deps.Pool, DS: deps.DS, OpenAI: deps.OpenAI, ChatHistory: deps.ChatHistory}
 	proxiesHandler := &adminproxies.Handler{Store: deps.Store, Pool: deps.Pool, DS: deps.DS, OpenAI: deps.OpenAI, ChatHistory: deps.ChatHistory, ResetProxyClients: h.ResetProxyClients, OnAccountsChanged: onAccountsChanged}
 	mihomoHandler := &adminmihomo.Handler{Store: deps.Store, Pool: deps.Pool, Bridge: h.Mihomo}

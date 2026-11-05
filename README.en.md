@@ -1,4 +1,6 @@
 <p align="center">
+
+Proxy IP supports HTTP/HTTPS, SOCKS4/4A/5/5H, TURN/TURNS and SSTP, with automatic format detection and bulk import. See [proxy setup and import formats](docs/proxy-protocols.md).
   <img src="webui/public/ds2api-favicon.svg" width="128" height="128" alt="DS2API icon" />
 </p>
 

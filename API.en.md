@@ -147,6 +147,8 @@ Gemini-compatible clients can also send `x-goog-api-key`, `?key=`, or `?api_key=
 | PUT | `/admin/proxies/{proxyID}` | Admin | Update proxy (empty password keeps old secret) |
 | DELETE | `/admin/proxies/{proxyID}` | Admin | Delete proxy (auto-unbind referenced accounts) |
 | POST | `/admin/proxies/test` | Admin | Test proxy connectivity |
+| POST | `/admin/proxies/parse` | Admin | Parse proxy input and preview bulk import |
+| POST | `/admin/proxies/import` | Admin | Import valid proxy nodes; skip duplicates |
 | GET | `/admin/accounts` | Admin | Paginated account list |
 | POST | `/admin/accounts` | Admin | Add account |
 | PUT | `/admin/accounts/{identifier}` | Admin | Update account name/remark |
@@ -855,7 +857,7 @@ Lists proxy configs (password is never returned; use `has_password` as a marker)
 
 ### `POST /admin/proxies`
 
-Adds a proxy. Request accepts `id` (optional; auto-generated when omitted), `name`, `type` (`http` / `socks5`), `host`, `port`, `username`, `password`.
+Adds a proxy. Request accepts `id` (optional; auto-generated when omitted), `name`, `type` (`http` / `https` / `socks4` / `socks4a` / `socks5` / `socks5h` / `turn` / `turns` / `sstp`), `host`, `port`, `username`, `password`.
 
 ### `PUT /admin/proxies/{proxyID}`
 
@@ -1503,3 +1505,31 @@ This is not a native app generation mode. Invalid answers return `invalid_respon
 constrained stream text is delivered only after validation. Intermediate tool turns still
 return validated calls; format validation applies to the final text answer.
 See [compatibility details](docs/prompt-compatibility.md#文本输出格式约束).
+
+
+### Proxy parsing and bulk import
+
+`POST /admin/proxies/parse` accepts `{ "text": "one node per line, node JSON or ICE JSON", "type": "socks5h" }`.
+Explicit URI prefixes determine the protocol; records without a prefix use `type`. A port never changes the protocol.
+Returns `items` with `source`, `status` (`ready`, `incomplete`, `invalid`, `duplicate`, `skipped`), `message`, and parsed `proxy` fields.
+The response may echo credentials supplied in this request; saved proxy passwords are never returned.
+Limits: 200 candidates, 256 KiB of input text. Parsing makes no network requests.
+
+`POST /admin/proxies/import` accepts `{ "items": [ { "type": "turns", "host": "relay.example", "port": 5349 } ] }`.
+The client submits selected valid preview rows. All submitted rows are validated before an atomic save.
+Existing identical connections are skipped; differing credentials/options create separate nodes. Existing nodes and bindings are never overwritten.
+Returns `{ "success": true, "added": 1, "skipped": 0 }`.
+
+Proxy CRUD also supports `tls_server_name`, `ca_file`, `insecure`, `realm`, `mtu`.
+`PUT /admin/proxies/{proxyID}` preserves a blank password; set `clear_password: true` to explicitly clear it.
+SOCKS4/4A reject passwords (user ID only). SSTP requires username and password.
+See [proxy protocols and deployment](docs/proxy-protocols.md) for compatibility limits and examples.
+
+Proxy request bodies must be JSON objects. Null bodies, duplicate/unknown fields and incorrect field types are rejected.
+`incomplete` preview rows contain only a valid SSTP endpoint whose credentials still need completion.
+Invalid rows never expose partially parsed fields for saving. Text remains limited to 256 KiB; the JSON request envelope allows 2 MiB for escaping overhead.
+
+Binding requires an explicit `proxy_id` (empty string means direct) or `mode: "auto"`. Empty objects, unknown modes and conflicting nonempty proxy IDs are rejected.
+`mihomo-` IDs are reserved: manual create rejects them (400), and manual update/delete of bridge-managed proxies returns 409.
+A saved proxy test accepts only `proxy_id`; mixing temporary override fields is rejected.
+Full config imports refresh proxy client pools when proxy settings change.

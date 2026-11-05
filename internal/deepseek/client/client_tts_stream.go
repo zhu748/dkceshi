@@ -19,6 +19,9 @@ import (
 )
 
 func (c *Client) dialTTSWebSocket(ctx context.Context, a *auth.RequestAuth, sessionID string, messageID int, ticket string, format string) (*trans.WSConn, *http.Response, error) {
+	if c.clientsClosed() {
+		return nil, nil, errClientClosed
+	}
 	pathQuery := dsprotocol.DeepSeekTTSTargetPath +
 		"?chat_session_id=" + url.QueryEscape(sessionID) +
 		"&message_id=" + strconv.Itoa(messageID) +
@@ -33,6 +36,8 @@ func (c *Client) dialTTSWebSocket(ctx context.Context, a *auth.RequestAuth, sess
 		if err != nil {
 			return nil, nil, err
 		}
+	} else if a.Account.ProxyID != "" && !a.Account.NoProxy {
+		return nil, nil, errors.New("账号绑定的代理不可用")
 	} else if a.Account.NoProxy {
 		dial = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	}
