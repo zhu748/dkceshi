@@ -12,6 +12,8 @@ import (
 func RegisterRoutes(r chi.Router, h *Handler) {
 	r.Get("/accounts", h.listAccounts)
 	r.Post("/accounts", h.addAccount)
+	r.Get("/accounts/export", h.exportAccounts)
+	r.Post("/accounts/import", h.importAccounts)
 	r.Get("/accounts/{identifier}/credential", h.getAccountCredential)
 	r.Put("/accounts/{identifier}", h.updateAccount)
 	r.Delete("/accounts/{identifier}", h.deleteAccount)

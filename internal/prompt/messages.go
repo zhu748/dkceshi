@@ -125,6 +125,7 @@ func NormalizeContent(v any) string {
 			if typeStr == "refusal" {
 				if text, ok := m["refusal"].(string); ok {
 					parts = append(parts, "[refusal]"+text+"[/refusal]")
+					parts = append(parts, RefusalBlockMetadata(m))
 					continue
 				}
 			}

@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"ds2api/internal/promptcompat"
 	"strings"
 	"testing"
 )
@@ -10,6 +11,24 @@ func TestClaudeThinkingWhitespaceSurvivesNormalization(t *testing.T) {
 	messages := normalizeClaudeMessages([]any{map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "thinking", "thinking": thinking}}}})
 	if len(messages) != 1 || messages[0].(map[string]any)["reasoning_content"] != thinking {
 		t.Fatalf("thinking was trimmed: %#v", messages)
+	}
+}
+
+func TestClaudeThinkingAnnotationsAndAliasesRemainConsistent(t *testing.T) {
+	block := map[string]any{"type": "thinking", "thinking": "  exact\r\n", "annotations": []any{"THINKING_SOURCE"}, "signature": "OPAQUE_SIGNATURE"}
+	req := map[string]any{"model": "deepseek-v4.1-flash", "messages": []any{map[string]any{"role": "assistant", "content": []any{block}}}}
+	norm, err := normalizeClaudeRequest(nil, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{norm.Standard.FinalPrompt, promptcompat.BuildOpenAIHistoryTranscript(norm.Standard.Messages)} {
+		if !strings.Contains(text, "THINKING_SOURCE") || !strings.Contains(text, "  exact\r\n") || strings.Contains(text, "OPAQUE_SIGNATURE") {
+			t.Fatal("Claude reasoning context was lost or leaked")
+		}
+	}
+	block["text"] = "conflict"
+	if _, err := normalizeClaudeRequest(nil, req); err == nil {
+		t.Fatal("Claude thinking aliases silently selected one value")
 	}
 }
 

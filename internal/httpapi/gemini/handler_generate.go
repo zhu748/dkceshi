@@ -74,8 +74,8 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 		return true
 	}
 	routeModel := strings.TrimSpace(chi.URLParam(r, "model"))
-	// 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。
-	// 按 Key 的开关由 promptcompat.ApplyCallerFlags 在判定之前应用。
+	promptcompat.CaptureInputFieldDigests(req)
+	// 按 Key 的开关在号池路由判定前应用。
 	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
 	stdReq, err := normalizeGeminiRequest(h.Store, routeModel, req, stream)
 	if err != nil {

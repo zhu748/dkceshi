@@ -131,15 +131,7 @@ func normalizeClaudeMessages(messages []any) []any {
 }
 
 func extractClaudeThinkingBlockText(block map[string]any) string {
-	if block == nil {
-		return ""
-	}
-	for _, key := range []string{"thinking", "text", "content"} {
-		if text, ok := block[key].(string); ok && strings.TrimSpace(text) != "" {
-			return text
-		}
-	}
-	return ""
+	return prompt.ReasoningText(block)
 }
 
 func normalizeClaudeToolUseToAssistant(block map[string]any, state *claudeToolCallState) map[string]any {
@@ -150,6 +142,9 @@ func normalizeClaudeToolUseToAssistant(block map[string]any, state *claudeToolCa
 	callID := safeStringValue(block["id"])
 	if callID == "" {
 		callID = safeStringValue(block["tool_use_id"])
+	}
+	if callID == "" {
+		callID = safeStringValue(block["tool_call_id"])
 	}
 	callID = state.Call(name, callID)
 	arguments := block["input"]

@@ -6,8 +6,13 @@ const { textBeforeToolBoundary } = require('../helpers/stream-tool-sieve/sieve')
 const { filterVisible } = require('../helpers/stream-tool-sieve/visible_guard');
 
 function needsToolFinalization(text, thinking, prepared, state) {
-  if (prepared.validate_tools === true || state.capture || state.pending) return true;
-  for (const raw of [text, thinking]) {
+  // New prepares resolve this policy in Go. Retain old prepares' format and
+  // required-tool contracts; a catalog alone never requires prose validation.
+  const mode = prepared.tool_choice?.Mode;
+  const validateProse = prepared.validate_prose ?? (prepared.validate_output === true || mode === 'required' || mode === 'forced');
+  if (validateProse || state.capture || state.pending) return true;
+  const sources = filterVisible(text).trim() ? [text] : [text, thinking];
+  for (const raw of sources) {
     if (raw && (findToolProtocolPrefixOutsideIgnored(raw) || findToolMarkupTagOutsideIgnored(raw, 0) || findDSMLTagOutsideIgnored(raw, 0))) return true;
   }
   return false;

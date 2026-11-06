@@ -176,6 +176,7 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
     }
     if (textURL.includes('__stream_progress=1')) return prepareOverrides.progressResponse ? prepareOverrides.progressResponse() : jsonResponse({ success: true });
     if (textURL.includes('__stream_validate=1')) {
+      if (prepareOverrides.validation_error) throw prepareOverrides.validation_error;
       const replies = prepareOverrides.validation_responses;
       if (Array.isArray(replies) && replies.length) {
         const reply = replies[Math.min(validationCalls++, replies.length - 1)];
@@ -223,6 +224,30 @@ async function runMockVercelStreamSequence(upstreamSequences, prepareOverrides =
 test('chat-stream exposes parser test hooks', () => {
   assert.equal(typeof parseChunkForContent, 'function');
   assert.equal(typeof resolveToolcallPolicy, 'function');
+});
+
+test('ordinary auto prose finishes without depending on tool validation', async () => {
+  for (const validate_prose of [undefined, false]) {
+    const result = await runMockVercelStream(['data: ' + JSON.stringify({p: 'response/content', v: 'A complete ordinary answer.'}) + '\n\n', 'data: [DONE]\n\n'], {
+      validate_tools: true, validate_prose, tool_names: ['read'],
+      tool_choice: {Mode: 'auto', RestrictAllowed: true, Allowed: {read: {}}},
+      validation_error: new Error('validation service unavailable'),
+    });
+    assert.equal(result.fetchURLs.some(url => url.includes('__stream_validate')), false);
+    assert.ok(result.frames.some(frame => frame.includes('A complete ordinary answer.')));
+    assert.ok(result.frames.some(frame => frame.includes('"finish_reason":"stop"')));
+    assert.equal(result.frames.some(frame => frame.includes('"error":')), false);
+  }
+});
+
+test('tool candidates still fail closed when validation is unavailable', async () => {
+  const raw = '<tool_calls><invoke name="read"></invoke></tool_calls>';
+  const result = await runMockVercelStream(['data: ' + JSON.stringify({p: 'response/content', v: raw}) + '\n\n', 'data: [DONE]\n\n'], {
+    validate_tools: true, validate_prose: false, tool_names: ['read'], validation_error: new Error('validation service unavailable'),
+  });
+  assert.equal(result.fetchURLs.filter(url => url.includes('__stream_validate')).length, 1);
+  assert.ok(result.frames.some(frame => frame.includes('tool_validation_unavailable')));
+  assert.equal(result.frames.some(frame => frame.includes('"tool_calls":[')), false);
 });
 
 test('Node preserves literal tool parameters through SSE and Go validation handoff', async () => {

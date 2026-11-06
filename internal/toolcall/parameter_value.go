@@ -8,7 +8,7 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 		return ""
 	}
 	if value, ok := extractStandaloneCDATA(trimmed); ok {
-		if parameterMarkupLimitExceeded(value) {
+		if parameterMarkupLimitExceeded(value) || parameterXMLNeedsLiteral(value) {
 			return value
 		}
 		if preservesCDATAStringParameter(paramName) {
@@ -28,6 +28,9 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 	// Valid JSON is already unambiguous; XML/HTML recovery must not rewrite it.
 	if parsed, ok := parseJSONLiteralValue(trimmed); ok {
 		return parsed
+	}
+	if parameterXMLNeedsLiteral(trimmed) {
+		return raw
 	}
 	// Nested XML decodes its own leaf values. Pre-decoding the entire tree
 	// would decode entities a second time when the child parser reads them.

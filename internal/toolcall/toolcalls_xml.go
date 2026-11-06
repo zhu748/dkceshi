@@ -10,7 +10,7 @@ import (
 
 func parseStructuredToolCallInput(raw string) map[string]any {
 	trimmed := strings.TrimSpace(raw)
-	if parameterMarkupLimitExceeded(trimmed) {
+	if parameterMarkupLimitExceeded(trimmed) || parameterXMLNeedsLiteral(trimmed) {
 		return map[string]any{"_raw": raw}
 	}
 	if trimmed == "" {
@@ -88,6 +88,9 @@ func parseXMLFragmentValue(raw string) (any, bool) {
 }
 
 func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement, source string) (any, error) {
+	if len(start.Attr) > 0 || start.Name.Space != "" {
+		return nil, errors.New("XML attributes and namespace identity require literal preservation")
+	}
 	children := map[string]any{}
 	counts := map[string]int{}
 	var text strings.Builder

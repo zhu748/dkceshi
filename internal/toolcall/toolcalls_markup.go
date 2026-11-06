@@ -11,6 +11,9 @@ var toolCallMarkupKVPattern = regexp.MustCompile(`(?is)<(?:[a-z0-9_:-]+:)?([a-z0
 
 func parseMarkupKVObject(text string) map[string]any {
 	text = strings.TrimSpace(text)
+	if parameterXMLNeedsLiteral(text) {
+		return nil
+	}
 	matches := toolCallMarkupKVPattern.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) == 0 {
 		return nil

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ds2api/internal/assistantturn"
+	"ds2api/internal/promptcompat"
 	"ds2api/internal/toolcall"
 )
 
@@ -15,6 +16,18 @@ func TestGeminiTextPartsPreserveWhitespaceWithoutAddingSeparators(t *testing.T) 
 	for _, item := range messages {
 		if item.(map[string]any)["content"] != "  code\n\t next  " {
 			t.Fatalf("text changed: %+v", item)
+		}
+	}
+}
+
+func TestGeminiThoughtAnnotationsReachPromptAndHistory(t *testing.T) {
+	std, err := normalizeGeminiRequest(nil, "deepseek-v4.1-flash", map[string]any{"contents": []any{map[string]any{"role": "model", "parts": []any{map[string]any{"text": "  exact\r\n", "thought": true, "thoughtSignature": "OPAQUE_SIGNATURE", "annotations": []any{"THOUGHT_SOURCE"}}}}}}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{std.FinalPrompt, promptcompat.BuildOpenAIHistoryTranscript(std.Messages)} {
+		if !strings.Contains(text, "THOUGHT_SOURCE") || !strings.Contains(text, "  exact\r\n") || strings.Contains(text, "OPAQUE_SIGNATURE") {
+			t.Fatal("Gemini reasoning context was lost or leaked")
 		}
 	}
 }

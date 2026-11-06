@@ -40,8 +40,8 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	// 与非流式链路一致：是否注入工具提示词与号池路由均按“body 是否携带工具
-	// 定义”决定，写入上下文供 Determine 读取（保持 Vercel 流式镜像与主链路行为一致）。
+	promptcompat.CaptureInputFieldDigests(req)
+	// 与非流式链路一致：工具目录与 Key 开关共同决定号池路由。
 	// 按 Key 的开关同样经 promptcompat.ApplyCallerFlags 生效，两条链路不会分叉。
 	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
 
@@ -126,6 +126,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		"search_enabled":           stdReq.Search,
 		"tool_choice":              stdReq.ToolChoice,
 		"validate_output":          stdReq.OutputFormat.Enabled(),
+		"validate_prose":           completionruntime.HoldToolOutput(stdReq.ToolNames, stdReq.ToolsRaw, stdReq.ToolChoice, stdReq.OutputFormat),
 		"tool_repair_timeout_ms":   h.leaseRepairTimeoutMS(leaseID),
 		"diagnostic_progress":      h.leaseDiagnosticProgressEnabled(leaseID),
 		"validate_tools":           stdReq.OutputFormat.Enabled() || len(stdReq.ToolNames) > 0 || stdReq.ToolChoice.Constrained() || stdReq.SystemTextToolsApply(),
@@ -142,7 +143,6 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		"base_header_expirations":  map[string]int64{"x-hif-dliq": a.Account.HIFDliqExpiresAt, "x-hif-leim": a.Account.HIFLeimExpiresAt},
 	})
 }
-
 func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Request) {
 	if !config.IsVercel() {
 		http.NotFound(w, r)

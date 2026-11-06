@@ -150,19 +150,12 @@ func StripImageBlocksFromMessages(messages []any) []any {
 		}
 		content := msg["content"]
 		stripped := stripImageContent(content)
-		keepImageTurn := hasImageFileReference(content)
-		role := normalizeOpenAIRoleForPrompt(asString(msg["role"]))
-		keepStructuredTurn := hasMessageToolCalls(msg) || msg["reasoning_content"] != nil || role == "tool" || role == "function"
-		if stripped == nil && keepImageTurn {
-			stripped = ""
-		} else if stripped == nil && !keepStructuredTurn {
-			continue
-		}
-		if text, ok := stripped.(string); ok && strings.TrimSpace(text) == "" && !keepImageTurn && !keepStructuredTurn {
-			continue
-		}
+		// This step replaces image payloads, not message boundaries. Empty
+		// content can still carry refusal, audio, prefill or identity metadata.
 		copied := shallowCopyMap(msg)
-		copied["content"] = stripped
+		if _, present := msg["content"]; present {
+			copied["content"] = stripped
+		}
 		out = append(out, copied)
 	}
 	return out

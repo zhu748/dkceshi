@@ -1,6 +1,6 @@
 'use strict';
 const { parseJSONStrict } = require('./strict_json');
-const { parameterMarkupLimitExceeded } = require('./parameter_markup_budget');
+const { parameterMarkupLimitExceeded, parameterXMLNeedsLiteral } = require('./parameter_markup_budget');
 const { emptyToolMarkupGap } = require('./body_integrity');
 
 const { toRawString } = require('./state');
@@ -22,6 +22,7 @@ function parseMarkupInput(raw) {
   if (!s) {
     return {};
   }
+  if (parameterXMLNeedsLiteral(s)) return { _raw: toRawString(raw) };
   // Prioritize XML-style KV tags (e.g., <arg>val</arg>)
   const kv = parseMarkupKVObject(s);
   if (Array.isArray(kv)) {
@@ -52,6 +53,9 @@ function parseMarkupKVObject(text) {
   let prev = 0;
   for (const block of findGenericXmlElementBlocks(raw)) {
     if (!emptyToolMarkupGap(raw.slice(prev, block.start))) return {};
+    // Attributes and namespace identity cannot silently disappear when XML is
+    // converted to argument objects. The fallback retains the full raw value.
+    if (toRawString(block.attrs).replace(/\/$/, '').trim() || block.name.includes(':')) return {};
     const key = toRawString(block.localName).trim();
     if (!key) {
       continue;
@@ -73,7 +77,7 @@ function parseMarkupKVObject(text) {
 function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
   const cdata = extractStandaloneCDATA(raw);
   if (cdata.ok) {
-    if (parameterMarkupLimitExceeded(cdata.value)) return cdata.value;
+    if (parameterMarkupLimitExceeded(cdata.value) || parameterXMLNeedsLiteral(cdata.value)) return cdata.value;
     if (literalCDATA || preservesCDATAStringParameter(paramName)) return cdata.value;
     const literal = parseJSONLiteralValue(cdata.value);
     if (literal.ok) {
@@ -96,6 +100,7 @@ function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
   if (exact.ok) {
     return exact.value;
   }
+  if (parameterXMLNeedsLiteral(toRawString(raw))) return toRawString(raw);
   const source = toRawString(raw).trim();
   const s = source.includes('<') && source.includes('>') ? source : toRawString(extractRawTagValue(raw)).trim();
   if (!s) {

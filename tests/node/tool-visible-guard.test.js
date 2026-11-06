@@ -7,6 +7,16 @@ const { createVisibleGuard } = require('../../internal/js/helpers/stream-tool-si
 const { needsToolFinalization } = require('../../internal/js/chat-stream/tool_output');
 const { createToolSieveState, processToolSieveChunk, flushToolSieve } = require('../../internal/js/helpers/stream-tool-sieve');
 
+test('catalog presence does not force prose validation, while constrained outputs do', () => {
+  const prepared = {validate_tools: true, tool_choice: {Mode: 'auto'}};
+  assert.equal(needsToolFinalization('plain answer', '', prepared, {}), false);
+  assert.equal(needsToolFinalization('plain answer', '<tool_calls><invoke name="read"></invoke></tool_calls>', prepared, {}), false);
+  for (const flags of [{validate_prose: true}, {validate_output: true}, {tool_choice: {Mode: 'required'}}, {tool_choice: {Mode: 'forced'}}]) {
+    assert.equal(needsToolFinalization('plain answer', '', {...prepared, ...flags}, {}), true);
+  }
+  assert.equal(needsToolFinalization('<tool_calls><invoke name="read"></invoke></tool_calls>', '', {...prepared, validate_prose: false}, {}), true);
+});
+
 test('display guard never leaks tool protocol across any chunk split', () => {
   const call = '<|EPSE|tool_calls><|EPSE|invoke name="run"><|EPSE|parameter name="cmd"><![CDATA[secret]]></|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>';
   const samples = [

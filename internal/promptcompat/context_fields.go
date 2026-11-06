@@ -9,8 +9,9 @@ import (
 // Coverage describes which serializer receives a standard message field. It
 // does not claim every nested value survives sanitization or protocol adapters.
 type ContextFieldDigest struct {
-	Name        string `json:"name"`
-	Disposition string `json:"disposition"`
+	Name          string `json:"name"`
+	Disposition   string `json:"disposition"`
+	OmittedReason string `json:"omitted_reason,omitempty"`
 	ContextDigest
 }
 
@@ -43,7 +44,8 @@ func contextFieldDigests(message map[string]any, rendered bool) []ContextFieldDi
 		if !rendered {
 			disposition = "omitted_message"
 		}
-		fields = append(fields, ContextFieldDigest{Name: key, Disposition: disposition, ContextDigest: digestContext(data)})
+		reason := map[string]string{"unrendered": "field_has_no_prompt_serializer", "transport_only": "transport_hint", "omitted_message": "message_has_no_prompt_representation"}[disposition]
+		fields = append(fields, ContextFieldDigest{Name: key, Disposition: disposition, OmittedReason: reason, ContextDigest: digestContext(data)})
 	}
 	return fields
 }

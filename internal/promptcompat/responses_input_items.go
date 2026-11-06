@@ -19,6 +19,9 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 
 	itemType := strings.ToLower(strings.TrimSpace(asString(m["type"])))
 	role := strings.ToLower(strings.TrimSpace(asString(m["role"])))
+	if text := normalizeResponsesTextItem(m, itemType, role); text != nil {
+		return text
+	}
 	if role != "" && responsesMessageItem(itemType) {
 		if role == "assistant" {
 			return normalizeResponsesAssistantMessage(m)
@@ -149,6 +152,8 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 		}
 		if callID := strings.TrimSpace(asString(m["call_id"])); callID != "" {
 			call["id"] = callID
+		} else if callID = strings.TrimSpace(asString(m["tool_call_id"])); callID != "" {
+			call["id"] = callID
 		} else if callID = strings.TrimSpace(asString(m["id"])); callID != "" {
 			call["id"] = callID
 		}
@@ -162,13 +167,6 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 	case "reasoning":
 		text := responsesReasoningText(m)
 		return map[string]any{"role": "assistant", "reasoning_content": text, "id": m["id"]}
-	case "input_text":
-		if txt, _ := m["text"].(string); strings.TrimSpace(txt) != "" {
-			return map[string]any{
-				"role":    "user",
-				"content": txt,
-			}
-		}
 	}
 
 	if itemType != "" {
@@ -264,7 +262,7 @@ func responsesReasoningText(item map[string]any) string {
 			for _, raw := range entries {
 				entry, _ := raw.(map[string]any)
 				if text, ok := entry["text"].(string); ok && text != "" {
-					parts = append(parts, text)
+					parts = append(parts, text+prompt.TextBlockMetadata(entry))
 				}
 			}
 		}
@@ -272,8 +270,6 @@ func responsesReasoningText(item map[string]any) string {
 			sources = append(sources, strings.Join(parts, "\n"))
 		}
 	}
-	if len(sources) > 0 {
-		return prompt.JoinReasoningRepresentations(sources...)
-	}
-	return asString(item["text"])
+	sources = append(sources, asString(item["text"]))
+	return prompt.JoinReasoningRepresentations(sources...) + responsesReasoningMetadata(item)
 }

@@ -5,16 +5,19 @@ import "ds2api/internal/promptcompat"
 // Keep the JSON response and its ordered media parts in one standard tool
 // message. The shared upload path replaces media bytes with file references.
 func geminiFunctionResponseContent(response map[string]any) any {
-	content := response["response"]
-	if content == nil {
-		content = response["output"]
+	content, hasPayload := response["response"]
+	if !hasPayload {
+		content, hasPayload = response["output"]
 	}
-	if content == nil {
+	if !hasPayload {
 		content = ""
 	}
 	parts, _ := response["parts"].([]any)
 	if len(parts) == 0 {
 		return content
+	}
+	if content == nil {
+		content = "null"
 	}
 	out := make([]any, 0, len(parts)+1)
 	out = append(out, map[string]any{"type": "text", "text": promptcompat.NormalizeOpenAIContentForPrompt(content)})

@@ -302,7 +302,7 @@ func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool,
 			DisplayName:     inlineDisplayName(block),
 		}, true, nil
 	}
-	return inlineDecodedFile{}, false, nil
+	return inlineDecodedFile{}, false, unsupportedImageSource(block)
 }
 
 func extractInlineImageDataURL(block map[string]any) (string, bool) {

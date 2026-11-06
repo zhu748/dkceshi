@@ -5,6 +5,20 @@ const assert = require('node:assert/strict');
 const { parseToolCalls, createToolSieveState, processToolSieveChunk, flushToolSieve } = require('../../internal/js/helpers/stream-tool-sieve');
 const { resolveToolcallPolicy } = require('../../internal/js/chat-stream/toolcall_policy');
 
+test('nested XML attributes and namespaces remain exact at every stream split', () => {
+  for (const value of ['<record id="SOURCE_ID">body &amp; text</record>', '<outer><record id="SOURCE_ID">body</record></outer>', '<ns:record>body</ns:record>']) {
+    for (const body of [value, '<![CDATA[' + value + ']]>']) {
+      const raw = wrapper('<parameter name="payload">' + body + '</parameter>');
+      assert.deepEqual(parseToolCalls(raw, []), [{name: 'write', input: {payload: value}}]);
+      for (let split = 0; split <= raw.length; split++) {
+        const state = createToolSieveState();
+        const events = processToolSieveChunk(state, raw.slice(0, split), []).concat(processToolSieveChunk(state, raw.slice(split), []), flushToolSieve(state, []));
+        assert.deepEqual(events.flatMap(event => event.calls || []), [{name: 'write', input: {payload: value}}], `split=${split}, raw=${raw}`);
+      }
+    }
+  }
+});
+
 test('parameter names preserve whitespace, empty keys and XML entities', () => {
   for (const [encoded, key] of [[' key ', ' key '], ['', ''], ['a&amp;b', 'a&b']]) {
     const raw = wrapper(`<parameter name="${encoded}"><![CDATA[exact]]></parameter>`);
@@ -141,7 +155,14 @@ test('duplicate tool and parameter identities remain non-executable at every spl
 
 
 test('mixed XML retains source instead of dropping text beside fields', () => {
-  for (const body of ['<_text>ORIGINAL</_text>TAIL', 'HEAD<_text><![CDATA[ORIGINAL]]></_text>TAIL']) {
+  for (const body of [
+    '<_text>ORIGINAL</_text>TAIL', 'HEAD<_text><![CDATA[ORIGINAL]]></_text>TAIL',
+    '<value>HEAD<part>FIRST</part>MIDDLE<part>SECOND</part>TAIL</value>',
+    'HEAD<part>FIRST</part>TAIL',
+    '<value><!-- DO NOT LOSE --><part>FIRST</part></value>',
+    '<value><?instruction KEEP?><part>FIRST</part></value>',
+    '<value><![CDATA[HEAD]]><part>FIRST</part>TAIL</value>',
+  ]) {
     const calls = parseToolCalls(wrapper(`<parameter name="payload">${body}</parameter>`), []);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].input.payload, body);

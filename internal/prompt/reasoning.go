@@ -51,11 +51,13 @@ func reasoningBlockText(block map[string]any) string {
 	kind, _ := block["type"].(string)
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "reasoning", "thinking":
+		metadata := ReasoningBlockMetadata(block)
 		for _, key := range []string{"text", "thinking", "content"} {
 			if text, ok := block[key].(string); ok && strings.TrimSpace(text) != "" {
-				return text
+				return text + metadata
 			}
 		}
+		return metadata
 	}
 	return ""
 }

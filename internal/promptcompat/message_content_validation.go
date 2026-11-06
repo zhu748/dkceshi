@@ -1,6 +1,7 @@
 package promptcompat
 
 import (
+	"ds2api/internal/prompt"
 	"fmt"
 	"strings"
 )
@@ -30,12 +31,12 @@ func validatePromptMessageContent(raw any) error {
 		default:
 			continue
 		}
+		if err := prompt.ValidateTextAliases(block, fields...); err != nil {
+			return fmt.Errorf("content[%d]: %w", index, err)
+		}
 		hasText := false
 		for _, field := range fields {
-			if value, present := block[field]; present {
-				if _, ok := value.(string); !ok {
-					return fmt.Errorf("content[%d].%s must be a string", index, field)
-				}
+			if _, present := block[field]; present {
 				hasText = true
 			}
 		}

@@ -15,7 +15,7 @@ func validateToolArgumentAliases(call, function map[string]any) error {
 	count := 0
 	for _, object := range []map[string]any{call, function} {
 		for _, field := range []string{"arguments", "input"} {
-			if value := object[field]; value != nil {
+			if value, present := object[field]; present {
 				values[count] = value
 				count++
 			}

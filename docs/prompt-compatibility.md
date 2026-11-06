@@ -2,6 +2,60 @@
 
 本项目最初基于 `ouqiting20/ds2api` 的 `f9d2085` 对齐提示词、工具调用、历史拆分和模型目录；当前消息保真与任务拆分规则以本文为准。请求头、登录及上游传输继续使用本项目原有实现。
 
+## 2026-11-06：原生工具历史与文本块复查
+
+- Claude 的工具 ID 别名及 Gemini 的 id/call_id/callId/tool_call_id 在适配前校验类型与一致性，
+  不通过字段优先级掩盖冲突。Claude tool_use 支持 tool_call_id，并与结果使用同一身份；
+  tool_result 的 is_error 必须是布尔值，显式 input/args 必须是参数对象，缺省仍兼容空对象。
+  校验同时覆盖直接入口和转接 OpenAI 的路径，在取用上游账号之前返回输入错误。
+- Responses output/content 与 Gemini response/output 的并行结果入口必须保持相同 JSON 数据，
+  显式 null 也参与比较，不再回退覆盖。Gemini 单独的 null 结果保留为 null，和媒体 parts
+  同时存在时同样保留；嵌套 parts 的错误形状与文本别名也在展开之前拒绝。
+  工具历史 arguments/input 的别名检查同样区分显式 null 与未提供字段。
+- Responses 独立 text/input_text/output_text 按完整内容块进入共享序列化，保留 annotations、
+  citations 和空白；refusal 块及 Gemini systemInstruction.text 的兼容入口也保留上下文元数据。
+  即时 prompt 与 HISTORY.txt 共用这些规则。
+- Go 与 Node 的嵌套 XML 参数扫描同时保护混合正文顺序、注释和处理指令。此类内容不能无损
+  转为对象时保留完整原文，禁止拼接为 _text 或丢掉注释再作为对象执行；字符串 Schema 接受
+  原文，对象 Schema 进入既有纠正生成流程。仅有普通子节点的 XML 兼容对象解析保持可用，
+  JSON 字符串及 CDATA 的原有保真规则继续适用。
+
+## 2026-11-06：上下文完整性与流式收尾修复
+
+- 图片清理只替换图片载荷，保留原消息边界、refusal、音频转录/引用及身份元数据。
+  当前消息带图片时，不能因为历史 assistant 的 content 为 null 或空串而删掉整条历史。
+  HTTPS 等外部图片 URL 尚不支持上传，现返回明确的 400，要求使用 data URL 或已上传的
+  file_id；不能在没有附件引用的情况下移除图片后继续生成。已有 file_id 不依赖旧 URL 重传。
+- Go/Node 的嵌套兼容 XML 遇到属性或命名空间时保留完整参数字符串，包括实体和内部空白，
+  不将它缩减成丢掉属性的对象。字符串 Schema 可以接受原文；对象 Schema 返回参数错误，
+  进入现有纠正生成流程。格式修复不能通过删除属性来满足 Schema，JSON 字符串里的 XML
+  示例仍是普通 JSON 数据。
+- Responses 原生调用的调用 ID 依次读取 call_id、tool_call_id、兼容 id。调用和结果对齐后，
+  历史拆分保留它们的依赖关系。call_id/tool_call_id 冲突仍在输入转换前拒绝；原生项 id
+  与 call_id 是不同身份字段，不把二者强制解释成相同别名。
+- 已知文本块中的 text/content，以及思考块中的 text/thinking/content 同时出现时，必须逐
+  字节一致，否则返回输入错误。这项校验也覆盖原生 system 容器及 Responses 思考摘要条目。
+  思考块的 annotations 等上下文元数据跟随正文进入即时 prompt 和 HISTORY.txt，Claude、
+  Gemini 及 Responses 共同保留；Responses 的独立 text 与 content/summary 共同保留。
+- 业务数据中的 signature/base64 字段按所在容器的协议类型判断，不再仅凭字段名抹去普通
+  业务文本。明确的媒体载荷、附件自身签名、思考签名与 encrypted_content 仍按原有规则
+  省略；嵌套业务对象不会继承附件或思考的签名判定。
+- Vercel prepare 用共享输出策略返回 validate_prose，required/forced 工具策略及结构化输出
+  仍需 Go 收尾校验。普通 auto 回答不会仅因携带工具目录而依赖额外校验请求，也不整体缓冲
+  正文。真实工具候选、残缺协议前缀和未解决的工具捕获仍交给 Go 原子校验；校验不可用时不
+  交付工具调用。已有可见正文时，思考中的工具计划不触发额外校验，与共享检测规则一致。
+- Chat（含 Vercel prepare）、Claude/Gemini 直接入口在 Key 开关和附件预处理之前捕获输入
+  字段摘要。私有类型的请求内快照在后续重建与附件重放时沿用，客户端 JSON 不能伪造它。
+  Responses 继续在续接展开前捕获原输入摘要；内部协议转接后的适配器摘要仍描述其实际入口。
+- context_manifest 的标准消息字段增加 omitted_reason，并增加 omissions 汇总，分别说明
+  transport_hint、field_has_no_prompt_serializer 和未转录消息。历史外置后仍汇总原标准消息
+  的省略原因，不保存字段值。它是标准消息层面的诊断，不是嵌套字段的自动覆盖证明，也不代表
+  上游模型已经读取附件。
+
+回归覆盖图文请求中的拒绝/音频历史、未上传的外部图片、调用 ID 别名与历史依赖、XML 属性
+及格式修复保真、业务字段清洗、四种协议的思考元数据、文本别名冲突，以及无工具回答和工具
+候选在校验服务不可用时的不同收尾行为。
+
 ## 2026-11-06：第二轮来源保真与续接校验
 
 - 格式修复的参数值比较以 CDATA 的原始字符串为准，不把它先解释成 JSON 再比较。

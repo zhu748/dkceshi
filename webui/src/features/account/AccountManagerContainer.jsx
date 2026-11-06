@@ -16,6 +16,7 @@ import ElasticPoolModal from './ElasticPoolModal'
 import DeviceIdModal from './DeviceIdModal'
 import RealDeviceIdModal from './RealDeviceIdModal'
 import ManualTokenModal from './ManualTokenModal'
+import AccountTransferControls from './AccountTransferControls'
 
 export default function AccountManagerContainer({ config, onRefresh, onMessage, authFetch }) {
     const { t } = useI18n()
@@ -202,6 +203,7 @@ export default function AccountManagerContainer({ config, onRefresh, onMessage, 
 
             <AccountsTable
                 t={t}
+                transferControls={<AccountTransferControls apiFetch={apiFetch} t={t} onMessage={onMessage} onRefresh={onRefresh} fetchAccounts={fetchAccounts} disabled={testingAll} />}
                 accounts={accounts}
                 loadingAccounts={loadingAccounts}
                 testing={testing}

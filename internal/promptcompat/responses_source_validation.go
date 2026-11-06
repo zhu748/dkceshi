@@ -1,6 +1,7 @@
 package promptcompat
 
 import (
+	"ds2api/internal/prompt"
 	"fmt"
 	"strings"
 )
@@ -42,6 +43,11 @@ func ValidateResponsesRequestContext(request map[string]any) error {
 		role := strings.ToLower(strings.TrimSpace(asString(item["role"])))
 		kind := strings.ToLower(strings.TrimSpace(asString(item["type"])))
 		if responsesMessageItem(kind) && (role != "" || kind != "") {
+			if kind == "text" || kind == "input_text" || kind == "output_text" {
+				if err := validatePromptMessageContent([]any{item}); err != nil {
+					return fmt.Errorf("input[%d]: %w", index, err)
+				}
+			}
 			if value := item["text"]; value != nil {
 				if _, ok := value.(string); !ok {
 					return fmt.Errorf("input[%d].text must be a string", index)
@@ -92,6 +98,9 @@ func ValidateResponsesRequestContext(request map[string]any) error {
 				return fmt.Errorf("input[%d]: %w", index, err)
 			}
 			if strings.HasSuffix(kind, "output") || kind == "tool_result" {
+				if err := validatePayloadAliases(item, "output", "content"); err != nil {
+					return fmt.Errorf("input[%d]: %w", index, err)
+				}
 				if err := validateStringAliases(item["name"], item["tool_name"], "tool name"); err != nil {
 					return fmt.Errorf("input[%d]: %w", index, err)
 				}
@@ -159,6 +168,9 @@ func validateResponsesReasoning(item map[string]any) error {
 			}
 			if _, ok := block["text"].(string); !ok {
 				return fmt.Errorf("reasoning %s[%d].text must be a string", field, index)
+			}
+			if err := prompt.ValidateTextAliases(block, "text", "content"); err != nil {
+				return fmt.Errorf("reasoning %s[%d]: %w", field, index, err)
 			}
 		}
 	}

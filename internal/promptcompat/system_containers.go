@@ -1,6 +1,9 @@
 package promptcompat
 
-import "fmt"
+import (
+	"ds2api/internal/prompt"
+	"fmt"
+)
 
 // Native system containers render text blocks only. Unsupported shapes must
 // fail before adapters can reduce the caller's instructions to an empty string.
@@ -18,7 +21,7 @@ func ValidateSystemTextContainer(raw any, partsKey string) error {
 		}
 		if _, hasParts := container[partsKey]; !hasParts {
 			if _, ok := container["text"].(string); ok {
-				return nil
+				return prompt.ValidateTextAliases(container, "text", "content")
 			}
 		}
 		raw = container[partsKey]
@@ -34,6 +37,9 @@ func ValidateSystemTextContainer(raw any, partsKey string) error {
 		}
 		if _, ok := block["text"].(string); !ok {
 			return fmt.Errorf("system block %d requires string text", i)
+		}
+		if err := prompt.ValidateTextAliases(block, "text", "content"); err != nil {
+			return fmt.Errorf("system block %d: %w", i, err)
 		}
 		if kind, present := block["type"]; partsKey == "" && present && kind != "" && kind != "text" {
 			return fmt.Errorf("system block %d has an unsupported type", i)

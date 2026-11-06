@@ -1,6 +1,7 @@
 package promptcompat
 
 import (
+	"ds2api/internal/prompt"
 	"fmt"
 	"strings"
 )
@@ -43,6 +44,11 @@ func ValidateContentContainers(messages []any, field string, allowString bool) e
 
 func validateKnownContentFields(block map[string]any, nativePart bool) error {
 	kind := strings.ToLower(strings.TrimSpace(asString(block["type"])))
+	if kind == "text" || nativePart && block["text"] != nil {
+		if err := prompt.ValidateTextAliases(block, "text", "content"); err != nil {
+			return err
+		}
+	}
 	if nativePart || kind == "text" {
 		if value, present := block["text"]; present {
 			if _, ok := value.(string); !ok {
@@ -53,6 +59,9 @@ func validateKnownContentFields(block map[string]any, nativePart bool) error {
 		}
 	}
 	if kind == "thinking" {
+		if err := prompt.ValidateTextAliases(block, "thinking", "text", "content"); err != nil {
+			return err
+		}
 		hasText := false
 		for _, field := range []string{"thinking", "text", "content"} {
 			if value, present := block[field]; present {
@@ -65,6 +74,9 @@ func validateKnownContentFields(block map[string]any, nativePart bool) error {
 		if !hasText {
 			return fmt.Errorf("thinking block requires text")
 		}
+	}
+	if err := validateNativeToolContext(block, nativePart); err != nil {
+		return err
 	}
 	if !nativePart {
 		return nil

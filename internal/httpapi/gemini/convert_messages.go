@@ -72,6 +72,9 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 			if text, ok := part["text"].(string); ok {
 				if role == "assistant" && isGeminiThoughtPart(part) {
 					flushText()
+					if block, ok := geminiTextBlock(part, text).(map[string]any); ok {
+						text += prompt.TextBlockMetadata(block)
+					}
 					if pendingThinking == "" {
 						pendingThinking = text
 					} else {
@@ -172,7 +175,7 @@ func normalizeGeminiSystemInstruction(raw any) string {
 			return strings.Join(texts, "")
 		}
 		if text, ok := v["text"].(string); ok {
-			return text
+			return prompt.NormalizeContent([]any{geminiTextBlock(v, text)})
 		}
 	}
 	return ""

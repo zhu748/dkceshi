@@ -346,8 +346,8 @@ func TestStripImageBlocksFromRequest(t *testing.T) {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
 	input, _ := req["input"].([]any)
-	if len(input) != 0 {
-		t.Fatalf("expected input stripped to 0 messages, got %d", len(input))
+	if len(input) != 1 || input[0].(map[string]any)["role"] != "user" {
+		t.Fatalf("image cleanup must retain the original message boundary, got %#v", input)
 	}
 }
 

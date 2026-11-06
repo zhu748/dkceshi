@@ -55,6 +55,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	promptcompat.CaptureInputFieldDigests(req)
 	// 是否注入工具提示词与号池路由均按“请求 body 是否携带工具定义”决定，
 	// 写入请求上下文供 Determine 使用。按 Key 的开关（如「强制禁用工具调用」）
 	// 由 promptcompat.ApplyCallerFlags 在判定之前应用，这里不再逐个开关接线。

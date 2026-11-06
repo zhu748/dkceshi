@@ -8,12 +8,10 @@ import { formatMuteUntil } from './formatMuteUntil.js'
 
 // 代理下拉框默认最大宽度（与原有布局一致的视觉宽度上限）。
 const PROXY_SELECT_MAX_WIDTH = 180
-// 收窄后的最小可用宽度：窄屏到极限时仍要保证能显示一个省略号占位，
-// 且不能把操作区的固定按钮挤出容器（320px 视口下约需 48px 以内）。
+// 窄屏最小宽度保留省略号占位，避免挤出固定按钮。
 const PROXY_SELECT_MIN_WIDTH = 44
 
-// 仅当账号行的操作区（开关 + 代理下拉框 + 编辑/刷新/删除按钮）在窄屏放不下时，
-// 才把代理下拉框收窄；收窄到刚好放下全部按钮为止。宽屏或标签较少时保持原样。
+// 窄屏下收窄代理下拉框，保留账号行的固定操作按钮。
 function AccountActions({ children }) {
     const containerRef = useRef(null)
     const selectRef = useRef(null)
@@ -72,6 +70,7 @@ function AccountActions({ children }) {
 
 export default function AccountsTable({
     t,
+    transferControls,
     accounts,
     loadingAccounts,
     testing,
@@ -157,6 +156,7 @@ export default function AccountsTable({
                     />
                     <AccountTestButton t={t} running={testingAll} hasAccounts={hasAnyAccounts}
                         onStart={onTestAll} onCancel={onCancelTestAll} />
+                    {transferControls}
                     <button
                         onClick={onOpenDeviceIds}
                         className="flex items-center px-3 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors text-xs font-medium border border-border"

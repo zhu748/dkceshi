@@ -47,8 +47,14 @@ func sanitizeContentValue(value any) any {
 		out := make(map[string]any, len(value))
 		for key, item := range value {
 			switch strings.ToLower(key) {
-			case "base64", "file_data", "filedata", "audio_data", "image_data", "inline_data", "inlinedata", "encrypted_content", "signature", "thoughtsignature":
+			case "file_data", "filedata", "audio_data", "image_data", "inline_data", "inlinedata", "encrypted_content", "thoughtsignature", "thought_signature":
 				out[key] = "[omitted_binary_payload]"
+			case "base64", "signature":
+				if binaryContextObject(value) || opaqueReasoningObject(value) {
+					out[key] = "[omitted_binary_payload]"
+				} else {
+					out[key] = sanitizeContentValue(item)
+				}
 			case "data", "bytes":
 				if binaryContextObject(value) {
 					out[key] = "[omitted_binary_payload]"
@@ -105,4 +111,13 @@ func binaryContextObject(block map[string]any) bool {
 		return true
 	}
 	return strings.EqualFold(encoding, "base64")
+}
+
+func opaqueReasoningObject(block map[string]any) bool {
+	kind, _ := block["type"].(string)
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "thinking", "reasoning", "redacted_thinking":
+		return true
+	}
+	return false
 }

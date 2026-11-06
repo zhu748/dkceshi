@@ -34,6 +34,7 @@ type ContextManifest struct {
 	Tools          ContextDigest          `json:"tool_catalog"`
 	RefFileIDs     []string               `json:"ref_file_ids,omitempty"`
 	Externalized   bool                   `json:"externalized"`
+	Omissions      []ContextOmission      `json:"omissions,omitempty"`
 }
 
 func digestContext(data []byte) ContextDigest {
@@ -81,5 +82,5 @@ func (r StandardRequest) ContextManifest() ContextManifest {
 		RawRequest:  raw,
 		InputFields: append([]ContextFieldDigest(nil), r.InputContext...),
 		Prompt:      digestContext([]byte(r.FinalPrompt)), History: digestContext([]byte(r.HistoryText)),
-		Tools: digestContext(tools), RefFileIDs: append([]string(nil), r.RefFileIDs...), Externalized: r.CurrentInputFileApplied}
+		Tools: digestContext(tools), RefFileIDs: append([]string(nil), r.RefFileIDs...), Externalized: r.CurrentInputFileApplied, Omissions: contextOmissions(source)}
 }

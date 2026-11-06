@@ -14,6 +14,8 @@ func AttachmentContextMetadata(block map[string]any) map[string]any {
 					out[key] = metadata
 				}
 			}
+		case "signature", "thoughtSignature", "thought_signature", "encrypted_content":
+			out[key] = "[omitted_binary_payload]"
 		default:
 			out[key] = sanitizeContentValue(value)
 		}

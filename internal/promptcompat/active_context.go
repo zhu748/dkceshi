@@ -2,11 +2,6 @@ package promptcompat
 
 import "strings"
 
-func hasMessageToolCalls(msg map[string]any) bool {
-	calls, _ := msg["tool_calls"].([]any)
-	return len(calls) > 0 || msg["function_call"] != nil
-}
-
 // SplitActiveContext keeps the newest user task and its entire tool loop live.
 // Earlier instruction messages stay in history at their original position and
 // are repeated in the live context, in order, as the effective instruction set.
