@@ -14,6 +14,9 @@ var errContinuationUnauthorized = errors.New("unauthorized")
 // restoreContinuation runs before uploads and account acquisition. Store records
 // contain caller-owned replay context, never remote session IDs or credentials.
 func (h *Handler) restoreContinuation(r *http.Request, req map[string]any) ([]any, error) {
+	if err := promptcompat.ValidateResponsesRequestContext(req); err != nil {
+		return nil, err
+	}
 	if value, exists := req["store"]; exists {
 		if _, ok := value.(bool); !ok {
 			return nil, fmt.Errorf("store must be a boolean")

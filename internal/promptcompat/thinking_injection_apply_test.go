@@ -132,6 +132,7 @@ func TestThinkingInjectionLeadsOpenAINormalizedRequests(t *testing.T) {
 		var std StandardRequest
 		var err error
 		if responses {
+			delete(req, "messages")
 			std, err = NormalizeOpenAIResponsesRequest(nil, req, "", markerUnderTest)
 		} else {
 			std, err = NormalizeOpenAIChatRequest(nil, req, "", markerUnderTest)

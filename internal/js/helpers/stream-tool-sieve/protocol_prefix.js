@@ -2,6 +2,7 @@
 
 const { protocolEnvelopeAt } = require('./protocol_envelope');
 const { unfinishedToolTagName } = require('./body_integrity');
+const { nextToolMarkupProbe } = require('./opener_scan');
 
 const { skipXmlIgnoredSection } = require('./cdata_scan');
 const { markdownCodeSpanEnd } = require('./markdown_fence');
@@ -21,7 +22,7 @@ function findToolProtocolPrefixOutsideIgnored(text, from = 0) {
     if (code.ok) { i = code.end; continue; }
     const protocol = protocolPrefixAt(text, i);
     if (protocol) return { start: i, protocol };
-    i += 1;
+    i = nextToolMarkupProbe(text, i);
   }
   return null;
 }

@@ -144,7 +144,7 @@ func assistantReasoningOnlyContent(msg map[string]any) string {
 	if !isAssistantMessage(msg) || isAssistantToolCallMessage(msg) {
 		return ""
 	}
-	if msg["refusal"] != nil || msg["prefix"] != nil || msg["name"] != nil {
+	if hasPromptMessageMetadata(msg) {
 		return ""
 	}
 	if _, hasContent := msg["content"]; hasContent {
@@ -176,21 +176,16 @@ func mergeResponsesAssistantToolCalls(prev any, next map[string]any) bool {
 		return false
 	}
 	// Explicit message bodies, including empty bodies, retain their boundaries.
-	if _, present := prevMsg["content"]; present {
+	if hasExplicitPromptMessage(prevMsg) || hasExplicitPromptMessage(next) {
 		return false
 	}
-	if _, present := next["content"]; present {
+	// Moving the next message's reasoning onto prev would put later thoughts
+	// before calls that already preceded them in the source item sequence.
+	if nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(next["reasoning_content"])) != "" {
 		return false
 	}
 	prevCalls, _ := prevMsg["tool_calls"].([]any)
 	nextCalls, _ := next["tool_calls"].([]any)
 	prevMsg["tool_calls"] = append(prevCalls, nextCalls...)
-	if reasoning := nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(next["reasoning_content"])); reasoning != "" {
-		previous := nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(prevMsg["reasoning_content"]))
-		if previous != "" {
-			reasoning = previous + "\n" + reasoning
-		}
-		prevMsg["reasoning_content"] = reasoning
-	}
 	return true
 }

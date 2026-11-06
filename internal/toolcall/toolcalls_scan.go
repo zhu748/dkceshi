@@ -60,7 +60,7 @@ func ContainsToolMarkupSyntaxOutsideIgnored(text string) (hasEPSE, hasCanonical 
 			i = tag.End + 1
 			continue
 		}
-		i++
+		i = nextToolMarkupProbe(text, i)
 	}
 	return hasEPSE, hasCanonical
 }
@@ -95,7 +95,7 @@ func ContainsToolCallWrapperSyntaxOutsideIgnored(text string) (hasEPSE, hasCanon
 			i = tag.End + 1
 			continue
 		}
-		i++
+		i = nextToolMarkupProbe(text, i)
 	}
 	return hasEPSE, hasCanonical
 }
@@ -117,7 +117,7 @@ func FindToolMarkupTagOutsideIgnored(text string, start int) (ToolMarkupTag, boo
 		if tag, ok := scanToolMarkupTagAt(text, i); ok {
 			return tag, true
 		}
-		i++
+		i = nextToolMarkupProbe(text, i)
 	}
 	return ToolMarkupTag{}, false
 }
@@ -159,6 +159,9 @@ func scanToolMarkupTagAt(text string, start int) (ToolMarkupTag, bool) {
 		next, ok := consumeToolMarkupLessThan(text, i)
 		if !ok {
 			break
+		}
+		if _, literal, blocked := skipXMLIgnoredSection(text, i); literal || blocked {
+			return ToolMarkupTag{}, false
 		}
 		i = next
 	}

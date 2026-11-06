@@ -2,6 +2,58 @@
 
 本项目最初基于 `ouqiting20/ds2api` 的 `f9d2085` 对齐提示词、工具调用、历史拆分和模型目录；当前消息保真与任务拆分规则以本文为准。请求头、登录及上游传输继续使用本项目原有实现。
 
+## 2026-11-06：第二轮来源保真与续接校验
+
+- 格式修复的参数值比较以 CDATA 的原始字符串为准，不把它先解释成 JSON 再比较。
+  将原始 boolean/null/number/object 或带引号 JSON 字符串包进 CDATA、导致最终参数类型或
+  字符串内容变化的修复结果会被拒绝。原有 CDATA 占位符绑定、原字节恢复及 Schema 校验继续适用。
+- Responses 的 `instructions`、原生 reasoning 项、工具名称/ID 别名及 assistant 的 refusal、
+  audio 文本和 reasoning_content 形状，在输入项转换前校验。HTTP 入口在读取续接存储和获取
+  上游账号前执行相同校验，不能让无效来源在 `previous_response_id` 展开过程中消失。
+  instructions 必须是字符串；reasoning content/summary 必须是包含 string text 的对象数组。
+  非空兼容 messages 与 input 同时出现、错误类型的 messages/input 也返回 400。
+- Chat/Responses 工具历史和 Responses 原生调用若同时提供多个参数入口，必须具有一致的
+  JSON 表示；名称、call_id/tool_call_id 别名不能矛盾。参数比较保留大整数，解码失败的历史
+  参数字符串按原文比较。只有一个参数入口时不额外解码或编码整份参数。
+- Responses 的“调用 A → 新思考 → 调用 B”保留为按源顺序排列的独立 assistant 消息，
+  不为合并批次把新思考搬到调用 A 之前。没有后续思考的连续匿名工具项仍可合并。
+- 原生 function/custom 调用、输出、reasoning 和附件项即使带有兼容 role 字段，也按其 type
+  提取载荷；role 与原生项语义矛盾时返回 400。显式 role 不能把工具 output 转成 content:null。
+  内置工具及未知 typed records 保留完整类型数据和已有角色，不降成空的普通 assistant 消息。
+- Responses 的 input_fields 摘要在 HTTP 入口展开续接、上传附件之前计算，再随标准请求和
+  附件重放沿用；因此原始 input 的证据不会被内部展开后的 messages 摘要覆盖。逐条标准消息
+  与最终文件/提示词摘要仍分别反映各自实际阶段，不将摘要清单解释为模型已理解上下文的证明。
+
+## 2026-11-06：消息边界、内容顺序与异常扫描
+
+- 显式空 assistant 正文、仅带 id/name/prefix 的 assistant 消息保留消息边界；prefix 同时进入
+  转录元数据，只有最后一条显式 prefix=true 的 assistant 作为续写前缀。Claude/Gemini 的空
+  content/parts 数组也保留对应消息。HISTORY.txt、即时 prompt 和提示词重建使用相同规则。
+- Responses 只合并没有独立正文或消息元数据的相邻工具项。id、name、prefix（含 false）、
+  refusal、audio 等字段阻止合并；用户、system/developer 和工具结果的消息身份字段继续传入
+  共享转录。原生 function_call 的调用 ID 仍保存在各调用上，不被误当作消息 ID。
+- Claude/Gemini 在新的思考块到来前提交此前正文；Chat/Responses 的 assistant 内容数组按
+  原始块顺序转录思考与正文，不把所有思考搬到最前。独立 reasoning_content 在正文前保留，
+  与内容数组中的思考逐字节相同时只保留数组表示，避免重复。文本块内部空白保持原样。
+- Chat/Responses 在共享历史校验中检查已知 text/input_text/output_text/thinking/reasoning/
+  refusal 内容块的文本类型；缺失文本或错误类型返回输入错误，不能在合法邻居旁静默消失。
+  兼容字符串数组、未知块及普通工具结果 JSON 对象不按内容块 Schema 解释。
+- 工具策略明确为 none 或允许集合为空时，共享流式/非流式收尾跳过格式修复，不发起无效
+  修复模型请求；原有工具策略和完整性校验仍拒绝不允许的调用。
+- Go/Node 的失败标签探测跳过已排除的连续开标签前缀，仅重新访问最后一个开标签，以保留
+  其 CDATA/注释边界；结构预算、候选规范化和修复来源扫描共用此规则。宽松标签解析不能
+  把这些字面量当成任意前缀。未完成字面量检查只对
+  不超过固定标识长度的尾部比较大小写，避免在每个 `<` 上转换整段后缀。
+- context_manifest 增加 input_fields，记录消息适配器入口的 system/systemInstruction、
+  instructions、messages/input/contents、tools/functions 字段摘要，去向为 adapter_input。
+  这些摘要在消息转换前计算且不包含正文；附件预处理可能已先于适配器运行。raw_request
+  继续表示原始 HTTP 字节，source_messages/live_messages 和 prompt/history/tools 摘要表示
+  后续阶段。各阶段摘要用于定位变化，不是自动的端到端覆盖证明，也不代表模型已读取附件。
+
+回归包括空消息与预填充、元数据合并边界、混合思考顺序、错误文本类型、禁用工具纠错、
+连续开标签中的 CDATA/注释及完整流式筛分。扫描基准：
+`go test ./internal/toolcall -run '^$' -bench BenchmarkProtocolPrefixDelimiterRun -benchmem`。
+
 ## 工具解析预算与字段去向
 
 - 空输出、工具参数错误和提示词回显的纠正重试，在原 prompt 后追加指令时保留原有全部字节，
@@ -40,7 +92,7 @@
 - `context_manifest` 的每条标准消息增加 `fields`，按字段名排序记录字节长度、SHA-256
   和去向：`content_serializer`、`message_metadata`、`transport_only`、`unrendered` 或
   `omitted_message`。历史外置前保存这些记录；生成诊断快照时复制字段列表。
-  记录不包含字段值，只描述标准消息字段进入哪个处理器；不覆盖协议适配前的原始字段，
+  记录不包含字段值，只描述标准消息字段进入哪个处理器；适配器入口证据另见 input_fields，
   也不保证序列化器内每个嵌套值都保留。原始 HTTP 摘要及最终传输摘要继续分别记录。
 
 ## 参数与输入上下文完整性补充
@@ -796,7 +848,7 @@ Node 仅在 SSE 响应开始后发送心跳，结束或断开时清理定时器�
 - 取消由工具目录或历史触发的 `HoldOutput`。auto/none 模式中的普通正文增量交付，候选工具批次仍在共享校验后交付；required/forced 模式保留整轮暂存。只有尚未交付非空白正文或工具调用时才允许纠正生成。此调整覆盖 Go 各协议与 Node；Gemini 的可见思考也在工具上下文中实时发送。
 - 纯文本目录不再由 `tool` / `functions` 子串触发。识别 `Available tools: read_file`、`# Tools` 后的具名条目、`可用工具：read_file` 或 `Tool:` / `Parameters:` 结构；普通工具讨论、否定指令和空目录不触发。`tools: []` 明确关闭此兼容分支。更自由的目录格式应改用正式 `tools` 数组或上述明确结构。路由、提示词和历史拆分复用该判定，Gemini 原生入口在归一化 systemInstruction 后补齐路由判断。
 - Responses 的前导纯空白在出现有效正文前暂存，不提前关闭 reasoning item 或创建 message item。重新生成丢弃失败轮的空白；有效正文保留自己的前导空白。已流出的思考继续在同一个未关闭的思考项中追加，最终只关闭一次。
-- Responses 只合并无独立正文的相邻工具消息；显式 `content` 保留消息边界。待合并的 reasoning 与消息自带 reasoning 按顺序保留，避免覆盖或丢失。
+- Responses 只合并无独立正文、元数据或后续新思考的相邻工具消息；显式 `content` 保留消息边界。reasoning 按源位置保留，避免覆盖、丢失或移到更早的调用之前。
 - Responses 流式完成对象及其保存对象复用共享 `turn.Usage`，包含工具参数和隐藏思考，不再按清洗后的可见正文重新确定输出用量。
 
 
@@ -909,7 +961,7 @@ CDATA 与尾随普通文本混合的参数必须完整保留文本，并区分 C
   输出继续使用该接口的现代 `tool_calls` 形态；旧客户端需要识别现代响应字段。
 - OpenAI、Claude 和 Gemini 的已知正文文本块按顺序直接拼接，不裁剪原文或额外插入换行。
   OpenAI refusal 块以标签保留全文；未识别块作为有标记的数据转录，显式二进制字段与
-  不透明签名省略，降级 JSON 最多 4096 UTF-8 字节，截断有标记。助手拒绝回答不会消失。
+  不透明签名省略，降级 JSON 保留完整文本，由请求总大小和外置传输控制容量。助手拒绝回答不会消失。
 - 共享 turn 在原始工具边界截断可见正文。四种非流式协议与流式协议均保留调用前的说明，
   不返回调用后编造的结果；Responses 的正文项排在工具项之前。
 

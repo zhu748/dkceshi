@@ -27,7 +27,7 @@ func toolMarkupLimitExceeded(text string) bool {
 			}
 		}
 		if !ok {
-			i++
+			i = nextToolMarkupProbe(text, i)
 			continue
 		}
 		i = tag.End + 1

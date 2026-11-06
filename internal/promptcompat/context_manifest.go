@@ -26,6 +26,7 @@ type ContextMessageDigest struct {
 type ContextManifest struct {
 	Scope          string                 `json:"scope"`
 	RawRequest     *ContextDigest         `json:"raw_request,omitempty"`
+	InputFields    []ContextFieldDigest   `json:"input_fields,omitempty"`
 	SourceMessages []ContextMessageDigest `json:"source_messages"`
 	LiveMessages   []ContextMessageDigest `json:"live_messages"`
 	Prompt         ContextDigest          `json:"final_prompt"`
@@ -77,7 +78,8 @@ func (r StandardRequest) ContextManifest() ContextManifest {
 		raw = &copy
 	}
 	return ContextManifest{Scope: "normalized_api_context", SourceMessages: source, LiveMessages: live,
-		RawRequest: raw,
-		Prompt:     digestContext([]byte(r.FinalPrompt)), History: digestContext([]byte(r.HistoryText)),
+		RawRequest:  raw,
+		InputFields: append([]ContextFieldDigest(nil), r.InputContext...),
+		Prompt:      digestContext([]byte(r.FinalPrompt)), History: digestContext([]byte(r.HistoryText)),
 		Tools: digestContext(tools), RefFileIDs: append([]string(nil), r.RefFileIDs...), Externalized: r.CurrentInputFileApplied}
 }

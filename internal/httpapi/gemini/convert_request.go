@@ -68,6 +68,7 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 
 	standard := promptcompat.StandardRequest{
 		Surface:              "google_gemini",
+		InputContext:         promptcompat.InputFieldDigests(req),
 		RequestedModel:       requestedModel,
 		ResolvedModel:        resolvedModel,
 		ResponseModel:        requestedModel,

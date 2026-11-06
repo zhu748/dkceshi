@@ -26,9 +26,9 @@ func TestReasoningAndInstructionsPreserveOriginalWhitespace(t *testing.T) {
 			}
 		}
 	}
-	merged := inputs[2][0].(map[string]any)["reasoning_content"]
-	if merged != first+"\n"+second {
-		t.Fatalf("merged reasoning changed: %q", merged)
+	ordered := inputs[2]
+	if len(ordered) != 2 || ordered[0].(map[string]any)["reasoning_content"] != first || ordered[1].(map[string]any)["reasoning_content"] != second {
+		t.Fatalf("reasoning bytes or boundaries changed: %#v", ordered)
 	}
 	messages := ResponsesMessagesFromRequest(map[string]any{"instructions": instructions, "input": "question"})
 	if messages[0].(map[string]any)["content"] != instructions {

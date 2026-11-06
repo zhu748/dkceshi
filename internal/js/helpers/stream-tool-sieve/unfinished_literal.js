@@ -7,7 +7,8 @@ const { findPartialXMLToolTagStart } = require('./sieve-xml');
 
 function findUnfinishedToolLiteralStart(text) {
   for (let i = 0; i < text.length;) {
-    if (text[i] === '<' && ('<![CDATA['.startsWith(text.slice(i).toUpperCase()) || '<!--'.startsWith(text.slice(i)))) return i;
+    const remaining = text.length - i;
+    if (text[i] === '<' && ((remaining <= 9 && '<![CDATA['.startsWith(text.slice(i).toUpperCase())) || (remaining <= 4 && '<!--'.startsWith(text.slice(i))))) return i;
     const ignored = skipXmlIgnoredSection(text, i);
     if (ignored.blocked) return i;
     if (ignored.advanced) { i = ignored.next; continue; }

@@ -4,6 +4,7 @@ const { streamLimit } = require('../stream-limits');
 const { skipXmlIgnoredSection } = require('./cdata_scan');
 const { markdownCodeSpanEnd } = require('./markdown_fence');
 const { scanToolMarkupTagAt, scanDSMLTagAt } = require('./markup_scan');
+const { nextToolMarkupProbe } = require('./opener_scan');
 
 function markupLimitExceeded(text) {
   const maxCalls = streamLimit('max_tool_calls');
@@ -15,7 +16,7 @@ function markupLimitExceeded(text) {
     const code = markdownCodeSpanEnd(text, i);
     if (code.ok) { i = code.end; continue; }
     const tag = scanToolMarkupTagAt(text, i) || scanDSMLTagAt(text, i);
-    if (!tag) { i++; continue; }
+    if (!tag) { i = nextToolMarkupProbe(text, i); continue; }
     i = tag.end + 1;
     nodes++;
     if (tag.closing) depth = Math.max(0, depth - 1);

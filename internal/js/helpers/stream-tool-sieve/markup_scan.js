@@ -3,6 +3,7 @@
 // Tool/DSML tag scanning, nesting and incomplete-tag detection.
 const { toRawString } = require('./state');
 const { unfinishedToolTagName, includeDuplicateLeadingLessThan } = require('./body_integrity');
+const { nextToolMarkupProbe } = require('./opener_scan');
 const {
   skipXmlIgnoredSection,
 } = require('./cdata_scan');
@@ -53,6 +54,8 @@ function scanToolMarkupTagAt(text, start) {
     if (!delimLen) {
       break;
     }
+    const literal = skipXmlIgnoredSection(raw, i);
+    if (literal.advanced || literal.blocked) return null;
     i += delimLen;
   }
   const slash = consumeToolMarkupClosingSlash(raw, i);
@@ -181,7 +184,7 @@ function findToolMarkupTagOutsideIgnored(text, from) {
     if (tag) {
       return tag;
     }
-    i += 1;
+    i = nextToolMarkupProbe(raw, i);
   }
   return null;
 }
@@ -441,7 +444,7 @@ function findDSMLTagOutsideIgnored(text, from) {
     if (tag) {
       return tag;
     }
-    i += 1;
+    i = nextToolMarkupProbe(raw, i);
   }
   return null;
 }

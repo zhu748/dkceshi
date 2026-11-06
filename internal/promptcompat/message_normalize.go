@@ -27,7 +27,7 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 		switch role {
 		case "assistant":
 			content := buildAssistantContentForPrompt(msg, marker)
-			if content == "" {
+			if content == "" && !hasExplicitPromptMessage(msg) {
 				continue
 			}
 			out = append(out, map[string]any{
@@ -74,12 +74,8 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 }
 
 func buildAssistantContentForPrompt(msg map[string]any, marker string) string {
-	content := prompt.NormalizeAssistantContent(msg)
-	reasoning := prompt.AssistantReasoningText(msg)
 	toolHistory := prompt.FormatToolCallsForPromptForMarker(msg["tool_calls"], marker)
-	if toolHistory == "" {
-		content = normalizeAssistantToolMarkupContentForPrompt(content, marker)
-	}
+	content, reasoning := assistantContentForPrompt(msg, marker, toolHistory == "")
 	parts := make([]string, 0, 3)
 	if reasoning != "" {
 		parts = append(parts, formatPromptLabeledBlock(assistantReasoningLabel, reasoning))

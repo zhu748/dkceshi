@@ -44,7 +44,7 @@ func TestContextManifestIdentifiesPromptContentAndOmittedMessages(t *testing.T) 
 		"invalid message",
 	}, RawRequest: &ContextDigest{Bytes: 100, SHA256: "raw-body-digest"}}
 	m := r.ContextManifest()
-	if m.SourceMessages[0].PromptContent != digestContext([]byte("  exact\n")) || m.SourceMessages[1].OmittedReason == "" || m.SourceMessages[2].OmittedReason != "not_a_message_object" {
+	if m.SourceMessages[0].PromptContent != digestContext([]byte("  exact\n")) || m.SourceMessages[1].OmittedReason != "" || m.SourceMessages[1].PromptContent != digestContext(nil) || m.SourceMessages[2].OmittedReason != "not_a_message_object" {
 		t.Fatalf("missing normalization evidence: %+v", m)
 	}
 	m.RawRequest.SHA256 = "changed"

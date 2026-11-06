@@ -29,6 +29,7 @@ type StandardRequest struct {
 	// 工具规则及 ThinkingInjectionPrompt 另行组装，不写入客户端消息正文。
 	Messages      []any
 	SourceContext []ContextMessageDigest
+	InputContext  []ContextFieldDigest
 	RawRequest    *ContextDigest `json:"-"`
 	HistoryText   string
 	// ArchiveUserInput retains the latest user input when splitting removes

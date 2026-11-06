@@ -18,6 +18,7 @@ type claudeNormalizedRequest struct {
 }
 
 func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNormalizedRequest, error) {
+	inputContext := promptcompat.InputFieldDigests(req)
 	model, _ := req["model"].(string)
 	messagesRaw, _ := req["messages"].([]any)
 	if strings.TrimSpace(model) == "" || len(messagesRaw) == 0 {
@@ -77,6 +78,7 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 	result := claudeNormalizedRequest{
 		Standard: promptcompat.StandardRequest{
 			Surface:        "anthropic_messages",
+			InputContext:   inputContext,
 			RequestedModel: strings.TrimSpace(model),
 			ResolvedModel:  dsModel,
 			ResponseModel:  strings.TrimSpace(model),

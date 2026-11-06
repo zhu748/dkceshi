@@ -49,7 +49,7 @@ func renderMessages(messages []map[string]any, completion, headings bool) string
 			fmt.Fprintf(&b, "=== %d. %s ===\n", i+1, strings.ToUpper(role))
 		}
 		metadata := map[string]any{}
-		for _, key := range []string{"name", "tool_call_id", "is_error", "id"} {
+		for _, key := range []string{"name", "tool_call_id", "is_error", "id", "prefix"} {
 			if value, ok := m[key]; ok && value != nil {
 				metadata[key] = value
 			}

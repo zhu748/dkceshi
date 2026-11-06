@@ -29,6 +29,7 @@ func normalizeClaudeMessages(messages []any) []any {
 		role := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", msg["role"])))
 		switch content := msg["content"].(type) {
 		case []any:
+			before := len(out)
 			textParts := make([]any, 0, len(content))
 			pendingThinking := ""
 			flushText := func() {
@@ -67,6 +68,7 @@ func normalizeClaudeMessages(messages []any) []any {
 					}
 				case "thinking":
 					if role == "assistant" {
+						flushText()
 						if thinking := extractClaudeThinkingBlockText(b); thinking != "" {
 							if pendingThinking == "" {
 								pendingThinking = thinking
@@ -116,6 +118,9 @@ func normalizeClaudeMessages(messages []any) []any {
 					"reasoning_content": pendingThinking,
 					"content":           "",
 				})
+			}
+			if len(out) == before {
+				out = append(out, map[string]any{"role": role, "content": ""})
 			}
 		default:
 			copied := cloneMap(msg)

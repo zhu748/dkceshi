@@ -2,6 +2,7 @@ package responses
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"ds2api/internal/chathistory"
 	"ds2api/internal/config"
 	dsclient "ds2api/internal/deepseek/client"
+	"ds2api/internal/promptcompat"
 )
 
 type responsesHistoryDS struct {
@@ -112,5 +114,13 @@ func TestResponsesRecordsResponseHistory(t *testing.T) {
 	}
 	if item.Content != "ok" {
 		t.Fatalf("expected raw upstream content, got %q", item.Content)
+	}
+	var manifest promptcompat.ContextManifest
+	if err := json.Unmarshal(item.ContextManifest, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	want := promptcompat.InputFieldDigests(map[string]any{"input": "hello responses"})
+	if len(manifest.InputFields) != 1 || manifest.InputFields[0] != want[0] {
+		t.Fatalf("original input evidence replaced by expanded messages: %+v", manifest.InputFields)
 	}
 }

@@ -14,6 +14,14 @@ func validateHistoryShapes(messages []any) error {
 		if !ok {
 			return fmt.Errorf("messages[%d] must be a message object", i)
 		}
+		if err := validatePromptMessageContent(msg["content"]); err != nil {
+			return fmt.Errorf("messages[%d].%w", i, err)
+		}
+		if strings.EqualFold(strings.TrimSpace(asString(msg["role"])), "assistant") {
+			if err := validateAssistantContextFields(msg); err != nil {
+				return fmt.Errorf("messages[%d].%w", i, err)
+			}
+		}
 		if legacy := msg["function_call"]; legacy != nil {
 			fn, ok := legacy.(map[string]any)
 			if !ok || strings.TrimSpace(asString(fn["name"])) == "" {
@@ -21,6 +29,9 @@ func validateHistoryShapes(messages []any) error {
 			}
 			if !strings.EqualFold(strings.TrimSpace(asString(msg["role"])), "assistant") {
 				return fmt.Errorf("messages[%d].function_call requires assistant role", i)
+			}
+			if err := validateToolArgumentAliases(fn, nil); err != nil {
+				return fmt.Errorf("messages[%d].function_call: %w", i, err)
 			}
 		}
 		if msg["tool_calls"] == nil {
@@ -40,6 +51,10 @@ func validateHistoryShapes(messages []any) error {
 			call, ok := rawCall.(map[string]any)
 			if !ok || strings.TrimSpace(historyToolName(call)) == "" {
 				return fmt.Errorf("messages[%d].tool_calls[%d] requires a tool name", i, j)
+			}
+			function, _ := call["function"].(map[string]any)
+			if err := validateToolArgumentAliases(call, function); err != nil {
+				return fmt.Errorf("messages[%d].tool_calls[%d]: %w", i, j, err)
 			}
 			if fn, present := call["function"]; present {
 				function, ok := fn.(map[string]any)

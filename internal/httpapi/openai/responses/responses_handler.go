@@ -62,6 +62,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	inputContext := promptcompat.InputFieldDigests(req)
 	replayContext, restoreErr := h.restoreContinuation(r, req)
 	if restoreErr != nil {
 		status := http.StatusBadRequest
@@ -112,6 +113,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	stdReq.InputContext = inputContext
 	stdReq = h.withInputReplay(stdReq, a, req, traceID, imageRoute)
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {

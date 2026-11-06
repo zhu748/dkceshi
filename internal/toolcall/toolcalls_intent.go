@@ -77,7 +77,7 @@ func containsDSMLTagIntent(text string) bool {
 		if detectDSMLTagAt(text, i) {
 			return true
 		}
-		i++
+		i = nextToolMarkupProbe(text, i)
 	}
 	return false
 }
@@ -165,7 +165,7 @@ func FindDSMLTagOutsideIgnored(text string, start int) (DSMLTag, bool) {
 		if tag, ok := scanDSMLTagAt(text, i); ok {
 			return tag, true
 		}
-		i++
+		i = nextToolMarkupProbe(text, i)
 	}
 	return DSMLTag{}, false
 }
@@ -298,7 +298,7 @@ func findEPSETag(text string, start int, wantClosing bool) (int, bool) {
 			i = afterEPSE
 			continue
 		}
-		i++
+		i = nextToolMarkupProbe(text, i)
 	}
 	return 0, false
 }

@@ -7,7 +7,8 @@ import "strings"
 // only by display guards; tool argument parsing retains its own CDATA policy.
 func FindUnfinishedToolLiteralStart(text string) int {
 	for i := 0; i < len(text); {
-		if text[i] == '<' && (strings.HasPrefix("<![CDATA[", strings.ToUpper(text[i:])) || strings.HasPrefix("<!--", text[i:])) {
+		remaining := len(text) - i
+		if text[i] == '<' && (remaining <= len("<![CDATA[") && strings.HasPrefix("<![CDATA[", strings.ToUpper(text[i:])) || remaining <= len("<!--") && strings.HasPrefix("<!--", text[i:])) {
 			return i
 		}
 		next, advanced, blocked := skipXMLIgnoredSection(text, i)

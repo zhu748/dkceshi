@@ -33,6 +33,7 @@ func applyGeneratedToolMarker(text, marker string) string {
 }
 
 func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]any, traceID string, toolMarker ...string) (StandardRequest, error) {
+	inputContext := InputFieldDigests(req)
 	var err error
 	req, err = NormalizeLegacyToolDefinitions(req)
 	if err != nil {
@@ -80,6 +81,7 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 
 	standard := StandardRequest{
 		Surface:              "openai_chat",
+		InputContext:         inputContext,
 		RequestedModel:       strings.TrimSpace(model),
 		ResolvedModel:        resolvedModel,
 		ResponseModel:        responseModel,
@@ -103,6 +105,10 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 }
 
 func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[string]any, traceID string, toolMarker ...string) (StandardRequest, error) {
+	if err := ValidateResponsesRequestContext(req); err != nil {
+		return StandardRequest{}, err
+	}
+	inputContext := InputFieldDigests(req)
 	var err error
 	req, err = NormalizeLegacyToolDefinitions(req)
 	if err != nil {
@@ -154,6 +160,7 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 
 	standard := StandardRequest{
 		Surface:              "openai_responses",
+		InputContext:         inputContext,
 		RequestedModel:       model,
 		ResolvedModel:        resolvedModel,
 		ResponseModel:        model,

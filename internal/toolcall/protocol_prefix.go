@@ -25,7 +25,7 @@ func FindToolProtocolPrefixOutsideIgnored(text string, start int) (int, string) 
 		if name := toolProtocolPrefixAt(text, i); name != "" {
 			return i, name
 		}
-		i++
+		i = nextToolMarkupProbe(text, i)
 	}
 	return -1, ""
 }

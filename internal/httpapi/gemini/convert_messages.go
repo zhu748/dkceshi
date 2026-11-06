@@ -41,12 +41,8 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 		}
 		parts, _ := content["parts"].([]any)
 		if len(parts) == 0 {
-			if text, ok := content["text"].(string); ok {
-				out = append(out, map[string]any{
-					"role":    role,
-					"content": text,
-				})
-			}
+			text, _ := content["text"].(string)
+			out = append(out, map[string]any{"role": role, "content": text})
 			continue
 		}
 
@@ -75,6 +71,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 			}
 			if text, ok := part["text"].(string); ok {
 				if role == "assistant" && isGeminiThoughtPart(part) {
+					flushText()
 					if pendingThinking == "" {
 						pendingThinking = text
 					} else {

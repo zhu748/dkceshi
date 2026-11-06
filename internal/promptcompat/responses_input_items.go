@@ -17,8 +17,9 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 		return nil
 	}
 
+	itemType := strings.ToLower(strings.TrimSpace(asString(m["type"])))
 	role := strings.ToLower(strings.TrimSpace(asString(m["role"])))
-	if role != "" {
+	if role != "" && responsesMessageItem(itemType) {
 		if role == "assistant" {
 			return normalizeResponsesAssistantMessage(m)
 		}
@@ -35,6 +36,7 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"role":    normalizeOpenAIRoleForPrompt(role),
 			"content": content,
 		}
+		copyPromptMessageMetadata(out, m)
 		if role == "tool" || role == "function" {
 			if value, ok := m["is_error"]; ok {
 				out["is_error"] = value
@@ -52,7 +54,6 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 		return out
 	}
 
-	itemType := strings.ToLower(strings.TrimSpace(asString(m["type"])))
 	switch itemType {
 	case "input_image", "image_url", "input_file", "file":
 		return map[string]any{"role": "user", "content": []any{m}}
@@ -73,10 +74,12 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 		if role == "" {
 			role = "user"
 		}
-		return map[string]any{
+		out := map[string]any{
 			"role":    normalizeOpenAIRoleForPrompt(role),
 			"content": content,
 		}
+		copyPromptMessageMetadata(out, m)
+		return out
 	case "function_call_output", "custom_tool_call_output", "tool_result":
 		content, hasOutput := m["output"]
 		if !hasOutput {
@@ -86,6 +89,7 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"role":    "tool",
 			"content": content,
 		}
+		copyPromptMessageMetadata(out, m)
 		if value, ok := m["is_error"]; ok {
 			out["is_error"] = value
 		}
@@ -168,9 +172,11 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 	}
 
 	if itemType != "" {
-		role := "user"
-		if strings.HasSuffix(itemType, "_call") || strings.HasSuffix(itemType, "_call_output") || strings.HasPrefix(itemType, "mcp_") {
-			role = "assistant"
+		if role == "" {
+			role = "user"
+			if strings.HasSuffix(itemType, "_call") || strings.HasSuffix(itemType, "_call_output") || strings.HasPrefix(itemType, "mcp_") {
+				role = "assistant"
+			}
 		}
 		// Built-in tool records are historical context, never executable calls.
 		// Keep their complete typed data rather than extracting only text/content.
@@ -221,7 +227,7 @@ func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
 	if reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(m["reasoning_content"])); reasoning != "" {
 		out["reasoning_content"] = m["reasoning_content"]
 	}
-	if _, hasToolCalls := out["tool_calls"]; hasToolCalls || out["function_call"] != nil || out["content"] != nil || out["reasoning_content"] != nil || out["refusal"] != nil {
+	if _, hasToolCalls := out["tool_calls"]; hasToolCalls || out["function_call"] != nil || out["content"] != nil || out["reasoning_content"] != nil || hasPromptMessageMetadata(out) {
 		return out
 	}
 	return nil

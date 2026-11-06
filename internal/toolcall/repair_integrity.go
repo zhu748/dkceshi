@@ -161,7 +161,7 @@ func repairIdentities(text string) []repairIdentity {
 			if (inInvoke || inBatch) && !unicode.IsSpace(r) {
 				unbound()
 			}
-			i += size
+			i += max(size, nextToolMarkupProbe(text, i)-i)
 			continue
 		}
 		attrs := parseXMLTagAttributes(text[i : end+1])
@@ -208,7 +208,12 @@ func repairIdentities(text string) []repairIdentity {
 				}
 			}
 			if kind == "parameter" && closeStart >= 0 {
-				node.value = parseInvokeParameterValue(name, text[end+1:closeStart])
+				raw := text[end+1 : closeStart]
+				if literal, ok := extractStandaloneCDATA(strings.TrimSpace(raw)); ok {
+					node.value = literal
+				} else {
+					node.value = parseInvokeParameterValue(name, raw)
+				}
 				node.known = true
 				if conflictingJSONKeys(text[end+1 : closeStart]) {
 					node.kind, node.known = "unbound", false

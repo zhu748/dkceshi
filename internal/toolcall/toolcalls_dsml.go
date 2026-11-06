@@ -40,8 +40,9 @@ func rewriteEPSEToolMarkupOutsideIgnored(text string) string {
 		}
 		tag, ok := scanToolMarkupTagAt(text, i)
 		if !ok {
-			b.WriteByte(text[i])
-			i++
+			next := nextToolMarkupProbe(text, i)
+			b.WriteString(text[i:next])
+			i = next
 			continue
 		}
 		b.WriteByte('<')
