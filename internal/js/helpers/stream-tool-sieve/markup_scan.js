@@ -478,6 +478,7 @@ function findMatchingDSMLClose(text, open) {
 }
 
 module.exports = {
+  scanDSMLTagAt,
   findDSMLTagOutsideIgnored,
   findMatchingDSMLClose,
   findMatchingToolMarkupClose,

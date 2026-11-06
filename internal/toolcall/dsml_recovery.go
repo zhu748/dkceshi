@@ -87,10 +87,13 @@ func recoverDSMLInvoke(attrs map[string]string, body string) (ParsedToolCall, bo
 	call := ParsedToolCall{Name: name, Input: map[string]any{}}
 	for body = strings.TrimSpace(body); body != ""; {
 		param, raw, rest, ok := takeDSMLRecoveryElement(body, "parameter")
-		if !ok || len(param) != 2 || strings.TrimSpace(param["name"]) == "" {
+		if !ok || len(param) != 2 {
 			return ParsedToolCall{}, false
 		}
-		key := strings.TrimSpace(param["name"])
+		key, present := param["name"]
+		if !present {
+			return ParsedToolCall{}, false
+		}
 		if _, duplicate := call.Input[key]; duplicate {
 			return ParsedToolCall{}, false
 		}

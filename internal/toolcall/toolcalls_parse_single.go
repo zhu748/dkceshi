@@ -34,13 +34,13 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 			return ParsedToolCall{}, false
 		}
 		paramAttrs := parseXMLTagAttributes(paramMatch.Attrs)
-		paramName := strings.TrimSpace(html.UnescapeString(paramAttrs["name"]))
-		if paramName == "" {
+		paramName := html.UnescapeString(paramAttrs["name"])
+		if _, present := paramAttrs["name"]; !present {
 			return ParsedToolCall{}, false
 		}
 		// CDATA is literal text. An unquoted JSON container with conflicting
 		// keys is ambiguous and cannot become an executable parameter.
-		if conflictingJSONKeys(paramMatch.Body) {
+		if conflictingJSONKeys(paramMatch.Body) || parameterMarkupLimitExceeded(paramMatch.Body) {
 			return ParsedToolCall{}, false
 		}
 		value := parseInvokeParameterValue(paramName, paramMatch.Body, &recovery)

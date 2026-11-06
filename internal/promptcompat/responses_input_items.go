@@ -118,10 +118,6 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 				name = strings.TrimSpace(asString(fn["name"]))
 			}
 		}
-		if name == "" {
-			return nil
-		}
-
 		var argsRaw any
 		if v, ok := m["arguments"]; ok {
 			argsRaw = v
@@ -206,11 +202,11 @@ func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
 			out[key] = value
 		}
 	}
-	if call, ok := m["function_call"].(map[string]any); ok {
+	if call, exists := m["function_call"]; exists {
 		out["function_call"] = call
 		out["id"] = m["id"]
 	}
-	if toolCalls, ok := m["tool_calls"].([]any); ok && len(toolCalls) > 0 {
+	if toolCalls, exists := m["tool_calls"]; exists {
 		out["tool_calls"] = toolCalls
 	}
 	content := m["content"]
@@ -255,6 +251,7 @@ func normalizeResponsesFallbackPart(m map[string]any) string {
 }
 
 func responsesReasoningText(item map[string]any) string {
+	var sources []string
 	for _, key := range []string{"content", "summary"} {
 		var parts []string
 		if entries, ok := item[key].([]any); ok {
@@ -266,8 +263,11 @@ func responsesReasoningText(item map[string]any) string {
 			}
 		}
 		if len(parts) > 0 {
-			return strings.Join(parts, "\n")
+			sources = append(sources, strings.Join(parts, "\n"))
 		}
+	}
+	if len(sources) > 0 {
+		return prompt.JoinReasoningRepresentations(sources...)
 	}
 	return asString(item["text"])
 }

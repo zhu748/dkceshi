@@ -9,6 +9,19 @@ const cases = require('../fixtures/completion-account-failures.json');
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const sse = content => new Response('data: ' + JSON.stringify(content) + '\n\ndata: [DONE]\n\n');
 
+test('all corrective retries preserve the exact source prompt bytes', () => {
+  const { clonePayloadForOutputRetry } = require('../../internal/js/chat-stream/stream_retry_policy');
+  for (const original of ['  prelude\r\n[Assistant]:code\n\t  ', '\t \r\n', '']) {
+    for (const failure of [null, { code: 'upstream_prompt_echo' }, { code: 'invalid_tool_arguments', message: 'invalid' }]) {
+      const payload = { prompt: original, parent_message_id: 4 };
+      const out = clonePayloadForOutputRetry(payload, 9, failure);
+      if (original !== '') assert.ok(out.prompt.startsWith(original + '\n\n'));
+      assert.equal(out.parent_message_id, 9);
+      assert.equal(payload.prompt, original);
+    }
+  }
+});
+
 for (const entry of cases) test(`Go/Node completion contract: ${entry.name}`, async () => {
   const result = await detectMutedOrBannedResponse(json(entry.body, entry.status));
   const kind = result.unauthorized ? 'unauthorized' : result.rateLimited ? 'limited' : result.banned ? 'banned' : result.mutedUntil ? 'muted' : 'passthrough';

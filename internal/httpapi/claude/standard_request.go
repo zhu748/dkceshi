@@ -23,6 +23,12 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 	if strings.TrimSpace(model) == "" || len(messagesRaw) == 0 {
 		return claudeNormalizedRequest{}, fmt.Errorf("request must include 'model' and 'messages'")
 	}
+	if err := promptcompat.ValidateContentContainers(messagesRaw, "content", true); err != nil {
+		return claudeNormalizedRequest{}, err
+	}
+	if err := promptcompat.ValidateSystemTextContainer(req["system"], ""); err != nil {
+		return claudeNormalizedRequest{}, err
+	}
 	if _, ok := req["max_tokens"]; !ok {
 		req["max_tokens"] = 8192
 	}

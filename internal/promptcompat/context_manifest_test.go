@@ -1,6 +1,7 @@
 package promptcompat
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ func TestContextManifestTracksSourceAcrossExternalization(t *testing.T) {
 	r.FinalPrompt, r.HistoryText, r.CurrentInputFileApplied = "continue", "history original", true
 	r.RefFileIDs = []string{"history-file"}
 	after := r.ContextManifest()
-	if len(after.SourceMessages) != 2 || len(after.LiveMessages) != 1 || !after.Externalized || after.SourceMessages[0] != before.SourceMessages[0] {
+	if len(after.SourceMessages) != 2 || len(after.LiveMessages) != 1 || !after.Externalized || !reflect.DeepEqual(after.SourceMessages[0], before.SourceMessages[0]) {
 		t.Fatalf("source context lost across transport change: %+v", after)
 	}
 	if after.Prompt.SHA256 == before.Prompt.SHA256 || after.History.Bytes != len(r.HistoryText) || len(after.RefFileIDs) != 1 {

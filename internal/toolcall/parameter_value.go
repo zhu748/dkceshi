@@ -8,6 +8,9 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 		return ""
 	}
 	if value, ok := extractStandaloneCDATA(trimmed); ok {
+		if parameterMarkupLimitExceeded(value) {
+			return value
+		}
 		if preservesCDATAStringParameter(paramName) {
 			return value
 		}

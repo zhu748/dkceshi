@@ -8,6 +8,15 @@ import (
 	"testing"
 )
 
+func TestCapturedReasoningKeepsDistinctFieldAndBlockText(t *testing.T) {
+	const first, second = "  FIRST\r\n ", "\tSECOND  "
+	messages := CaptureMessages([]any{map[string]any{"role": "assistant", "reasoning_content": first, "content": []any{map[string]any{"type": "thinking", "thinking": second}}}})
+	var text string
+	if len(messages) != 1 || json.Unmarshal(messages[0].ReasoningContent, &text) != nil || text != first+"\n"+second {
+		t.Fatalf("archive lost reasoning: %#v", messages)
+	}
+}
+
 func TestCaptureMessagesPersistsToolOnlyTurnsMetadataAndIndependentSnapshots(t *testing.T) {
 	call := map[string]any{"id": "call_a", "type": "function", "function": map[string]any{"name": "lookup", "arguments": map[string]any{"id": json.Number("9007199254740993")}}}
 	messages := CaptureMessages([]any{

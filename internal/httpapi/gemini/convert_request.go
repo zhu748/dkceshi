@@ -24,6 +24,16 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 	// thinkingConfig / reasoning_effort 仅兼容接收，不参与开关。
 	thinkingEnabled := defaultThinkingEnabled
 
+	contents, validContents := req["contents"].([]any)
+	if !validContents || len(contents) == 0 {
+		return promptcompat.StandardRequest{}, fmt.Errorf("request must include non-empty contents")
+	}
+	if err := promptcompat.ValidateContentContainers(contents, "parts", false); err != nil {
+		return promptcompat.StandardRequest{}, err
+	}
+	if err := promptcompat.ValidateSystemTextContainer(req["systemInstruction"], "parts"); err != nil {
+		return promptcompat.StandardRequest{}, err
+	}
 	messagesRaw := geminiMessagesFromRequest(req)
 	if err := promptcompat.ValidateToolHistory(messagesRaw); err != nil {
 		return promptcompat.StandardRequest{}, err

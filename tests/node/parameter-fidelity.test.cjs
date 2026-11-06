@@ -5,9 +5,46 @@ const assert = require('node:assert/strict');
 const { parseToolCalls, createToolSieveState, processToolSieveChunk, flushToolSieve } = require('../../internal/js/helpers/stream-tool-sieve');
 const { resolveToolcallPolicy } = require('../../internal/js/chat-stream/toolcall_policy');
 
+test('parameter names preserve whitespace, empty keys and XML entities', () => {
+  for (const [encoded, key] of [[' key ', ' key '], ['', ''], ['a&amp;b', 'a&b']]) {
+    const raw = wrapper(`<parameter name="${encoded}"><![CDATA[exact]]></parameter>`);
+    assert.deepEqual(parseToolCalls(raw, []), [{ name: 'write', input: { [key]: 'exact' } }]);
+  }
+});
+
+test('JSON Unicode checks reject unpaired escapes but preserve literal examples', () => {
+  const { parseJSONStrict } = require('../../internal/js/helpers/stream-tool-sieve/strict_json');
+  for (const raw of ['"\\ud800"', '"\\udc00"', '{"\\udfff":1}']) {
+    assert.throws(() => parseJSONStrict(raw), /Unicode/);
+    assert.deepEqual(parseToolCalls(wrapper(`<parameter name="value">${raw}</parameter>`), []), []);
+    assert.deepEqual(parseToolCalls(wrapper(`<parameter name="value"><![CDATA[${raw}]]></parameter>`), []), [{ name: 'write', input: { value: raw } }]);
+  }
+  assert.equal(parseJSONStrict('"\\ud83d\\ude00"'), '😀');
+  assert.equal(parseJSONStrict('"\\\\ud800"'), '\\ud800');
+});
+
+test('large unclosed markup is bounded without interpreting CDATA text', () => {
+  const { markupLimitExceeded } = require('../../internal/js/helpers/stream-tool-sieve/markup_budget');
+  const body = '<invoke name="literal">'.repeat(6400);
+  const broken = `<tool_calls>${body}</tool_calls>`;
+  assert.equal(markupLimitExceeded(broken), true);
+  assert.deepEqual(parseToolCalls(broken, []), []);
+  const literal = wrapper(`<parameter name="content"><![CDATA[${body}]]></parameter>`);
+  assert.equal(markupLimitExceeded(literal), false);
+  assert.deepEqual(parseToolCalls(literal, []), [{ name: 'write', input: { content: body } }]);
+});
+
 function wrapper(body) {
   return `<tool_calls><invoke name="write">${body}</invoke></tool_calls>`;
 }
+
+test('nested XML depth is bounded while deep CDATA text remains exact', () => {
+  for (const name of ['node', '中文', 'ns:node']) {
+    const body = `<${name}>`.repeat(150) + 'value' + `</${name}>`.repeat(150);
+    assert.deepEqual(parseToolCalls(wrapper(`<parameter name="payload">${body}</parameter>`), []), []);
+    assert.deepEqual(parseToolCalls(wrapper(`<parameter name="payload"><![CDATA[${body}]]></parameter>`), []), [{ name: 'write', input: { payload: body } }]);
+  }
+});
 
 test('closed CDATA cannot create parameters or sibling calls at any split', () => {
   for (const value of [

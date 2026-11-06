@@ -18,9 +18,10 @@ function parseJSONStrict(raw) {
           if (raw[i] === '\\') { i += 1; continue; }
           if (raw[i] === '"') break;
         }
+        const key = JSON.parse(raw.slice(start, i + 1));
+        if (!wellFormedString(key)) throw new SyntaxError('invalid Unicode in JSON string');
         const scope = stack.at(-1);
         if (!scope?.key) break;
-        const key = JSON.parse(raw.slice(start, i + 1));
         if (scope.keys.has(key)) throw new SyntaxError('duplicate JSON object key');
         scope.keys.add(key);
         break;
@@ -37,4 +38,21 @@ function hasDuplicateJSONKeys(raw) {
   return false;
 }
 
-module.exports = { parseJSONStrict, hasDuplicateJSONKeys };
+function wellFormedString(text) {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xdc00 && code <= 0xdfff) return false;
+    if (code < 0xd800 || code > 0xdbff) continue;
+    const low = text.charCodeAt(++i);
+    if (!(low >= 0xdc00 && low <= 0xdfff)) return false;
+  }
+  return true;
+}
+
+function hasInvalidJSONLiteral(raw) {
+  try { JSON.parse(raw); } catch { return false; }
+  try { parseJSONStrict(raw); } catch { return true; }
+  return false;
+}
+
+module.exports = { parseJSONStrict, hasDuplicateJSONKeys, hasInvalidJSONLiteral };

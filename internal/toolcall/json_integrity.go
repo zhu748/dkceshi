@@ -8,5 +8,5 @@ import (
 
 func conflictingJSONKeys(raw string) bool {
 	raw = strings.TrimSpace(raw)
-	return len(raw) > 0 && (raw[0] == '{' || raw[0] == '[') && json.Valid([]byte(raw)) && jsonvalue.CheckDuplicateKeys([]byte(raw)) != nil
+	return json.Valid([]byte(raw)) && (jsonvalue.CheckDuplicateKeys([]byte(raw)) != nil || jsonvalue.CheckStringEncoding([]byte(raw)) != nil)
 }

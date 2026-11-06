@@ -53,3 +53,17 @@ func TestRejectedLinkDoesNotCorruptPendingQueue(t *testing.T) {
 		t.Fatal("original call no longer matchable")
 	}
 }
+
+func TestFIFOResultsRemainOrderedAfterIDReuse(t *testing.T) {
+	links := NewToolCallLinker("call")
+	links.Call("read", "a")
+	links.Call("read", "b")
+	links.Result("read", "a")
+	links.Call("read", "a")
+	for _, want := range []string{"b", "a"} {
+		id, _ := links.Result("read", "")
+		if id != want || links.Err() != nil {
+			t.Fatalf("FIFO order changed: want=%s got=%s err=%v", want, id, links.Err())
+		}
+	}
+}

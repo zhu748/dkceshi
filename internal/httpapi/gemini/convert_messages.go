@@ -88,28 +88,27 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 
 			if fnCall, ok := part["functionCall"].(map[string]any); ok {
 				flushText()
-				if name := strings.TrimSpace(asString(fnCall["name"])); name != "" {
-					callID := geminiFunctionCallID(fnCall)
-					callID = links.Call(name, callID)
-					msg := map[string]any{
-						"role": "assistant",
-						"tool_calls": []any{
-							map[string]any{
-								"id":   callID,
-								"type": "function",
-								"function": map[string]any{
-									"name":      name,
-									"arguments": stringifyJSON(fnCall["args"]),
-								},
+				name := strings.TrimSpace(asString(fnCall["name"]))
+				callID := geminiFunctionCallID(fnCall)
+				callID = links.Call(name, callID)
+				msg := map[string]any{
+					"role": "assistant",
+					"tool_calls": []any{
+						map[string]any{
+							"id":   callID,
+							"type": "function",
+							"function": map[string]any{
+								"name":      name,
+								"arguments": stringifyJSON(fnCall["args"]),
 							},
 						},
-					}
-					if strings.TrimSpace(pendingThinking) != "" {
-						msg["reasoning_content"] = pendingThinking
-						pendingThinking = ""
-					}
-					out = append(out, msg)
+					},
 				}
+				if strings.TrimSpace(pendingThinking) != "" {
+					msg["reasoning_content"] = pendingThinking
+					pendingThinking = ""
+				}
+				out = append(out, msg)
 				continue
 			}
 

@@ -142,9 +142,6 @@ func normalizeClaudeToolUseToAssistant(block map[string]any, state *claudeToolCa
 		return nil
 	}
 	name := safeStringValue(block["name"])
-	if name == "" {
-		return nil
-	}
 	callID := safeStringValue(block["id"])
 	if callID == "" {
 		callID = safeStringValue(block["tool_use_id"])

@@ -13,11 +13,12 @@ type ParsedToolCall struct {
 }
 
 type ToolCallParseResult struct {
-	SourceChannel     string   `json:"-"`
-	RecoverySteps     []string `json:"-"`
-	Calls             []ParsedToolCall
-	SawToolCallSyntax bool
-	SawToolCallIntent bool
+	ResourceLimitExceeded bool     `json:"-"`
+	SourceChannel         string   `json:"-"`
+	RecoverySteps         []string `json:"-"`
+	Calls                 []ParsedToolCall
+	SawToolCallSyntax     bool
+	SawToolCallIntent     bool
 	// ResidualIntentText carries the residual (pre-normalization, fences
 	// stripped, successful-wrapper-deducted) text that triggered
 	// SawToolCallIntent. It is the "bad tool-call code" the LLM repair layer

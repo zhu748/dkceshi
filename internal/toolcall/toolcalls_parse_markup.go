@@ -49,37 +49,19 @@ func findToolCallElementBlocksOutsideIgnored(text string) []xmlElementBlock {
 // and Body. Coordinates are absolute in text, so it can be run directly on the
 // pre-normalization original to locate deduction regions (§4.2).
 func findToolMarkupElementBlocksByName(text, name string) []xmlElementBlock {
-	if text == "" || name == "" {
-		return nil
-	}
-	var out []xmlElementBlock
-	for searchFrom := 0; searchFrom < len(text); {
-		tag, ok := FindToolMarkupTagOutsideIgnored(text, searchFrom)
-		if !ok {
-			break
+	return collectElementBlocks(text, func(from int) (ToolMarkupTag, bool) {
+		for from < len(text) {
+			tag, ok := FindToolMarkupTagOutsideIgnored(text, from)
+			if !ok {
+				return ToolMarkupTag{}, false
+			}
+			if tag.Name == name {
+				return tag, true
+			}
+			from = tag.End + 1
 		}
-		if tag.Closing || tag.Name != name {
-			searchFrom = tag.End + 1
-			continue
-		}
-		closeTag, ok := FindMatchingToolMarkupClose(text, tag)
-		if !ok {
-			searchFrom = tag.End + 1
-			continue
-		}
-		attrsEnd := tag.End + 1
-		if delimLen := xmlTagEndDelimiterLenEndingAt(text, tag.End); delimLen > 0 {
-			attrsEnd = tag.End + 1 - delimLen
-		}
-		out = append(out, xmlElementBlock{
-			Attrs: text[tag.NameEnd:attrsEnd],
-			Body:  text[tag.End+1 : closeTag.Start],
-			Start: tag.Start,
-			End:   closeTag.End + 1,
-		})
-		searchFrom = closeTag.End + 1
-	}
-	return out
+		return ToolMarkupTag{}, false
+	})
 }
 
 func repairMissingXMLToolCallsOpeningWrapper(text string) string {
@@ -140,95 +122,33 @@ type xmlElementBlock struct {
 	End   int
 }
 
-func findXMLElementBlocks(text, tag string) []xmlElementBlock {
-	if text == "" || tag == "" {
-		return nil
-	}
-	var out []xmlElementBlock
-	pos := 0
-	for pos < len(text) {
-		start, bodyStart, attrs, ok := findXMLStartTagOutsideCDATA(text, tag, pos)
-		if !ok {
-			break
-		}
-		closeStart, closeEnd, ok := findMatchingXMLEndTagOutsideCDATA(text, tag, bodyStart)
-		if !ok {
-			pos = bodyStart
-			continue
-		}
-		out = append(out, xmlElementBlock{
-			Attrs: attrs,
-			Body:  text[bodyStart:closeStart],
-			Start: start,
-			End:   closeEnd,
-		})
-		pos = closeEnd
-	}
-	return out
-}
-
-func findXMLStartTagOutsideCDATA(text, tag string, from int) (start, bodyStart int, attrs string, ok bool) {
-	target := "<" + strings.ToLower(tag)
-	for i := maxInt(from, 0); i < len(text); {
-		next, advanced, blocked := skipXMLIgnoredSection(text, i)
-		if blocked {
-			return -1, -1, "", false
-		}
-		if advanced {
-			i = next
-			continue
-		}
-		if hasASCIIPrefixFoldAt(text, i, target) && hasXMLTagBoundary(text, i+len(target)) {
-			end := findXMLTagEnd(text, i+len(target))
-			if end < 0 {
-				return -1, -1, "", false
+func findXMLElementBlocks(text, name string) []xmlElementBlock {
+	return collectElementBlocks(text, func(from int) (ToolMarkupTag, bool) {
+		open, close := "<"+name, "</"+name
+		for i := from; i < len(text); {
+			next, advanced, blocked := skipXMLIgnoredSection(text, i)
+			if blocked {
+				break
 			}
-			return i, end + 1, text[i+len(target) : end], true
-		}
-		i++
-	}
-	return -1, -1, "", false
-}
-
-func findMatchingXMLEndTagOutsideCDATA(text, tag string, from int) (closeStart, closeEnd int, ok bool) {
-	openTarget := "<" + strings.ToLower(tag)
-	closeTarget := "</" + strings.ToLower(tag)
-	depth := 1
-	for i := maxInt(from, 0); i < len(text); {
-		next, advanced, blocked := skipXMLIgnoredSection(text, i)
-		if blocked {
-			return -1, -1, false
-		}
-		if advanced {
-			i = next
-			continue
-		}
-		if hasASCIIPrefixFoldAt(text, i, closeTarget) && hasXMLTagBoundary(text, i+len(closeTarget)) {
-			end := findXMLTagEnd(text, i+len(closeTarget))
-			if end < 0 {
-				return -1, -1, false
+			if advanced {
+				i = next
+				continue
 			}
-			depth--
-			if depth == 0 {
-				return i, end + 1, true
+			target, closing := open, false
+			if hasASCIIPrefixFoldAt(text, i, close) {
+				target, closing = close, true
 			}
-			i = end + 1
-			continue
+			if hasASCIIPrefixFoldAt(text, i, target) && hasXMLTagBoundary(text, i+len(target)) {
+				end := findXMLTagEnd(text, i+len(target))
+				if end < 0 {
+					break
+				}
+				return ToolMarkupTag{Start: i, End: end, NameEnd: i + len(target), Closing: closing, SelfClosing: isSelfClosingXMLTag(text[i:end])}, true
+			}
+			i++
 		}
-		if hasASCIIPrefixFoldAt(text, i, openTarget) && hasXMLTagBoundary(text, i+len(openTarget)) {
-			end := findXMLTagEnd(text, i+len(openTarget))
-			if end < 0 {
-				return -1, -1, false
-			}
-			if !isSelfClosingXMLTag(text[:end]) {
-				depth++
-			}
-			i = end + 1
-			continue
-		}
-		i++
-	}
-	return -1, -1, false
+		return ToolMarkupTag{}, false
+	})
 }
 
 func skipXMLIgnoredSection(text string, i int) (next int, advanced bool, blocked bool) {

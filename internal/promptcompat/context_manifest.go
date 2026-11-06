@@ -15,8 +15,9 @@ type ContextMessageDigest struct {
 	Index int    `json:"index"`
 	Role  string `json:"role"`
 	ContextDigest
-	PromptContent ContextDigest `json:"prompt_content"`
-	OmittedReason string        `json:"omitted_reason,omitempty"`
+	PromptContent ContextDigest        `json:"prompt_content"`
+	OmittedReason string               `json:"omitted_reason,omitempty"`
+	Fields        []ContextFieldDigest `json:"fields,omitempty"`
 }
 
 // ContextManifest describes normalized API context and its final transport.
@@ -50,6 +51,7 @@ func (r StandardRequest) ContextMessageDigests() []ContextMessageDigest {
 		message, _ := raw.(map[string]any)
 		digest := ContextMessageDigest{Index: i, Role: asString(message["role"]), ContextDigest: digestContext(data)}
 		visible := NormalizeOpenAIMessagesForPrompt([]any{normalized[i]}, "", r.ToolMarker)
+		digest.Fields = contextFieldDigests(message, len(visible) > 0)
 		if len(visible) > 0 {
 			digest.PromptContent = digestContext([]byte(asString(visible[0]["content"])))
 		} else if message == nil {
@@ -64,7 +66,7 @@ func (r StandardRequest) ContextMessageDigests() []ContextMessageDigest {
 
 func (r StandardRequest) ContextManifest() ContextManifest {
 	live := r.ContextMessageDigests()
-	source := append([]ContextMessageDigest(nil), r.SourceContext...)
+	source := cloneContextDigests(r.SourceContext)
 	if source == nil {
 		source = live
 	}

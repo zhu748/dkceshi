@@ -75,10 +75,7 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 
 func buildAssistantContentForPrompt(msg map[string]any, marker string) string {
 	content := prompt.NormalizeAssistantContent(msg)
-	reasoning := nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
-	if reasoning == "" {
-		reasoning = nonBlankPromptText(extractOpenAIReasoningContentFromMessage(msg["content"]))
-	}
+	reasoning := prompt.AssistantReasoningText(msg)
 	toolHistory := prompt.FormatToolCallsForPromptForMarker(msg["tool_calls"], marker)
 	if toolHistory == "" {
 		content = normalizeAssistantToolMarkupContentForPrompt(content, marker)
@@ -154,60 +151,11 @@ func isStandaloneAssistantToolMarkupBlock(trimmed string) bool {
 }
 
 func normalizeOpenAIReasoningContentForPrompt(v any) string {
-	switch x := v.(type) {
-	case string:
-		return x
-	case []any:
-		return strings.Join(extractOpenAIReasoningPartsFromItems(x), "\n")
-	case map[string]any:
-		return extractOpenAIReasoningTextFromItem(x)
-	default:
-		return ""
-	}
+	return prompt.ReasoningText(v)
 }
 
 func extractOpenAIReasoningContentFromMessage(v any) string {
-	switch x := v.(type) {
-	case []any:
-		return strings.Join(extractOpenAIReasoningPartsFromItems(x), "\n")
-	case map[string]any:
-		return extractOpenAIReasoningTextFromItem(x)
-	default:
-		return ""
-	}
-}
-
-func extractOpenAIReasoningPartsFromItems(items []any) []string {
-	parts := make([]string, 0, len(items))
-	for _, item := range items {
-		if text := extractOpenAIReasoningTextFromItemMap(item); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return parts
-}
-
-func extractOpenAIReasoningTextFromItemMap(item any) string {
-	m, ok := item.(map[string]any)
-	if !ok {
-		return ""
-	}
-	return extractOpenAIReasoningTextFromItem(m)
-}
-
-func extractOpenAIReasoningTextFromItem(m map[string]any) string {
-	if m == nil {
-		return ""
-	}
-	switch strings.ToLower(strings.TrimSpace(asString(m["type"]))) {
-	case "reasoning", "thinking":
-		for _, key := range []string{"text", "thinking", "content"} {
-			if text := nonBlankPromptText(asString(m[key])); text != "" {
-				return text
-			}
-		}
-	}
-	return ""
+	return prompt.ContentReasoningText(v)
 }
 
 func formatPromptLabeledBlock(label, text string) string {

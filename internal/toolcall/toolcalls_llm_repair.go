@@ -168,6 +168,9 @@ func firstRepairToolMarker(markers []string) string {
 // tool-call marker and normalizes the model's answer back to EPSE before
 // parsing; when omitted the canonical EPSE keyword is used (legacy behaviour).
 func repairToolCallsOnce(ctx context.Context, badCode string, invoke ToolCallRepairInvoker, toolMarker ...string) (repairedCalls []ParsedToolCall, repairedOK bool) {
+	if toolMarkupLimitExceeded(stripFencedCodeBlocks(badCode)) {
+		return nil, false
+	}
 	started := time.Now()
 	report := tooldiagnostics.Step{RequestAttempt: tooldiagnostics.RepairAttempt(ctx), Stage: "llm_repair", Result: "failed", Input: tooldiagnostics.Capture(badCode)}
 	defer func() {
@@ -184,6 +187,9 @@ func repairToolCallsOnce(ctx context.Context, badCode string, invoke ToolCallRep
 	if calls, ok := RecoverDSMLToolCalls(badCode); ok {
 		report.Stage, report.Reason = "local_recovery", "native_dsml"
 		return calls, true
+	}
+	if parameterMarkupLimitExceeded(stripFencedCodeBlocks(badCode)) {
+		return nil, false
 	}
 	if invoke == nil || strings.TrimSpace(badCode) == "" || repairHasOrphanCDATA(badCode) {
 		report.Result, report.Reason = "skipped", "repair_unavailable_or_ambiguous_cdata"

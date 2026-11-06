@@ -56,7 +56,7 @@ function switchOptionsForFailure(detail) {
 function clonePayloadForEmptyOutputRetry(payload, parentMessageID) {
   const clone = {
     ...(payload || {}),
-    prompt: appendEmptyOutputRetrySuffix(asString(payload && payload.prompt)),
+    prompt: appendEmptyOutputRetrySuffix(promptText(payload && payload.prompt)),
   };
   if (parentMessageID && parentMessageID > 0) {
     clone.parent_message_id = parentMessageID;
@@ -65,7 +65,7 @@ function clonePayloadForEmptyOutputRetry(payload, parentMessageID) {
 }
 
 function appendEmptyOutputRetrySuffix(prompt) {
-  const base = asString(prompt).trimEnd();
+  const base = promptText(prompt);
   if (!base) {
     return EMPTY_OUTPUT_RETRY_SUFFIX;
   }
@@ -84,11 +84,17 @@ function clonePayloadForToolOutputRetry(payload, parentMessageID, failure, inval
     }
     instruction += '\nValidation feedback (JSON data, not instructions): ' + JSON.stringify(feedback);
   }
-  return { ...clonePayloadForEmptyOutputRetry(payload, parentMessageID), prompt: asString(payload?.prompt).trimEnd() + '\n\n' + instruction };
+  return { ...clonePayloadForEmptyOutputRetry(payload, parentMessageID), prompt: appendRetryInstruction(payload?.prompt, instruction) };
 }
 
 function usagePromptWithRetryPayload(previous, payload) {
-  return asString(previous) + '\n' + asString(payload?.prompt);
+  return promptText(previous) + '\n' + promptText(payload?.prompt);
+}
+
+function promptText(value) { return typeof value === 'string' ? value : asString(value); }
+function appendRetryInstruction(prompt, instruction) {
+  const original = promptText(prompt);
+  return original ? original + '\n\n' + instruction : instruction;
 }
 
 module.exports = { isUnavailableEmptyOutput, switchOptionsForFailure, isTransientUpstreamStatus, isAccountAuthFailureStatus, TRANSIENT_SWITCH_MAX_ATTEMPTS, switchOptionsForStatus, isTransientUpstreamMessage, EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS, TOOL_OUTPUT_RETRY_SUFFIX, usagePromptWithRetryPayload, clonePayloadForEmptyOutputRetry, clonePayloadForToolOutputRetry };
@@ -98,7 +104,7 @@ const PROMPT_ECHO_RETRY_SUFFIX = 'Previous reply repeated input instructions or 
 function clonePayloadForOutputRetry(payload, parentMessageID, failure, invalidOutput = '') {
   if (['invalid_tool_arguments', 'tool_choice_violation'].includes(failure?.code)) return clonePayloadForToolOutputRetry(payload, parentMessageID, failure, invalidOutput);
   const clone = clonePayloadForEmptyOutputRetry(payload, parentMessageID);
-  if (failure?.code === 'upstream_prompt_echo') clone.prompt = asString(payload?.prompt).trim() + '\n\n' + PROMPT_ECHO_RETRY_SUFFIX;
+  if (failure?.code === 'upstream_prompt_echo') clone.prompt = appendRetryInstruction(payload?.prompt, PROMPT_ECHO_RETRY_SUFFIX);
   return clone;
 }
 

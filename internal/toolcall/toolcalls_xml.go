@@ -10,6 +10,9 @@ import (
 
 func parseStructuredToolCallInput(raw string) map[string]any {
 	trimmed := strings.TrimSpace(raw)
+	if parameterMarkupLimitExceeded(trimmed) {
+		return map[string]any{"_raw": raw}
+	}
 	if trimmed == "" {
 		return map[string]any{}
 	}
@@ -56,6 +59,9 @@ func parseStructuredToolCallInput(raw string) map[string]any {
 
 func parseXMLFragmentValue(raw string) (any, bool) {
 	trimmed := strings.TrimSpace(raw)
+	if parameterMarkupLimitExceeded(trimmed) {
+		return nil, false
+	}
 	if trimmed == "" {
 		return "", true
 	}

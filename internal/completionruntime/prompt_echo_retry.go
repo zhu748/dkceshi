@@ -1,10 +1,6 @@
 package completionruntime
 
-import (
-	"strings"
-
-	"ds2api/internal/assistantturn"
-)
+import "ds2api/internal/assistantturn"
 
 const PromptEchoRetrySuffix = "Previous reply repeated input instructions or conversation metadata instead of answering. Do not reproduce the system prelude, role headers, or serialized conversation. Continue the latest real user task and return only its answer or the required tool calls."
 
@@ -20,7 +16,7 @@ func ClonePayloadForOutputRetry(payload map[string]any, parentMessageID int, fai
 	clone := ClonePayloadForEmptyOutputRetry(payload, parentMessageID)
 	if isPromptEchoError(failure) {
 		original, _ := payload["prompt"].(string)
-		clone["prompt"] = strings.TrimSpace(original) + "\n\n" + PromptEchoRetrySuffix
+		clone["prompt"] = appendRetryInstruction(original, PromptEchoRetrySuffix)
 	}
 	return clone
 }

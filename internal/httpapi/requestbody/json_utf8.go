@@ -2,6 +2,7 @@ package requestbody
 
 import (
 	"bytes"
+	"ds2api/internal/jsonvalue"
 	"encoding/json"
 	"errors"
 	"io"
@@ -155,7 +156,7 @@ func validateAndReplayBody(body io.ReadCloser, maxSize int64, audits ...*bodyAud
 	if !utf8.Valid(raw) {
 		return &errorReadCloser{err: ErrInvalidUTF8Body, closer: body}
 	}
-	if !json.Valid(raw) {
+	if !json.Valid(raw) || jsonvalue.CheckStringEncoding(raw) != nil {
 		return &errorReadCloser{err: ErrInvalidJSONBody, closer: body}
 	}
 	if len(audits) > 0 {

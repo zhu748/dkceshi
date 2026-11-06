@@ -1,10 +1,6 @@
 package completionruntime
 
-import (
-	"strings"
-
-	"ds2api/internal/assistantturn"
-)
+import "ds2api/internal/assistantturn"
 
 const EmptyOutputRetrySuffix = "Previous reply had no visible output. Please regenerate the visible final answer or tool call now."
 
@@ -13,7 +9,7 @@ const ToolOutputRetrySuffix = "Previous tool turn was rejected; no tools ran. Tr
 func ClonePayloadForToolOutputRetry(payload map[string]any, parentMessageID int, failure *assistantturn.OutputError, invalidOutput ...string) map[string]any {
 	clone := ClonePayloadForEmptyOutputRetry(payload, parentMessageID)
 	original, _ := payload["prompt"].(string)
-	clone["prompt"] = strings.TrimRight(original, "\r\n\t ") + "\n\n" + toolOutputRetryInstruction(failure, invalidOutput...)
+	clone["prompt"] = appendRetryInstruction(original, toolOutputRetryInstruction(failure, invalidOutput...))
 	return clone
 }
 
@@ -47,11 +43,16 @@ func ClonePayloadForEmptyOutputRetry(payload map[string]any, parentMessageID int
 }
 
 func AppendEmptyOutputRetrySuffix(prompt string) string {
-	prompt = strings.TrimRight(prompt, "\r\n\t ")
+	return appendRetryInstruction(prompt, EmptyOutputRetrySuffix)
+}
+
+// A trailing space can be an intentional assistant prefill or code indent.
+// Retry instructions are appended without rewriting any original prompt bytes.
+func appendRetryInstruction(prompt, instruction string) string {
 	if prompt == "" {
-		return EmptyOutputRetrySuffix
+		return instruction
 	}
-	return prompt + "\n\n" + EmptyOutputRetrySuffix
+	return prompt + "\n\n" + instruction
 }
 
 // UsagePromptWithRetryPayload counts the exact follow-up prompt sent upstream,

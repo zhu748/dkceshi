@@ -1,6 +1,7 @@
 package promptcompat
 
 import (
+	"ds2api/internal/prompt"
 	"encoding/json"
 	"strings"
 )
@@ -152,7 +153,7 @@ func assistantReasoningOnlyContent(msg map[string]any) string {
 		if reasoning == "" || content != "" && content != strings.TrimSpace(reasoning) {
 			return ""
 		}
-		return reasoning
+		return prompt.AssistantReasoningText(msg)
 	}
 	return nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
 }

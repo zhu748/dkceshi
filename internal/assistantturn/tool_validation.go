@@ -22,6 +22,9 @@ func validateToolOutput(turn *Turn, opts BuildOptions, repaired bool) *OutputErr
 		return &OutputError{Status: 502, Code: "output_limit_exceeded", Message: "Upstream output exceeded configured resource limits."}
 	}
 	parsed := turn.ParsedToolCalls
+	if parsed.ResourceLimitExceeded {
+		return &OutputError{Status: http.StatusUnprocessableEntity, Code: "invalid_tool_arguments", Message: "Tool markup exceeds the configured call count or structural limits."}
+	}
 	if !repaired {
 		unresolved := parsed.ResidualProtocolText
 		if unresolved == "" {

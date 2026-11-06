@@ -16,7 +16,7 @@ var errIncompleteRepair = errors.New("repair output is incomplete")
 
 func repairParametersKnown(source cdataSlotResult, marker string) bool {
 	for _, node := range repairIdentities(closeRepairManifestCDATA(NormalizeMarkerText(source.skeleton, marker))) {
-		if node.kind == "unbound" || node.kind == "parameter" && (!node.known || node.name == "") {
+		if node.kind == "unbound" || node.kind == "parameter" && !node.known {
 			return false
 		}
 	}
@@ -43,7 +43,7 @@ func validateRepairIntegrity(source cdataSlotResult, output, marker string) erro
 	}
 	for i, node := range expected {
 		got := actual[i]
-		if node.kind == "unbound" || node.kind == "parameter" && (!node.known || node.name == "") {
+		if node.kind == "unbound" || node.kind == "parameter" && !node.known {
 			return fmt.Errorf("%w: source parameter boundary is unknown at node %d", errRepairIntegrity, i)
 		}
 		if node.kind != got.kind || node.name != got.name {
@@ -168,7 +168,12 @@ func repairIdentities(text string) []repairIdentity {
 		if attrs == nil {
 			unbound()
 		}
-		name := strings.TrimSpace(html.UnescapeString(attrs["name"]))
+		name := html.UnescapeString(attrs["name"])
+		if kind != "parameter" {
+			name = strings.TrimSpace(name)
+		} else if _, present := attrs["name"]; !closing && !present && parameterName == "" {
+			unbound()
+		}
 		if parameterName != "" {
 			name = parameterName
 		}

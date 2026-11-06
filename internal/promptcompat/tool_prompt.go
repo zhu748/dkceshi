@@ -151,6 +151,10 @@ func buildToolPromptParts(tools []any, policy ToolChoicePolicy, includeReadCache
 		}
 		b, _ := json.Marshal(schema)
 		toolSchemas = append(toolSchemas, fmt.Sprintf("Tool: %s\nDescription: %s\nParameters: %s", name, desc, string(b)))
+		if examples, present := tool["input_examples"]; present {
+			data, _ := json.Marshal(examples)
+			toolSchemas[len(toolSchemas)-1] += "\nInput examples: " + string(data)
+		}
 	}
 	if len(toolSchemas) == 0 {
 		return toolPromptParts{Names: names}

@@ -81,7 +81,11 @@ func (s *ToolCallLinker) Result(name, id string) (string, string) {
 	queue := s.pending[linkedName]
 	for i, candidate := range queue {
 		if candidate == id {
-			s.pending[linkedName] = append(queue[:i], queue[i+1:]...)
+			if i == 0 {
+				s.pending[linkedName] = queue[1:]
+			} else {
+				s.pending[linkedName] = append(queue[:i], queue[i+1:]...)
+			}
 			break
 		}
 	}
@@ -98,8 +102,17 @@ func (s *ToolCallLinker) Err() error { return s.err }
 // Partial histories may contain results without their original calls. Reject
 // only contradictions to calls actually present in this request.
 func ValidateToolHistory(messages []any) error {
-	_, err := toolHistoryDependencies(NormalizeLegacyToolHistory(messages))
+	_, err := normalizeValidatedToolHistory(messages)
 	return err
+}
+
+func normalizeValidatedToolHistory(messages []any) ([]any, error) {
+	if err := validateHistoryShapes(messages); err != nil {
+		return nil, err
+	}
+	normalized := NormalizeLegacyToolHistory(messages)
+	_, err := toolHistoryDependencies(normalized)
+	return normalized, err
 }
 
 // Dependencies bind each result to its preceding call occurrence. Completed

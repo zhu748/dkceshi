@@ -48,6 +48,9 @@ func CaptureMessages(messages []any) []Message {
 		}
 		if role == "assistant" {
 			item.Content = prompt.NormalizeAssistantContent(msg)
+			if prompt.ContentReasoningText(msg["content"]) != "" {
+				item.ReasoningContent = SnapshotJSON(prompt.AssistantReasoningText(msg))
+			}
 		}
 		if flag, exists := msg["is_error"].(bool); exists {
 			item.IsError = &flag

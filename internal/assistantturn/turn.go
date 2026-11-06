@@ -112,6 +112,9 @@ type BuildOptions struct {
 // format-only integrity checks preserve every named occurrence and argument.
 // The returned residual identifies visible bad markup that can be removed.
 func maybeRepairToolCalls(parsed toolcall.ToolCallParseResult, rawText string, opts BuildOptions) ([]toolcall.ParsedToolCall, string) {
+	if parsed.ResourceLimitExceeded {
+		return nil, ""
+	}
 	badCode := strings.TrimSpace(parsed.ResidualIntentText)
 	replaceable := parsed.SawToolCallIntent && badCode != ""
 	if !parsed.SawToolCallIntent {

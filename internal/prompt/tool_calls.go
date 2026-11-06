@@ -189,9 +189,6 @@ func renderPromptToolParameters(value any, indent string) (string, bool) {
 // JSON values inside parameters preserve empty collections, nested array shape,
 // numeric precision and keys that cannot be represented as XML element names.
 func renderPromptParameterNode(name string, value any, indent string) (string, bool) {
-	if name == "" {
-		return "", false
-	}
 	var body string
 	if text, ok := value.(string); ok {
 		body = renderPromptXMLText(text)
@@ -214,8 +211,8 @@ func normalizePromptToolCallValue(raw any) any {
 		if s == "" {
 			return ""
 		}
-		if json.Valid([]byte(s)) && jsonvalue.CheckDuplicateKeys([]byte(s)) != nil {
-			return x // Preserve conflicting historical arguments as raw text.
+		if json.Valid([]byte(s)) && (jsonvalue.CheckDuplicateKeys([]byte(s)) != nil || jsonvalue.CheckStringEncoding([]byte(s)) != nil) {
+			return x // Preserve undecodable historical arguments as raw text.
 		}
 		var parsed any
 		decoder := json.NewDecoder(bytes.NewBufferString(s))

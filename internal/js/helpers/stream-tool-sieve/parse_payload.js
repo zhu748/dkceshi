@@ -2,7 +2,10 @@
 
 // Public payload parser facade and tool-call assembly.
 const { toRawString } = require('./state');
-const { parseJSONStrict, hasDuplicateJSONKeys } = require('./strict_json');
+const { markupLimitExceeded } = require('./markup_budget');
+const { parameterMarkupLimitExceeded } = require('./parameter_markup_budget');
+const { unescapeHtml } = require('./entities');
+const { parseJSONStrict, hasInvalidJSONLiteral } = require('./strict_json');
 const { emptyToolMarkupGap } = require('./body_integrity');
 const {
   sanitizeLooseCDATA,
@@ -56,6 +59,7 @@ function parseMarkupToolCalls(text) {
   if (!raw) {
     return [];
   }
+  if (markupLimitExceeded(raw)) return [];
   let wrappers = findToolCallElementBlocksOutsideIgnored(raw);
   if (wrappers.length === 0 && hasRepairableXMLToolCallsWrapper(raw)) {
     const repaired = repairMissingXMLToolCallsOpeningWrapper(raw);
@@ -113,7 +117,7 @@ function findToolCallElementBlocksOutsideIgnored(text) {
 
 function parseMarkupSingleToolCall(block) {
   const attrs = parseTagAttributes(block.attrs);
-  const name = toRawString(attrs.name).trim();
+  const name = unescapeHtml(toRawString(attrs.name)).trim();
   if (!name) {
     return null;
   }
@@ -140,12 +144,12 @@ function parseMarkupSingleToolCall(block) {
   for (const match of findXmlElementBlocks(inner, 'parameter')) {
     if (!emptyToolMarkupGap(inner.slice(prev, match.start))) return null;
     const parameterAttrs = parseTagAttributes(match.attrs);
-    const paramName = toRawString(parameterAttrs.name).trim();
-    if (!paramName) {
+    const paramName = unescapeHtml(toRawString(parameterAttrs.name));
+    if (!Object.hasOwn(parameterAttrs, 'name')) {
       return null;
     }
     const body = toRawString(match.body).trim();
-    if ((body.startsWith('{') || body.startsWith('[')) && hasDuplicateJSONKeys(body)) return null;
+    if (hasInvalidJSONLiteral(body) || parameterMarkupLimitExceeded(body)) return null;
     appendMarkupValue(input, counts, paramName, parseMarkupValue(match.body, paramName));
     prev = match.end;
   }

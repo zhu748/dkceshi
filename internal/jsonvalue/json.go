@@ -29,6 +29,9 @@ func Decode(r io.Reader, dst any) error {
 	if err := CheckDuplicateKeys(raw); err != nil {
 		return err
 	}
+	if err := CheckStringEncoding(raw); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := decoder.Decode(dst); err != nil {

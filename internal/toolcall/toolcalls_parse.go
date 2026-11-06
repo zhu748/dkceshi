@@ -50,6 +50,12 @@ func parseToolCallsDetailedXMLOnly(text string) ToolCallParseResult {
 		return result
 	}
 	result.SourceText = original
+	if toolMarkupLimitExceeded(original) {
+		result.ResourceLimitExceeded = true
+		result.SawToolCallIntent = true
+		result.ResidualIntentText, result.ResidualProtocolText = original, original
+		return result
+	}
 
 	normalized, ok := normalizeEPSEToolCallMarkup(original)
 	if !ok {

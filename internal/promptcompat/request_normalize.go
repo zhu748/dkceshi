@@ -44,8 +44,8 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 	if strings.TrimSpace(model) == "" || len(messagesRaw) == 0 {
 		return StandardRequest{}, fmt.Errorf("request must include 'model' and 'messages'")
 	}
-	messagesRaw = NormalizeLegacyToolHistory(messagesRaw)
-	if err := ValidateToolHistory(messagesRaw); err != nil {
+	messagesRaw, err = normalizeValidatedToolHistory(messagesRaw)
+	if err != nil {
 		return StandardRequest{}, err
 	}
 	resolvedModel, ok := config.ResolveModel(store, model)
@@ -123,8 +123,8 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 	thinkingEnabled := defaultThinkingEnabled
 
 	messagesRaw := ResponsesMessagesFromRequest(req)
-	messagesRaw = NormalizeLegacyToolHistory(messagesRaw)
-	if err := ValidateToolHistory(messagesRaw); err != nil {
+	messagesRaw, err = normalizeValidatedToolHistory(messagesRaw)
+	if err != nil {
 		return StandardRequest{}, err
 	}
 	if len(messagesRaw) == 0 {

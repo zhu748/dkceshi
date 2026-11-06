@@ -1,248 +1,70 @@
 'use strict';
 
-// Canonical and generic XML element extraction.
 const { toRawString } = require('./state');
-const {
-  skipXmlIgnoredSection,
-} = require('./cdata_scan');
-const {
-  findXmlTagEnd,
-  hasXmlTagBoundary,
-  isSelfClosingXmlTag,
-} = require('./markup_syntax');
+const { skipXmlIgnoredSection } = require('./cdata_scan');
+const { findXmlTagEnd, hasXmlTagBoundary, isSelfClosingXmlTag } = require('./markup_syntax');
 
-function findXmlElementBlocks(text, tag) {
-  const source = toRawString(text);
-  const name = toRawString(tag).trim().toLowerCase();
-  if (!source || !name) {
-    return [];
-  }
-  const out = [];
-  let pos = 0;
-  while (pos < source.length) {
-    const start = findXmlStartTagOutsideCDATA(source, name, pos);
-    if (!start) {
-      break;
-    }
-    const end = findMatchingXmlEndTagOutsideCDATA(source, name, start.bodyStart);
-    if (!end) {
-      pos = start.bodyStart;
+// Every opener is matched once. Unclosed ancestors cannot cause repeated
+// suffix scans; a complete descendant still remains available for diagnostics.
+function collectElements(source, wanted = '') {
+  const blocks = [];
+  const stacks = new Map();
+  let depth = 0;
+  for (let i = 0; i < source.length;) {
+    const skipped = skipXmlIgnoredSection(source, i);
+    if (skipped.blocked) break;
+    if (skipped.advanced) { i = skipped.next; continue; }
+    if (source[i] !== '<') { i++; continue; }
+    const start = i;
+    const closing = source[i + 1] === '/';
+    const nameStart = i + (closing ? 2 : 1);
+    const match = source.slice(nameStart).match(/^([A-Za-z_][A-Za-z0-9_.:-]*)/);
+    if (!match) { i++; continue; }
+    const name = match[1];
+    const nameEnd = nameStart + name.length;
+    if (!hasXmlTagBoundary(source, nameEnd)) { i++; continue; }
+    const end = findXmlTagEnd(source, nameEnd);
+    if (end < 0) break;
+    i = end + 1;
+    const key = name.toLowerCase();
+    if (wanted && key !== wanted) continue;
+    const stack = stacks.get(key) || [];
+    if (closing) {
+      const index = stack.pop();
+      if (index !== undefined) {
+        depth--;
+        blocks[index].body = source.slice(blocks[index].bodyStart, start);
+        blocks[index].end = i;
+      }
       continue;
     }
-    out.push({
-      attrs: start.attrs,
-      body: source.slice(start.bodyStart, end.closeStart),
-      start: start.start,
-      end: end.closeEnd,
-    });
-    pos = end.closeEnd;
+    const selfClosing = isSelfClosingXmlTag(source.slice(start, end));
+    if (wanted && selfClosing) continue;
+    if (blocks.length >= 32768 || (!selfClosing && depth >= 128)) return [];
+    const block = { name, localName: name.includes(':') ? name.slice(name.lastIndexOf(':') + 1) : name,
+      attrs: source.slice(nameEnd, end), body: '', bodyStart: i, start, end: selfClosing ? i : 0 };
+    if (!selfClosing) { stack.push(blocks.length); depth++; }
+    stacks.set(key, stack);
+    blocks.push(block);
+  }
+  const out = [];
+  let end = 0;
+  for (const block of blocks) {
+    if (block.end && block.start >= end) {
+      const { bodyStart, ...result } = block;
+      out.push(result);
+      end = block.end;
+    }
   }
   return out;
 }
 
-function findXmlStartTagOutsideCDATA(text, tag, from) {
-  const target = `<${tag}`;
-  for (let i = Math.max(0, from || 0); i < text.length;) {
-    const skipped = skipXmlIgnoredSection(text, i);
-    if (skipped.blocked) {
-      return null;
-    }
-    if (skipped.advanced) {
-      i = skipped.next;
-      continue;
-    }
-    if (prefixFoldAt(text, target, i) && hasXmlTagBoundary(text, i + target.length)) {
-      const tagEnd = findXmlTagEnd(text, i + target.length);
-      if (tagEnd < 0) {
-        return null;
-      }
-      return {
-        start: i,
-        bodyStart: tagEnd + 1,
-        attrs: text.slice(i + target.length, tagEnd),
-      };
-    }
-    i += 1;
-  }
-  return null;
-}
-
-function findMatchingXmlEndTagOutsideCDATA(text, tag, from) {
-  const openTarget = `<${tag}`;
-  const closeTarget = `</${tag}`;
-  let depth = 1;
-  for (let i = Math.max(0, from || 0); i < text.length;) {
-    const skipped = skipXmlIgnoredSection(text, i);
-    if (skipped.blocked) {
-      return null;
-    }
-    if (skipped.advanced) {
-      i = skipped.next;
-      continue;
-    }
-    if (prefixFoldAt(text, closeTarget, i) && hasXmlTagBoundary(text, i + closeTarget.length)) {
-      const tagEnd = findXmlTagEnd(text, i + closeTarget.length);
-      if (tagEnd < 0) {
-        return null;
-      }
-      depth -= 1;
-      if (depth === 0) {
-        return { closeStart: i, closeEnd: tagEnd + 1 };
-      }
-      i = tagEnd + 1;
-      continue;
-    }
-    if (prefixFoldAt(text, openTarget, i) && hasXmlTagBoundary(text, i + openTarget.length)) {
-      const tagEnd = findXmlTagEnd(text, i + openTarget.length);
-      if (tagEnd < 0) {
-        return null;
-      }
-      if (!isSelfClosingXmlTag(text.slice(i, tagEnd))) {
-        depth += 1;
-      }
-      i = tagEnd + 1;
-      continue;
-    }
-    i += 1;
-  }
-  return null;
+function findXmlElementBlocks(text, tag) {
+  return collectElements(toRawString(text), toRawString(tag).toLowerCase());
 }
 
 function findGenericXmlElementBlocks(text) {
-  const source = toRawString(text);
-  if (!source) {
-    return [];
-  }
-  const out = [];
-  let pos = 0;
-  while (pos < source.length) {
-    const start = findGenericXmlStartTagOutsideCDATA(source, pos);
-    if (!start) {
-      break;
-    }
-    if (start.selfClosing) {
-      out.push({
-        name: start.name,
-        localName: start.localName,
-        attrs: start.attrs,
-        body: '',
-        start: start.start,
-        end: start.end + 1,
-      });
-      pos = start.end + 1;
-      continue;
-    }
-    const end = findMatchingGenericXmlEndTagOutsideCDATA(source, start.name, start.bodyStart);
-    if (!end) {
-      pos = start.bodyStart;
-      continue;
-    }
-    out.push({
-      name: start.name,
-      localName: start.localName,
-      attrs: start.attrs,
-      body: source.slice(start.bodyStart, end.closeStart),
-      start: start.start,
-      end: end.closeEnd,
-    });
-    pos = end.closeEnd;
-  }
-  return out;
+  return collectElements(toRawString(text));
 }
 
-function findGenericXmlStartTagOutsideCDATA(text, from) {
-  for (let i = Math.max(0, from || 0); i < text.length;) {
-    const skipped = skipXmlIgnoredSection(text, i);
-    if (skipped.blocked) {
-      return null;
-    }
-    if (skipped.advanced) {
-      i = skipped.next;
-      continue;
-    }
-    if (text[i] !== '<' || text[i + 1] === '/' || text[i + 1] === '!' || text[i + 1] === '?') {
-      i += 1;
-      continue;
-    }
-    const match = text.slice(i + 1).match(/^([A-Za-z_][A-Za-z0-9_.:-]*)/);
-    if (!match) {
-      i += 1;
-      continue;
-    }
-    const name = match[1];
-    const nameEnd = i + 1 + name.length;
-    if (!hasXmlTagBoundary(text, nameEnd)) {
-      i += 1;
-      continue;
-    }
-    const tagEnd = findXmlTagEnd(text, nameEnd);
-    if (tagEnd < 0) {
-      return null;
-    }
-    return {
-      start: i,
-      end: tagEnd,
-      bodyStart: tagEnd + 1,
-      name,
-      localName: name.includes(':') ? name.slice(name.lastIndexOf(':') + 1) : name,
-      attrs: text.slice(nameEnd, tagEnd),
-      selfClosing: isSelfClosingXmlTag(text.slice(i, tagEnd)),
-    };
-  }
-  return null;
-}
-
-function findMatchingGenericXmlEndTagOutsideCDATA(text, name, from) {
-  const needle = toRawString(name).trim().toLowerCase();
-  if (!needle) {
-    return null;
-  }
-  const openTarget = `<${needle}`;
-  const closeTarget = `</${needle}`;
-  let depth = 1;
-  for (let i = Math.max(0, from || 0); i < text.length;) {
-    const skipped = skipXmlIgnoredSection(text, i);
-    if (skipped.blocked) {
-      return null;
-    }
-    if (skipped.advanced) {
-      i = skipped.next;
-      continue;
-    }
-    if (prefixFoldAt(text, closeTarget, i) && hasXmlTagBoundary(text, i + closeTarget.length)) {
-      const tagEnd = findXmlTagEnd(text, i + closeTarget.length);
-      if (tagEnd < 0) {
-        return null;
-      }
-      depth -= 1;
-      if (depth === 0) {
-        return { closeStart: i, closeEnd: tagEnd + 1 };
-      }
-      i = tagEnd + 1;
-      continue;
-    }
-    if (prefixFoldAt(text, openTarget, i) && hasXmlTagBoundary(text, i + openTarget.length)) {
-      const tagEnd = findXmlTagEnd(text, i + openTarget.length);
-      if (tagEnd < 0) {
-        return null;
-      }
-      if (!isSelfClosingXmlTag(text.slice(i, tagEnd))) {
-        depth += 1;
-      }
-      i = tagEnd + 1;
-      continue;
-    }
-    i += 1;
-  }
-  return null;
-}
-
-// Match only the small tag name; never lowercase the entire document per tag.
-function prefixFoldAt(text, target, i) {
-  return text[i] === '<' && text.slice(i, i + target.length).toLowerCase() === target;
-}
-
-module.exports = {
-  findGenericXmlElementBlocks,
-  findXmlElementBlocks,
-};
+module.exports = { findGenericXmlElementBlocks, findXmlElementBlocks };

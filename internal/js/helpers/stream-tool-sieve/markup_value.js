@@ -1,5 +1,6 @@
 'use strict';
 const { parseJSONStrict } = require('./strict_json');
+const { parameterMarkupLimitExceeded } = require('./parameter_markup_budget');
 const { emptyToolMarkupGap } = require('./body_integrity');
 
 const { toRawString } = require('./state');
@@ -72,6 +73,7 @@ function parseMarkupKVObject(text) {
 function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
   const cdata = extractStandaloneCDATA(raw);
   if (cdata.ok) {
+    if (parameterMarkupLimitExceeded(cdata.value)) return cdata.value;
     if (literalCDATA || preservesCDATAStringParameter(paramName)) return cdata.value;
     const literal = parseJSONLiteralValue(cdata.value);
     if (literal.ok) {

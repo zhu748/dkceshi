@@ -44,6 +44,9 @@ func parseMarkupKVObject(text string) map[string]any {
 }
 
 func parseMarkupValue(inner string) any {
+	if parameterMarkupLimitExceeded(inner) {
+		return inner
+	}
 	if value, ok := extractStandaloneCDATA(inner); ok {
 		return value
 	}

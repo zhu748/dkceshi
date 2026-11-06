@@ -55,6 +55,29 @@ func sanitizeContentValue(value any) any {
 				} else {
 					out[key] = sanitizeContentValue(item)
 				}
+			case "input_audio":
+				out[key] = sanitizeContentValue(item)
+				if audio, ok := out[key].(map[string]any); ok {
+					if _, present := audio["data"]; present {
+						audio["data"] = "[omitted_binary_payload]"
+					}
+				}
+			case "image_url":
+				out[key] = sanitizeContentValue(item)
+				if image, ok := out[key].(map[string]any); ok {
+					if url, _ := image["url"].(string); isBinaryDataURL(url) {
+						image["url"] = "[omitted_binary_payload]"
+					}
+				} else if url, ok := item.(string); ok && isBinaryDataURL(url) {
+					out[key] = "[omitted_binary_payload]"
+				}
+			case "url":
+				text, _ := item.(string)
+				if (binaryContextObject(value) || value["type"] == "url") && isBinaryDataURL(text) {
+					out[key] = "[omitted_binary_payload]"
+				} else {
+					out[key] = sanitizeContentValue(item)
+				}
 			default:
 				out[key] = sanitizeContentValue(item)
 			}
@@ -66,19 +89,19 @@ func sanitizeContentValue(value any) any {
 			out[i] = sanitizeContentValue(item)
 		}
 		return out
-	case string:
-		if text := strings.TrimSpace(value); strings.HasPrefix(text, "data:") && strings.Contains(text, ";base64,") {
-			return "[omitted_binary_payload]"
-		}
 	}
 	return value
+}
+
+func isBinaryDataURL(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "data:") && strings.Contains(text, ";base64,")
 }
 
 func binaryContextObject(block map[string]any) bool {
 	kind, _ := block["type"].(string)
 	encoding, _ := block["encoding"].(string)
 	switch strings.ToLower(kind) {
-	case "base64", "image", "audio", "video", "input_audio", "input_image", "input_video", "redacted_thinking":
+	case "base64", "image", "image_url", "file", "input_file", "document", "audio", "video", "input_audio", "input_image", "input_video", "redacted_thinking":
 		return true
 	}
 	return strings.EqualFold(encoding, "base64")
