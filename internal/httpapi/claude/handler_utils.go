@@ -130,7 +130,7 @@ func extractClaudeThinkingBlockText(block map[string]any) string {
 		return ""
 	}
 	for _, key := range []string{"thinking", "text", "content"} {
-		if text := strings.TrimSpace(safeStringValue(block[key])); text != "" {
+		if text, ok := block[key].(string); ok && strings.TrimSpace(text) != "" {
 			return text
 		}
 	}

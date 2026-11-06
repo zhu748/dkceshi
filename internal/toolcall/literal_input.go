@@ -2,18 +2,23 @@ package toolcall
 
 import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"strings"
 )
 
 // Keep a CDATA string's bytes even when the compatibility parser interpreted
 // them as JSON first. Schema constraints choose types, never rewrite strings.
 func restoreLiteralInput(call ParsedToolCall, schema any, custom bool) map[string]any {
-	if len(call.StringLiterals) == 0 {
+	if !callHasStringLiterals(call) {
 		return call.Input
 	}
 	var compiled *jsonschema.Schema
 	if schema != nil {
 		compiled, _ = compileToolSchema(schema)
+	}
+	// Restore a valid literal batch atomically. Conditional schemas can require
+	// multiple fields/items to change together; map iteration cannot choose types.
+	preferred := literalInputCandidate(call)
+	if custom || schema == nil || compiled != nil && compiled.Validate(preferred) == nil {
+		return preferred
 	}
 	var input map[string]any
 	for key, raw := range call.StringLiterals {
@@ -29,6 +34,7 @@ func restoreLiteralInput(call ParsedToolCall, schema any, custom bool) map[strin
 			input[key] = previous
 		}
 	}
+	input = restoreRepeatedLiterals(call, input, compiled, schema != nil, custom)
 	if input != nil {
 		return input
 	}
@@ -106,16 +112,4 @@ func schemaGraphAny(schema *jsonschema.Schema, match func(*jsonschema.Schema) bo
 		pending = append(pending, node.OneOf...)
 	}
 	return false
-}
-
-func recordStringLiteral(literals map[string]string, input map[string]any, name, body string, value any) {
-	if _, duplicate := input[name]; duplicate {
-		delete(literals, name)
-		return
-	}
-	if raw, ok := extractStandaloneCDATA(strings.TrimSpace(body)); ok {
-		if text, sameType := value.(string); !sameType || text != raw {
-			literals[name] = raw
-		}
-	}
 }

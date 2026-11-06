@@ -35,3 +35,19 @@ func TestContextDigestsDoNotEmbedMessageContent(t *testing.T) {
 		t.Fatal("invalid context digest")
 	}
 }
+
+func TestContextManifestIdentifiesPromptContentAndOmittedMessages(t *testing.T) {
+	r := StandardRequest{Messages: []any{
+		map[string]any{"role": "user", "content": "  exact\n"},
+		map[string]any{"role": "assistant", "content": ""},
+		"invalid message",
+	}, RawRequest: &ContextDigest{Bytes: 100, SHA256: "raw-body-digest"}}
+	m := r.ContextManifest()
+	if m.SourceMessages[0].PromptContent != digestContext([]byte("  exact\n")) || m.SourceMessages[1].OmittedReason == "" || m.SourceMessages[2].OmittedReason != "not_a_message_object" {
+		t.Fatalf("missing normalization evidence: %+v", m)
+	}
+	m.RawRequest.SHA256 = "changed"
+	if r.RawRequest.SHA256 != "raw-body-digest" {
+		t.Fatal("raw digest aliases request")
+	}
+}

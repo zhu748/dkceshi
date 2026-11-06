@@ -29,6 +29,9 @@ func FileReferenceText(block map[string]any) string {
 			ref[key] = value
 		}
 	}
+	if metadata := AttachmentContextMetadata(block); len(metadata) > 0 {
+		ref["metadata"] = metadata
+	}
 	data, _ := json.Marshal(ref)
 	return "[Attachment reference] " + string(data)
 }

@@ -15,6 +15,7 @@ import (
 	"ds2api/internal/config"
 	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/httpapi/openai/shared"
+	"ds2api/internal/prompt"
 	"ds2api/internal/promptcompat"
 )
 
@@ -201,6 +202,9 @@ func (s *inlineUploadState) tryUploadBlock(block map[string]any) (map[string]any
 		"type":    decoded.ReplacementType,
 		"file_id": fileID,
 	}
+	if metadata := prompt.AttachmentContextMetadata(block); len(metadata) > 0 {
+		replacement["context_metadata"] = metadata
+	}
 	if decoded.Filename != "" {
 		replacement["filename"] = decoded.Filename
 	}
@@ -282,6 +286,7 @@ func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool,
 			ContentType:     contentType,
 			Filename:        pickInlineFilename(block, contentType, "image"),
 			ReplacementType: "input_image",
+			DisplayName:     inlineDisplayName(block),
 		}, true, nil
 	}
 	if raw, matched := extractInlineFilePayload(block, blockType); matched {
@@ -294,6 +299,7 @@ func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool,
 			ContentType:     contentType,
 			Filename:        pickInlineFilename(block, contentType, defaultInlinePrefix(blockType)),
 			ReplacementType: "input_file",
+			DisplayName:     inlineDisplayName(block),
 		}, true, nil
 	}
 	return inlineDecodedFile{}, false, nil

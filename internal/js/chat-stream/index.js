@@ -55,7 +55,13 @@ async function handler(req, res) {
     return;
   }
 
-  const rawBody = await readRawBody(req);
+  let rawBody;
+  try {
+    rawBody = await readRawBody(req);
+  } catch (err) {
+    writeOpenAIError(res, err.status || 400, err.message || 'invalid request body');
+    return;
+  }
 
   // Hard guard: only use Node data path for streaming on Vercel runtime.
   // Any non-Vercel runtime always falls back to Go for full behavior parity.

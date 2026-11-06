@@ -2,6 +2,7 @@ package toolcall
 
 import (
 	"encoding/xml"
+	"errors"
 	"html"
 	"io"
 	"strings"
@@ -127,6 +128,9 @@ func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement, source string) 
 				return text.String(), nil
 			}
 			if txt := text.String(); strings.TrimSpace(txt) != "" {
+				if _, exists := children["_text"]; exists {
+					return nil, errors.New("mixed XML text conflicts with explicit _text child")
+				}
 				if parsed, ok := parseJSONLiteralValue(txt); ok {
 					children["_text"] = parsed
 				} else {

@@ -75,9 +75,9 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 
 func buildAssistantContentForPrompt(msg map[string]any, marker string) string {
 	content := prompt.NormalizeAssistantContent(msg)
-	reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
+	reasoning := nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
 	if reasoning == "" {
-		reasoning = strings.TrimSpace(extractOpenAIReasoningContentFromMessage(msg["content"]))
+		reasoning = nonBlankPromptText(extractOpenAIReasoningContentFromMessage(msg["content"]))
 	}
 	toolHistory := prompt.FormatToolCallsForPromptForMarker(msg["tool_calls"], marker)
 	if toolHistory == "" {
@@ -202,7 +202,7 @@ func extractOpenAIReasoningTextFromItem(m map[string]any) string {
 	switch strings.ToLower(strings.TrimSpace(asString(m["type"]))) {
 	case "reasoning", "thinking":
 		for _, key := range []string{"text", "thinking", "content"} {
-			if text := strings.TrimSpace(asString(m[key])); text != "" {
+			if text := nonBlankPromptText(asString(m[key])); text != "" {
 				return text
 			}
 		}
@@ -212,11 +212,18 @@ func extractOpenAIReasoningTextFromItem(m map[string]any) string {
 
 func formatPromptLabeledBlock(label, text string) string {
 	label = strings.TrimSpace(label)
-	text = strings.TrimSpace(text)
 	if label == "" {
 		return text
 	}
 	return "[" + label + "]\n" + text + "\n[/" + label + "]"
+}
+
+// Use trimming only to detect empty content, never to rewrite client text.
+func nonBlankPromptText(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	return text
 }
 
 func buildToolContentForPrompt(msg map[string]any) string {

@@ -1,6 +1,10 @@
 package promptcompat
 
-import "strings"
+import (
+	"strings"
+
+	"ds2api/internal/prompt"
+)
 
 // NormalizeAttachmentContent retains uploadable bytes until shared file
 // preprocessing runs. Prompt rendering omits binary payloads before that step.
@@ -21,7 +25,7 @@ func NormalizeAttachmentContent(block map[string]any) (map[string]any, bool) {
 		return nil, false
 	}
 	if source["type"] == "url" && image {
-		return map[string]any{"type": "image_url", "image_url": map[string]any{"url": source["url"]}}, true
+		return attachmentWithContext(map[string]any{"type": "image_url", "image_url": map[string]any{"url": source["url"]}}, block), true
 	}
 	mime := asString(source["media_type"])
 	if mime == "" {
@@ -39,9 +43,28 @@ func NormalizeAttachmentContent(block map[string]any) (map[string]any, bool) {
 	}
 	url := "data:" + mime + ";base64," + data
 	if image || strings.HasPrefix(mime, "image/") {
-		return map[string]any{"type": "image_url", "image_url": map[string]any{"url": url}}, true
+		return attachmentWithContext(map[string]any{"type": "image_url", "image_url": map[string]any{"url": url}}, block), true
 	}
-	return map[string]any{"type": "input_file", "file_data": url, "filename": block["filename"]}, true
+	return attachmentWithContext(map[string]any{"type": "input_file", "file_data": url, "filename": block["filename"]}, block), true
+}
+
+func attachmentWithContext(converted, original map[string]any) map[string]any {
+	if metadata := prompt.AttachmentContextMetadata(original); len(metadata) > 0 {
+		converted["context_metadata"] = metadata
+	}
+	for _, key := range []string{"", "source", "inlineData", "inline_data"} {
+		source := original
+		if key != "" {
+			source, _ = original[key].(map[string]any)
+		}
+		for _, name := range []string{"display_name", "displayName"} {
+			if text, ok := source[name].(string); ok && text != "" {
+				converted["display_name"] = text
+				return converted
+			}
+		}
+	}
+	return converted
 }
 
 // JoinContentText keeps exact text concatenation, and structured attachment

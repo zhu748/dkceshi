@@ -101,3 +101,12 @@ test('duplicate tool and parameter identities remain non-executable at every spl
     }
   }
 });
+
+
+test('mixed XML retains source instead of dropping text beside fields', () => {
+  for (const body of ['<_text>ORIGINAL</_text>TAIL', 'HEAD<_text><![CDATA[ORIGINAL]]></_text>TAIL']) {
+    const calls = parseToolCalls(wrapper(`<parameter name="payload">${body}</parameter>`), []);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].input.payload, body);
+  }
+});

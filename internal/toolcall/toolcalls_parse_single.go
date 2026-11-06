@@ -27,7 +27,7 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 	input := map[string]any{}
 	counts := map[string]int{}
 	var recovery []string
-	literals := map[string]string{}
+	literals := parameterLiterals{}
 	prev := 0
 	for _, paramMatch := range findXMLElementBlocks(inner, "parameter") {
 		if !emptyToolMarkupGap(inner[prev:paramMatch.Start]) {
@@ -44,7 +44,7 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 			return ParsedToolCall{}, false
 		}
 		value := parseInvokeParameterValue(paramName, paramMatch.Body, &recovery)
-		recordStringLiteral(literals, input, paramName, paramMatch.Body, value)
+		literals.record(paramName, counts[paramName], paramMatch.Body, value)
 		appendMarkupValue(input, counts, paramName, value)
 		prev = paramMatch.End
 	}
@@ -58,8 +58,5 @@ func parseSingleXMLToolCall(block xmlElementBlock) (ParsedToolCall, bool) {
 		}
 		return ParsedToolCall{CallID: callID, Name: name, Input: map[string]any{}}, true
 	}
-	if len(literals) == 0 {
-		literals = nil
-	}
-	return ParsedToolCall{CallID: callID, Name: name, Input: input, StringLiterals: literals, RecoverySteps: recovery}, true
+	return ParsedToolCall{CallID: callID, Name: name, Input: input, StringLiterals: literals.single, RepeatedStringLiterals: literals.repeated, RecoverySteps: recovery}, true
 }

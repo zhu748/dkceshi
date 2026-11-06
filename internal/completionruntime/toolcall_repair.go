@@ -159,6 +159,12 @@ func callOriginalRepair(ctx context.Context, ds DeepSeekCaller, a *auth.RequestA
 	if strings.TrimSpace(result.UpstreamError) != "" {
 		return repairOutput{}, errors.New(result.UpstreamError)
 	}
+	if result.ContentFilter {
+		return repairOutput{}, errors.New("toolcall repair: upstream content filtered the response")
+	}
+	if result.Cut != sse.CutNone {
+		return repairOutput{}, errors.New("toolcall repair: upstream response was cut before completion")
+	}
 	return repairOutput{Text: result.Text, Thinking: result.Thinking}, nil
 }
 

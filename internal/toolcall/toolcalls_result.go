@@ -8,6 +8,8 @@ type ParsedToolCall struct {
 	Name           string            `json:"name"`
 	Input          map[string]any    `json:"input"`
 	StringLiterals map[string]string `json:"-"`
+	// Repeated parameters become arrays; retain each occurrence's literal bytes.
+	RepeatedStringLiterals map[string]map[int]string `json:"-"`
 }
 
 type ToolCallParseResult struct {

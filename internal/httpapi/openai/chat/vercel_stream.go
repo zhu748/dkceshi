@@ -17,6 +17,7 @@ import (
 	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/jsonvalue"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/responsehistory"
 	"ds2api/internal/util"
 )
 
@@ -83,6 +84,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	stdReq = responsehistory.WithRequestBodyDigest(r, stdReq)
 	stdReq = h.withInputReplay(stdReq, a, req, requestTraceID(r), imageRoute)
 	if !stdReq.Stream {
 		writeOpenAIError(w, http.StatusBadRequest, "stream must be true")

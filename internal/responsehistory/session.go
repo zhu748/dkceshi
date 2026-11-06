@@ -58,6 +58,8 @@ func start(params StartParams) *Session {
 	if params.Request == nil || params.Auth == nil {
 		return nil
 	}
+	params.Standard = WithRequestBodyDigest(params.Request, params.Standard)
+	manifest := params.Standard.ContextManifest()
 	startParams := chathistory.StartParams{
 		CallerID:        strings.TrimSpace(params.Auth.CallerID),
 		UserAgent:       strings.TrimSpace(params.Auth.UserAgent),
@@ -70,7 +72,7 @@ func start(params StartParams) *Session {
 		Tools:           chathistory.SnapshotJSON(params.Standard.ToolsRaw),
 		ToolChoice:      chathistory.SnapshotJSON(params.Standard.ToolChoice),
 		ToolMarker:      params.Standard.ToolMarker,
-		ContextManifest: chathistory.SnapshotJSON(params.Standard.ContextManifest()),
+		ContextManifest: chathistory.SnapshotJSON(manifest),
 		HistoryText:     params.Standard.HistoryText,
 		FinalPrompt:     params.Standard.FinalPrompt,
 	}

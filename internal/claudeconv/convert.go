@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"ds2api/internal/config"
+	"ds2api/internal/prompt"
 )
 
 // claudeSystemText 提取 Anthropic 顶层 `system` 字段的文本。
@@ -25,8 +26,8 @@ func claudeSystemText(system any) string {
 			if t, _ := block["type"].(string); t != "" && t != "text" {
 				continue
 			}
-			if text, _ := block["text"].(string); text != "" {
-				parts = append(parts, text)
+			if text, ok := block["text"].(string); ok {
+				parts = append(parts, text+prompt.TextBlockMetadata(block))
 			}
 		}
 		return strings.Join(parts, "")

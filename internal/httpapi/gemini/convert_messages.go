@@ -82,7 +82,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 					}
 					continue
 				}
-				textParts = append(textParts, text)
+				textParts = append(textParts, geminiTextBlock(part, text))
 				continue
 			}
 
@@ -170,7 +170,7 @@ func normalizeGeminiSystemInstruction(raw any) string {
 					continue
 				}
 				if text, ok := part["text"].(string); ok {
-					texts = append(texts, text)
+					texts = append(texts, prompt.NormalizeContent([]any{geminiTextBlock(part, text)}))
 				}
 			}
 			return strings.Join(texts, "")

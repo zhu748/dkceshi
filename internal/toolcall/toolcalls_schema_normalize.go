@@ -16,7 +16,7 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 	for i, call := range calls {
 		out[i] = call
 		schema, ok := schemas[strings.TrimSpace(call.Name)]
-		if (!ok && len(call.StringLiterals) == 0 && !IsCustomTool(toolsRaw, call.Name)) || call.Input == nil {
+		if (!ok && !callHasStringLiterals(call) && !IsCustomTool(toolsRaw, call.Name)) || call.Input == nil {
 			continue
 		}
 		input := restoreLiteralInput(call, schema, IsCustomTool(toolsRaw, call.Name))
@@ -28,7 +28,7 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 		if changed {
 			out[i].RecoverySteps = append(append([]string{}, call.RecoverySteps...), "schema_normalization")
 		}
-		changed = changed || len(call.StringLiterals) > 0
+		changed = changed || callHasStringLiterals(call)
 		if !changed {
 			continue
 		}

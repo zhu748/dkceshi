@@ -19,8 +19,7 @@ func ResponsesMessagesFromRequest(req map[string]any) []any {
 
 func prependInstructionMessage(messages []any, instructions any) []any {
 	sys, _ := instructions.(string)
-	sys = strings.TrimSpace(sys)
-	if sys == "" {
+	if strings.TrimSpace(sys) == "" {
 		return messages
 	}
 	out := make([]any, 0, len(messages)+1)
@@ -95,7 +94,7 @@ func normalizeResponsesInputArray(items []any) []any {
 					continue
 				}
 				if isAssistantToolCallMessage(msg) && pendingAssistantReasoning != "" {
-					reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
+					reasoning := nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
 					if reasoning != "" {
 						reasoning = "\n" + reasoning
 					}
@@ -149,13 +148,13 @@ func assistantReasoningOnlyContent(msg map[string]any) string {
 	}
 	if _, hasContent := msg["content"]; hasContent {
 		content := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
-		reasoning := strings.TrimSpace(extractOpenAIReasoningContentFromMessage(msg["content"]))
-		if reasoning == "" || content != "" && content != reasoning {
+		reasoning := nonBlankPromptText(extractOpenAIReasoningContentFromMessage(msg["content"]))
+		if reasoning == "" || content != "" && content != strings.TrimSpace(reasoning) {
 			return ""
 		}
 		return reasoning
 	}
-	return strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
+	return nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
 }
 
 func isAssistantMessage(msg map[string]any) bool {
@@ -185,8 +184,8 @@ func mergeResponsesAssistantToolCalls(prev any, next map[string]any) bool {
 	prevCalls, _ := prevMsg["tool_calls"].([]any)
 	nextCalls, _ := next["tool_calls"].([]any)
 	prevMsg["tool_calls"] = append(prevCalls, nextCalls...)
-	if reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(next["reasoning_content"])); reasoning != "" {
-		previous := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(prevMsg["reasoning_content"]))
+	if reasoning := nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(next["reasoning_content"])); reasoning != "" {
+		previous := nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(prevMsg["reasoning_content"]))
 		if previous != "" {
 			reasoning = previous + "\n" + reasoning
 		}

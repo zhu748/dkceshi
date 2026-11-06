@@ -1,5 +1,6 @@
 'use strict';
 const { parseJSONStrict } = require('./strict_json');
+const { emptyToolMarkupGap } = require('./body_integrity');
 
 const { toRawString } = require('./state');
 const { unescapeHtml } = require('./entities');
@@ -47,7 +48,9 @@ function parseMarkupKVObject(text) {
   }
   const out = {};
   const counts = new Map();
+  let prev = 0;
   for (const block of findGenericXmlElementBlocks(raw)) {
+    if (!emptyToolMarkupGap(raw.slice(prev, block.start))) return {};
     const key = toRawString(block.localName).trim();
     if (!key) {
       continue;
@@ -57,7 +60,9 @@ function parseMarkupKVObject(text) {
       continue;
     }
     appendMarkupValue(out, counts, key, value);
+    prev = block.end;
   }
+  if (!emptyToolMarkupGap(raw.slice(prev))) return {};
   if (Object.keys(out).length === 1 && Object.hasOwn(out, 'item')) {
     return counts.get('item') === 1 ? [out.item] : out.item;
   }

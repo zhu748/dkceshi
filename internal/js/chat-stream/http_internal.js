@@ -1,5 +1,6 @@
 'use strict';
 const { streamLimit } = require('./stream_limits');
+const { readRawBody } = require('./request_body');
 
 const {
   writeOpenAIError,
@@ -13,23 +14,6 @@ function header(req, key) {
     return '';
   }
   return asString(req.headers[key.toLowerCase()]);
-}
-
-async function readRawBody(req) {
-  if (Buffer.isBuffer(req.body)) {
-    return req.body;
-  }
-  if (typeof req.body === 'string') {
-    return Buffer.from(req.body);
-  }
-  if (req.body && typeof req.body === 'object') {
-    return Buffer.from(JSON.stringify(req.body));
-  }
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks);
 }
 
 async function requestStreamControl(req, flag, body, signal, deadline) {

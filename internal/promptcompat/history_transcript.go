@@ -62,8 +62,8 @@ func SplitTrailingUserTurn(messages []any) ([]any, string, bool) {
 		return nil, "", false
 	}
 	msg, _ := messages[last].(map[string]any)
-	text := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
-	if text == "" {
+	text := NormalizeOpenAIContentForPrompt(msg["content"])
+	if strings.TrimSpace(text) == "" {
 		return nil, "", false
 	}
 	history := messages[:last]

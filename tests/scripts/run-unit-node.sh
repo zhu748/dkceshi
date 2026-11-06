@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 ./tests/scripts/check-node-split-syntax.sh
-node --test tests/node/app-session-pool.test.cjs tests/node/runtime-resilience.test.cjs tests/node/admin-hooks.test.mjs tests/node/output-format-stream.test.cjs tests/node/parameter-fidelity.test.cjs tests/node/third-round-tools.test.cjs tests/node/tool-visible-guard.test.js tests/node/visibility-contract.test.js tests/node/pending-literal.test.cjs
+node --test tests/node/request-body-fidelity.test.cjs tests/node/app-session-pool.test.cjs tests/node/runtime-resilience.test.cjs tests/node/admin-hooks.test.mjs tests/node/output-format-stream.test.cjs tests/node/parameter-fidelity.test.cjs tests/node/third-round-tools.test.cjs tests/node/tool-visible-guard.test.js tests/node/visibility-contract.test.js tests/node/pending-literal.test.cjs
 node --test webui/src/features/toolDiagnostics/DiagnosticDetail.test.mjs
 
 # Keep Node's file-level test scheduling serial to avoid intermittent cross-file

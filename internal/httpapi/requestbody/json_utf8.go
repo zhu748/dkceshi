@@ -44,7 +44,9 @@ func ValidateJSONUTF8(next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if shouldValidateJSONBody(r) {
-			r.Body = &lazyValidatedBody{closer: r.Body, maxSize: validationSizeLimit(r)}
+			var audit *bodyAudit
+			r, audit = withBodyAudit(r)
+			r.Body = &lazyValidatedBody{closer: r.Body, maxSize: validationSizeLimit(r), audit: audit}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -54,6 +56,7 @@ type lazyValidatedBody struct {
 	closer  io.ReadCloser
 	reader  io.Reader
 	maxSize int64
+	audit   *bodyAudit
 }
 
 func (r *lazyValidatedBody) Read(p []byte) (int, error) {
@@ -61,7 +64,7 @@ func (r *lazyValidatedBody) Read(p []byte) (int, error) {
 		return 0, nil
 	}
 	if r.reader == nil {
-		r.reader = validateAndReplayBody(r.closer, r.maxSize)
+		r.reader = validateAndReplayBody(r.closer, r.maxSize, r.audit)
 	}
 	return r.reader.Read(p)
 }
@@ -135,7 +138,7 @@ func isKnownJSONRequestPath(method, path string) bool {
 	}
 }
 
-func validateAndReplayBody(body io.ReadCloser, maxSize int64) io.ReadCloser {
+func validateAndReplayBody(body io.ReadCloser, maxSize int64, audits ...*bodyAudit) io.ReadCloser {
 	if body == nil {
 		return body
 	}
@@ -154,6 +157,9 @@ func validateAndReplayBody(body io.ReadCloser, maxSize int64) io.ReadCloser {
 	}
 	if !json.Valid(raw) {
 		return &errorReadCloser{err: ErrInvalidJSONBody, closer: body}
+	}
+	if len(audits) > 0 {
+		audits[0].capture(raw)
 	}
 	return &replayReadCloser{Reader: bytes.NewReader(raw), closer: body}
 }
