@@ -14,6 +14,17 @@ func ValidateContentContainers(messages []any, field string, allowString bool) e
 		if !ok {
 			return fmt.Errorf("messages[%d] must be an object", i)
 		}
+		role := strings.ToLower(strings.TrimSpace(asString(message["role"])))
+		if role == "assistant" || field == "parts" && role == "model" {
+			if err := validateAssistantContextFields(message); err != nil {
+				return fmt.Errorf("messages[%d]: %w", i, err)
+			}
+		}
+		if field == "parts" {
+			if err := validatePartsTextAliases(message, field); err != nil {
+				return fmt.Errorf("messages[%d]: %w", i, err)
+			}
+		}
 		content, present := message[field]
 		if !present && field == "parts" {
 			if _, compatible := message["text"].(string); compatible {

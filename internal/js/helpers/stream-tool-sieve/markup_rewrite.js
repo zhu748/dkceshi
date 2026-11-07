@@ -111,10 +111,11 @@ function canonicalizeRecognizedToolMarkupTag(rawTag, tag) {
   const prefix = consumeToolMarkupNamePrefix(raw, raw.toLowerCase(), idx);
   idx = prefix.next;
   const nameMatch = consumeToolKeyword(raw, idx, rawNameForTag(tag));
-  const afterName = nameMatch.ok ? nameMatch.next : idx;
+  const knownName = tag.nameEnd > tag.nameStart;
+  const afterName = knownName ? tag.nameEnd - tag.start : nameMatch.ok ? nameMatch.next : idx;
   const attrs = tag.parameterName
     ? [{ key: 'name', value: tag.parameterName }]
-    : parseCanonicalToolMarkupAttrs(raw, afterName);
+    : parseCanonicalToolMarkupAttrs(raw, afterName, knownName);
 
   let out = '<';
   if (tag.closing) {

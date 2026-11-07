@@ -3,7 +3,6 @@ package contextfile
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"ds2api/internal/auth"
 	dsclient "ds2api/internal/deepseek/client"
@@ -51,7 +50,7 @@ func retryContextFileAccount(ctx context.Context, a *auth.RequestAuth, req promp
 		// Client-provided file IDs have no replayable bytes here. Never carry
 		// those references to a new owner, even if they were not explicitly pinned.
 		for _, id := range req.RefFileIDs {
-			if req.ReplayInput == nil && !strings.EqualFold(id, req.CurrentInputFileID) && !strings.EqualFold(id, req.CurrentToolsFileID) {
+			if req.ReplayInput == nil && id != req.CurrentInputFileID && id != req.CurrentToolsFileID {
 				return out, err
 			}
 		}

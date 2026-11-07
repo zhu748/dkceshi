@@ -50,9 +50,15 @@ func parseToolCallsDetailedXMLOnly(text string) ToolCallParseResult {
 		return result
 	}
 	result.SourceText = original
-	if toolMarkupLimitExceeded(original) {
+	limited, unsupported := scanToolMarkupLimits(original)
+	if limited {
 		result.ResourceLimitExceeded = true
 		result.SawToolCallIntent = true
+		result.ResidualIntentText, result.ResidualProtocolText = original, original
+		return result
+	}
+	if unsupported {
+		result.SawToolCallSyntax, result.SawToolCallIntent = true, true
 		result.ResidualIntentText, result.ResidualProtocolText = original, original
 		return result
 	}

@@ -127,6 +127,7 @@ func TestUnavailableEmptyOutputCoolsAccountAndSwitchesWithoutSameAccountRetry(t 
 					rec := httptest.NewRecorder()
 					before := time.Now()
 					h.ChatCompletions(rec, req)
+					after := time.Now()
 					if len(ds.replyOwners) != 2 || ds.replyOwners[0] == ds.replyOwners[1] {
 						t.Fatalf("did not switch directly: %v", ds.replyOwners)
 					}
@@ -140,9 +141,9 @@ func TestUnavailableEmptyOutputCoolsAccountAndSwitchesWithoutSameAccountRetry(t 
 					for i, id := range ds.replyOwners {
 						acc, _ := store.FindAccount(id)
 						if i == 0 || allEmpty {
-							remaining := time.Unix(int64(acc.CooldownUntil), 0).Sub(before)
-							if remaining < 119*time.Second || remaining > 121*time.Second || acc.Banned || acc.Disabled {
-								t.Fatalf("incorrect temporary cooldown: %+v duration=%v", acc, remaining)
+							expiry := time.Unix(int64(acc.CooldownUntil), 0)
+							if expiry.Before(before.Add(59*time.Second)) || expiry.After(after.Add(time.Minute)) || acc.Banned || acc.Disabled {
+								t.Fatalf("incorrect temporary cooldown: %+v duration=%v", acc, expiry.Sub(before))
 							}
 						} else if acc.IsCoolingDown() {
 							t.Fatal("healthy replacement was cooled down")

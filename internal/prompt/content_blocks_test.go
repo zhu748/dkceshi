@@ -33,7 +33,7 @@ func TestOpaqueThinkingAndExplicitBinaryRemainOmitted(t *testing.T) {
 }
 
 func TestUnknownContentPreservesLongTextAndSanitizesBinary(t *testing.T) {
-	got := NormalizeContent([]any{map[string]any{"type": "future_block", "file_data": "QUJDRA==", "payload": map[string]any{"data": strings.Repeat("secret", 1000)}, "description": strings.Repeat("中文", 3000)}})
+	got := NormalizeContent([]any{map[string]any{"type": "future_block", "media": map[string]any{"type": "file", "file_data": "QUJDRA=="}, "payload": map[string]any{"data": strings.Repeat("secret", 1000)}, "description": strings.Repeat("中文", 3000)}})
 	if !strings.Contains(got, "[Unsupported content block]") || !strings.Contains(got, strings.Repeat("secret", 1000)) || strings.Contains(got, "QUJDRA==") || !utf8.ValidString(got) || !strings.Contains(got, strings.Repeat("中文", 3000)) {
 		t.Fatalf("unsafe unknown-block fallback: %q", got)
 	}

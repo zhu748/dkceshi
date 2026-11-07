@@ -87,6 +87,10 @@ func PrependSystemInstruction(text, instruction string) string {
 }
 
 func NormalizeContent(v any) string {
+	return normalizeContent(v, true)
+}
+
+func normalizeContent(v any, includeReasoning bool) string {
 	if v == nil {
 		return ""
 	}
@@ -120,7 +124,10 @@ func NormalizeContent(v any) string {
 				}
 			}
 			if typeStr == "reasoning" || typeStr == "thinking" {
-				continue // Assistant reasoning is rendered from its own field.
+				if includeReasoning {
+					parts = append(parts, "[reasoning_content]\n"+ReasoningText(m)+"\n[/reasoning_content]")
+				}
+				continue
 			}
 			if typeStr == "refusal" {
 				if text, ok := m["refusal"].(string); ok {

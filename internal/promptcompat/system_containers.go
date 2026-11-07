@@ -19,6 +19,9 @@ func ValidateSystemTextContainer(raw any, partsKey string) error {
 		if !ok {
 			return fmt.Errorf("system instruction must be text or a content object")
 		}
+		if err := validatePartsTextAliases(container, partsKey); err != nil {
+			return err
+		}
 		if _, hasParts := container[partsKey]; !hasParts {
 			if _, ok := container["text"].(string); ok {
 				return prompt.ValidateTextAliases(container, "text", "content")

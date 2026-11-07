@@ -13,15 +13,17 @@ type currentInputPlan struct {
 	toolNames                      []string
 }
 
-// A large first task must fit the web input box even when instructions precede
-// it. Active assistant/tool loops continue to use the dependency-aware policy.
+// Large tasks and active loops use file transport without splitting their
+// dependencies. This bounds inline conversation content, not system rules.
 const maxInlineFirstTaskChars = 32 * 1024
 
 // Plan without changing message content. Splitting is an input transport mode;
 // it does not depend on token savings or the size of the resulting live prompt.
 func planCurrentInputContext(req promptcompat.StandardRequest) *currentInputPlan {
 	history, live := promptcompat.SplitActiveContext(req.Messages)
-	if len(history) == 0 {
+	if largeActiveContext(live) {
+		history, live = externalizedActiveContext(req.Messages)
+	} else if len(history) == 0 {
 		hasUser := false
 		live = nil
 		for _, raw := range req.Messages {

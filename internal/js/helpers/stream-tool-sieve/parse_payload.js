@@ -2,7 +2,7 @@
 
 // Public payload parser facade and tool-call assembly.
 const { toRawString } = require('./state');
-const { markupLimitExceeded } = require('./markup_budget');
+const { scanMarkupLimits } = require('./markup_budget');
 const { parameterMarkupLimitExceeded } = require('./parameter_markup_budget');
 const { unescapeHtml } = require('./entities');
 const { parseJSONStrict, hasInvalidJSONLiteral } = require('./strict_json');
@@ -22,6 +22,7 @@ const {
 } = require('./markdown_fence');
 const {
   parseTagAttributes,
+  parseCanonicalToolMarkupAttrs,
 } = require('./markup_attributes');
 const {
   findXmlElementBlocks,
@@ -55,11 +56,18 @@ function parseMarkupToolCalls(text) {
   if (!normalized.ok) {
     return [];
   }
-  let raw = normalized.text.trim();
+  return parseNormalizedMarkupToolCalls(normalized.text);
+}
+
+// The public facade and recovery path already normalized this source. Reusing
+// it avoids a second full canonicalization of every literal and tool batch.
+function parseNormalizedMarkupToolCalls(text) {
+  let raw = text.trim();
   if (!raw) {
     return [];
   }
-  if (markupLimitExceeded(raw)) return [];
+  const checks = scanMarkupLimits(raw, unsupportedToolTagAttributes);
+  if (checks.limited || checks.unsupported) return [];
   let wrappers = findToolCallElementBlocksOutsideIgnored(raw);
   if (wrappers.length === 0 && hasRepairableXMLToolCallsWrapper(raw)) {
     const repaired = repairMissingXMLToolCallsOpeningWrapper(raw);
@@ -83,6 +91,17 @@ function parseMarkupToolCalls(text) {
     if (complete && emptyToolMarkupGap(body.slice(prev))) out.push(...calls);
   }
   return out;
+}
+
+function unsupportedToolTagAttributes(text, tag) {
+  const attrs = parseCanonicalToolMarkupAttrs(text.slice(tag.start, tag.end + 1), tag.nameEnd - tag.start);
+  const seen = new Set();
+  for (const attr of attrs) {
+    const allowed = !tag.closing && (tag.name === 'invoke' && ['name', 'call_id'].includes(attr.key) || tag.name === 'parameter' && attr.key === 'name' || tag.name === 'tool_calls' && ['id', 'version'].includes(attr.key));
+    if (!allowed || seen.has(attr.key)) return true;
+    seen.add(attr.key);
+  }
+  return false;
 }
 
 function findToolCallElementBlocksOutsideIgnored(text) {
@@ -232,6 +251,7 @@ module.exports = {
   indexToolCDATAOpen,
   normalizeEPSEToolCallMarkup,
   parseMarkupToolCalls,
+  parseNormalizedMarkupToolCalls,
   sanitizeLooseCDATA,
   stripDSMLResidue,
   stripFencedCodeBlocks,

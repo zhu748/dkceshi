@@ -59,6 +59,9 @@ func parseToolChoicePolicy(toolChoiceRaw any, toolsRaw any) (ToolChoicePolicy, e
 			return ToolChoicePolicy{}, fmt.Errorf("unsupported tool_choice: %q", v)
 		}
 	case map[string]any:
+		if _, err := toolSelectorName(v); err != nil {
+			return ToolChoicePolicy{}, err
+		}
 		if strings.EqualFold(asString(v["type"]), "allowed_tools") {
 			mode := asString(v["mode"])
 			if mode != "auto" && mode != "required" {
@@ -141,13 +144,12 @@ func parseToolChoicePolicy(toolChoiceRaw any, toolsRaw any) (ToolChoicePolicy, e
 }
 
 func parseForcedToolName(v map[string]any) (string, error) {
-	if name := strings.TrimSpace(asString(v["name"])); name != "" {
-		return name, nil
+	name, err := toolSelectorName(v)
+	if err != nil {
+		return "", err
 	}
-	if fn, ok := v["function"].(map[string]any); ok {
-		if name := strings.TrimSpace(asString(fn["name"])); name != "" {
-			return name, nil
-		}
+	if name = strings.TrimSpace(name); name != "" {
+		return name, nil
 	}
 	return "", fmt.Errorf("tool_choice function requires name")
 }
@@ -177,6 +179,11 @@ func parseAllowedToolNames(raw any) ([]string, bool, error) {
 	switch x := raw.(type) {
 	case []any:
 		for _, item := range x {
+			if selector, ok := item.(map[string]any); ok {
+				if _, err := toolSelectorName(selector); err != nil {
+					return nil, true, err
+				}
+			}
 			name := collectName(item)
 			if name == "" {
 				return nil, true, fmt.Errorf("tool_choice.allowed_tools contains invalid item")

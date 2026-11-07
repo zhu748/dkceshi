@@ -20,7 +20,7 @@ func (a *RequestAuth) NoteRateLimit() bool {
 		return false
 	}
 	r := a.resolver
-	until := float64(time.Now().Add(2 * time.Minute).Unix())
+	until := float64(time.Now().Add(time.Minute).Unix())
 	if current, ok := r.Store.FindAccount(a.AccountID); ok && current.CooldownUntil >= until-1 {
 		a.Account.CooldownUntil = current.CooldownUntil
 		return true

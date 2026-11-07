@@ -161,7 +161,7 @@ func prependUniqueRefFileIDs(existing []string, fileIDs ...string) []string {
 		if trimmed == "" {
 			continue
 		}
-		key := strings.ToLower(trimmed)
+		key := trimmed
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -173,7 +173,7 @@ func prependUniqueRefFileIDs(existing []string, fileIDs ...string) []string {
 		if trimmed == "" {
 			continue
 		}
-		key := strings.ToLower(trimmed)
+		key := trimmed
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -187,7 +187,7 @@ func replaceGeneratedCurrentInputRefs(existing []string, oldHistoryID, oldToolsI
 	filtered := make([]string, 0, len(existing))
 	old := map[string]struct{}{}
 	for _, id := range []string{oldHistoryID, oldToolsID} {
-		trimmed := strings.ToLower(strings.TrimSpace(id))
+		trimmed := strings.TrimSpace(id)
 		if trimmed != "" {
 			old[trimmed] = struct{}{}
 		}
@@ -197,7 +197,7 @@ func replaceGeneratedCurrentInputRefs(existing []string, oldHistoryID, oldToolsI
 		if trimmed == "" {
 			continue
 		}
-		if _, ok := old[strings.ToLower(trimmed)]; ok {
+		if _, ok := old[trimmed]; ok {
 			continue
 		}
 		filtered = append(filtered, trimmed)

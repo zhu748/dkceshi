@@ -149,7 +149,7 @@ func collectTopLevelFileIDs(req map[string]any) []string {
 			if fileID == "" {
 				continue
 			}
-			key := strings.ToLower(fileID)
+			key := fileID
 			if _, dup := seen[key]; dup {
 				continue
 			}

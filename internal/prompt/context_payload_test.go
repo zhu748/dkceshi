@@ -17,12 +17,24 @@ func TestDataURLTextSurvivesButDeclaredBinaryDoesNot(t *testing.T) {
 	}
 	for _, block := range []map[string]any{
 		{"type": "input_audio", "input_audio": map[string]any{"data": "BINARY_SENTINEL", "format": "wav"}},
+		{"type": " INPUT_AUDIO ", "input_audio": map[string]any{"data": "BINARY_SENTINEL", "format": "wav"}},
 		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,BINARY_SENTINEL"}},
 		{"type": "base64", "data": "BINARY_SENTINEL"},
 	} {
 		if text := NormalizeContent([]any{block}); strings.Contains(text, "BINARY_SENTINEL") || !strings.Contains(text, "omitted_binary_payload") {
 			t.Fatalf("binary transport leaked: %s", text)
 		}
+	}
+}
+
+func TestMediaFieldNamesInsideBusinessDataDoNotRemoveText(t *testing.T) {
+	const literal = "data:text/plain;base64,QUJD"
+	block := map[string]any{"type": "mcp_result", "payload": map[string]any{
+		"input_audio": map[string]any{"data": "TRANSCRIPT"}, "image_url": map[string]any{"url": literal},
+	}}
+	text := NormalizeContent([]any{block})
+	if !strings.Contains(text, "TRANSCRIPT") || !strings.Contains(text, literal) {
+		t.Fatal("nested business context was treated as declared media")
 	}
 }
 

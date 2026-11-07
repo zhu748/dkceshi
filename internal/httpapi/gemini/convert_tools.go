@@ -38,7 +38,11 @@ func convertGeminiTools(raw any) []any {
 					function["parameters"] = geminiParameterSchema(params)
 				}
 				if schema, exists := decl["parametersJsonSchema"]; exists {
-					function["parameters"] = schema
+					if _, present := function["parameters"]; present {
+						function["schema"] = schema // Shared validation rejects conflicting aliases.
+					} else {
+						function["parameters"] = schema
+					}
 				}
 				out = append(out, map[string]any{
 					"type":     "function",

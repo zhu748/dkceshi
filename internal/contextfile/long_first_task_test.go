@@ -41,7 +41,8 @@ func TestLargeFirstActiveToolLoopStillStaysTogether(t *testing.T) {
 	task := strings.Repeat("task", maxInlineFirstTaskChars)
 	messages := []any{map[string]any{"role": "system", "content": "RULE"}, map[string]any{"role": "user", "content": task}, map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"id": "a", "name": "read", "input": map[string]any{}}}}, map[string]any{"role": "tool", "tool_call_id": "a", "content": "result"}}
 	req := promptcompat.StandardRequest{Messages: messages}
-	if planCurrentInputContext(req) != nil {
-		t.Fatal("active first tool loop was separated from its user task")
+	plan := planCurrentInputContext(req)
+	if plan == nil || !strings.Contains(plan.historyText, task) || !strings.Contains(plan.historyText, `call_id="a"`) || !strings.Contains(plan.historyText, "result") || strings.Contains(plan.prompt, task) {
+		t.Fatal("large active loop did not move intact into context file")
 	}
 }

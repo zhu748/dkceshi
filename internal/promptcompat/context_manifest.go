@@ -17,6 +17,7 @@ type ContextMessageDigest struct {
 	ContextDigest
 	PromptContent ContextDigest        `json:"prompt_content"`
 	OmittedReason string               `json:"omitted_reason,omitempty"`
+	OmittedPaths  []string             `json:"omitted_paths,omitempty"`
 	Fields        []ContextFieldDigest `json:"fields,omitempty"`
 }
 
@@ -54,6 +55,7 @@ func (r StandardRequest) ContextMessageDigests() []ContextMessageDigest {
 		digest := ContextMessageDigest{Index: i, Role: asString(message["role"]), ContextDigest: digestContext(data)}
 		visible := NormalizeOpenAIMessagesForPrompt([]any{normalized[i]}, "", r.ToolMarker)
 		digest.Fields = contextFieldDigests(message, len(visible) > 0)
+		digest.OmittedPaths = contentOmittedPaths(message)
 		if len(visible) > 0 {
 			digest.PromptContent = digestContext([]byte(asString(visible[0]["content"])))
 		} else if message == nil {

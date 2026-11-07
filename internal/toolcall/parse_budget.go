@@ -4,13 +4,14 @@ import "ds2api/internal/streambudget"
 
 // Bound local work before recursive parsing, integrity probes or LLM repair.
 // Count source nodes, including damaged calls, rather than only parsed calls.
-func toolMarkupLimitExceeded(text string) bool {
+// Budget and attribute checks share one literal-aware source traversal.
+func scanToolMarkupLimits(text string) (limited, unsupported bool) {
 	depth, nodes, calls := 0, 0, 0
 	maxCalls := streambudget.Value("max_tool_calls")
 	for i := 0; i < len(text); {
 		next, advanced, blocked := skipXMLIgnoredSection(text, i)
 		if blocked {
-			return false
+			return false, unsupported
 		}
 		if advanced {
 			i = next
@@ -23,12 +24,15 @@ func toolMarkupLimitExceeded(text string) bool {
 		tag, ok := scanToolMarkupTagAt(text, i)
 		if !ok {
 			if native, found := scanDSMLTagAt(text, i); found {
-				tag, ok = ToolMarkupTag{Name: native.Name, End: native.End, Closing: native.Closing}, true
+				tag, ok = ToolMarkupTag{Start: i, Name: native.Name, End: native.End, Closing: native.Closing}, true
 			}
 		}
 		if !ok {
 			i = nextToolMarkupProbe(text, i)
 			continue
+		}
+		if !unsupported && unsupportedToolTagAttributes(text, tag) {
+			unsupported = true
 		}
 		i = tag.End + 1
 		nodes++
@@ -43,8 +47,8 @@ func toolMarkupLimitExceeded(text string) bool {
 			}
 		}
 		if depth > 128 || nodes > 32768 || calls > maxCalls {
-			return true
+			return true, unsupported
 		}
 	}
-	return false
+	return false, unsupported
 }

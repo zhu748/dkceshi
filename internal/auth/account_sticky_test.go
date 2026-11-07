@@ -36,7 +36,7 @@ func TestSchedulingFillsAccountConcurrencyOnlyInStickyMode(t *testing.T) {
 	}
 }
 
-func TestRateLimitBenchesTwoMinutesAndFailsOverInBothModes(t *testing.T) {
+func TestRateLimitBenchesOneMinuteAndFailsOverInBothModes(t *testing.T) {
 	for _, sticky := range []bool{false, true} {
 		r, pool := newSwitchWaitResolver(t)
 		if err := r.Store.Update(func(c *config.Config) error { c.Runtime.AccountStickyEnabled = &sticky; return nil }); err != nil {
@@ -49,10 +49,11 @@ func TestRateLimitBenchesTwoMinutesAndFailsOverInBothModes(t *testing.T) {
 		if !a.SwitchAccountOnRateLimit(context.Background()) || a.AccountID == old {
 			t.Fatal("did not fail over")
 		}
+		after := time.Now()
 		acc, _ := r.Store.FindAccount(old)
-		remaining := time.Unix(int64(acc.CooldownUntil), 0).Sub(before)
-		if remaining < 119*time.Second || remaining > 121*time.Second || acc.Banned || acc.Disabled {
-			t.Fatalf("wrong cooldown: %+v duration=%v", acc, remaining)
+		expiry := time.Unix(int64(acc.CooldownUntil), 0)
+		if expiry.Before(before.Add(59*time.Second)) || expiry.After(after.Add(time.Minute)) || acc.Banned || acc.Disabled {
+			t.Fatalf("wrong cooldown: %+v duration=%v", acc, expiry.Sub(before))
 		}
 		if a.SwitchAccountOnRateLimit(context.Background()) {
 			t.Fatal("retried an already failed account")
@@ -62,6 +63,31 @@ func TestRateLimitBenchesTwoMinutesAndFailsOverInBothModes(t *testing.T) {
 			t.Fatalf("failed failover leaked slots: %+v", pool.Status())
 		}
 		pool.Close()
+	}
+}
+
+func TestRateLimitRetainsExistingLongerCooldown(t *testing.T) {
+	r, pool := newSwitchWaitResolver(t)
+	t.Cleanup(pool.Close)
+	a := determineManaged(t, r)
+	t.Cleanup(func() { r.Release(a) })
+	until := float64(time.Now().Add(5 * time.Minute).Unix())
+	if err := r.Store.Update(func(c *config.Config) error {
+		for i := range c.Accounts {
+			if c.Accounts[i].Identifier() == a.AccountID {
+				c.Accounts[i].CooldownUntil = until
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !a.NoteRateLimit() {
+		t.Fatal("managed account did not record rate limit")
+	}
+	acc, _ := r.Store.FindAccount(a.AccountID)
+	if acc.CooldownUntil != until || a.Account.CooldownUntil != until {
+		t.Fatal("new one-minute policy shortened an existing restriction")
 	}
 }
 

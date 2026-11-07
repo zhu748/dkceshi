@@ -122,6 +122,7 @@ func normalizeClaudeMessages(messages []any) []any {
 			if len(out) == before {
 				out = append(out, map[string]any{"role": role, "content": ""})
 			}
+			out = append(out[:before], promptcompat.PreserveAdapterMessageMetadata(out[before:], msg, role)...)
 		default:
 			copied := cloneMap(msg)
 			out = append(out, copied)

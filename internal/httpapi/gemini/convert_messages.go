@@ -39,10 +39,12 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 		if role == "" {
 			role = "user"
 		}
+		before := len(out)
 		parts, _ := content["parts"].([]any)
 		if len(parts) == 0 {
 			text, _ := content["text"].(string)
 			out = append(out, map[string]any{"role": role, "content": text})
+			out = append(out[:before], promptcompat.PreserveAdapterMessageMetadata(out[before:], content, role)...)
 			continue
 		}
 
@@ -142,6 +144,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 				"reasoning_content": pendingThinking,
 			})
 		}
+		out = append(out[:before], promptcompat.PreserveAdapterMessageMetadata(out[before:], content, role)...)
 	}
 	return out
 }

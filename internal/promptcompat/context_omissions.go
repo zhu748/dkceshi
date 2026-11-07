@@ -1,5 +1,11 @@
 package promptcompat
 
+import (
+	"strings"
+
+	"ds2api/internal/prompt"
+)
+
 // Omissions describe normalized fields without embedding their values. They
 // expose missing serializers separately from intentional transport-only hints.
 type ContextOmission struct {
@@ -20,6 +26,33 @@ func contextOmissions(messages []ContextMessageDigest) []ContextOmission {
 				out = append(out, ContextOmission{MessageIndex: message.Index, Field: field.Name, Reason: field.OmittedReason})
 			}
 		}
+		for _, path := range message.OmittedPaths {
+			out = append(out, ContextOmission{MessageIndex: message.Index, Field: path, Reason: "binary_or_opaque_payload"})
+		}
 	}
 	return out
+}
+
+func contentOmittedPaths(message map[string]any) []string {
+	var paths []string
+	for _, field := range []string{"content", "reasoning_content"} {
+		raw := message[field]
+		wrapped := false
+		if field == "reasoning_content" {
+			if !strings.EqualFold(strings.TrimSpace(asString(message["role"])), "assistant") {
+				continue
+			}
+			if block, ok := raw.(map[string]any); ok {
+				raw = []any{block}
+				wrapped = true
+			}
+		}
+		for _, path := range prompt.ContentOmittedPaths(raw) {
+			if wrapped {
+				path = strings.TrimPrefix(path, "/0")
+			}
+			paths = append(paths, "/"+field+path)
+		}
+	}
+	return paths
 }

@@ -4,7 +4,7 @@ const {
   toStringSafe,
 } = require('./state');
 const {
-  parseMarkupToolCalls,
+  parseNormalizedMarkupToolCalls,
   stripFencedCodeBlocks,
   containsToolCallWrapperSyntaxOutsideIgnored,
   normalizeEPSEToolCallMarkup,
@@ -54,11 +54,11 @@ function parseToolCallsDetailed(text, toolNames) {
   }
   result.sawToolCallSyntax = looksLikeToolCallSyntax(normalized.text) || hasRepairableXMLToolCallsWrapper(normalized.text);
   // XML markup parsing only.
-  let parsed = parseMarkupToolCalls(normalized.text);
+  let parsed = parseNormalizedMarkupToolCalls(normalized.text);
   if (parsed.length === 0 && indexToolCDATAOpen(normalized.text, 0) >= 0) {
     const recovered = sanitizeLooseCDATA(normalized.text);
     if (recovered !== normalized.text) {
-      parsed = parseMarkupToolCalls(recovered);
+      parsed = parseNormalizedMarkupToolCalls(recovered);
     }
   }
   if (parsed.length === 0) {

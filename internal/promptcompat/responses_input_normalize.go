@@ -148,7 +148,7 @@ func assistantReasoningOnlyContent(msg map[string]any) string {
 		return ""
 	}
 	if _, hasContent := msg["content"]; hasContent {
-		content := strings.TrimSpace(NormalizeOpenAIContentForPrompt(msg["content"]))
+		content := strings.TrimSpace(prompt.NormalizeAssistantContent(map[string]any{"content": msg["content"]}))
 		reasoning := nonBlankPromptText(extractOpenAIReasoningContentFromMessage(msg["content"]))
 		if reasoning == "" || content != "" && content != strings.TrimSpace(reasoning) {
 			return ""

@@ -168,7 +168,13 @@ func firstRepairToolMarker(markers []string) string {
 // tool-call marker and normalizes the model's answer back to EPSE before
 // parsing; when omitted the canonical EPSE keyword is used (legacy behaviour).
 func repairToolCallsOnce(ctx context.Context, badCode string, invoke ToolCallRepairInvoker, toolMarker ...string) (repairedCalls []ParsedToolCall, repairedOK bool) {
-	if toolMarkupLimitExceeded(stripFencedCodeBlocks(badCode)) {
+	sourceText := stripFencedCodeBlocks(NormalizeMarkerText(badCode, firstRepairToolMarker(toolMarker)))
+	limited, unsupported := scanToolMarkupLimits(sourceText)
+	if limited {
+		return nil, false
+	}
+	if unsupported {
+		tooldiagnostics.AddStep(ctx, tooldiagnostics.Step{Stage: "llm_repair", Result: "skipped", Reason: "unsupported_tool_attributes"})
 		return nil, false
 	}
 	started := time.Now()

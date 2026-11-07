@@ -12,6 +12,13 @@ func geminiFunctionResponseContent(response map[string]any) any {
 	if !hasPayload {
 		content = ""
 	}
+	// response/output is opaque JSON, while parts is the native media channel.
+	// Its arrays and type/file_id fields must not become content blocks/files
+	// when an internal Chat bridge serializes or preprocesses this message.
+	switch content.(type) {
+	case []any, map[string]any:
+		content = stringifyJSON(content)
+	}
 	parts, _ := response["parts"].([]any)
 	if len(parts) == 0 {
 		return content

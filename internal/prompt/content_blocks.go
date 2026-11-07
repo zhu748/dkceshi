@@ -8,7 +8,7 @@ import (
 // NormalizeAssistantContent also preserves Chat's top-level refusal field.
 // Both prompt rendering and archived request messages use this text.
 func NormalizeAssistantContent(msg map[string]any) string {
-	content := NormalizeContent(msg["content"])
+	content := normalizeContent(msg["content"], false)
 	if refusal, _ := msg["refusal"].(string); refusal != "" {
 		if content != "" {
 			content += "\n\n"
@@ -47,8 +47,14 @@ func sanitizeContentValue(value any) any {
 		out := make(map[string]any, len(value))
 		for key, item := range value {
 			switch strings.ToLower(key) {
-			case "file_data", "filedata", "audio_data", "image_data", "inline_data", "inlinedata", "encrypted_content", "thoughtsignature", "thought_signature":
+			case "encrypted_content", "thoughtsignature", "thought_signature":
 				out[key] = "[omitted_binary_payload]"
+			case "file_data", "filedata", "audio_data", "image_data", "inline_data", "inlinedata":
+				if binaryContextObject(value) || explicitInlineMedia(item) {
+					out[key] = "[omitted_binary_payload]"
+				} else {
+					out[key] = sanitizeContentValue(item)
+				}
 			case "base64", "signature":
 				if binaryContextObject(value) || opaqueReasoningObject(value) {
 					out[key] = "[omitted_binary_payload]"
@@ -63,18 +69,18 @@ func sanitizeContentValue(value any) any {
 				}
 			case "input_audio":
 				out[key] = sanitizeContentValue(item)
-				if audio, ok := out[key].(map[string]any); ok {
+				if audio, ok := out[key].(map[string]any); ok && binaryContextObject(value) {
 					if _, present := audio["data"]; present {
 						audio["data"] = "[omitted_binary_payload]"
 					}
 				}
 			case "image_url":
 				out[key] = sanitizeContentValue(item)
-				if image, ok := out[key].(map[string]any); ok {
+				if image, ok := out[key].(map[string]any); ok && binaryContextObject(value) {
 					if url, _ := image["url"].(string); isBinaryDataURL(url) {
 						image["url"] = "[omitted_binary_payload]"
 					}
-				} else if url, ok := item.(string); ok && isBinaryDataURL(url) {
+				} else if url, ok := item.(string); ok && binaryContextObject(value) && isBinaryDataURL(url) {
 					out[key] = "[omitted_binary_payload]"
 				}
 			case "url":
@@ -106,11 +112,11 @@ func isBinaryDataURL(text string) bool {
 func binaryContextObject(block map[string]any) bool {
 	kind, _ := block["type"].(string)
 	encoding, _ := block["encoding"].(string)
-	switch strings.ToLower(kind) {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "base64", "image", "image_url", "file", "input_file", "document", "audio", "video", "input_audio", "input_image", "input_video", "redacted_thinking":
 		return true
 	}
-	return strings.EqualFold(encoding, "base64")
+	return strings.EqualFold(strings.TrimSpace(encoding), "base64")
 }
 
 func opaqueReasoningObject(block map[string]any) bool {

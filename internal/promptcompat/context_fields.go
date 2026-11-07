@@ -57,6 +57,7 @@ func cloneContextDigests(source []ContextMessageDigest) []ContextMessageDigest {
 	out := append([]ContextMessageDigest{}, source...)
 	for i := range out {
 		out[i].Fields = append([]ContextFieldDigest(nil), source[i].Fields...)
+		out[i].OmittedPaths = append([]string(nil), source[i].OmittedPaths...)
 	}
 	return out
 }

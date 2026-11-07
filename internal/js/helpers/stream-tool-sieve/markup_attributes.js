@@ -17,7 +17,7 @@ const {
 
 const XML_ATTR_PATTERN = /\b([a-z0-9_:-]+)\s*=\s*("([^"]*)"|'([^']*)')/gi;
 
-function parseCanonicalToolMarkupAttrs(rawTag, startIdx) {
+function parseCanonicalToolMarkupAttrs(rawTag, startIdx, strict = false) {
   const raw = toRawString(rawTag);
   let idx = Math.max(0, startIdx || 0);
   const out = [];
@@ -61,7 +61,7 @@ function parseCanonicalToolMarkupAttrs(rawTag, startIdx) {
       const cp = raw.codePointAt(idx);
       idx += cp > 0xFFFF ? 2 : 1;
     }
-    const key = normalizeCanonicalToolAttrKey(raw.slice(keyStart, idx));
+    let key = normalizeCanonicalToolAttrKey(raw.slice(keyStart, idx));
 
     idx = skipToolMarkupIgnorables(raw, idx);
     while (idx < raw.length) {
@@ -74,6 +74,7 @@ function parseCanonicalToolMarkupAttrs(rawTag, startIdx) {
     }
     const equalsLen = toolMarkupEqualsLenAt(raw, idx);
     if (!equalsLen) {
+      if (strict && /[\p{L}\p{N}]/u.test(raw.slice(keyStart, idx))) out.push({ key: '__unsupported_attribute', value: '' });
       continue;
     }
     idx += equalsLen;
@@ -87,11 +88,7 @@ function parseCanonicalToolMarkupAttrs(rawTag, startIdx) {
       idx = skipToolMarkupIgnorables(raw, idx);
     }
     if (!key) {
-      if (idx < raw.length) {
-        const cp = raw.codePointAt(idx);
-        idx += cp > 0xFFFF ? 2 : 1;
-      }
-      continue;
+      key = '__unsupported_attribute';
     }
 
     let value = '';
@@ -133,8 +130,11 @@ function normalizeCanonicalToolAttrKey(rawKey) {
   if (!trimmed) {
     return '';
   }
-  const matched = consumeToolKeyword(trimmed, 0, 'name');
-  return matched.ok && skipToolMarkupIgnorables(trimmed, matched.next) === trimmed.length ? 'name' : '';
+  for (const key of ['name', 'call_id', 'id', 'version']) {
+    const matched = consumeToolKeyword(trimmed, 0, key);
+    if (matched.ok && skipToolMarkupIgnorables(trimmed, matched.next) === trimmed.length) return key;
+  }
+  return '';
 }
 
 function quoteCanonicalXMLAttrValue(rawValue) {
