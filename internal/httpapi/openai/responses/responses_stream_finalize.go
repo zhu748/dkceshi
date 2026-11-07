@@ -105,7 +105,6 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		return true
 	}
 	if len(detected) > 0 {
-		s.toolCallsEmitted = true
 		if !s.toolCallsDoneEmitted {
 			s.emitFunctionCallDoneEvents(detected)
 		}
@@ -113,7 +112,14 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 
 	s.closeIncompleteFunctionItems()
 
-	if s.history != nil {
+	s.sendEvent("response.completed", openaifmt.BuildResponsesCompletedPayload(obj))
+	s.sendDone()
+	if !s.output.Complete(s.toolCallRepairCtx) {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+		if s.history != nil {
+			s.history.Error(499, s.finalErrorMessage, s.finalErrorCode, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text))
+		}
+	} else if s.history != nil {
 		s.history.Success(
 			http.StatusOK,
 			responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking),
@@ -122,7 +128,5 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 			responsehistory.GenericUsage(turn),
 		)
 	}
-	s.sendEvent("response.completed", openaifmt.BuildResponsesCompletedPayload(obj))
-	s.sendDone()
 	return true
 }

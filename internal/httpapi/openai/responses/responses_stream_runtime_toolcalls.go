@@ -291,8 +291,10 @@ func (s *responsesStreamRuntime) ensureFunctionItemAdded(callIndex int, name str
 		"response.output_item.added",
 		openaifmt.BuildResponsesOutputItemAddedPayload(s.responseID, itemID, outputIndex, item),
 	)
-	s.functionAdded[callIndex] = true
-	s.toolCallsEmitted = true
+	if s.output.Err() == nil {
+		s.functionAdded[callIndex] = true
+		s.toolCallsEmitted = true
+	}
 }
 
 func (s *responsesStreamRuntime) emitFunctionCallDeltaEvents(deltas []toolstream.ToolCallDelta) {
@@ -337,8 +339,7 @@ func (s *responsesStreamRuntime) emitFunctionCallDoneEvents(calls []toolcall.Par
 			s.sendEvent("response.custom_tool_call_input.delta", map[string]any{"type": "response.custom_tool_call_input.delta", "item_id": itemID, "output_index": outputIndex, "delta": args})
 			s.sendEvent("response.custom_tool_call_input.done", map[string]any{"type": "response.custom_tool_call_input.done", "item_id": itemID, "output_index": outputIndex, "input": args})
 		} else {
-			// Complete XML calls are atomic. Emit their arguments once as a delta so
-			// SDKs that accumulate deltas obtain the same value as the done item.
+			// Emit atomic XML arguments once for SDKs that accumulate deltas.
 			if delta := strings.TrimPrefix(args, previousArgs); delta != "" && strings.HasPrefix(args, previousArgs) {
 				s.sendEvent("response.function_call_arguments.delta", openaifmt.BuildResponsesFunctionCallArgumentsDeltaPayload(s.responseID, itemID, outputIndex, callID, delta))
 			}
@@ -349,7 +350,9 @@ func (s *responsesStreamRuntime) emitFunctionCallDoneEvents(calls []toolcall.Par
 			"response.output_item.done",
 			openaifmt.BuildResponsesOutputItemDonePayload(s.responseID, itemID, outputIndex, item),
 		)
-		s.functionDone[idx] = true
-		s.toolCallsDoneEmitted = true
+		if s.output.ToolsWritten(s.toolCallRepairCtx, idx+1) {
+			s.functionDone[idx] = true
+			s.toolCallsDoneEmitted = true
+		}
 	}
 }

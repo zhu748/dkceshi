@@ -147,7 +147,7 @@ func (s *chatStreamRuntime) sendChunk(v any) bool {
 	return s.output.JSON(s.w, s.rc, s.canFlush, "", v)
 }
 
-func (s *chatStreamRuntime) sendDelta(delta map[string]any) {
+func (s *chatStreamRuntime) sendDelta(delta map[string]any) bool {
 	if content, ok := delta["content"].(string); ok {
 		delta["content"] = s.leadingText.Write(content)
 		if delta["content"] == "" {
@@ -155,7 +155,7 @@ func (s *chatStreamRuntime) sendDelta(delta map[string]any) {
 		}
 	}
 	if len(delta) == 0 {
-		return
+		return true
 	}
 	if !s.firstChunkSent {
 		delta["role"] = "assistant"
@@ -173,6 +173,7 @@ func (s *chatStreamRuntime) sendDelta(delta map[string]any) {
 			s.visibleTextEmitted = true
 		}
 	}
+	return delivered
 }
 
 func (s *chatStreamRuntime) sendDone() {
@@ -278,11 +279,13 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		}
 	}
 	if len(turn.ToolCalls) > 0 && !s.toolCallsDoneEmitted {
-		s.sendDelta(map[string]any{
+		if s.sendDelta(map[string]any{
 			"tool_calls": formatFinalStreamToolCallsWithStableIDs(turn.ToolCalls, s.streamToolCallIDs, s.toolsRaw),
-		})
-		s.toolCallsEmitted = true
-		s.toolCallsDoneEmitted = true
+		}) {
+			s.toolCallsEmitted = true
+			s.toolCallsDoneEmitted = true
+			s.output.ToolsWritten(s.toolCallRepairCtx)
+		}
 	} else if s.bufferToolContent {
 		if !s.toolCallsEmitted && s.deferredText.Len() > 0 {
 			s.sendDelta(map[string]any{"content": cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers)})
@@ -336,6 +339,9 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 		usage,
 	))
 	s.sendDone()
+	if !s.output.Complete(s.toolCallRepairCtx) {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+	}
 	return true
 }
 

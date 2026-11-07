@@ -13,7 +13,7 @@ func configureDiagnostics(ctx context.Context, a *auth.RequestAuth, req promptco
 	if a == nil {
 		return
 	}
-	tooldiagnostics.Configure(ctx, req.ResponseModel, a.CallerID, a.AccountID, req.Stream, req.ToolsRaw, req.ToolChoice)
+	tooldiagnostics.Configure(ctx, req.ResponseModel, a.CallerID, a.AccountID, req.Stream, req.ToolsRaw, req.ToolChoice, req.ResolvedModel)
 }
 
 func diagnosticRetry(ctx context.Context, a *auth.RequestAuth, kind string, err *assistantturn.OutputError) {
@@ -28,13 +28,16 @@ func diagnosticRetry(ctx context.Context, a *auth.RequestAuth, kind string, err 
 }
 
 func recordStreamFailure(ctx context.Context, req promptcompat.StandardRequest, prompt string, hooks StreamRetryHooks, failure *assistantturn.OutputError) {
+	if failure == nil && hooks.ResponseCompleted != nil && hooks.ResponseCompleted() {
+		return
+	}
 	if tooldiagnostics.FromContext(ctx) == nil {
 		return
 	}
 	if failure == nil && hooks.EmptyOutputError != nil {
 		failure = hooks.EmptyOutputError()
 	}
-	if ctx.Err() != nil {
+	if ctx.Err() != nil && (failure == nil || failure.Code == "request_cancelled" || failure.Code == "context_cancelled") {
 		failure = &assistantturn.OutputError{Status: 499, Code: "request_cancelled", Message: ctx.Err().Error()}
 	}
 	if failure == nil {

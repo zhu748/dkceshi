@@ -43,6 +43,13 @@ func New(path string) *Store {
 			s.lastError = readErr
 			continue
 		}
+		if recoverWrittenResponse(&record) {
+			record.Revision++
+			if writeErr := s.Put(record); writeErr != nil {
+				s.lastError = writeErr
+			}
+			continue
+		}
 		record.Status, record.Pinned, record.Delivery = "interrupted", true, "not_delivered"
 		record.ErrorCode, record.Error = "process_interrupted", "Process stopped before diagnostics completed."
 		record.CompletedAt, record.UpdatedAt = time.Now().UnixMilli(), time.Now().UnixMilli()

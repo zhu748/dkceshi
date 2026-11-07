@@ -45,7 +45,11 @@ func TestVercelReleaseRetainsOnlyRealToolEvidence(t *testing.T) {
 				t.Fatal(err)
 			}
 			a := record.Attempts[0]
-			if a.Raw.Text != tool || len(a.Calls) != 1 || a.Calls[0].Delivery != "not_delivered" {
+			wantDelivery := "not_delivered"
+			if tc.interrupted {
+				wantDelivery = "unknown"
+			}
+			if a.Raw.Text != tool || len(a.Calls) != 1 || a.Calls[0].Delivery != wantDelivery {
 				t.Fatalf("lost evidence: %+v", record)
 			}
 			if tc.thinking != "" && a.Source != "reasoning" {

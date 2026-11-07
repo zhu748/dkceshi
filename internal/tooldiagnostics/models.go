@@ -59,22 +59,25 @@ type Call struct {
 }
 
 type Attempt struct {
-	Number        int    `json:"number"`
-	Kind          string `json:"kind"`
-	AccountID     string `json:"account_id,omitempty"`
-	StartedAt     int64  `json:"started_at"`
-	CompletedAt   int64  `json:"completed_at,omitempty"`
-	Method        string `json:"method,omitempty"`
-	Result        string `json:"result"`
-	ErrorCode     string `json:"error_code,omitempty"`
-	Error         string `json:"error,omitempty"`
-	Source        string `json:"source,omitempty"`
-	Raw           Text   `json:"raw"`
-	Residual      Text   `json:"residual"`
-	Calls         []Call `json:"calls"`
-	Steps         []Step `json:"steps"`
-	RetryDecision string `json:"retry_decision,omitempty"`
-	RetryReason   string `json:"retry_reason,omitempty"`
+	Model             string `json:"model,omitempty"`
+	Validation        string `json:"validation,omitempty"`
+	ResponseWrittenAt int64  `json:"response_written_at,omitempty"`
+	Number            int    `json:"number"`
+	Kind              string `json:"kind"`
+	AccountID         string `json:"account_id,omitempty"`
+	StartedAt         int64  `json:"started_at"`
+	CompletedAt       int64  `json:"completed_at,omitempty"`
+	Method            string `json:"method,omitempty"`
+	Result            string `json:"result"`
+	ErrorCode         string `json:"error_code,omitempty"`
+	Error             string `json:"error,omitempty"`
+	Source            string `json:"source,omitempty"`
+	Raw               Text   `json:"raw"`
+	Residual          Text   `json:"residual"`
+	Calls             []Call `json:"calls"`
+	Steps             []Step `json:"steps"`
+	RetryDecision     string `json:"retry_decision,omitempty"`
+	RetryReason       string `json:"retry_reason,omitempty"`
 }
 
 type Summary struct {

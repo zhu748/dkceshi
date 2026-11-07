@@ -21,7 +21,7 @@ func (h *Handler) attachLeaseDiagnostics(id string, std promptcompat.StandardReq
 	lease.Diagnostics = tooldiagnostics.NewRecorder(h.ToolDiagnostics, "chat.completions", true)
 	ctx := tooldiagnostics.WithRecorder(context.Background(), lease.Diagnostics)
 	if lease.Auth != nil {
-		tooldiagnostics.Configure(ctx, std.ResponseModel, lease.Auth.CallerID, lease.Auth.AccountID, true, std.ToolsRaw, std.ToolChoice)
+		tooldiagnostics.Configure(ctx, std.ResponseModel, lease.Auth.CallerID, lease.Auth.AccountID, true, std.ToolsRaw, std.ToolChoice, std.ResolvedModel)
 	}
 	h.streamLeases[id] = lease
 }
@@ -39,7 +39,7 @@ func leaseDiagnosticContext(ctx context.Context, lease streamLease, req map[stri
 	}
 	tooldiagnostics.SelectAttempt(ctx, number, asString(req["diagnostic_retry_reason"]), account)
 	ctx = tooldiagnostics.WithAttempt(ctx, number)
-	tooldiagnostics.Configure(ctx, lease.Standard.ResponseModel, caller, account, true, lease.Standard.ToolsRaw, lease.Standard.ToolChoice)
+	tooldiagnostics.Configure(ctx, lease.Standard.ResponseModel, caller, account, true, lease.Standard.ToolsRaw, lease.Standard.ToolChoice, lease.Standard.ResolvedModel)
 	return ctx
 }
 
@@ -50,6 +50,15 @@ func finishLeaseDiagnostics(r *http.Request, lease streamLease, req map[string]a
 	ctx := leaseDiagnosticContext(r.Context(), lease, req)
 	message := asString(req["error"])
 	stopped := asString(req["finish_reason"]) == "stopped"
+	if req["tools_written"] == true {
+		tooldiagnostics.ToolsWritten(ctx)
+	}
+	if req["response_written"] == true && message == "" {
+		tooldiagnostics.ResponseWritten(ctx)
+		stopped = false
+	} else if req["delivery_version"] != nil && message == "" {
+		stopped = true
+	}
 	status := 200
 	if message != "" || stopped {
 		code := asString(req["error_code"])

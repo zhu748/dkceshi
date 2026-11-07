@@ -41,10 +41,13 @@ type ConsumeAttemptResult struct {
 }
 
 type StreamRetryHooks struct {
-	ConsumeAttempt  func(resp *http.Response, allowDeferEmpty bool) ConsumeAttemptResult
-	Finalize        func(attempts int)
-	ParentMessageID func() int
-	OnRetry         func(attempts int)
+	// ResponseCompleted reports a successfully written terminal, even if the
+	// client cancels while the adapter is recording history or cleaning up.
+	ResponseCompleted func() bool
+	ConsumeAttempt    func(resp *http.Response, allowDeferEmpty bool) ConsumeAttemptResult
+	Finalize          func(attempts int)
+	ParentMessageID   func() int
+	OnRetry           func(attempts int)
 	// OnRegenerate discards undelivered output before a new generation.
 	// Continue/resume deliberately preserves the current attempt state.
 	OnRegenerate     func()
@@ -158,7 +161,8 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 		}
 		allowDefer := opts.RetryEnabled && (attempts < retryMax || a != nil && a.UseConfigToken)
 		result := hooks.ConsumeAttempt(currentResp, allowDefer)
-		if ctx.Err() != nil {
+		responseCompleted := result.Terminal && hooks.ResponseCompleted != nil && hooks.ResponseCompleted()
+		if ctx.Err() != nil && !responseCompleted {
 			return
 		}
 		if result.Terminal {

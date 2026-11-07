@@ -3,19 +3,22 @@
 const MIN_DELTA_FLUSH_CHARS = 16;
 const MAX_DELTA_FLUSH_WAIT_MS = 20;
 
-function createChatCompletionEmitter({ res, sessionID, created, model, isClosed }) {
+function createChatCompletionEmitter({ res, sessionID, created, model, isClosed, onWriteError }) {
   let firstChunkSent = false;
 
   const sendFrame = (obj) => {
     if (isClosed() || res.writableEnded || res.destroyed) {
-      return;
+      return false;
     }
     try {
       res.write(`data: ${JSON.stringify(obj)}\n\n`);
       if (typeof res.flush === 'function') res.flush();
+      return true;
     } catch (error) {
       console.warn('[stream_emitter] write failed', error.message);
+      onWriteError?.(error);
       res.destroy?.(error);
+      return false;
     }
   };
 
@@ -23,15 +26,16 @@ function createChatCompletionEmitter({ res, sessionID, created, model, isClosed 
     const payloadDelta = { ...delta };
     if (!firstChunkSent) {
       payloadDelta.role = 'assistant';
-      firstChunkSent = true;
     }
-    sendFrame({
+    const written = sendFrame({
       id: sessionID,
       object: 'chat.completion.chunk',
       created,
       model,
       choices: [{ delta: payloadDelta, index: 0 }],
     });
+    if (written) firstChunkSent = true;
+    return written;
   };
 
   return {

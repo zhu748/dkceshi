@@ -6,6 +6,7 @@ const { createFinalValidation } = require('./final_validation');
 const { createDiagnosticProgress } = require('./diagnostic_progress');
 const { createStreamWatch } = require('./stream_limits');
 const { startHeartbeat, waitForDrain } = require('./response_flow');
+const { previewUsage, writeSuccessfulTerminal } = require('./stream_completion');
 const { explicitSnapshotDelta } = require('./dedupe');
 const { flushThinkingState } = require('./sse_thinking');
 const { createVisibleGuard, filterVisible } = require('../helpers/stream-tool-sieve/visible_guard');
@@ -73,12 +74,17 @@ const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completio
 const DEEPSEEK_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
 async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAppStream) {
   let leaseCompletion = {};
+  const delivery = { delivery_version: 1, tools_written: false, response_written: false };
   let partialCompletion = () => ({});
   let usageAccounting;
   let streamStarted = false;
+  let outputWriteError = '';
   const report = createStreamReport();
   const { fail: sendFailedChunk, finishFailure: finishStreamFailure } = report;
-  const lifecycle = createStreamLifecycle(req, res, () => report.snapshot({ ...(leaseCompletion.finish_reason ? leaseCompletion : partialCompletion()), ...usageAccounting?.metadata() }));
+  const lifecycle = createStreamLifecycle(req, res, () => report.snapshot({
+    ...(leaseCompletion.finish_reason ? leaseCompletion : partialCompletion()), ...usageAccounting?.metadata(), ...delivery,
+    ...(outputWriteError && !delivery.response_written ? { finish_reason: 'error', error: outputWriteError, error_code: 'client_write_error', error_status: 499 } : {}),
+  }));
   const releaseLease = lifecycle.release;
   const watch = createStreamWatch();
   let stopHeartbeat = () => {};
@@ -228,6 +234,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       created,
       model,
       isClosed: () => lifecycle.closed,
+      onWriteError: error => { outputWriteError = error.message; },
     });
     const sendDeltaFrame = (delta) => {
       if (typeof delta.content === 'string') {
@@ -235,9 +242,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (!delta.content) delete delta.content;
       }
       if (!Object.keys(delta).length) return;
-      if (asString(delta.content).trim() || delta.tool_calls?.length) answerDelivered = true;
-      if (asString(delta.content).trim()) report.mark('first_visible_ms');
-      emitDeltaFrame(delta);
+      const written = emitDeltaFrame(delta);
+      if (written && (asString(delta.content).trim() || delta.tool_calls?.length)) answerDelivered = true;
+      if (written && asString(delta.content).trim()) report.mark('first_visible_ms');
+      if (written && delta.tool_calls?.length) delivery.tools_written = true;
+      return written;
     };
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
     const resetForRegeneration = () => {
@@ -365,9 +374,10 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       if (holdToolText()) { deltaCoalescer.append('content', validatedText ?? validatedToolText(outputText, toolNames, detected.length > 0)); deltaCoalescer.flush(); }
       if (!holdToolText() && !detected.length && !toolCallsEmitted && deferredToolText) { deltaCoalescer.append('content', filterVisible(deferredToolText)); deferredToolText = ''; }
       if (detected.length > 0 && !toolCallsDoneEmitted) {
-        toolCallsEmitted = true;
-        toolCallsDoneEmitted = true;
-        sendDeltaFrame({ tool_calls: validatedCalls });
+        if (sendDeltaFrame({ tool_calls: validatedCalls })) {
+          toolCallsEmitted = true;
+          toolCallsDoneEmitted = true;
+        }
       } else if (toolSieveEnabled && !holdToolText()) {
         const tailEvents = markerTail
           ? processToolSieveChunk(toolSieveState, markerTail, toolNames).concat(flushToolSieve(toolSieveState, toolNames))
@@ -404,12 +414,8 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       }
       ended = true;
       let finalUsage = usageAccounting.build(rawReasoning(), outputText, validatedUsage);
-      if (usageAccounting.enabled) {
-        leaseCompletion = { finish_reason: reason, usage: finalUsage, thinking: rawReasoning(), content: outputText, error: '' };
-        finalUsage = usageAccounting.authoritative(finalUsage, await releaseLease());
-        if (lifecycle.closed || res.writableEnded || res.destroyed) return true;
-      }
-      sendFrame({
+      finalUsage = await previewUsage(req, leaseID, report.snapshot({ finish_reason: reason, usage: finalUsage, thinking: rawReasoning(), content: outputText, error: '', ...usageAccounting.metadata() }), finalUsage, usageAccounting);
+      await writeSuccessfulTerminal(res, sendFrame, {
         id: responseID,
         object: 'chat.completion.chunk',
         created,
@@ -417,9 +423,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         choices: [{ delta: {}, index: 0, finish_reason: reason }],
         usage: finalUsage,
       });
-      if (!res.writableEnded && !res.destroyed) {
-        res.write('data: [DONE]\n\n');
-      }
+      delivery.response_written = true;
       leaseCompletion = {
         finish_reason: reason,
         usage: finalUsage,
@@ -782,9 +786,10 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       resetForRegeneration();
     }
   } catch (error) {
+    if (error.code === 'client_write_error' && !lifecycle.closed) outputWriteError = error.message;
     if (!lifecycle.closed && !res.writableEnded && !res.destroyed) {
-      const code = error.code === 'output_limit_exceeded' ? error.code : 'upstream_unavailable';
-      const message = code === 'output_limit_exceeded' ? error.message : 'Upstream request failed or timed out.';
+      const code = ['output_limit_exceeded', 'client_write_error'].includes(error.code) ? error.code : 'upstream_unavailable';
+      const message = ['output_limit_exceeded', 'client_write_error'].includes(code) ? error.message : 'Upstream request failed or timed out.';
       leaseCompletion = { ...partialCompletion(), finish_reason: 'error', error: message, error_code: code };
       if (streamStarted) { sendFailedChunk(res, 502, message, code); res.end(); }
       else writeOpenAIErrorWithCode(res, 502, message, code);

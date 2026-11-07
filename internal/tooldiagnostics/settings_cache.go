@@ -6,7 +6,9 @@ func (s *Store) publishSettingsLocked() {
 	value := s.state.Settings
 	if s.loadError != nil {
 		value.Enabled = false
-		value.Repair = nil
+		repair := DefaultRepairSettings()
+		value.Repair = &repair
+		value.RepairError = "repair settings could not be loaded"
 	}
 	if value.Repair != nil {
 		repair := *value.Repair

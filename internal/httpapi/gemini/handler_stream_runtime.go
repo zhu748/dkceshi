@@ -164,7 +164,8 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 		CurrentInputFile:    h.Store,
 		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
-		DiagnosticOutput: runtime.accumulator.DiagnosticOutput,
+		ResponseCompleted: runtime.output.Completed,
+		DiagnosticOutput:  runtime.accumulator.DiagnosticOutput,
 		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 			return h.consumeGeminiStreamAttempt(r.Context(), currentResp, runtime, thinkingEnabled, allowDeferEmpty)
 		},
@@ -438,15 +439,6 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 		s.sendErrorChunk(outcome.Error.Status, outcome.Error.Message, outcome.Error.Code)
 		return true
 	}
-	if s.history != nil {
-		s.history.Success(
-			http.StatusOK,
-			responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking),
-			responsehistory.TextForArchive(turn.RawText, turn.Text),
-			assistantturn.FinishReason(turn),
-			responsehistory.GenericUsage(turn),
-		)
-	}
 
 	turn.Thinking = "" // Visible thinking has already streamed on every path.
 	if s.bufferContent {
@@ -455,6 +447,9 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	if len(turn.ToolCalls) > 0 {
 		turn.Text = "" // The prefix was delivered incrementally or flushed above.
 		s.sendParts(buildGeminiPartsFromTurn(turn))
+		if s.output.ToolsWritten(s.toolCallRepairCtx) {
+			s.answerDelivered = true
+		}
 	} else if !s.bufferContent {
 		s.emitStreamText(toolstream.FilterVisible(s.deferredText.String(), ""))
 		s.deferredText.Reset()
@@ -487,5 +482,19 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 			"totalTokenCount":      outcome.Usage.TotalTokens,
 		},
 	})
+	if !s.output.Complete(s.toolCallRepairCtx) {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+		if s.history != nil {
+			s.history.Error(499, s.finalErrorMessage, s.finalErrorCode, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text))
+		}
+	} else if s.history != nil {
+		s.history.Success(
+			http.StatusOK,
+			responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking),
+			responsehistory.TextForArchive(turn.RawText, turn.Text),
+			assistantturn.FinishReason(turn),
+			responsehistory.GenericUsage(turn),
+		)
+	}
 	return true
 }

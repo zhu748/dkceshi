@@ -185,10 +185,13 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 	if s.bufferToolContent && !s.toolCallsDetected {
 		if len(turn.ToolCalls) > 0 {
 			stopReason = "tool_use"
-			for _, tc := range turn.ToolCalls {
+			for ordinal, tc := range turn.ToolCalls {
 				idx := s.nextBlockIndex
 				s.nextBlockIndex++
 				s.sendToolUseBlock(idx, tc)
+				if s.output.ToolsWritten(s.toolCallRepairCtx, ordinal+1) {
+					s.toolCallsDetected = true
+				}
 			}
 		} else if finalText != "" && !s.textEmitted {
 			idx := s.nextBlockIndex
@@ -220,15 +223,6 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 	if outcome.HasToolCalls {
 		stopReason = "tool_use"
 	}
-	if s.history != nil {
-		s.history.Success(
-			200,
-			responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking),
-			responsehistory.TextForArchive(turn.RawText, turn.Text),
-			stopReason,
-			responsehistory.GenericUsage(turn),
-		)
-	}
 
 	s.send("message_delta", map[string]any{
 		"type": "message_delta",
@@ -241,6 +235,20 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		},
 	})
 	s.send("message_stop", map[string]any{"type": "message_stop"})
+	if !s.output.Complete(s.toolCallRepairCtx) {
+		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
+		if s.history != nil {
+			s.history.Error(499, s.finalErrorMessage, s.finalErrorCode, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text))
+		}
+	} else if s.history != nil {
+		s.history.Success(
+			200,
+			responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking),
+			responsehistory.TextForArchive(turn.RawText, turn.Text),
+			stopReason,
+			responsehistory.GenericUsage(turn),
+		)
+	}
 	return true
 }
 

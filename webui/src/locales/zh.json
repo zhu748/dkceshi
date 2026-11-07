@@ -1021,6 +1021,8 @@
     "streaming": "流式",
     "nonStreaming": "非流式",
     "delivery": "响应交付",
+    "validation": "输出校验",
+    "generationModel": "生成模型",
     "download": "下载诊断 JSON",
     "delete": "删除此记录",
     "pinnedHelp": "此记录包含失败现场，已自动锁定，不受 20/50 条上限影响。",
@@ -1042,7 +1044,7 @@
     "residual": "未解决的工具代码",
     "catalog": "请求工具目录与 Schema",
     "policy": "工具选择策略",
-    "executionHelp": "“写入响应成功”表示服务端输出已写入连接；实际工具执行由客户端完成。",
+    "executionHelp": "“写入响应成功”表示服务端已写出，不代表客户端确认或工具执行成功。输出校验与交付分别记录；格式修复使用所选修复模型，纠正生成使用主请求模型。",
     "truncated": "内容超过保存上限，已保留首尾片段。下载文件同样包含这些片段及原始字节数。",
     "cancel": "取消",
     "confirm": "确认删除",
@@ -1079,6 +1081,7 @@
       "repair_retry": "自定义 API 重试"
     },
     "result": {
+      "interrupted": "中断／取消",
       "success": "成功",
       "passed": "通过",
       "failed": "失败",

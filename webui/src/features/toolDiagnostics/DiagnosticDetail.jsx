@@ -54,6 +54,8 @@ export default function DiagnosticDetail({ record, t, onDelete, busy, authFetch 
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span>{label(t, 'method', attempt.method)}</span>
+                {attempt.validation && <span>{t('toolDiagnostics.validation')}: {label(t, 'result', attempt.validation)}</span>}
+                {attempt.model && <span>{t('toolDiagnostics.generationModel')}: {attempt.model}</span>}
                 {attempt.account_id && <span>{t('toolDiagnostics.account')}: {attempt.account_id}</span>}
                 <span>{t('toolDiagnostics.sourceLabel')}: {label(t, 'source', attempt.source)}</span>
                 {attempt.completed_at && <span>{Math.max(0, attempt.completed_at - attempt.started_at).toLocaleString()} ms</span>}

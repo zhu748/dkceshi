@@ -51,8 +51,10 @@ func (s *responsesStreamRuntime) closeIncompleteFunctionItems() {
 			"response.output_item.done",
 			openaifmt.BuildResponsesOutputItemDonePayload(s.responseID, itemID, outputIndex, item),
 		)
-		s.functionDone[idx] = true
-		s.toolCallsDoneEmitted = true
+		if s.output.ToolsWritten(s.toolCallRepairCtx, idx+1) {
+			s.functionDone[idx] = true
+			s.toolCallsDoneEmitted = true
+		}
 	}
 }
 

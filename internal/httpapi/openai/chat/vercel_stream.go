@@ -167,6 +167,10 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 		writeOpenAIError(w, http.StatusBadRequest, "lease_id is required")
 		return
 	}
+	if req["usage_only"] == true {
+		h.previewStreamUsage(w, leaseID, req)
+		return
+	}
 	lease, ok := h.releaseStreamLease(leaseID)
 	if !ok {
 		writeOpenAIError(w, http.StatusNotFound, "stream lease not found")

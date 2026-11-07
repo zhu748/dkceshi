@@ -1,6 +1,7 @@
 package tooldiagnostics
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -26,7 +27,7 @@ func Middleware(store *tooldiagnostics.Store) func(http.Handler) http.Handler {
 				return
 			}
 			r = r.WithContext(tooldiagnostics.WithRecorder(r.Context(), recorder))
-			capture := &responseWriter{ResponseWriter: w, status: 200}
+			capture := &responseWriter{ResponseWriter: w, status: 200, ctx: r.Context()}
 			var wrapped http.ResponseWriter = capture
 			if _, ok := w.(http.Flusher); ok {
 				wrapped = &flushWriter{capture}
@@ -47,6 +48,7 @@ func internalRequest(r *http.Request) bool {
 }
 
 type responseWriter struct {
+	ctx context.Context
 	http.ResponseWriter
 	status      int
 	wroteHeader bool
@@ -93,4 +95,16 @@ func completionPath(path string) bool {
 		return true
 	}
 	return (strings.HasPrefix(path, "/v1beta/models/") || strings.HasPrefix(path, "/v1/models/")) && (strings.HasSuffix(path, ":generateContent") || strings.HasSuffix(path, ":streamGenerateContent"))
+}
+
+// JSON encoders notify the boundary after the entire payload has been written.
+func (w *responseWriter) JSONResponseWritten(err error) {
+	if err != nil {
+		w.err = err
+		return
+	}
+	if w.status < 400 && w.err == nil {
+		tooldiagnostics.ToolsWritten(w.ctx)
+		tooldiagnostics.ResponseWritten(w.ctx)
+	}
 }

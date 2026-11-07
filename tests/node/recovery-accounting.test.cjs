@@ -48,15 +48,15 @@ function surfaces() {
   return { req, res };
 }
 
-test('PoW refresh adopts credentials and release supplies authoritative final usage', async () => {
+test('PoW refresh adopts credentials and usage preview supplies authoritative usage before final release', async () => {
   const originalFetch = global.fetch;
-  let releases = 0, calls = 0, releaseBody;
+  let releases = 0, previews = 0, calls = 0, releaseBody;
   const authHeaders = [];
   const authoritative = { prompt_tokens: 2048, completion_tokens: 17, total_tokens: 2065 };
   global.fetch = async (url, init) => {
     if (String(url).includes('__stream_prepare')) return json({ model: 'model', session_id: 'session', lease_id: 'lease', deepseek_token: 'old', pow_header: 'old-pow', payload: { prompt: 'hello' }, final_prompt: 'hello', prompt_tokens: 1005, usage_accounting_version: 1, thinking_enabled: true });
     if (String(url).includes('__stream_pow')) return json({ pow_header: 'new-pow', deepseek_token: 'new', base_headers: { 'x-test-identity': 'new-identity' } });
-    if (String(url).includes('__stream_release')) { releases++; releaseBody = JSON.parse(init.body); return json({ success: true, usage: authoritative }); }
+    if (String(url).includes('__stream_release')) { const body = JSON.parse(init.body); if (body.usage_only) previews++; else { releases++; releaseBody = body; } return json({ success: true, usage: authoritative }); }
     throw new Error(`unexpected control ${url}`);
   };
   try {
@@ -69,6 +69,8 @@ test('PoW refresh adopts credentials and release supplies authoritative final us
     assert.equal(authHeaders[1].authorization, 'Bearer new');
     assert.equal(authHeaders[1]['x-test-identity'], 'new-identity');
     assert.equal(releases, 1);
+    assert.equal(previews, 1);
+    assert.equal(releaseBody.response_written, true);
     assert.equal(releaseBody.retry_prompts.length, 1);
     assert.match(releaseBody.retry_prompts[0], /Previous reply/);
     const frames = res.chunks.join('').split('\n\n').filter(x => x.startsWith('data: {')).map(x => JSON.parse(x.slice(6)));
@@ -94,9 +96,9 @@ test('a failed release preserves the prepared full-input count and finishes the 
   t.mock.method(console, 'warn', () => {});
   const originalFetch = global.fetch;
   let releases = 0;
-  global.fetch = async url => {
+  global.fetch = async (url, init) => {
     if (String(url).includes('__stream_prepare')) return json({ model: 'model', session_id: 'session', lease_id: 'lease', deepseek_token: 'token', pow_header: 'pow', payload: { prompt: 'short' }, final_prompt: 'short', prompt_tokens: 1005, usage_accounting_version: 1 });
-    if (String(url).includes('__stream_release')) { releases++; return json({ error: 'offline' }, 503); }
+    if (String(url).includes('__stream_release')) { if (!JSON.parse(init.body).usage_only) releases++; return json({ error: 'offline' }, 503); }
     throw new Error(`unexpected ${url}`);
   };
   try {

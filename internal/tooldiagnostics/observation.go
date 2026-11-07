@@ -42,7 +42,7 @@ func Observe(ctx context.Context, o Observation) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.matchesAttempt(ctx) || r.record.CompletedAt != 0 || !o.Relevant && !r.active {
+	if !r.matchesAttempt(ctx) || r.record.CompletedAt != 0 || r.current().ResponseWrittenAt != 0 || !o.Relevant && !r.active {
 		return
 	}
 	if !o.Relevant && o.ErrorCode != "" && r.current().Source != "" {
@@ -93,9 +93,11 @@ func Observe(ctx context.Context, o Observation) {
 	a.Steps = append(a.Steps, Step{Stage: "parse", Result: parseResult, At: time.Now().UnixMilli()})
 	a.ErrorCode, a.Error = o.ErrorCode, o.Error
 	a.Result = "success"
+	a.Validation = "success"
 	a.CompletedAt = time.Now().UnixMilli()
 	if o.ErrorCode != "" {
 		a.Result = "failed"
+		a.Validation = "failed"
 		r.record.Pinned = true
 		r.record.ErrorCode, r.record.Error = o.ErrorCode, o.Error
 	}

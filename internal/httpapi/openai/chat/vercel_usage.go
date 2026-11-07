@@ -50,6 +50,17 @@ func finalizeVercelUsage(std promptcompat.StandardRequest, req map[string]any) m
 	return result
 }
 
+// Count usage before the terminal frame without releasing the live lease or
+// declaring its response delivered. Final release carries the write evidence.
+func (h *Handler) previewStreamUsage(w http.ResponseWriter, id string, req map[string]any) {
+	lease, ok := h.lookupStreamLease(id)
+	if !ok {
+		writeOpenAIError(w, http.StatusNotFound, "stream lease not found")
+		return
+	}
+	writeVercelUsageReply(w, finalizeVercelUsage(lease.Standard, req))
+}
+
 // Complete the response before potentially slow remote cleanup. Content-Length
 // lets the bridge consume the full JSON while this handler still owns its slot.
 func writeVercelUsageReply(w http.ResponseWriter, usage map[string]any) {

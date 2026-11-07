@@ -11,7 +11,10 @@ import (
 func WriteJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	err := json.NewEncoder(w).Encode(payload)
+	if observer, ok := w.(interface{ JSONResponseWritten(error) }); ok {
+		observer.JSONResponseWritten(err)
+	}
 }
 
 // ToBool loosely converts an interface value to bool.

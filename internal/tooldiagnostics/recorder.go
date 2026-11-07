@@ -44,7 +44,7 @@ func newAttempt(number int, kind string) Attempt {
 	return Attempt{Number: number, Kind: kind, StartedAt: time.Now().UnixMilli(), Result: "running", Calls: []Call{}, Steps: []Step{}}
 }
 
-func Configure(ctx context.Context, model, caller, account string, stream bool, tools, policy any) {
+func Configure(ctx context.Context, model, caller, account string, stream bool, tools, policy any, resolvedModels ...string) {
 	r := FromContext(ctx)
 	if r == nil {
 		return
@@ -56,6 +56,10 @@ func Configure(ctx context.Context, model, caller, account string, stream bool, 
 	}
 	r.record.Model, r.record.CallerID, r.record.Stream = model, caller, stream
 	r.current().AccountID = account
+	r.current().Model = model
+	if len(resolvedModels) > 0 && resolvedModels[0] != "" {
+		r.current().Model = resolvedModels[0]
+	}
 	if tools != nil {
 		raw, err := json.Marshal(tools)
 		if err == nil {
@@ -143,6 +147,9 @@ func Failure(ctx context.Context, code, message string) {
 
 func (r *Recorder) failLocked(code, message string) {
 	a := r.current()
+	if a.ResponseWrittenAt != 0 && (code == "request_cancelled" || code == "context_cancelled") {
+		return
+	}
 	if a.Result == "failed" && a.ErrorCode == code && a.Error == message {
 		return
 	}
@@ -183,16 +190,24 @@ func (r *Recorder) Finish(status int, deliveryError error, stopped bool) {
 		a.CompletedAt = now
 	}
 	switch {
-	case stopped:
+	case stopped && a.ResponseWrittenAt == 0 && deliveryError == nil && (a.ErrorCode == "" || a.ErrorCode == "request_cancelled" || a.ErrorCode == "context_cancelled"):
 		a.Result = "interrupted"
 		r.record.Status, r.record.Delivery, r.record.Pinned = "interrupted", "unknown", true
+		for i := range a.Calls {
+			if a.Calls[i].Delivery != "written" {
+				a.Calls[i].Delivery = "unknown"
+			}
+		}
 		if a.RetryDecision == "" {
 			a.RetryDecision = "cancelled"
 		}
-	case deliveryError != nil:
-		a.Result, a.ErrorCode, a.Error = "failed", "response_write_failed", deliveryError.Error()
+	case deliveryError != nil || a.ErrorCode == "client_write_error":
+		if deliveryError != nil {
+			a.Error = deliveryError.Error()
+		}
+		a.Result, a.ErrorCode = "failed", "response_write_failed"
 		r.record.Status, r.record.Delivery, r.record.Pinned = "failed", "write_failed", true
-		r.record.ErrorCode, r.record.Error = "response_write_failed", deliveryError.Error()
+		r.record.ErrorCode, r.record.Error = "response_write_failed", a.Error
 	case status >= 400 || a.Result == "failed" || a.Result == "running":
 		a.Result = "failed"
 		if a.ErrorCode == "" {
@@ -231,7 +246,7 @@ func (r *Recorder) advanceLocked(kind, code, reason, account string) {
 	}
 	r.number++
 	next := newAttempt(r.number, kind)
-	next.AccountID = account
+	next.AccountID, next.Model = account, a.Model
 	r.record.Attempts = append(r.record.Attempts, next)
 	r.schedulePersistLocked()
 }

@@ -14,7 +14,10 @@ import (
 
 // Writer is request-local. A failed output is terminal and cannot be retried
 // on the same socket; callers stop consuming upstream after Err becomes set.
-type Writer struct{ err error }
+type Writer struct {
+	err       error
+	completed bool
+}
 
 func (s *Writer) Err() error { return s.err }
 

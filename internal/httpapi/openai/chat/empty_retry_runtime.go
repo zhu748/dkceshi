@@ -96,7 +96,8 @@ func (h *Handler) handleStreamWithRetry(w http.ResponseWriter, r *http.Request, 
 		CurrentInputFile:    h.Store,
 		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
-		DiagnosticOutput: streamRuntime.accumulator.DiagnosticOutput,
+		ResponseCompleted: streamRuntime.output.Completed,
+		DiagnosticOutput:  streamRuntime.accumulator.DiagnosticOutput,
 		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 			return h.consumeChatStreamAttempt(r, currentResp, streamRuntime, initialType, thinkingEnabled, historySession, allowDeferEmpty)
 		},

@@ -54,13 +54,19 @@ for (const lang of ['zh', 'en']) {
 
         // The first attempt mounts only after a request produces a record.
         // Using the real provider catches dictionary objects rendered as text.
-        for (const result of ['running', 'success', 'failed']) {
+        for (const result of ['running', 'success', 'failed', 'interrupted']) {
             for (const source of ['content', 'reasoning', undefined]) {
-                await act(async () => { renderer.update(view(record(result, source))) })
+                const value = record(result, source)
+                value.attempts[0].validation = 'success'
+                value.attempts[0].model = 'actual-generation-model'
+                await act(async () => { renderer.update(view(value)) })
                 const output = JSON.stringify(renderer.toJSON())
                 assert.ok(output.includes(lang === 'zh' ? '来源' : 'Source'))
                 assert.ok(output.includes(source ? i18n.t(`toolDiagnostics.source.${source}`) : '—'))
                 assert.ok(output.includes('test-model'))
+                assert.ok(output.includes('actual-generation-model'))
+                assert.ok(output.includes(i18n.t('toolDiagnostics.validation')))
+                if (result === 'interrupted') assert.ok(output.includes(i18n.t('toolDiagnostics.result.interrupted')))
                 if (result !== 'running') assert.ok(output.includes('read_file'))
             }
         }
