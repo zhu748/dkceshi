@@ -36,7 +36,7 @@ func callRepairAPI(ctx context.Context, settings tooldiagnostics.RepairSettings,
 	}
 	payload, err := buildRepairAPIPayload(settings, prompt)
 	if err != nil {
-		return repairOutput{}, err
+		return repairOutput{}, &repairAPIError{status: http.StatusBadRequest, message: "invalid repair API parameters: " + err.Error()}
 	}
 	data, err := doRepairAPIRequest(ctx, settings, http.MethodPost, endpoint, payload, 0)
 	if err != nil {

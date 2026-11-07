@@ -19,6 +19,9 @@ func validatePromptMessageContent(raw any) error {
 		if !ok {
 			continue
 		}
+		if err := ValidateMediaContentBlock(block); err != nil {
+			return fmt.Errorf("content[%d]: %w", index, err)
+		}
 		kind := strings.ToLower(strings.TrimSpace(asString(block["type"])))
 		var fields []string
 		switch kind {

@@ -6,6 +6,11 @@ import (
 )
 
 func toolSelectorName(selector map[string]any) (string, error) {
+	if value, present := selector["type"]; present {
+		if _, ok := value.(string); !ok {
+			return "", fmt.Errorf("tool selector type must be a string")
+		}
+	}
 	function := map[string]any(nil)
 	if raw, present := selector["function"]; present {
 		var ok bool

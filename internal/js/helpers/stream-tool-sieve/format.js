@@ -28,7 +28,7 @@ function normalizeParsedToolCallsForSchemas(calls, toolsRaw) {
   }
   let changedAny = false;
   const out = calls.map((call) => {
-    const name = String(call && call.name || '').trim().toLowerCase();
+    const name = String(call && call.name || '').trim();
     const schema = schemas[name];
     if (!schema || !call || !call.input || typeof call.input !== 'object' || Array.isArray(call.input)) {
       return call;
@@ -47,7 +47,7 @@ function buildToolSchemaIndex(toolsRaw) {
   if (!Array.isArray(toolsRaw) || toolsRaw.length === 0) {
     return null;
   }
-  const out = {};
+  const out = Object.create(null);
   for (const item of toolsRaw) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
       continue;
@@ -56,7 +56,7 @@ function buildToolSchemaIndex(toolsRaw) {
     if (!name || !schema || typeof schema !== 'object' || Array.isArray(schema)) {
       continue;
     }
-    out[name.toLowerCase()] = schema;
+    out[name] = schema;
   }
   return Object.keys(out).length > 0 ? out : null;
 }
@@ -95,7 +95,7 @@ function normalizeToolValueWithSchema(value, schema) {
     const properties = schema.properties && typeof schema.properties === 'object' && !Array.isArray(schema.properties) ? schema.properties : null;
     const additional = schema.additionalProperties;
     let changed = false;
-    const out = {};
+    const out = { ...value };
     for (const [key, current] of Object.entries(value)) {
       let next = current;
       let fieldChanged = false;

@@ -22,19 +22,14 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 	if text := normalizeResponsesTextItem(m, itemType, role); text != nil {
 		return text
 	}
-	if role != "" && responsesMessageItem(itemType) {
+	if responsesMessageContext(m, itemType) {
+		if role == "" {
+			role = "user"
+		}
 		if role == "assistant" {
 			return normalizeResponsesAssistantMessage(m)
 		}
-		content := m["content"]
-		if content == nil {
-			if txt, _ := m["text"].(string); strings.TrimSpace(txt) != "" {
-				content = txt
-			}
-		}
-		if content == nil && role != "tool" && role != "function" {
-			return nil
-		}
+		content, _ := responsesMessageBody(m)
 		out := map[string]any{
 			"role":    normalizeOpenAIRoleForPrompt(role),
 			"content": content,
@@ -60,29 +55,6 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 	switch itemType {
 	case "input_image", "image_url", "input_file", "file":
 		return map[string]any{"role": "user", "content": []any{m}}
-	case "message", "input_message":
-		role := strings.ToLower(strings.TrimSpace(asString(m["role"])))
-		if role == "assistant" {
-			return normalizeResponsesAssistantMessage(m)
-		}
-		content := m["content"]
-		if content == nil {
-			if txt, _ := m["text"].(string); strings.TrimSpace(txt) != "" {
-				content = txt
-			}
-		}
-		if content == nil {
-			return nil
-		}
-		if role == "" {
-			role = "user"
-		}
-		out := map[string]any{
-			"role":    normalizeOpenAIRoleForPrompt(role),
-			"content": content,
-		}
-		copyPromptMessageMetadata(out, m)
-		return out
 	case "function_call_output", "custom_tool_call_output", "tool_result":
 		content, hasOutput := m["output"]
 		if !hasOutput {
@@ -125,23 +97,14 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 				name = strings.TrimSpace(asString(fn["name"]))
 			}
 		}
-		var argsRaw any
-		if v, ok := m["arguments"]; ok {
-			argsRaw = v
-		} else if v, ok := m["input"]; ok {
-			argsRaw = v
-		}
-		if argsRaw == nil && fn != nil {
-			if v, ok := fn["arguments"]; ok {
-				argsRaw = v
-			} else if v, ok := fn["input"]; ok {
-				argsRaw = v
-			}
-		}
+		argsRaw, supplied := prompt.ToolCallArguments(m)
 
 		functionPayload := map[string]any{
 			"name":      name,
 			"arguments": prompt.StringifyToolCallArguments(argsRaw),
+		}
+		if _, text := argsRaw.(string); supplied && (text || argsRaw == nil) {
+			functionPayload["arguments"] = argsRaw
 		}
 		if itemType == "custom_tool_call" {
 			functionPayload["arguments"] = map[string]any{"input": argsRaw}
@@ -180,21 +143,7 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 		// Keep their complete typed data rather than extracting only text/content.
 		return map[string]any{"role": role, "content": []any{m}}
 	}
-	if txt, _ := m["text"].(string); strings.TrimSpace(txt) != "" {
-		return map[string]any{
-			"role":    "user",
-			"content": txt,
-		}
-	}
-	if content, ok := m["content"]; ok {
-		if strings.TrimSpace(NormalizeOpenAIContentForPrompt(content)) != "" {
-			return map[string]any{
-				"role":    "user",
-				"content": content,
-			}
-		}
-	}
-	return nil
+	return map[string]any{"role": "user", "content": []any{m}}
 }
 
 func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
@@ -213,19 +162,14 @@ func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
 	if toolCalls, exists := m["tool_calls"]; exists {
 		out["tool_calls"] = toolCalls
 	}
-	content := m["content"]
-	if content == nil {
-		if txt, _ := m["text"].(string); strings.TrimSpace(txt) != "" {
-			content = txt
-		}
-	}
-	if content != nil {
+	content, hasContent := responsesMessageBody(m)
+	if hasContent {
 		out["content"] = content
 	}
 	if reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(m["reasoning_content"])); reasoning != "" {
 		out["reasoning_content"] = m["reasoning_content"]
 	}
-	if _, hasToolCalls := out["tool_calls"]; hasToolCalls || out["function_call"] != nil || out["content"] != nil || out["reasoning_content"] != nil || hasPromptMessageMetadata(out) {
+	if _, hasToolCalls := out["tool_calls"]; hasToolCalls || out["function_call"] != nil || hasContent || out["reasoning_content"] != nil || hasPromptMessageMetadata(out) {
 		return out
 	}
 	return nil

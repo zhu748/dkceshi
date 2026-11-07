@@ -15,11 +15,12 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 	out := make([]ParsedToolCall, len(calls))
 	for i, call := range calls {
 		out[i] = call
-		schema, ok := schemas[strings.TrimSpace(call.Name)]
-		if (!ok && !callHasStringLiterals(call) && !IsCustomTool(toolsRaw, call.Name)) || call.Input == nil {
+		meta, ok := schemas[strings.TrimSpace(call.Name)]
+		if (!ok && !callHasStringLiterals(call)) || call.Input == nil {
 			continue
 		}
-		input := restoreLiteralInput(call, schema, IsCustomTool(toolsRaw, call.Name))
+		schema := meta.schema
+		input := restoreLiteralInput(call, schema, meta.custom)
 		var normalized any = input
 		changed := false
 		if schema != nil {
@@ -43,25 +44,26 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 	return out
 }
 
-func buildToolSchemaIndex(toolsRaw any) map[string]any {
+func buildToolSchemaIndex(toolsRaw any) map[string]argumentSchema {
 	tools, ok := toolsRaw.([]any)
 	if !ok || len(tools) == 0 {
 		return nil
 	}
-	out := make(map[string]any, len(tools))
+	var out map[string]argumentSchema
 	for _, item := range tools {
 		tool, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
 		name, _, schema := ExtractToolMeta(tool)
-		if name == "" || schema == nil {
+		custom := tool["type"] == "custom"
+		if name == "" || schema == nil && !custom {
 			continue
 		}
-		out[name] = schema
-	}
-	if len(out) == 0 {
-		return nil
+		if out == nil {
+			out = make(map[string]argumentSchema, len(tools))
+		}
+		out[name] = argumentSchema{schema: schema, custom: custom}
 	}
 	return out
 }

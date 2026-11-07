@@ -51,21 +51,7 @@ func formatToolCallsForPromptEPSE(raw any) string {
 		return ""
 	}
 
-	blocks := make([]string, 0, len(calls))
-	for _, item := range calls {
-		call, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		block := formatToolCallForPrompt(call)
-		if block != "" {
-			blocks = append(blocks, block)
-		}
-	}
-	if len(blocks) == 0 {
-		return ""
-	}
-	return promptEPSEToolCallsOpen + "\n" + strings.Join(blocks, "\n") + "\n" + promptEPSEToolCallsClose
+	return formatToolCallHistory(calls)
 }
 
 // StringifyToolCallArguments normalizes tool arguments into a compact string
@@ -108,22 +94,20 @@ func formatToolCallForPrompt(call map[string]any) string {
 		return ""
 	}
 
-	argsRaw := call["arguments"]
-	if argsRaw == nil {
-		argsRaw = call["input"]
-	}
-	if argsRaw == nil && fn != nil {
-		argsRaw = fn["arguments"]
-		if argsRaw == nil {
-			argsRaw = fn["input"]
-		}
+	argsRaw, supplied := ToolCallArguments(call)
+	args := normalizePromptToolCallValue(argsRaw)
+	_, rawString := argsRaw.(string)
+	text, remainsString := args.(string)
+	undecoded := rawString && remainsString && text != "" && argsRaw == text
+	if _, object := args.(map[string]any); supplied && !object && !undecoded {
+		return opaqueToolCallHistory(call, name, argsRaw)
 	}
 
 	nameAttr := escapeXMLAttribute(name)
 	if id := strings.TrimSpace(asString(call["id"])); id != "" {
 		nameAttr += `" call_id="` + escapeXMLAttribute(id)
 	}
-	parameters := formatToolCallParametersForPrompt(argsRaw)
+	parameters := formatToolCallParametersForPrompt(args)
 	if parameters == "" {
 		return `  ` + promptEPSEInvokeOpen + ` name="` + nameAttr + `">` + promptEPSEInvokeClose
 	}

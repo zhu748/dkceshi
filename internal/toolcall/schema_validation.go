@@ -17,7 +17,7 @@ func ValidateToolSchemas(toolsRaw any) error {
 	for _, raw := range tools {
 		tool, _ := raw.(map[string]any)
 		name, _, schema := ExtractToolMeta(tool)
-		if schema == nil || IsCustomTool(toolsRaw, name) {
+		if schema == nil || tool["type"] == "custom" {
 			continue
 		}
 		if _, err := compileToolSchema(schema); err != nil {

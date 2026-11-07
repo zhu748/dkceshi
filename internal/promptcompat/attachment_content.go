@@ -57,10 +57,11 @@ func attachmentWithContext(converted, original map[string]any) map[string]any {
 		if key != "" {
 			source, _ = original[key].(map[string]any)
 		}
-		for _, name := range []string{"display_name", "displayName"} {
-			if text, ok := source[name].(string); ok && text != "" {
-				converted["display_name"] = text
-				return converted
+		for _, aliases := range [][]string{{"filename", "file_name", "name"}, {"display_name", "displayName"}} {
+			for _, name := range aliases {
+				if text, ok := source[name].(string); ok && text != "" && asString(converted[aliases[0]]) == "" {
+					converted[aliases[0]] = text
+				}
 			}
 		}
 	}

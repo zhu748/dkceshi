@@ -57,6 +57,9 @@ func ValidateContentContainers(messages []any, field string, allowString bool) e
 }
 
 func validateKnownContentFields(block map[string]any, nativePart bool) error {
+	if err := ValidateMediaContentBlock(block); err != nil {
+		return err
+	}
 	kind := strings.ToLower(strings.TrimSpace(asString(block["type"])))
 	if kind == "text" || nativePart && block["text"] != nil {
 		if err := prompt.ValidateTextAliases(block, "text", "content"); err != nil {
@@ -94,6 +97,11 @@ func validateKnownContentFields(block map[string]any, nativePart bool) error {
 	}
 	if !nativePart {
 		return nil
+	}
+	for _, key := range []string{"fileData", "file_data"} {
+		if _, present := block[key]; present {
+			return fmt.Errorf("gemini %s file URI input is not supported; provide inlineData bytes or an uploaded file attachment", key)
+		}
 	}
 	if value, present := block["thought"]; present {
 		if _, ok := value.(bool); !ok {

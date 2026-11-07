@@ -11,7 +11,7 @@ func attachmentContextMetadata(block map[string]any, keepLabels map[string]bool)
 	out := make(map[string]any)
 	for key, value := range block {
 		switch key {
-		case "type", "id", "file_id", "data", "bytes", "base64", "file_data", "url", "encoding", "cache_control":
+		case "type", "id", "file_id", "data", "bytes", "base64", "file_data", "file_url", "url", "encoding", "cache_control":
 			continue
 		case "filename", "file_name", "name", "mime_type", "mimeType", "content_type", "contentType", "media_type", "mediaType", "display_name", "displayName":
 			if text, ok := value.(string); ok && keepLabels[key] {

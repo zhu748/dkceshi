@@ -31,6 +31,7 @@ func validateNativeToolContext(block map[string]any, nativePart bool) error {
 					return fmt.Errorf("is_error must be a boolean")
 				}
 			}
+			return validatePromptMessageContent(block["content"])
 		}
 		return nil
 	}

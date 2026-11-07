@@ -5,6 +5,27 @@ const assert = require('node:assert/strict');
 const { parseToolCalls, createToolSieveState, processToolSieveChunk, flushToolSieve } = require('../../internal/js/helpers/stream-tool-sieve');
 const { resolveToolcallPolicy } = require('../../internal/js/chat-stream/toolcall_policy');
 
+test('stream schema lookup preserves case and prototype-like tool names', () => {
+  const { formatOpenAIStreamToolCalls } = require('../../internal/js/helpers/stream-tool-sieve/format');
+  const tools = ['Read', 'read', '__proto__', 'constructor'].map((name, index) => ({
+    type: 'function', function: { name, parameters: { type: 'object', properties: { value: { type: index === 1 ? 'number' : 'string' } } } },
+  }));
+  const calls = tools.map(tool => ({ name: tool.function.name, input: { value: 42 } }));
+  const result = formatOpenAIStreamToolCalls(calls, new Map(), tools);
+  assert.deepEqual(result.map(call => JSON.parse(call.function.arguments).value), ['42', 42, '42', '42']);
+  assert.deepEqual(calls.map(call => call.input.value), [42, 42, 42, 42]);
+});
+
+test('schema coercion preserves an own __proto__ argument as JSON data', () => {
+  const { formatOpenAIStreamToolCalls } = require('../../internal/js/helpers/stream-tool-sieve/format');
+  const input = JSON.parse('{"__proto__":42,"value":42}');
+  const properties = JSON.parse('{"__proto__":{"type":"string"},"value":{"type":"string"}}');
+  const tools = [{ name: 'write', parameters: { type: 'object', properties } }];
+  const [result] = formatOpenAIStreamToolCalls([{ name: 'write', input }], new Map(), tools);
+  assert.equal(result.function.arguments, '{"__proto__":"42","value":"42"}');
+  assert.equal(input.__proto__, 42);
+});
+
 test('nested XML attributes and namespaces remain exact at every stream split', () => {
   for (const value of ['<record id="SOURCE_ID">body &amp; text</record>', '<outer><record id="SOURCE_ID">body</record></outer>', '<ns:record>body</ns:record>']) {
     for (const body of [value, '<![CDATA[' + value + ']]>']) {

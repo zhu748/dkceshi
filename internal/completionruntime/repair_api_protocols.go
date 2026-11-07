@@ -10,6 +10,9 @@ import (
 )
 
 func buildRepairAPIPayload(settings tooldiagnostics.RepairSettings, prompt string) (map[string]any, error) {
+	if err := tooldiagnostics.ValidateRepairExtraBody(settings.ExtraBody); err != nil {
+		return nil, err
+	}
 	protocol := tooldiagnostics.RepairProtocol(settings.Protocol)
 	payload := map[string]any{"model": settings.Model, "messages": []any{map[string]any{"role": "user", "content": prompt}}, "stream": false}
 	switch protocol {

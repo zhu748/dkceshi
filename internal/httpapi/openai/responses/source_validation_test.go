@@ -12,6 +12,8 @@ func TestInvalidResponsesSourcesFailBeforeContinuationOrUpstream(t *testing.T) {
 	// continuation lookup, uploads or the upstream completion service.
 	h := &Handler{}
 	for _, body := range []string{
+		`{"model":"deepseek-v4.1-flash","previous_response_id":"unqueried","input":[{"text":"FIRST","content":"SECOND"}]}`,
+		`{"model":"deepseek-v4.1-flash","input":[{"content":"TASK","prefix":"true"}]}`,
 		`{"model":"deepseek-v4.1-flash","instructions":{"text":"LOST"},"input":"valid"}`,
 		`{"model":"deepseek-v4.1-flash","input":[{"type":"reasoning","summary":[{"text":42}]},"valid"]}`,
 		`{"model":"deepseek-v4.1-flash","input":[{"type":"function_call","name":"read","function":{"name":"different"},"arguments":"{}"},"valid"]}`,

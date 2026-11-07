@@ -181,6 +181,9 @@ func (s *inlineUploadState) walk(raw any) (any, error) {
 }
 
 func (s *inlineUploadState) tryUploadBlock(block map[string]any) (map[string]any, bool, error) {
+	if err := promptcompat.ValidateMediaContentBlock(block); err != nil {
+		return nil, true, &inlineFileUploadError{status: http.StatusBadRequest, message: err.Error(), err: err}
+	}
 	decoded, ok, err := decodeOpenAIInlineFileBlock(block)
 	if err != nil {
 		return nil, true, &inlineFileUploadError{status: http.StatusBadRequest, message: err.Error(), err: err}
@@ -258,17 +261,17 @@ func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool,
 	if !promptcompat.IsInlineAttachmentBlock(block) {
 		return inlineDecodedFile{}, false, nil
 	}
-	if strings.TrimSpace(shared.AsString(block["file_id"])) != "" {
+	blockType := strings.ToLower(strings.TrimSpace(shared.AsString(block["type"])))
+	if strings.TrimSpace(shared.AsString(block["file_id"])) != "" || (blockType == "file" || blockType == "input_file" || blockType == "file_reference") && strings.TrimSpace(shared.AsString(block["id"])) != "" {
 		return inlineDecodedFile{}, false, nil
 	}
 	if nested, ok := block["file"].(map[string]any); ok {
 		return decodeNestedInlineFileBlock(block, nested)
 	}
-	blockType := strings.ToLower(strings.TrimSpace(shared.AsString(block["type"])))
 	if decoded, matched, err := decodeNativeInlineBlock(block, blockType); matched || err != nil {
 		return decoded, matched, err
 	}
-	if raw, matched := extractInlineImageDataURL(block); matched {
+	if raw, matched := extractInlineImageDataURL(block); matched && blockType != "file" && blockType != "input_file" && blockType != "file_reference" {
 		data, contentType, err := decodeInlinePayload(raw, contentTypeFromMap(block))
 		if err != nil {
 			return inlineDecodedFile{}, true, fmt.Errorf("invalid image input")
@@ -316,7 +319,7 @@ func extractInlineImageDataURL(block map[string]any) (string, bool) {
 }
 
 func extractInlineFilePayload(block map[string]any, blockType string) (string, bool) {
-	for _, value := range []any{block["file_data"], block["base64"], block["data"]} {
+	for _, value := range []any{block["file_data"], block["base64"], block["data"], block["file_url"], block["url"]} {
 		if raw := strings.TrimSpace(shared.AsString(value)); raw != "" {
 			if strings.Contains(blockType, "file") || block["file_data"] != nil || block["filename"] != nil || block["file_name"] != nil || block["name"] != nil {
 				return raw, true

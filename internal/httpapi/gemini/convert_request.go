@@ -10,6 +10,12 @@ import (
 
 //nolint:unused // kept for native Gemini adapter route compatibility.
 func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[string]any, stream bool) (promptcompat.StandardRequest, error) {
+	inputContext := promptcompat.InputFieldDigests(req)
+	var err error
+	req, err = normalizeGeminiSystemAliases(req)
+	if err != nil {
+		return promptcompat.StandardRequest{}, err
+	}
 	requestedModel := strings.TrimSpace(routeModel)
 	if requestedModel == "" {
 		return promptcompat.StandardRequest{}, fmt.Errorf("model is required in request path")
@@ -69,7 +75,7 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 
 	standard := promptcompat.StandardRequest{
 		Surface:                      "google_gemini",
-		InputContext:                 promptcompat.InputFieldDigests(req),
+		InputContext:                 inputContext,
 		RequestedModel:               requestedModel,
 		ResolvedModel:                resolvedModel,
 		ResponseModel:                requestedModel,

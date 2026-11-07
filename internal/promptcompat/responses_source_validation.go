@@ -42,12 +42,16 @@ func ValidateResponsesRequestContext(request map[string]any) error {
 		}
 		role := strings.ToLower(strings.TrimSpace(asString(item["role"])))
 		kind := strings.ToLower(strings.TrimSpace(asString(item["type"])))
-		if responsesMessageItem(kind) && (item["role"] != nil || kind != "") || kind == "reasoning" {
+		message := responsesMessageContext(item, kind)
+		if message || kind == "reasoning" {
 			if err := ValidateMessageMetadata(item); err != nil {
 				return fmt.Errorf("input[%d]: %w", index, err)
 			}
 		}
-		if responsesMessageItem(kind) && (role != "" || kind != "") {
+		if message {
+			if err := validateResponsesMessageTextAliases(item, kind); err != nil {
+				return fmt.Errorf("input[%d]: %w", index, err)
+			}
 			if kind == "text" || kind == "input_text" || kind == "output_text" {
 				if err := validatePromptMessageContent([]any{item}); err != nil {
 					return fmt.Errorf("input[%d]: %w", index, err)
