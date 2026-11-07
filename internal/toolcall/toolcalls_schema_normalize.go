@@ -74,6 +74,8 @@ func ExtractToolMeta(tool map[string]any) (string, string, any) {
 		tool["input_schema"],
 		tool["inputSchema"],
 		tool["schema"],
+		tool["parametersJsonSchema"],
+		tool["parameters_json_schema"],
 	)
 	if fn, ok := tool["function"].(map[string]any); ok {
 		if name == "" {
@@ -88,6 +90,8 @@ func ExtractToolMeta(tool map[string]any) (string, string, any) {
 			fn["input_schema"],
 			fn["inputSchema"],
 			fn["schema"],
+			fn["parametersJsonSchema"],
+			fn["parameters_json_schema"],
 		)
 	}
 	return name, desc, schema

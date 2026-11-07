@@ -9,10 +9,10 @@ import (
 // original JSON values (including explicit null), before selecting an alias.
 func validateToolSchemaAliases(tool map[string]any) error {
 	function, _ := tool["function"].(map[string]any)
-	var values [8]any
+	var values [12]any
 	count := 0
 	for _, object := range []map[string]any{tool, function} {
-		for _, key := range []string{"parameters", "input_schema", "inputSchema", "schema"} {
+		for _, key := range []string{"parameters", "input_schema", "inputSchema", "schema", "parametersJsonSchema", "parameters_json_schema"} {
 			value, present := object[key]
 			if !present {
 				continue

@@ -35,6 +35,7 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 		return promptcompat.StandardRequest{}, err
 	}
 	messagesRaw := geminiMessagesFromRequest(req)
+	messagesRaw, attachmentsInMessages := promptcompat.WithRequestAttachmentContext(messagesRaw, req)
 	if err := promptcompat.ValidateToolHistory(messagesRaw); err != nil {
 		return promptcompat.StandardRequest{}, err
 	}
@@ -67,25 +68,26 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 	}
 
 	standard := promptcompat.StandardRequest{
-		Surface:              "google_gemini",
-		InputContext:         promptcompat.InputFieldDigests(req),
-		RequestedModel:       requestedModel,
-		ResolvedModel:        resolvedModel,
-		ResponseModel:        requestedModel,
-		Messages:             messagesRaw,
-		RefFileIDs:           promptcompat.CollectOpenAIRefFileIDs(req),
-		RefFileTokens:        promptcompat.EstimateInlineFileTokens(req),
-		PromptTokenText:      finalPrompt,
-		ToolsRaw:             toolsRaw,
-		FinalPrompt:          finalPrompt,
-		ToolNames:            toolNames,
-		ToolChoice:           toolPolicy,
-		ToolsDisabled:        toolsDisabled,
-		Stream:               stream,
-		Thinking:             thinkingEnabled,
-		Search:               searchEnabled,
-		ToolReminderDisabled: !reminder.Enabled,
-		ToolReminderPrompt:   reminder.Prompt,
+		Surface:                      "google_gemini",
+		InputContext:                 promptcompat.InputFieldDigests(req),
+		RequestedModel:               requestedModel,
+		ResolvedModel:                resolvedModel,
+		ResponseModel:                requestedModel,
+		Messages:                     messagesRaw,
+		RequestAttachmentsInMessages: attachmentsInMessages,
+		RefFileIDs:                   promptcompat.CollectOpenAIRefFileIDs(req),
+		RefFileTokens:                promptcompat.EstimateInlineFileTokens(req),
+		PromptTokenText:              finalPrompt,
+		ToolsRaw:                     toolsRaw,
+		FinalPrompt:                  finalPrompt,
+		ToolNames:                    toolNames,
+		ToolChoice:                   toolPolicy,
+		ToolsDisabled:                toolsDisabled,
+		Stream:                       stream,
+		Thinking:                     thinkingEnabled,
+		Search:                       searchEnabled,
+		ToolReminderDisabled:         !reminder.Enabled,
+		ToolReminderPrompt:           reminder.Prompt,
 	}
 	return applyGeminiOutputFormat(standard, req)
 }

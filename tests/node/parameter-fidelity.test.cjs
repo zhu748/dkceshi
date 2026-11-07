@@ -52,6 +52,19 @@ function wrapper(body) {
   return `<tool_calls><invoke name="write">${body}</invoke></tool_calls>`;
 }
 
+test('XML instructions and directives remain full literal parameters at every split', () => {
+  for (const value of ['  <?keep ORIGINAL?>payload\r\n ', '<value><?keep ORIGINAL?>payload</value>', '<!DOCTYPE keep>payload', '<value><!DOCTYPE keep>payload</value>']) {
+    const raw = wrapper(`<parameter name="data">${value}</parameter>`);
+    const expected = [{ name: 'write', input: { data: value } }];
+    assert.deepEqual(parseToolCalls(raw, []), expected);
+    for (let split = 0; split <= raw.length; split++) {
+      const state = createToolSieveState();
+      const events = processToolSieveChunk(state, raw.slice(0, split), []).concat(processToolSieveChunk(state, raw.slice(split), []), flushToolSieve(state, []));
+      assert.deepEqual(events.flatMap(event => event.calls || []), expected, `split=${split}`);
+    }
+  }
+});
+
 test('nested XML depth is bounded while deep CDATA text remains exact', () => {
   for (const name of ['node', '中文', 'ns:node']) {
     const body = `<${name}>`.repeat(150) + 'value' + `</${name}>`.repeat(150);

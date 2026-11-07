@@ -39,6 +39,11 @@ func parameterXMLNeedsLiteral(text string) bool {
 			i += end
 			continue
 		}
+		// The XML decoder emits these as ProcInst/Directive, not CharData.
+		// They have no lossless object representation, even inside a leaf.
+		if strings.HasPrefix(text[i:], "<?") || strings.HasPrefix(text[i:], "<!") {
+			return true
+		}
 		start := i + 1
 		closing := start < len(text) && text[start] == '/'
 		if closing {

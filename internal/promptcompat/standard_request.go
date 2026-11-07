@@ -27,11 +27,13 @@ type StandardRequest struct {
 	// internal/promptcompat/history_transcript.go），因此这条不变量也决定
 	// 「本地记录 / 上传上下文」与「实际发给上游的 prompt」是否一致。服务端生成的
 	// 工具规则及 ThinkingInjectionPrompt 另行组装，不写入客户端消息正文。
-	Messages      []any
-	SourceContext []ContextMessageDigest
-	InputContext  []ContextFieldDigest
-	RawRequest    *ContextDigest `json:"-"`
-	HistoryText   string
+	Messages []any
+	// Prevent internal Chat bridges from adding request-wide attachments twice.
+	RequestAttachmentsInMessages bool `json:"-"`
+	SourceContext                []ContextMessageDigest
+	InputContext                 []ContextFieldDigest
+	RawRequest                   *ContextDigest `json:"-"`
+	HistoryText                  string
 	// ArchiveUserInput retains the latest user input when splitting removes
 	// it from the live messages. It is local archive metadata, never a prompt.
 	ArchiveUserInput        string `json:"-"`

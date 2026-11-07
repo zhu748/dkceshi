@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ds2api/internal/config"
+	"ds2api/internal/jsonvalue"
 	"ds2api/internal/streambudget"
 	"ds2api/internal/tooldiagnostics"
 )
@@ -78,6 +79,9 @@ func doRepairAPIRequest(ctx context.Context, settings tooldiagnostics.RepairSett
 	}
 	if !json.Valid(data) {
 		return nil, &repairAPIError{status: 502, message: "custom repair API returned invalid JSON"}
+	}
+	if jsonvalue.CheckDuplicateKeys(data) != nil || jsonvalue.CheckStringEncoding(data) != nil {
+		return nil, &repairAPIError{status: 502, message: "custom repair API returned ambiguous or invalid Unicode JSON"}
 	}
 	var envelope struct {
 		Error json.RawMessage `json:"error"`

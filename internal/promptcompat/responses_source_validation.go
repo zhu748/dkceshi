@@ -42,6 +42,11 @@ func ValidateResponsesRequestContext(request map[string]any) error {
 		}
 		role := strings.ToLower(strings.TrimSpace(asString(item["role"])))
 		kind := strings.ToLower(strings.TrimSpace(asString(item["type"])))
+		if responsesMessageItem(kind) && (item["role"] != nil || kind != "") || kind == "reasoning" {
+			if err := ValidateMessageMetadata(item); err != nil {
+				return fmt.Errorf("input[%d]: %w", index, err)
+			}
+		}
 		if responsesMessageItem(kind) && (role != "" || kind != "") {
 			if kind == "text" || kind == "input_text" || kind == "output_text" {
 				if err := validatePromptMessageContent([]any{item}); err != nil {
@@ -94,6 +99,9 @@ func ValidateResponsesRequestContext(request map[string]any) error {
 			}
 			fallthrough
 		case "function_call_output", "custom_tool_call_output", "tool_result":
+			if err := validateHistoryIdentityFields(item); err != nil {
+				return fmt.Errorf("input[%d]: %w", index, err)
+			}
 			if err := validateStringAliases(item["call_id"], item["tool_call_id"], "tool call ID"); err != nil {
 				return fmt.Errorf("input[%d]: %w", index, err)
 			}

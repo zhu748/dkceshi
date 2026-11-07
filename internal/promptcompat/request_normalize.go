@@ -45,6 +45,7 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 	if strings.TrimSpace(model) == "" || len(messagesRaw) == 0 {
 		return StandardRequest{}, fmt.Errorf("request must include 'model' and 'messages'")
 	}
+	messagesRaw, attachmentsInMessages := WithRequestAttachmentContext(messagesRaw, req)
 	messagesRaw, err = normalizeValidatedToolHistory(messagesRaw)
 	if err != nil {
 		return StandardRequest{}, err
@@ -80,26 +81,27 @@ func NormalizeOpenAIChatRequest(store config.ModelAliasReader, req map[string]an
 	refFileIDs := CollectOpenAIRefFileIDs(req)
 
 	standard := StandardRequest{
-		Surface:              "openai_chat",
-		InputContext:         inputContext,
-		RequestedModel:       strings.TrimSpace(model),
-		ResolvedModel:        resolvedModel,
-		ResponseModel:        responseModel,
-		Messages:             messagesRaw,
-		PromptTokenText:      finalPrompt,
-		ToolsRaw:             req["tools"],
-		FinalPrompt:          finalPrompt,
-		ToolNames:            toolNames,
-		ToolChoice:           toolPolicy,
-		ToolsDisabled:        toolsDisabled,
-		Stream:               util.ToBool(req["stream"]),
-		Thinking:             thinkingEnabled,
-		Search:               searchEnabled,
-		RefFileIDs:           refFileIDs,
-		RefFileTokens:        EstimateInlineFileTokens(req),
-		ToolMarker:           marker,
-		ToolReminderDisabled: !reminder.Enabled,
-		ToolReminderPrompt:   reminder.Prompt,
+		Surface:                      "openai_chat",
+		InputContext:                 inputContext,
+		RequestedModel:               strings.TrimSpace(model),
+		ResolvedModel:                resolvedModel,
+		ResponseModel:                responseModel,
+		Messages:                     messagesRaw,
+		RequestAttachmentsInMessages: attachmentsInMessages,
+		PromptTokenText:              finalPrompt,
+		ToolsRaw:                     req["tools"],
+		FinalPrompt:                  finalPrompt,
+		ToolNames:                    toolNames,
+		ToolChoice:                   toolPolicy,
+		ToolsDisabled:                toolsDisabled,
+		Stream:                       util.ToBool(req["stream"]),
+		Thinking:                     thinkingEnabled,
+		Search:                       searchEnabled,
+		RefFileIDs:                   refFileIDs,
+		RefFileTokens:                EstimateInlineFileTokens(req),
+		ToolMarker:                   marker,
+		ToolReminderDisabled:         !reminder.Enabled,
+		ToolReminderPrompt:           reminder.Prompt,
 	}
 	return applyOpenAIOutputFormat(standard, req)
 }
@@ -129,12 +131,13 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 	thinkingEnabled := defaultThinkingEnabled
 
 	messagesRaw := ResponsesMessagesFromRequest(req)
+	if len(messagesRaw) == 0 {
+		return StandardRequest{}, fmt.Errorf("request must include 'input' or 'messages'")
+	}
+	messagesRaw, attachmentsInMessages := WithRequestAttachmentContext(messagesRaw, req)
 	messagesRaw, err = normalizeValidatedToolHistory(messagesRaw)
 	if err != nil {
 		return StandardRequest{}, err
-	}
-	if len(messagesRaw) == 0 {
-		return StandardRequest{}, fmt.Errorf("request must include 'input' or 'messages'")
 	}
 	toolsDisabled := ToolsForceDisabledInRequest(req)
 	reminder := ResolveToolReminder(store)
@@ -159,26 +162,27 @@ func NormalizeOpenAIResponsesRequest(store config.ModelAliasReader, req map[stri
 	refFileIDs := CollectOpenAIRefFileIDs(req)
 
 	standard := StandardRequest{
-		Surface:              "openai_responses",
-		InputContext:         inputContext,
-		RequestedModel:       model,
-		ResolvedModel:        resolvedModel,
-		ResponseModel:        model,
-		Messages:             messagesRaw,
-		PromptTokenText:      finalPrompt,
-		ToolsRaw:             req["tools"],
-		FinalPrompt:          finalPrompt,
-		ToolNames:            toolNames,
-		ToolChoice:           toolPolicy,
-		ToolsDisabled:        toolsDisabled,
-		Stream:               util.ToBool(req["stream"]),
-		Thinking:             thinkingEnabled,
-		Search:               searchEnabled,
-		RefFileIDs:           refFileIDs,
-		RefFileTokens:        EstimateInlineFileTokens(req),
-		ToolMarker:           marker,
-		ToolReminderDisabled: !reminder.Enabled,
-		ToolReminderPrompt:   reminder.Prompt,
+		Surface:                      "openai_responses",
+		InputContext:                 inputContext,
+		RequestedModel:               model,
+		ResolvedModel:                resolvedModel,
+		ResponseModel:                model,
+		Messages:                     messagesRaw,
+		RequestAttachmentsInMessages: attachmentsInMessages,
+		PromptTokenText:              finalPrompt,
+		ToolsRaw:                     req["tools"],
+		FinalPrompt:                  finalPrompt,
+		ToolNames:                    toolNames,
+		ToolChoice:                   toolPolicy,
+		ToolsDisabled:                toolsDisabled,
+		Stream:                       util.ToBool(req["stream"]),
+		Thinking:                     thinkingEnabled,
+		Search:                       searchEnabled,
+		RefFileIDs:                   refFileIDs,
+		RefFileTokens:                EstimateInlineFileTokens(req),
+		ToolMarker:                   marker,
+		ToolReminderDisabled:         !reminder.Enabled,
+		ToolReminderPrompt:           reminder.Prompt,
 	}
 	return applyOpenAIOutputFormat(standard, req)
 }

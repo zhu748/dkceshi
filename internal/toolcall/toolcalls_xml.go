@@ -104,6 +104,8 @@ func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement, source string) 
 			return nil, err
 		}
 		switch t := tok.(type) {
+		case xml.ProcInst, xml.Directive, xml.Comment:
+			return nil, errors.New("XML instructions, directives and comments require literal preservation")
 		case xml.CharData:
 			s := string([]byte(t))
 			if raw, ok := extractStandaloneCDATA(source[offset:dec.InputOffset()]); ok {

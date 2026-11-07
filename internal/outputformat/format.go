@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"ds2api/internal/jsonvalue"
 	"ds2api/internal/toolcall"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -56,6 +57,12 @@ func (f Format) Validate(text string) error {
 	text = strings.TrimSpace(text)
 	if !json.Valid([]byte(text)) {
 		return fmt.Errorf("response must contain one complete JSON value")
+	}
+	if err := jsonvalue.CheckDuplicateKeys([]byte(text)); err != nil {
+		return fmt.Errorf("response contains ambiguous JSON: %w", err)
+	}
+	if err := jsonvalue.CheckStringEncoding([]byte(text)); err != nil {
+		return fmt.Errorf("response contains invalid Unicode: %w", err)
 	}
 	value, err := jsonschema.UnmarshalJSON(bytes.NewBufferString(text))
 	if err != nil {

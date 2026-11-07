@@ -36,6 +36,8 @@ func TestContinuationPreservesRequestWideFileInputs(t *testing.T) {
 			`"ref_file_ids":["file-original"]`,
 			`"attachments":[{"file_id":"file-original"}]`,
 			`"attachments":[{"type":"input_file","filename":"note.txt","file_data":"data:text/plain;base64,QUJDRA=="}]`,
+			`"files":[{"file_id":"file-original","filename":"ORIGINAL.txt","description":"FILE_CONTEXT"}]`,
+			`"files":[{"type":"input_file","filename":"note.txt","file_data":"data:text/plain;base64,QUJDRA==","description":"FILE_CONTEXT"}]`,
 		} {
 			t.Run(fmt.Sprintf("stream=%v/%s", stream, files), func(t *testing.T) {
 				store, resolver := newDirectTokenResolver(t)
@@ -79,6 +81,9 @@ func TestContinuationPreservesRequestWideFileInputs(t *testing.T) {
 				refs := ds.payload["ref_file_ids"].([]any)
 				if len(refs) != 1 || refs[0] != initial[0] {
 					t.Fatalf("file lost in continuation: before=%v after=%v", initial, refs)
+				}
+				if strings.Contains(files, "FILE_CONTEXT") && strings.Count(ds.payload["prompt"].(string), "FILE_CONTEXT") != 1 {
+					t.Fatal("continuation lost or duplicated attachment metadata")
 				}
 				send(fmt.Sprintf(`{"model":"deepseek-v4.1-flash","previous_response_id":%q,"input":"continue","file_ids":["file-new","file-original"]}`, second["id"]))
 				refs = ds.payload["ref_file_ids"].([]any)

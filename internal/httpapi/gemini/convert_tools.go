@@ -28,22 +28,7 @@ func convertGeminiTools(raw any) []any {
 					out = append(out, decl)
 					continue
 				}
-				function := map[string]any{
-					"name": name,
-				}
-				if desc := strings.TrimSpace(asString(decl["description"])); desc != "" {
-					function["description"] = desc
-				}
-				if params, exists := decl["parameters"]; exists {
-					function["parameters"] = geminiParameterSchema(params)
-				}
-				if schema, exists := decl["parametersJsonSchema"]; exists {
-					if _, present := function["parameters"]; present {
-						function["schema"] = schema // Shared validation rejects conflicting aliases.
-					} else {
-						function["parameters"] = schema
-					}
-				}
+				function := geminiFunctionDefinition(decl)
 				out = append(out, map[string]any{
 					"type":     "function",
 					"function": function,
@@ -64,13 +49,7 @@ func convertGeminiTools(raw any) []any {
 			out = append(out, tool)
 			continue
 		}
-		fn := map[string]any{"name": name}
-		if desc := strings.TrimSpace(asString(tool["description"])); desc != "" {
-			fn["description"] = desc
-		}
-		if params, exists := tool["parameters"]; exists {
-			fn["parameters"] = geminiParameterSchema(params)
-		}
+		fn := geminiFunctionDefinition(tool)
 		out = append(out, map[string]any{
 			"type":     "function",
 			"function": fn,
@@ -80,6 +59,19 @@ func convertGeminiTools(raw any) []any {
 		return nil
 	}
 	return out
+}
+
+// Keep every schema spelling until shared alias validation has compared them.
+// Only Gemini's native parameters field uses the uppercase Schema dialect.
+func geminiFunctionDefinition(source map[string]any) map[string]any {
+	function := make(map[string]any, len(source))
+	for key, value := range source {
+		function[key] = value
+	}
+	if params, exists := source["parameters"]; exists {
+		function["parameters"] = geminiParameterSchema(params)
+	}
+	return function
 }
 
 func geminiParameterSchema(raw any) any {

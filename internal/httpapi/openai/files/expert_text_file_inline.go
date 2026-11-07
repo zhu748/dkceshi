@@ -9,6 +9,7 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
 	"ds2api/internal/httpapi/openai/shared"
+	"ds2api/internal/promptcompat"
 )
 
 // ExpertTextFileInlineConfigReader exposes the subset of config needed to
@@ -48,7 +49,7 @@ func (h *Handler) PreprocessInlineTextFilesForExpert(ctx context.Context, a *aut
 		store:        h.ContentStore,
 		maxFileBytes: h.Store.ExpertTextFileInlineMaxFileBytes(),
 	}
-	for _, key := range []string{"messages", "input", "attachments"} {
+	for _, key := range promptcompat.InlineFileInputKeys() {
 		if raw, ok := req[key]; ok {
 			updated, err := state.walk(raw)
 			if err != nil {
@@ -125,39 +126,9 @@ func (s *expertTextInlineState) inlineTopLevelRefs(req map[string]any) error {
 }
 
 func collectTopLevelFileIDs(req map[string]any) []string {
-	var out []string
-	seen := map[string]struct{}{}
-	for _, key := range []string{"ref_file_ids", "file_ids"} {
-		raw, ok := req[key]
-		if !ok {
-			continue
-		}
-		var items []any
-		switch x := raw.(type) {
-		case []any:
-			items = x
-		case []string:
-			items = make([]any, len(x))
-			for i, item := range x {
-				items[i] = item
-			}
-		default:
-			continue
-		}
-		for _, item := range items {
-			fileID := strings.TrimSpace(shared.AsString(item))
-			if fileID == "" {
-				continue
-			}
-			key := fileID
-			if _, dup := seen[key]; dup {
-				continue
-			}
-			seen[key] = struct{}{}
-			out = append(out, fileID)
-		}
-	}
-	return out
+	return promptcompat.CollectOpenAIRefFileIDs(map[string]any{
+		"ref_file_ids": req["ref_file_ids"], "file_ids": req["file_ids"],
+	})
 }
 
 func lastUserMessageIndex(req map[string]any) int {

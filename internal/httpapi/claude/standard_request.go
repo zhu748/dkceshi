@@ -37,6 +37,7 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 	// （content 纯文本 / reasoning_content / tool_calls），工具提示词、EPSE 格式
 	// 规范、底部格式提示与最终 prompt 全部由 promptcompat 的共享组装产出。
 	normalizedMessages := normalizeClaudeMessages(messagesRaw)
+	normalizedMessages, attachmentsInMessages := promptcompat.WithRequestAttachmentContext(normalizedMessages, req)
 	if err := promptcompat.ValidateToolHistory(normalizedMessages); err != nil {
 		return claudeNormalizedRequest{}, err
 	}
@@ -86,21 +87,22 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 			// normalizedMessages 加上由顶层 `system` 翻译出的 system 轮——只存
 			// normalizedMessages 会让共享重建步骤（思考注入、current input file
 			// 续写）静默丢掉调用方的 system prompt。
-			Messages:                dsMessages,
-			RefFileIDs:              promptcompat.CollectOpenAIRefFileIDs(req),
-			RefFileTokens:           promptcompat.EstimateInlineFileTokens(req),
-			PromptTokenText:         finalPrompt,
-			ToolsRaw:                toolsRequested,
-			FinalPrompt:             finalPrompt,
-			ToolNames:               toolNames,
-			ToolChoice:              toolPolicy,
-			ToolsDisabled:           toolsDisabled,
-			SystemTextToolsDisabled: true,
-			Stream:                  util.ToBool(req["stream"]),
-			Thinking:                thinkingEnabled,
-			Search:                  searchEnabled,
-			ToolReminderDisabled:    !reminder.Enabled,
-			ToolReminderPrompt:      reminder.Prompt,
+			Messages:                     dsMessages,
+			RequestAttachmentsInMessages: attachmentsInMessages,
+			RefFileIDs:                   promptcompat.CollectOpenAIRefFileIDs(req),
+			RefFileTokens:                promptcompat.EstimateInlineFileTokens(req),
+			PromptTokenText:              finalPrompt,
+			ToolsRaw:                     toolsRequested,
+			FinalPrompt:                  finalPrompt,
+			ToolNames:                    toolNames,
+			ToolChoice:                   toolPolicy,
+			ToolsDisabled:                toolsDisabled,
+			SystemTextToolsDisabled:      true,
+			Stream:                       util.ToBool(req["stream"]),
+			Thinking:                     thinkingEnabled,
+			Search:                       searchEnabled,
+			ToolReminderDisabled:         !reminder.Enabled,
+			ToolReminderPrompt:           reminder.Prompt,
 		},
 	}
 	if output, ok := req["output_config"].(map[string]any); ok {

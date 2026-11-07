@@ -42,7 +42,7 @@ func unmarshalReplayContext(raw []byte) ([]any, map[string]any, bool) {
 // Keeping the original bytes also preserves the existing account-pool replay.
 func captureReplayFiles(req map[string]any) replayFileInputs {
 	files := make(replayFileInputs)
-	for _, key := range []string{"ref_file_ids", "file_ids", "attachments"} {
+	for _, key := range promptcompat.FileReferenceInputKeys() {
 		if value := req[key]; value != nil {
 			files[key] = cloneValue(value)
 		}
@@ -51,14 +51,14 @@ func captureReplayFiles(req map[string]any) replayFileInputs {
 }
 
 func mergeReplayFiles(req map[string]any, previous map[string]any) {
-	for _, key := range []string{"ref_file_ids", "file_ids", "attachments"} {
+	for _, key := range promptcompat.FileReferenceInputKeys() {
 		if old := previous[key]; old != nil {
 			var merged []any
 			merged = appendReplayInputs(merged, old)
 			merged = appendReplayInputs(merged, req[key])
 			req[key] = merged
 		}
-		if key != "attachments" && req[key] != nil {
+		if (key == "ref_file_ids" || key == "file_ids") && req[key] != nil {
 			req[key] = promptcompat.CollectOpenAIRefFileIDs(map[string]any{key: req[key]})
 		}
 	}

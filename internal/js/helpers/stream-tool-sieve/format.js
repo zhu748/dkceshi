@@ -69,10 +69,14 @@ function extractToolNameAndSchema(tool) {
     tool.input_schema,
     tool.inputSchema,
     tool.schema,
+    tool.parametersJsonSchema,
+    tool.parameters_json_schema,
     fn && fn.parameters,
     fn && fn.input_schema,
     fn && fn.inputSchema,
     fn && fn.schema,
+    fn && fn.parametersJsonSchema,
+    fn && fn.parameters_json_schema,
   );
   return [name, schema];
 }

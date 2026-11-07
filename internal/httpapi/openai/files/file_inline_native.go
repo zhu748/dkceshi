@@ -3,10 +3,36 @@ package files
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"ds2api/internal/httpapi/openai/shared"
 )
+
+func explicitInlineFilename(block map[string]any) string {
+	for _, key := range []string{"filename", "file_name", "name"} {
+		if name := strings.TrimSpace(shared.AsString(block[key])); name != "" {
+			return filepath.Base(name)
+		}
+	}
+	return ""
+}
+
+func decodeNestedInlineFileBlock(block, nested map[string]any) (inlineDecodedFile, bool, error) {
+	decoded, matched, err := decodeOpenAIInlineFileBlock(nested)
+	if err != nil || !matched {
+		return decoded, matched, err
+	}
+	if explicitInlineFilename(nested) == "" {
+		if name := explicitInlineFilename(block); name != "" {
+			decoded.Filename = name
+		}
+	}
+	if decoded.DisplayName == "" {
+		decoded.DisplayName = inlineDisplayName(block)
+	}
+	return decoded, true, nil
+}
 
 // Native formats are translated to the same decoded file shape as OpenAI.
 // No remote URL is fetched and no base64 content is left in the visible prompt.

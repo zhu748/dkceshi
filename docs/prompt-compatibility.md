@@ -2,6 +2,50 @@
 
 本项目最初基于 `ouqiting20/ds2api` 的 `f9d2085` 对齐提示词、工具调用、历史拆分和模型目录；当前消息保真与任务拆分规则以本文为准。请求头、登录及上游传输继续使用本项目原有实现。
 
+## 2026-11-07：结构化输出、消息元数据与附件来源
+
+- 结构化输出及所有自定义纠错 API 的 JSON 响应拒绝重复键（包括转义后相同的键）、
+  无效 UTF-8 和未配对 UTF-16 转义。不能先取最后一个值或替换字符后再验证；JSON 字符串
+  内部的字面量示例、合法代理对和大整数继续保留。该规则在共享最终校验和修复 HTTP 边界执行。
+- response_format 的直接 schema 与 json_schema.schema 同时提供时必须一致，显式 null
+  也参与比较；错误的 json_schema 或 text 容器返回输入错误。Gemini 的 generationConfig/
+  generation_config 及输出 MIME/Schema 的 camelCase、snake_case 入口保留相同约束，
+  冲突配置不能被字段优先级掩盖，内部 Chat 转接沿用共享输出校验。
+- 标准消息及 Claude/Gemini 拆块前检查 role 的字符串类型、prefix/is_error 的布尔类型，
+  并校验原生工具名称。Gemini thought 必须为布尔值。缺省及可选消息级 null 保持原有语义，
+  不能把无效角色、预填充或思考标记静默转成另一种行为。
+- 嵌套 file 仅有文件字节、没有显式名称时，上传使用包装层提供的 filename/file_name/name
+  和显示名称，不让内层自动生成的默认文件名覆盖它们。多个不同名称或 MIME/显示名称仍是
+  有用的来源上下文，以原字段路径保留在附件元数据中；相同别名保持单份文本表示。
+  元数据先构造再统一清洗，避免在每层包装中反复清洗整个子树。二进制仍不进入聊天文本。
+
+回归覆盖结构化输出与修复响应的歧义 JSON、输出约束别名及协议转接、原生元数据校验、
+嵌套附件上传及账号重传后的名称/说明保真和二进制省略。
+
+## 2026-11-07：XML 来源、附件和工具约束完整性
+
+- Go/Node 的兼容 XML 参数遇到处理指令或声明（包括叶节点内部）时保留整个参数原文。
+  XML 解码器也拒绝将处理指令、声明和注释缩减成对象。字符串 Schema 接受原文；对象
+  Schema 交给既有校验及纠正生成。格式修复不能删除这些来源内容后通过完整性比较。
+  CDATA 和完整 JSON 字符串中的 XML 示例仍按原有字符串规则处理。
+- 顶层 attachments/files、文件引用收集、上传及 Responses 续接使用共享字段清单。
+  files 中的内联文件参与上传、错误传播、引用上限与账号绑定；续接保存原始内联输入，
+  不将 files 的对象降成 ID 列表而丢掉文件字节或说明。
+- 顶层附件正文和描述附到最新的 user 消息之后，并保留原消息身份、正文空白和后续工具链。
+  没有 user 的部分历史把附件放在工具链之前；末尾 assistant 预填充保持末尾位置。
+  文件名、MIME、显示名称兼容常见别名。即时 prompt、HISTORY.txt、归档与 usage 共享
+  标准消息中的附件表示；内部 Chat 转接不再重复携带已转入消息的顶层附件。
+  输入摘要增加 attachments/files/ref_file_ids/file_ids；摘要仍不是模型已读取文件的证明。
+- Gemini 原生及扁平工具定义保留全部 Schema 入口交给共享校验，包括 parametersJsonSchema
+  和 parameters_json_schema。冲突别名（含显式 null）不能在适配时消失或放宽参数约束。
+  toolConfig/tool_config、functionCallingConfig/function_calling_config 和允许工具名称的
+  别名必须表达相同策略；错误容器或 mode 类型返回输入错误。名称列表的顺序不影响等价性。
+- Chat/Responses 的标准工具历史在归一化前检查 id、tool_call_id、name 的类型；非字符串
+  身份不能丢失后继续配对。缺省 ID、null 与现有无 ID 兼容规则保持可用。
+
+回归覆盖 XML 参数及格式修复来源、任意流式切片、各协议内部转接、附件上传与续接、
+大附件说明外置、Schema/策略别名冲突和工具历史身份类型。
+
 ## 2026-11-07：第二轮复查与一分钟短时冷却
 
 - HTTP 429、40029 / TOO_MANY_REQUESTS 及明确的 upstream_unavailable 空输出触发的

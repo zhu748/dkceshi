@@ -32,3 +32,17 @@ func TestOutputFormatAppliesToAnswersAfterToolValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestAmbiguousJSONCannotEscapeEitherFinalizer(t *testing.T) {
+	options := BuildOptions{OutputFormat: outputformat.Format{Type: "json_object"}}
+	for _, raw := range []string{`{"id":1,"id":2}`, `{"value":"\ud800"}`} {
+		for _, turn := range []Turn{
+			BuildTurnFromCollected(sse.CollectResult{Text: raw}, options),
+			BuildTurnFromStreamSnapshot(StreamSnapshot{RawText: raw, VisibleText: raw}, options),
+		} {
+			if turn.Error == nil || turn.Error.Code != "invalid_response_format" {
+				t.Fatalf("ambiguous output was finalized: %+v", turn)
+			}
+		}
+	}
+}

@@ -21,7 +21,16 @@ func ApplyOutputFormat(req StandardRequest, raw any) (StandardRequest, error) {
 		return req, fmt.Errorf("output format requires a type")
 	}
 	format := outputformat.Format{Type: typ, Schema: object["schema"]}
-	if nested, ok := object["json_schema"].(map[string]any); ok {
+	if rawNested, present := object["json_schema"]; present {
+		nested, ok := rawNested.(map[string]any)
+		if !ok {
+			return req, fmt.Errorf("json_schema must be an object")
+		}
+		if _, present := object["schema"]; present {
+			if err := validatePayloadAliases(map[string]any{"schema": object["schema"], "nested_schema": nested["schema"]}, "schema", "nested_schema"); err != nil {
+				return req, fmt.Errorf("conflicting output schema aliases: %w", err)
+			}
+		}
 		format.Schema = nested["schema"]
 	}
 	if err := format.Check(); err != nil {
@@ -35,11 +44,17 @@ func ApplyOutputFormat(req StandardRequest, raw any) (StandardRequest, error) {
 
 func applyOpenAIOutputFormat(req StandardRequest, raw map[string]any) (StandardRequest, error) {
 	format := raw["response_format"]
-	if text, ok := raw["text"].(map[string]any); ok && text["format"] != nil {
-		if format != nil && !reflect.DeepEqual(format, text["format"]) {
-			return req, fmt.Errorf("response_format conflicts with text.format")
+	if value := raw["text"]; value != nil {
+		text, ok := value.(map[string]any)
+		if !ok {
+			return req, fmt.Errorf("text must be an output configuration object")
 		}
-		format = text["format"]
+		if value, present := text["format"]; present {
+			if _, provided := raw["response_format"]; provided && !reflect.DeepEqual(format, value) {
+				return req, fmt.Errorf("response_format conflicts with text.format")
+			}
+			format = value
+		}
 	}
 	return ApplyOutputFormat(req, format)
 }

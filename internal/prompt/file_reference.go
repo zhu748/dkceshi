@@ -11,7 +11,7 @@ func FileReferenceText(block map[string]any) string {
 	kind, _ := block["type"].(string)
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	switch kind {
-	case "image", "image_url", "input_image", "file", "input_file":
+	case "image", "image_url", "input_image", "file", "input_file", "file_reference", "document":
 	default:
 		return ""
 	}
@@ -20,13 +20,20 @@ func FileReferenceText(block map[string]any) string {
 		source = nested
 	}
 	id, _ := source["file_id"].(string)
+	if id == "" && (kind == "file" || kind == "input_file" || kind == "file_reference") {
+		id, _ = source["id"].(string)
+	}
 	if strings.TrimSpace(id) == "" {
 		return ""
 	}
 	ref := map[string]any{"type": kind, "file_id": id}
-	for _, key := range []string{"filename", "mime_type", "display_name"} {
-		if value, ok := source[key].(string); ok && value != "" {
-			ref[key] = value
+	for _, aliases := range attachmentLabelAliases() {
+		for _, object := range []map[string]any{source, block} {
+			for _, key := range aliases {
+				if value, ok := object[key].(string); ok && value != "" && ref[aliases[0]] == nil {
+					ref[aliases[0]] = value
+				}
+			}
 		}
 	}
 	if metadata := AttachmentContextMetadata(block); len(metadata) > 0 {

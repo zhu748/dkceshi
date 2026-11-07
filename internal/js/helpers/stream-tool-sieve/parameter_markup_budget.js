@@ -46,6 +46,7 @@ function parameterXMLNeedsLiteral(text) {
       if (markText(text.slice(i, end))) return true;
       i = end; continue;
     }
+    if (text.startsWith('<?', i) || text.startsWith('<!', i)) return true;
     let start = i + 1;
     const closing = text[start] === '/';
     if (closing) start++;

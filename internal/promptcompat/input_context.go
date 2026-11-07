@@ -25,7 +25,8 @@ func InputFieldDigests(request map[string]any) []ContextFieldDigest {
 		return append([]ContextFieldDigest(nil), captured...)
 	}
 	var fields []ContextFieldDigest
-	for _, name := range []string{"system", "systemInstruction", "instructions", "messages", "input", "contents", "tools", "functions"} {
+	names := append([]string{"system", "systemInstruction", "instructions", "messages", "input", "contents", "tools", "functions"}, FileReferenceInputKeys()...)
+	for _, name := range names {
 		value, present := request[name]
 		if !present {
 			continue

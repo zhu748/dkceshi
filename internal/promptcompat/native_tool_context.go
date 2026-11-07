@@ -12,11 +12,17 @@ func validateNativeToolContext(block map[string]any, nativePart bool) error {
 	if !nativePart {
 		switch strings.ToLower(strings.TrimSpace(asString(block["type"]))) {
 		case "tool_use":
+			if err := validateHistoryIdentityFields(block); err != nil {
+				return err
+			}
 			if err := validateIDFields(block, "id", "tool_use_id", "tool_call_id"); err != nil {
 				return err
 			}
 			return validateNativeArgumentObject(block, "input")
 		case "tool_result":
+			if err := validateHistoryIdentityFields(block); err != nil {
+				return err
+			}
 			if err := validateIDFields(block, "tool_use_id", "tool_call_id"); err != nil {
 				return err
 			}
@@ -32,6 +38,9 @@ func validateNativeToolContext(block map[string]any, nativePart bool) error {
 		function, ok := block[key].(map[string]any)
 		if !ok {
 			continue // Container shape is checked by ValidateContentContainers.
+		}
+		if err := validateHistoryIdentityFields(function); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
 		}
 		if err := validateIDFields(function, "id", "call_id", "callId", "tool_call_id"); err != nil {
 			return fmt.Errorf("%s: %w", key, err)
@@ -105,4 +114,18 @@ func validatePayloadAliases(block map[string]any, fields ...string) error {
 		first = data
 	}
 	return nil
+}
+
+// ResolvePayloadAliases compares every supplied JSON spelling before selecting
+// one. Presence is separate from null so adapters cannot overwrite explicit data.
+func ResolvePayloadAliases(block map[string]any, fields ...string) (any, bool, error) {
+	if err := validatePayloadAliases(block, fields...); err != nil {
+		return nil, false, err
+	}
+	for _, field := range fields {
+		if value, present := block[field]; present {
+			return value, true, nil
+		}
+	}
+	return nil, false, nil
 }

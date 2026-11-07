@@ -8,15 +8,7 @@ func CollectOpenAIRefFileIDs(req map[string]any) []string {
 	}
 	out := make([]string, 0, 4)
 	seen := map[string]struct{}{}
-	for _, key := range []string{
-		"ref_file_ids",
-		"file_ids",
-		"attachments",
-		"files",
-		"messages",
-		"input",
-		"contents",
-	} {
+	for _, key := range append(FileReferenceInputKeys(), "messages", "input", "contents") {
 		raw := req[key]
 		if raw == nil {
 			continue

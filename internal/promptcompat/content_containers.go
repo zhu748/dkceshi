@@ -14,6 +14,9 @@ func ValidateContentContainers(messages []any, field string, allowString bool) e
 		if !ok {
 			return fmt.Errorf("messages[%d] must be an object", i)
 		}
+		if err := ValidateMessageMetadata(message); err != nil {
+			return fmt.Errorf("messages[%d]: %w", i, err)
+		}
 		role := strings.ToLower(strings.TrimSpace(asString(message["role"])))
 		if role == "assistant" || field == "parts" && role == "model" {
 			if err := validateAssistantContextFields(message); err != nil {
@@ -91,6 +94,11 @@ func validateKnownContentFields(block map[string]any, nativePart bool) error {
 	}
 	if !nativePart {
 		return nil
+	}
+	if value, present := block["thought"]; present {
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("thought must be a boolean")
+		}
 	}
 	payloads := 0
 	for _, field := range []string{"text", "functionCall", "functionResponse", "inlineData", "inline_data", "fileData", "file_data", "executableCode", "codeExecutionResult"} {

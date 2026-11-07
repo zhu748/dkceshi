@@ -20,8 +20,10 @@ func RequestContainsImageContent(req map[string]any) bool {
 	if raw, ok := req["input"]; ok && !isPlainString(raw) && containsImageInAny(raw) {
 		return true
 	}
-	if raw, ok := req["attachments"]; ok && containsImageInAny(raw) {
-		return true
+	for _, key := range AttachmentInputKeys() {
+		if raw, ok := req[key]; ok && containsImageInAny(raw) {
+			return true
+		}
 	}
 	if raw, ok := req["messages"].([]any); ok {
 		if latest := latestUserMessage(raw); latest != nil {
@@ -116,7 +118,7 @@ func StripImageBlocksFromRequest(req map[string]any) {
 	if refs := CollectOpenAIRefFileIDs(req); len(refs) > 0 {
 		req["ref_file_ids"] = refs
 	}
-	for _, key := range []string{"messages", "input", "attachments"} {
+	for _, key := range []string{"messages", "input"} {
 		switch x := req[key].(type) {
 		case []any:
 			req[key] = StripImageBlocksFromMessages(x)
@@ -124,6 +126,7 @@ func StripImageBlocksFromRequest(req map[string]any) {
 			req[key] = StripImageBlocksFromMessages([]any{x})
 		}
 	}
+	stripRequestAttachmentImages(req)
 }
 
 // StripImageBlocksFromMessages removes image content blocks from an OpenAI-style

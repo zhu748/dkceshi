@@ -8,7 +8,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 
 	"ds2api/internal/auth"
@@ -133,7 +132,7 @@ func preprocessInlineFilesOnce(ctx context.Context, a *auth.RequestAuth, req map
 		uploadedByID:    map[string]string{},
 		fallbackBytes:   map[string]int{},
 	}
-	for _, key := range []string{"messages", "input", "attachments", "contents"} {
+	for _, key := range promptcompat.InlineFileInputKeys() {
 		if raw, ok := req[key]; ok {
 			updated, err := state.walk(raw)
 			if err != nil {
@@ -263,14 +262,7 @@ func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool,
 		return inlineDecodedFile{}, false, nil
 	}
 	if nested, ok := block["file"].(map[string]any); ok {
-		decoded, matched, err := decodeOpenAIInlineFileBlock(nested)
-		if err != nil || !matched {
-			return decoded, matched, err
-		}
-		if decoded.Filename == "" {
-			decoded.Filename = pickInlineFilename(block, decoded.ContentType, defaultInlinePrefix(decoded.ReplacementType))
-		}
-		return decoded, true, nil
+		return decodeNestedInlineFileBlock(block, nested)
 	}
 	blockType := strings.ToLower(strings.TrimSpace(shared.AsString(block["type"])))
 	if decoded, matched, err := decodeNativeInlineBlock(block, blockType); matched || err != nil {
@@ -415,10 +407,8 @@ func contentTypeFromMap(block map[string]any) string {
 }
 
 func pickInlineFilename(block map[string]any, contentType string, prefix string) string {
-	for _, value := range []any{block["filename"], block["file_name"], block["name"]} {
-		if name := strings.TrimSpace(shared.AsString(value)); name != "" {
-			return filepath.Base(name)
-		}
+	if name := explicitInlineFilename(block); name != "" {
+		return name
 	}
 	if prefix == "" {
 		prefix = "upload"

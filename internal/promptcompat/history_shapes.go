@@ -14,6 +14,9 @@ func validateHistoryShapes(messages []any) error {
 		if !ok {
 			return fmt.Errorf("messages[%d] must be a message object", i)
 		}
+		if err := ValidateMessageMetadata(msg); err != nil {
+			return fmt.Errorf("messages[%d]: %w", i, err)
+		}
 		if err := validatePromptMessageContent(msg["content"]); err != nil {
 			return fmt.Errorf("messages[%d].%w", i, err)
 		}
@@ -31,6 +34,9 @@ func validateHistoryShapes(messages []any) error {
 				return fmt.Errorf("messages[%d].function_call requires assistant role", i)
 			}
 			if err := validateToolArgumentAliases(fn, nil); err != nil {
+				return fmt.Errorf("messages[%d].function_call: %w", i, err)
+			}
+			if err := validateHistoryIdentityFields(fn); err != nil {
 				return fmt.Errorf("messages[%d].function_call: %w", i, err)
 			}
 		}
@@ -53,6 +59,11 @@ func validateHistoryShapes(messages []any) error {
 				return fmt.Errorf("messages[%d].tool_calls[%d] requires a tool name", i, j)
 			}
 			function, _ := call["function"].(map[string]any)
+			for _, object := range []map[string]any{call, function} {
+				if err := validateHistoryIdentityFields(object); err != nil {
+					return fmt.Errorf("messages[%d].tool_calls[%d]: %w", i, j, err)
+				}
+			}
 			if err := validateToolArgumentAliases(call, function); err != nil {
 				return fmt.Errorf("messages[%d].tool_calls[%d]: %w", i, j, err)
 			}
@@ -62,6 +73,17 @@ func validateHistoryShapes(messages []any) error {
 				if !ok || strings.TrimSpace(nested) == "" || direct != "" && direct != nested {
 					return fmt.Errorf("messages[%d].tool_calls[%d] has an invalid function name", i, j)
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateHistoryIdentityFields(object map[string]any) error {
+	for _, key := range []string{"id", "tool_call_id", "name"} {
+		if value := object[key]; value != nil {
+			if _, ok := value.(string); !ok {
+				return fmt.Errorf("%s must be a string", key)
 			}
 		}
 	}

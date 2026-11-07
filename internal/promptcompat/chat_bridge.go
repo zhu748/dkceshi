@@ -7,7 +7,10 @@ import "sort"
 func (r StandardRequest) OpenAIChatRequest(original map[string]any) map[string]any {
 	out := map[string]any{"model": r.ResolvedModel, "messages": r.Messages, "stream": r.Stream,
 		"parallel_tool_calls": !r.ToolChoice.DisableParallel}
-	for _, key := range []string{"ref_file_ids", "file_ids", "attachments", "files"} {
+	for _, key := range FileReferenceInputKeys() {
+		if r.RequestAttachmentsInMessages && (key == "attachments" || key == "files") {
+			continue
+		}
 		if value, exists := original[key]; exists {
 			out[key] = value
 		}
