@@ -15,6 +15,11 @@ func validateFileSource(block map[string]any, kind string) error {
 	}
 	switch kind {
 	case "file", "input_file", "file_reference":
+		if file != nil {
+			if err := validateFileSource(file, kind); err != nil {
+				return err
+			}
+		}
 		for _, key := range []string{"file_url", "url"} {
 			url := strings.TrimSpace(asString(block[key]))
 			if url != "" && !strings.HasPrefix(strings.ToLower(url), "data:") {

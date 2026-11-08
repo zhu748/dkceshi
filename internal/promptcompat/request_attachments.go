@@ -6,6 +6,7 @@ import "strings"
 // caller's messages and blocks remain unchanged so preprocessing and replay
 // can rebuild the same normalized request repeatedly.
 func WithRequestAttachmentContext(messages []any, request map[string]any) ([]any, bool) {
+	messages = messagesWithAttachmentContext(messages)
 	var attachments []any
 	for _, key := range AttachmentInputKeys() {
 		attachments = appendRequestAttachments(attachments, request[key])
@@ -71,12 +72,15 @@ func appendRequestAttachments(out []any, raw any) []any {
 		}
 		return out
 	case map[string]any:
-		if value["type"] == nil && (value["file_id"] != nil || value["file"] != nil) {
+		if value["type"] == nil && (value["file_id"] != nil || value["file"] != nil || value["file_data"] != nil || value["image_url"] != nil) {
 			block := make(map[string]any, len(value)+1)
 			for key, item := range value {
 				block[key] = item
 			}
 			block["type"] = "input_file"
+			if value["image_url"] != nil {
+				block["type"] = "image_url"
+			}
 			return append(out, block)
 		}
 	}

@@ -6,27 +6,8 @@ import "strings"
 // bounded unknown-block fallback. Binary fields remain scrubbed; known text,
 // document and search-result bodies never use binary heuristics or truncation.
 func PreserveTextContextBlock(block map[string]any) (map[string]any, bool) {
-	kind, _ := block["type"].(string)
-	kind = strings.ToLower(strings.TrimSpace(kind))
-	var field string
-	switch kind {
-	case "text", "input_text", "output_text":
-		if _, ok := block["text"].(string); !ok {
-			return nil, false
-		}
-		field = "text"
-	case "search_result":
-		if _, ok := block["content"].([]any); !ok {
-			return nil, false
-		}
-		field = "content"
-	case "document":
-		source, _ := block["source"].(map[string]any)
-		if source["type"] != "text" && source["type"] != "content" {
-			return nil, false
-		}
-		field = "source"
-	default:
+	field := textContextField(block)
+	if field == "" {
 		return nil, false
 	}
 	out := sanitizeContentValue(block).(map[string]any)
@@ -47,6 +28,35 @@ func PreserveTextContextBlock(block map[string]any) (map[string]any, bool) {
 		}
 	}
 	return out, true
+}
+
+// IsTextContextBlock classifies without sanitizing/copying uploadable children.
+// Adapters keep those source children until shared file processing runs.
+func IsTextContextBlock(block map[string]any) bool { return textContextField(block) != "" }
+
+func textContextField(block map[string]any) string {
+	kind, _ := block["type"].(string)
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	switch kind {
+	case "text", "input_text", "output_text":
+		if _, ok := block["text"].(string); !ok {
+			return ""
+		}
+		return "text"
+	case "search_result":
+		if _, ok := block["content"].([]any); !ok {
+			return ""
+		}
+		return "content"
+	case "document":
+		source, _ := block["source"].(map[string]any)
+		if source["type"] != "text" && source["type"] != "content" {
+			return ""
+		}
+		return "source"
+	default:
+		return ""
+	}
 }
 
 func preserveTextContextParts(raw any) any {

@@ -20,12 +20,13 @@ func ValidateMessageMetadata(message map[string]any) error {
 			}
 		}
 	}
-	return nil
+	return validateMessageAttachments(message)
 }
 
 // These fields identify a caller-owned message boundary, even for an empty
 // assistant body. Native Responses call IDs remain on their individual calls.
 func copyPromptMessageMetadata(out, source map[string]any) {
+	copyMessageAttachments(out, source)
 	for _, key := range []string{"name", "id", "prefix", "tool_call_id", "is_error"} {
 		if value, present := source[key]; present {
 			out[key] = value
@@ -39,7 +40,7 @@ func hasPromptMessageMetadata(message map[string]any) bool {
 			return true
 		}
 	}
-	return false
+	return hasMessageAttachments(message)
 }
 
 func hasExplicitPromptMessage(message map[string]any) bool {

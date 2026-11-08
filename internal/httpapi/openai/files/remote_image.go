@@ -11,6 +11,8 @@ func unsupportedImageSource(block map[string]any) error {
 	kind, _ := block["type"].(string)
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "image", "image_url", "input_image":
+	case "file", "input_file", "file_reference", "document":
+		return fmt.Errorf("file input requires bytes, a data URL, or an uploaded file_id")
 	default:
 		return nil
 	}
@@ -26,5 +28,5 @@ func unsupportedImageSource(block map[string]any) error {
 			return fmt.Errorf("remote image URLs are not supported; provide an image data URL or an uploaded file_id")
 		}
 	}
-	return nil
+	return fmt.Errorf("image input requires a data URL, a base64 source, or an uploaded file_id")
 }

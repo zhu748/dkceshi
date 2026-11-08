@@ -19,6 +19,10 @@ type claudeNormalizedRequest struct {
 
 func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNormalizedRequest, error) {
 	inputContext := promptcompat.InputFieldDigests(req)
+	output, ok := req["output_config"].(map[string]any)
+	if req["output_config"] != nil && !ok {
+		return claudeNormalizedRequest{}, fmt.Errorf("output_config must be an object")
+	}
 	model, _ := req["model"].(string)
 	messagesRaw, _ := req["messages"].([]any)
 	if strings.TrimSpace(model) == "" || len(messagesRaw) == 0 {
@@ -105,8 +109,6 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 			ToolReminderPrompt:           reminder.Prompt,
 		},
 	}
-	if output, ok := req["output_config"].(map[string]any); ok {
-		result.Standard, err = promptcompat.ApplyOutputFormat(result.Standard, output["format"])
-	}
+	result.Standard, err = promptcompat.ApplyOutputFormat(result.Standard, output["format"])
 	return result, err
 }

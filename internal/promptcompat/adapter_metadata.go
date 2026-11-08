@@ -26,6 +26,9 @@ func PreserveAdapterMessageMetadata(messages []any, source map[string]any, role 
 		}
 		message := map[string]any{"role": role, "content": ""}
 		copyPromptMessageMetadata(message, source)
+		for _, key := range AttachmentInputKeys() {
+			delete(message, key) // Append source attachments once, after fragment metadata.
+		}
 		messages = append([]any{message}, messages...)
 		first, last = 0, 0
 	}
@@ -44,6 +47,7 @@ func PreserveAdapterMessageMetadata(messages []any, source map[string]any, role 
 			}
 		}
 	}
+	AppendMessageAttachments(messages[last].(map[string]any), source)
 	if role == "assistant" {
 		preserveAdapterAssistantContext(messages, source, first, last)
 	}

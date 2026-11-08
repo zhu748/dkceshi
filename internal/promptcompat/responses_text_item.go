@@ -9,7 +9,13 @@ func normalizeResponsesTextItem(item map[string]any, kind, role string) map[stri
 	if role == "" {
 		role = "user"
 	}
-	out := map[string]any{"role": normalizeOpenAIRoleForPrompt(role), "content": []any{item}}
+	block := shallowCopyMap(item)
+	// Message identity belongs to the envelope, not a second metadata block
+	// after its text (which would also displace an assistant's prefill).
+	for _, key := range []string{"role", "name", "id", "prefix", "tool_call_id", "is_error", "attachments", "files"} {
+		delete(block, key)
+	}
+	out := map[string]any{"role": normalizeOpenAIRoleForPrompt(role), "content": []any{block}}
 	copyPromptMessageMetadata(out, item)
 	return out
 }

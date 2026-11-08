@@ -43,7 +43,7 @@ func ValidateResponsesRequestContext(request map[string]any) error {
 		role := strings.ToLower(strings.TrimSpace(asString(item["role"])))
 		kind := strings.ToLower(strings.TrimSpace(asString(item["type"])))
 		message := responsesMessageContext(item, kind)
-		if message || kind == "reasoning" {
+		if message || responsesNativeItemRole(kind) != "" {
 			if err := ValidateMessageMetadata(item); err != nil {
 				return fmt.Errorf("input[%d]: %w", index, err)
 			}
@@ -66,7 +66,7 @@ func ValidateResponsesRequestContext(request map[string]any) error {
 				return fmt.Errorf("input[%d]: %w", index, err)
 			}
 		}
-		if role != "" && responsesMessageItem(kind) {
+		if message {
 			if err := validateHistoryShapes([]any{item}); err != nil {
 				return fmt.Errorf("input[%d]: %w", index, err)
 			}

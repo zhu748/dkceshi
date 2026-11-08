@@ -195,7 +195,7 @@ func TestClaudeProxyViaOpenAIStripsThinkingBlocksForNoThinkingModel(t *testing.T
 	}
 }
 
-func TestClaudeProxyTranslatesInlineImageToOpenAIDataURL(t *testing.T) {
+func TestClaudeProxyPreservesNativeImageSourceForSharedUpload(t *testing.T) {
 	openAI := &openAIProxyCaptureStub{}
 	h := &Handler{OpenAI: openAI}
 	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJDRA=="}}]}],"stream":false}`))
@@ -216,11 +216,11 @@ func TestClaudeProxyTranslatesInlineImageToOpenAIDataURL(t *testing.T) {
 		t.Fatalf("expected translated content blocks, got %#v", msg)
 	}
 	imageBlock, _ := content[1].(map[string]any)
-	if strings.TrimSpace(asString(imageBlock["type"])) != "image_url" {
-		t.Fatalf("expected image_url block, got %#v", imageBlock)
+	if strings.TrimSpace(asString(imageBlock["type"])) != "image" {
+		t.Fatalf("expected native image block, got %#v", imageBlock)
 	}
-	imageURL, _ := imageBlock["image_url"].(map[string]any)
-	if !strings.HasPrefix(strings.TrimSpace(asString(imageURL["url"])), "data:image/png;base64,") {
-		t.Fatalf("expected translated data url, got %#v", imageBlock)
+	source, _ := imageBlock["source"].(map[string]any)
+	if source["type"] != "base64" || source["media_type"] != "image/png" || source["data"] != "QUJDRA==" {
+		t.Fatalf("native source changed before upload validation: %#v", imageBlock)
 	}
 }

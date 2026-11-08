@@ -7,20 +7,19 @@ import (
 
 func claudeToolResultAttachments(content any) (any, bool) {
 	blocks, ok := content.([]any)
-	if !ok {
+	if !ok || !promptcompat.ContentHasAttachments(blocks) {
 		return nil, false
 	}
 	out := make([]any, len(blocks))
-	hasAttachment := false
 	for i, raw := range blocks {
-		out[i] = preserveClaudeToolResultContent(raw)
+		out[i] = raw
 		if block, ok := raw.(map[string]any); ok {
 			if attachment, ok := promptcompat.NormalizeAttachmentContent(block); ok {
-				out[i], hasAttachment = attachment, true
+				out[i] = attachment
 			}
 		}
 	}
-	return out, hasAttachment
+	return out, true
 }
 
 // Text blocks are documented tool output, including file bodies and command

@@ -50,6 +50,20 @@ func captureReplayFiles(req map[string]any) replayFileInputs {
 	return files
 }
 
+// Both maps are request-owned (stored context is decoded into fresh values).
+// Keep raw bytes in their original message for subsequent uploads/account
+// replay; only ID-only lists remain global. This also migrates legacy bags.
+func scopeReplayAttachments(messages []any, inputs map[string]any) []any {
+	if len(inputs) == 0 {
+		return messages
+	}
+	messages, _ = promptcompat.WithRequestAttachmentContext(messages, inputs)
+	for _, key := range promptcompat.AttachmentInputKeys() {
+		delete(inputs, key)
+	}
+	return messages
+}
+
 func mergeReplayFiles(req map[string]any, previous map[string]any) {
 	for _, key := range promptcompat.FileReferenceInputKeys() {
 		if old := previous[key]; old != nil {

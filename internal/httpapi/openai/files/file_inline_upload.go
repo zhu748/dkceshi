@@ -262,8 +262,11 @@ func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool,
 		return inlineDecodedFile{}, false, nil
 	}
 	blockType := strings.ToLower(strings.TrimSpace(shared.AsString(block["type"])))
-	if strings.TrimSpace(shared.AsString(block["file_id"])) != "" || (blockType == "file" || blockType == "input_file" || blockType == "file_reference") && strings.TrimSpace(shared.AsString(block["id"])) != "" {
+	if hasUploadedInlineReference(block) {
 		return inlineDecodedFile{}, false, nil
+	}
+	if err := validateInlineFileSources(block); err != nil {
+		return inlineDecodedFile{}, true, err
 	}
 	if nested, ok := block["file"].(map[string]any); ok {
 		return decodeNestedInlineFileBlock(block, nested)
@@ -301,6 +304,11 @@ func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool,
 }
 
 func extractInlineImageDataURL(block map[string]any) (string, bool) {
+	if source, ok := block["source"].(map[string]any); ok && source["type"] == "url" {
+		if raw := strings.TrimSpace(shared.AsString(source["url"])); isDataURL(raw) {
+			return raw, true
+		}
+	}
 	imageURL := block["image_url"]
 	switch x := imageURL.(type) {
 	case string:
@@ -357,18 +365,12 @@ func decodeDataURL(raw string, explicitContentType string) ([]byte, string, erro
 	if !ok {
 		return nil, "", fmt.Errorf("invalid data url")
 	}
-	meta := strings.TrimSpace(strings.TrimPrefix(header, "data:"))
-	contentType := strings.TrimSpace(explicitContentType)
-	if contentType == "" {
-		contentType = "application/octet-stream"
-		if meta != "" {
-			parts := strings.Split(meta, ";")
-			if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
-				contentType = strings.TrimSpace(parts[0])
-			}
-		}
+	meta := strings.TrimSpace(header[len("data:"):])
+	contentType, encoded, err := parseDataURLHeader(meta, explicitContentType)
+	if err != nil {
+		return nil, "", err
 	}
-	if strings.Contains(strings.ToLower(meta), ";base64") {
+	if encoded {
 		decoded, err := decodeBase64Flexible(payload)
 		if err != nil {
 			return nil, "", err

@@ -36,6 +36,8 @@ func geminiFunctionResponseContent(response map[string]any) any {
 		}
 		if attachment, ok := promptcompat.NormalizeAttachmentContent(block); ok {
 			out = append(out, attachment)
+		} else if promptcompat.ContentHasAttachments(block) {
+			out = append(out, block)
 		} else {
 			out = append(out, map[string]any{"type": "text", "text": formatGeminiUnknownPartForPrompt(block)})
 		}

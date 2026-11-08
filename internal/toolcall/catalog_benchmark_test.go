@@ -11,6 +11,23 @@ func BenchmarkNormalizeLargeToolCatalog(b *testing.B) {
 	}
 }
 
+func BenchmarkNormalizeRepeatedToolBatch(b *testing.B) {
+	schema := map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}
+	tools := []any{map[string]any{"name": "read", "parameters": schema}}
+	calls := make([]ParsedToolCall, 128)
+	for i := range calls {
+		calls[i] = ParsedToolCall{Name: "read", Input: map[string]any{"value": float64(123)}, StringLiterals: map[string]string{"value": "123"}}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		out := NormalizeParsedToolCallsForSchemas(calls, tools)
+		if len(out) != len(calls) || out[0].Input["value"] != "123" {
+			b.Fatal("normalization changed literal arguments")
+		}
+	}
+}
+
 func benchmarkToolCatalog(b *testing.B, withSchema bool) {
 	tools := make([]any, 1024)
 	schema := map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}}

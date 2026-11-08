@@ -1,57 +1,47 @@
 package promptcompat
 
-import (
-	"strings"
+import "strings"
 
-	"ds2api/internal/prompt"
-)
-
-// NormalizeAttachmentContent retains uploadable bytes until shared file
-// preprocessing runs. Prompt rendering omits binary payloads before that step.
+// Keep every native source until shared preprocessing validates and uploads it.
+// Adapters must not select a byte alias or discard an authoritative uploaded ID.
 func NormalizeAttachmentContent(block map[string]any) (map[string]any, bool) {
-	kind := asString(block["type"])
-	if kind == "image_url" || kind == "input_image" || kind == "input_file" || kind == "file" {
+	kind := strings.ToLower(strings.TrimSpace(asString(block["type"])))
+	if kind == "image_url" || kind == "input_image" || kind == "input_file" || kind == "file" || kind == "file_reference" {
 		return block, true
 	}
 	source, _ := block["source"].(map[string]any)
-	image := kind == "image"
+	if kind == "document" && (source["type"] == "text" || source["type"] == "content") {
+		return nil, false // Text documents belong to the textual context serializer.
+	}
 	if kind != "image" && kind != "document" {
+		_, camel := block["inlineData"]
+		_, snake := block["inline_data"]
+		if !camel && !snake {
+			return nil, false
+		}
 		source, _ = block["inlineData"].(map[string]any)
-		if source == nil {
+		if !camel {
 			source, _ = block["inline_data"].(map[string]any)
 		}
 	}
-	if source == nil {
-		return nil, false
+	out := shallowCopyMap(block)
+	if kind == "image" || kind == "document" {
+		out["type"] = kind
+	} else {
+		out["type"] = "input_file"
+		for _, key := range []string{"mime_type", "mimeType", "content_type", "contentType", "media_type", "mediaType"} {
+			if mime := strings.ToLower(strings.TrimSpace(asString(source[key]))); mime != "" {
+				if strings.HasPrefix(mime, "image/") {
+					out["type"] = "input_image"
+				}
+				break
+			}
+		}
 	}
-	if source["type"] == "url" && image {
-		return attachmentWithContext(map[string]any{"type": "image_url", "image_url": map[string]any{"url": source["url"]}}, block), true
-	}
-	mime := asString(source["media_type"])
-	if mime == "" {
-		mime = asString(source["mimeType"])
-	}
-	if mime == "" {
-		mime = asString(source["mime_type"])
-	}
-	if mime == "" {
-		mime = "application/octet-stream"
-	}
-	data, ok := source["data"].(string)
-	if !ok || (source["type"] != nil && source["type"] != "base64") {
-		return nil, false
-	}
-	url := "data:" + mime + ";base64," + data
-	if image || strings.HasPrefix(mime, "image/") {
-		return attachmentWithContext(map[string]any{"type": "image_url", "image_url": map[string]any{"url": url}}, block), true
-	}
-	return attachmentWithContext(map[string]any{"type": "input_file", "file_data": url, "filename": block["filename"]}, block), true
+	return attachmentWithContext(out, block), true
 }
 
 func attachmentWithContext(converted, original map[string]any) map[string]any {
-	if metadata := prompt.AttachmentContextMetadata(original); len(metadata) > 0 {
-		converted["context_metadata"] = metadata
-	}
 	for _, key := range []string{"", "source", "inlineData", "inline_data"} {
 		source := original
 		if key != "" {

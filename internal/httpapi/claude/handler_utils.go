@@ -102,10 +102,12 @@ func normalizeClaudeMessages(messages []any) []any {
 						out = append(out, toolMsg)
 					}
 				default:
-					if text, ok := prompt.PreserveTextContextBlock(b); ok {
-						textParts = append(textParts, text)
+					if prompt.IsTextContextBlock(b) {
+						textParts = append(textParts, b)
 					} else if attachment, ok := promptcompat.NormalizeAttachmentContent(b); ok {
 						textParts = append(textParts, attachment)
+					} else if promptcompat.ContentHasAttachments(b) {
+						textParts = append(textParts, b)
 					} else if raw := strings.TrimSpace(formatClaudeUnknownBlockForPrompt(b)); raw != "" {
 						textParts = append(textParts, raw)
 					}
@@ -166,11 +168,13 @@ func normalizeClaudeToolUseToAssistant(block map[string]any, state *claudeToolCa
 			},
 		},
 	}
-	return map[string]any{
+	out := map[string]any{
 		"role":       "assistant",
 		"content":    "",
 		"tool_calls": toolCalls,
 	}
+	promptcompat.AppendMessageAttachments(out, block)
+	return out
 }
 
 func normalizeClaudeToolResultToToolMessage(block map[string]any, state *claudeToolCallState) map[string]any {
@@ -192,6 +196,7 @@ func normalizeClaudeToolResultToToolMessage(block map[string]any, state *claudeT
 	if name != "" {
 		out["name"] = name
 	}
+	promptcompat.AppendMessageAttachments(out, block)
 	return out
 }
 

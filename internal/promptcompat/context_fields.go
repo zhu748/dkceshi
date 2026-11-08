@@ -10,6 +10,7 @@ import (
 // does not claim every nested value survives sanitization or protocol adapters.
 type ContextFieldDigest struct {
 	Name          string `json:"name"`
+	Path          string `json:"path,omitempty"`
 	Disposition   string `json:"disposition"`
 	OmittedReason string `json:"omitted_reason,omitempty"`
 	ContextDigest
@@ -32,7 +33,7 @@ func contextFieldDigests(message map[string]any, rendered bool) []ContextFieldDi
 		switch key {
 		case "role", "name", "id", "tool_call_id", "is_error", "prefix":
 			disposition = "message_metadata"
-		case "content":
+		case "content", "attachments", "files":
 			disposition = "content_serializer"
 		case "reasoning_content", "tool_calls", "function_call", "refusal", "audio":
 			if role == "assistant" {

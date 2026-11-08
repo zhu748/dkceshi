@@ -35,9 +35,13 @@ func contextOmissions(messages []ContextMessageDigest) []ContextOmission {
 
 func contentOmittedPaths(message map[string]any) []string {
 	var paths []string
-	for _, field := range []string{"content", "reasoning_content"} {
+	for _, field := range []string{"content", "reasoning_content", "attachments", "files"} {
 		raw := message[field]
 		wrapped := false
+		if field == "attachments" || field == "files" {
+			_, wrapped = raw.(map[string]any)
+			raw = appendRequestAttachments(nil, raw)
+		}
 		if field == "reasoning_content" {
 			if !strings.EqualFold(strings.TrimSpace(asString(message["role"])), "assistant") {
 				continue

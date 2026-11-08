@@ -465,7 +465,7 @@ func TestBuildGeminiPartsFromFinalIncludesThoughtPart(t *testing.T) {
 	}
 }
 
-func TestGeminiProxyTranslatesInlineImageToOpenAIDataURL(t *testing.T) {
+func TestGeminiProxyPreservesNativeImageSourceForSharedUpload(t *testing.T) {
 	openAI := &geminiOpenAISuccessStub{}
 	h := &Handler{Store: testGeminiConfig{}, OpenAI: openAI}
 	r := chi.NewRouter()
@@ -489,12 +489,12 @@ func TestGeminiProxyTranslatesInlineImageToOpenAIDataURL(t *testing.T) {
 		t.Fatalf("expected translated content blocks, got %#v", msg)
 	}
 	imageBlock, _ := content[1].(map[string]any)
-	if strings.TrimSpace(asString(imageBlock["type"])) != "image_url" {
-		t.Fatalf("expected image_url block, got %#v", imageBlock)
+	if strings.TrimSpace(asString(imageBlock["type"])) != "input_image" {
+		t.Fatalf("expected input_image block, got %#v", imageBlock)
 	}
-	imageURL, _ := imageBlock["image_url"].(map[string]any)
-	if !strings.HasPrefix(strings.TrimSpace(asString(imageURL["url"])), "data:image/png;base64,") {
-		t.Fatalf("expected translated data url, got %#v", imageBlock)
+	source, _ := imageBlock["inlineData"].(map[string]any)
+	if source["mimeType"] != "image/png" || source["data"] != "QUJDRA==" {
+		t.Fatalf("native source changed before upload validation: %#v", imageBlock)
 	}
 }
 

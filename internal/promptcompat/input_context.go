@@ -34,6 +34,9 @@ func InputFieldDigests(request map[string]any) []ContextFieldDigest {
 		data, err := json.Marshal(value)
 		if err == nil {
 			fields = append(fields, ContextFieldDigest{Name: name, Disposition: "adapter_input", ContextDigest: digestContext(data)})
+			if name == "messages" || name == "input" || name == "contents" {
+				fields = appendInputItemDigests(fields, value, "/"+name)
+			}
 		}
 	}
 	return fields

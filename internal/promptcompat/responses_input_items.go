@@ -123,10 +123,12 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 		if callID := strings.TrimSpace(asString(call["id"])); callID != "" && callNameByID != nil {
 			callNameByID[callID] = name
 		}
-		return map[string]any{
+		out := map[string]any{
 			"role":       "assistant",
 			"tool_calls": []any{call},
 		}
+		copyMessageAttachments(out, m)
+		return out
 	case "reasoning":
 		text := responsesReasoningText(m)
 		return map[string]any{"role": "assistant", "reasoning_content": text, "id": m["id"]}
@@ -150,6 +152,7 @@ func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
 	out := map[string]any{
 		"role": "assistant",
 	}
+	copyMessageAttachments(out, m)
 	for _, key := range []string{"refusal", "id", "prefix", "name", "audio"} {
 		if value, exists := m[key]; exists {
 			out[key] = value

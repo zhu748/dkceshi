@@ -110,6 +110,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 					msg["reasoning_content"] = pendingThinking
 					pendingThinking = ""
 				}
+				promptcompat.AppendMessageAttachments(msg, fnCall, part)
 				out = append(out, msg)
 				continue
 			}
@@ -127,12 +128,15 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 				if name != "" {
 					msg["name"] = name
 				}
+				promptcompat.AppendMessageAttachments(msg, fnResp, part)
 				out = append(out, msg)
 				continue
 			}
 
 			if attachment, ok := promptcompat.NormalizeAttachmentContent(part); ok {
 				textParts = append(textParts, attachment)
+			} else if promptcompat.ContentHasAttachments(part) {
+				textParts = append(textParts, part)
 			} else if raw := strings.TrimSpace(formatGeminiUnknownPartForPrompt(part)); raw != "" && raw != "null" {
 				textParts = append(textParts, raw)
 			}

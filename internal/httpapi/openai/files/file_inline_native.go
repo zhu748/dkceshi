@@ -19,6 +19,17 @@ func explicitInlineFilename(block map[string]any) string {
 }
 
 func decodeNestedInlineFileBlock(block, nested map[string]any) (inlineDecodedFile, bool, error) {
+	if nested["type"] == nil {
+		kind := strings.ToLower(strings.TrimSpace(shared.AsString(block["type"])))
+		if kind == "file" || kind == "input_file" || kind == "file_reference" {
+			copy := make(map[string]any, len(nested)+1)
+			for key, value := range nested {
+				copy[key] = value
+			}
+			copy["type"] = kind
+			nested = copy
+		}
+	}
 	decoded, matched, err := decodeOpenAIInlineFileBlock(nested)
 	if err != nil || !matched {
 		return decoded, matched, err
@@ -39,9 +50,20 @@ func decodeNestedInlineFileBlock(block, nested map[string]any) (inlineDecodedFil
 func decodeNativeInlineBlock(block map[string]any, kind string) (inlineDecodedFile, bool, error) {
 	var source map[string]any
 	if kind == "image" || kind == "document" {
-		source, _ = block["source"].(map[string]any)
-		if source == nil || source["type"] != "base64" {
+		raw, present := block["source"]
+		if !present {
 			return inlineDecodedFile{}, false, nil
+		}
+		var ok bool
+		source, ok = raw.(map[string]any)
+		if !ok {
+			return inlineDecodedFile{}, true, fmt.Errorf("invalid native file source")
+		}
+		if source["type"] == "url" && kind == "image" {
+			return inlineDecodedFile{}, false, nil // Shared image locator decoding follows.
+		}
+		if source["type"] != "base64" {
+			return inlineDecodedFile{}, true, fmt.Errorf("unsupported native file source type")
 		}
 	}
 	for _, key := range []string{"inlineData", "inline_data"} {

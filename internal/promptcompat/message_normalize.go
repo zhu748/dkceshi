@@ -22,6 +22,7 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 		if !ok {
 			continue
 		}
+		msg = messageWithAttachmentContext(msg)
 		before := len(out)
 		role := strings.ToLower(strings.TrimSpace(asString(msg["role"])))
 		switch role {

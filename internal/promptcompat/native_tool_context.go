@@ -9,6 +9,9 @@ import (
 // Native fields must be checked before adapters choose aliases or supply
 // defaults. Once flattened, conflicting IDs and overwritten values are lost.
 func validateNativeToolContext(block map[string]any, nativePart bool) error {
+	if err := validateMessageAttachments(block); err != nil {
+		return err
+	}
 	if !nativePart {
 		switch strings.ToLower(strings.TrimSpace(asString(block["type"]))) {
 		case "tool_use":
@@ -41,6 +44,9 @@ func validateNativeToolContext(block map[string]any, nativePart bool) error {
 			continue // Container shape is checked by ValidateContentContainers.
 		}
 		if err := validateHistoryIdentityFields(function); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+		if err := validateMessageAttachments(function); err != nil {
 			return fmt.Errorf("%s: %w", key, err)
 		}
 		if err := validateIDFields(function, "id", "call_id", "callId", "tool_call_id"); err != nil {

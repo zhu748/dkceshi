@@ -7,8 +7,12 @@ import "strings"
 func FileInputChildKeys(block map[string]any) []string {
 	kind := strings.ToLower(strings.TrimSpace(asString(block["type"])))
 	switch kind {
-	case "text", "input_text", "output_text", "thinking", "reasoning", "function_call", "custom_tool_call", "tool_call":
+	case "text", "input_text", "output_text":
+		return AttachmentInputKeys()
+	case "thinking", "reasoning":
 		return nil
+	case "tool_use", "function_call", "custom_tool_call", "tool_call":
+		return AttachmentInputKeys() // Arguments/input are opaque business data.
 	case "document":
 		if source, _ := block["source"].(map[string]any); source["type"] == "text" {
 			return nil
@@ -16,7 +20,7 @@ func FileInputChildKeys(block map[string]any) []string {
 	}
 	role := strings.ToLower(strings.TrimSpace(asString(block["role"])))
 	if role == "tool" || role == "function" || kind == "tool_result" || kind == "function_call_output" || kind == "custom_tool_call_output" {
-		keys := []string{"attachments"}
+		keys := AttachmentInputKeys()
 		for _, key := range []string{"content", "output"} {
 			switch value := block[key].(type) {
 			case []any:
@@ -29,7 +33,7 @@ func FileInputChildKeys(block map[string]any) []string {
 		}
 		return keys
 	}
-	return []string{"ref_file_ids", "file_ids", "attachments", "messages", "input", "content", "files", "items", "source", "file", "image_url", "contents", "parts", "functionResponse"}
+	return []string{"ref_file_ids", "file_ids", "attachments", "messages", "input", "content", "files", "items", "source", "file", "image_url", "contents", "parts", "functionCall", "functionResponse"}
 }
 
 // Untyped compatibility blocks must carry an explicit file/image payload key.

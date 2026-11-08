@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"ds2api/internal/promptcompat"
 	"ds2api/internal/tooldiagnostics"
 )
 
@@ -83,10 +84,7 @@ func parseGeminiRepairOutput(data []byte) (repairOutput, error) {
 		Candidates []struct {
 			FinishReason string `json:"finishReason"`
 			Content      struct {
-				Parts []struct {
-					Text    *string `json:"text"`
-					Thought bool    `json:"thought"`
-				} `json:"parts"`
+				Parts []map[string]any `json:"parts"`
 			} `json:"content"`
 		} `json:"candidates"`
 		PromptFeedback struct {
@@ -108,13 +106,13 @@ func parseGeminiRepairOutput(data []byte) (repairOutput, error) {
 	}
 	var text, thinking strings.Builder
 	for _, part := range candidate.Content.Parts {
-		if part.Text == nil {
+		if err := promptcompat.ValidateGeminiTextPart(part); err != nil {
 			return repairOutput{}, errors.New("gemini repair API returned non-text output")
 		}
-		if part.Thought {
-			thinking.WriteString(*part.Text)
+		if part["thought"] == true {
+			thinking.WriteString(part["text"].(string))
 		} else {
-			text.WriteString(*part.Text)
+			text.WriteString(part["text"].(string))
 		}
 	}
 	return repairOutput{Text: text.String(), Thinking: thinking.String()}, nil

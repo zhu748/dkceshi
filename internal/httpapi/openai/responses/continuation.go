@@ -48,6 +48,10 @@ func (h *Handler) restoreContinuation(r *http.Request, req map[string]any) ([]an
 	if len(current) == 0 {
 		return nil, fmt.Errorf("request must include non-empty input or messages")
 	}
+	// Bind byte-bearing attachments before joining turns. Replaying a global
+	// file bag would move old attachment context onto every new user task.
+	previous = scopeReplayAttachments(previous, previousFiles)
+	current = scopeReplayAttachments(current, req)
 	messages := append(previous, current...)
 	names := map[string]string{}
 	for _, raw := range messages {
