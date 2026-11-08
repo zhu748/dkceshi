@@ -93,7 +93,7 @@ func restoreRepeatedLiterals(call ParsedToolCall, input map[string]any, schema *
 			}
 			previous := values[i]
 			values[i] = raw
-			if !custom && hasSchema && !propertyItemExpectsString(schema, key, i) && (schema == nil || schema.Validate(input) != nil) {
+			if !custom && hasSchema && !propertyItemExpectsString(schema, key, i, input) && (schema == nil || schema.Validate(input) != nil) {
 				values[i] = previous
 			}
 		}
@@ -101,7 +101,7 @@ func restoreRepeatedLiterals(call ParsedToolCall, input map[string]any, schema *
 	return input
 }
 
-func propertyItemExpectsString(schema *jsonschema.Schema, key string, index int) bool {
+func propertyItemExpectsString(schema *jsonschema.Schema, key string, index int, values ...any) bool {
 	return schemaGraphAny(schema, func(node *jsonschema.Schema) bool {
 		accepts := func(child *jsonschema.Schema) bool {
 			return schemaGraphAny(child, func(array *jsonschema.Schema) bool {
@@ -122,5 +122,5 @@ func propertyItemExpectsString(schema *jsonschema.Schema, key string, index int)
 		}
 		child, ok := node.AdditionalProperties.(*jsonschema.Schema)
 		return !matched && ok && accepts(child)
-	})
+	}, values...)
 }

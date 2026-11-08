@@ -45,17 +45,21 @@ func appendInputItemDigests(out []ContextFieldDigest, raw any, path string) []Co
 				if count >= maxInputSourceFields || len(fieldPath) > maxInputSourcePathLength || pathBytes+len(key)+len(fieldPath) > maxInputSourcePathBytes {
 					return append(out, ContextFieldDigest{Name: "source_field_trace", Path: path, Disposition: "adapter_source_trace_limit"})
 				}
-				data, fits, err := marshalSourceField(value[key], maxInputSourceEncodedBytes-encodedBytes)
+				budget := sourceJSONBudget{remaining: maxInputSourceEncodedBytes - encodedBytes}
+				if !budget.value(value[key], 0) {
+					return append(out, ContextFieldDigest{Name: "source_field_trace", Path: path, Disposition: "adapter_source_trace_limit"})
+				}
+				digest, err := digestJSONContext(value[key])
 				if err != nil {
 					continue
 				}
-				if !fits {
+				if digest.Bytes > maxInputSourceEncodedBytes-encodedBytes {
 					return append(out, ContextFieldDigest{Name: "source_field_trace", Path: path, Disposition: "adapter_source_trace_limit"})
 				}
-				out = append(out, ContextFieldDigest{Name: key, Path: fieldPath, Disposition: "adapter_source_field", ContextDigest: digestContext(data)})
+				out = append(out, ContextFieldDigest{Name: key, Path: fieldPath, Disposition: "adapter_source_field", ContextDigest: digest})
 				count++
 				pathBytes += len(key) + len(fieldPath)
-				encodedBytes += len(data)
+				encodedBytes += digest.Bytes
 			}
 			for i := len(keys) - 1; i >= 0; i-- {
 				key := keys[i]

@@ -15,7 +15,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 	if container, ok := system.(map[string]any); ok && container["parts"] != nil {
 		promptcompat.PreserveAdapterMessageMetadata([]any{systemMessage}, container, "system", "parts", "text")
 	}
-	if strings.TrimSpace(sys) != "" || prompt.MessageContextText(systemMessage) != "" {
+	if strings.TrimSpace(prompt.NormalizeContent(sys)) != "" || prompt.MessageContextText(systemMessage) != "" {
 		out = append(out, systemMessage)
 	}
 
@@ -170,26 +170,26 @@ func isGeminiThoughtPart(part map[string]any) bool {
 	return false
 }
 
-func normalizeGeminiSystemInstruction(raw any) string {
+func normalizeGeminiSystemInstruction(raw any) any {
 	switch v := raw.(type) {
 	case string:
 		return v
 	case map[string]any:
 		if parts, ok := v["parts"].([]any); ok {
-			texts := make([]string, 0, len(parts))
+			texts := make([]any, 0, len(parts))
 			for _, item := range parts {
 				part, ok := item.(map[string]any)
 				if !ok {
 					continue
 				}
 				if text, ok := part["text"].(string); ok {
-					texts = append(texts, prompt.NormalizeContent([]any{geminiTextBlock(part, text)}))
+					texts = append(texts, geminiTextBlock(part, text))
 				}
 			}
-			return strings.Join(texts, "")
+			return promptcompat.JoinContentText(texts)
 		}
 		if text, ok := v["text"].(string); ok {
-			return prompt.NormalizeContent([]any{geminiTextBlock(v, text)})
+			return promptcompat.JoinContentText([]any{geminiTextBlock(v, text)})
 		}
 	}
 	return ""

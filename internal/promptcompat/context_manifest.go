@@ -3,7 +3,6 @@ package promptcompat
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 )
 
 type ContextDigest struct {
@@ -47,12 +46,12 @@ func (r StandardRequest) ContextMessageDigests() []ContextMessageDigest {
 	out := make([]ContextMessageDigest, 0, len(r.Messages))
 	normalized := NormalizeLegacyToolHistory(r.Messages)
 	for i, raw := range r.Messages {
-		data, err := json.Marshal(raw)
+		sourceDigest, err := digestJSONContext(raw)
 		if err != nil {
 			continue
 		}
 		message, _ := raw.(map[string]any)
-		digest := ContextMessageDigest{Index: i, Role: asString(message["role"]), ContextDigest: digestContext(data)}
+		digest := ContextMessageDigest{Index: i, Role: asString(message["role"]), ContextDigest: sourceDigest}
 		visible := NormalizeOpenAIMessagesForPrompt([]any{normalized[i]}, "", r.ToolMarker)
 		digest.Fields = contextFieldDigests(message, len(visible) > 0)
 		digest.OmittedPaths = contentOmittedPaths(message)
@@ -74,7 +73,7 @@ func (r StandardRequest) ContextManifest() ContextManifest {
 	if source == nil {
 		source = live
 	}
-	tools, _ := json.Marshal(r.ToolsRaw)
+	tools, _ := digestJSONContext(r.ToolsRaw)
 	var raw *ContextDigest
 	if r.RawRequest != nil {
 		copy := *r.RawRequest
@@ -84,5 +83,5 @@ func (r StandardRequest) ContextManifest() ContextManifest {
 		RawRequest:  raw,
 		InputFields: append([]ContextFieldDigest(nil), r.InputContext...),
 		Prompt:      digestContext([]byte(r.FinalPrompt)), History: digestContext([]byte(r.HistoryText)),
-		Tools: digestContext(tools), RefFileIDs: append([]string(nil), r.RefFileIDs...), Externalized: r.CurrentInputFileApplied, Omissions: contextOmissions(source)}
+		Tools: tools, RefFileIDs: append([]string(nil), r.RefFileIDs...), Externalized: r.CurrentInputFileApplied, Omissions: contextOmissions(source)}
 }

@@ -9,12 +9,31 @@ import (
 // Gemini's Schema uses uppercase type enum values and nullable; convert those
 // adapter-specific fields before the shared JSON Schema compiler sees them.
 func normalizeGeminiSchema(raw any) any {
+	refs := newGeminiSchemaReferences()
+	out := normalizeGeminiSchemaAt(raw, "", "", nil, refs)
+	refs.rewrite()
+	return out
+}
+
+func normalizeGeminiSchemaAt(raw any, oldPath, newPath string, scopes []geminiSchemaScope, refs *geminiSchemaReferences) any {
 	schema, ok := raw.(map[string]any)
 	if !ok {
 		return raw
 	}
+	scopes = refs.enter(schema, oldPath, newPath, scopes)
+	refs.location(oldPath, newPath, scopes)
+	nullable := schema["nullable"] == true
 	out := make(map[string]any, len(schema))
 	for key, value := range schema {
+		childOld, childNew := oldPath+"/"+schemaPointerPart(key), newPath
+		if nullable && !nullableSchemaResourceKey(key) {
+			childNew += "/anyOf/0"
+		}
+		childNew += "/" + schemaPointerPart(key)
+		refs.location(childOld, childNew, scopes)
+		child := func(value any, suffix string) any {
+			return normalizeGeminiSchemaAt(value, childOld+suffix, childNew+suffix, scopes, refs)
+		}
 		switch key {
 		case "nullable":
 			continue
@@ -33,32 +52,33 @@ func normalizeGeminiSchema(raw any) any {
 			if typ, ok := value.(string); ok {
 				value = strings.ToLower(typ)
 			}
-		case "properties", "$defs", "definitions":
+		case "properties", "$defs", "definitions", "patternProperties", "dependentSchemas":
 			if fields, ok := value.(map[string]any); ok {
 				next := make(map[string]any, len(fields))
 				for name, child := range fields {
-					next[name] = normalizeGeminiSchema(child)
+					next[name] = normalizeGeminiSchemaAt(child, childOld+"/"+schemaPointerPart(name), childNew+"/"+schemaPointerPart(name), scopes, refs)
 				}
 				value = next
 			}
-		case "items", "additionalProperties", "not", "contains", "if", "then", "else":
-			value = normalizeGeminiSchema(value)
+		case "items", "additionalItems", "additionalProperties", "not", "contains", "if", "then", "else", "propertyNames", "unevaluatedProperties", "unevaluatedItems", "contentSchema":
+			value = child(value, "")
 		case "anyOf", "oneOf", "allOf", "prefixItems":
 			if choices, ok := value.([]any); ok {
 				next := make([]any, len(choices))
-				for i, child := range choices {
-					next[i] = normalizeGeminiSchema(child)
+				for i, choice := range choices {
+					next[i] = child(choice, "/"+strconv.Itoa(i))
 				}
 				value = next
 			}
 		}
 		out[key] = value
 	}
-	if schema["nullable"] == true {
+	refs.add(out, scopes[len(scopes)-1].uri)
+	if nullable {
 		nullable := map[string]any{"anyOf": []any{out, map[string]any{"type": "null"}}}
-		// References retain their original root and base URI after wrapping.
-		for _, key := range []string{"$id", "$schema", "$defs", "definitions"} {
-			if value, exists := out[key]; exists {
+		// Resource identities and reusable definitions stay on the outer node.
+		for key, value := range out {
+			if nullableSchemaResourceKey(key) {
 				nullable[key] = value
 				delete(out, key)
 			}

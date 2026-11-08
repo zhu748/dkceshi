@@ -1,7 +1,5 @@
 package promptcompat
 
-import "encoding/json"
-
 const inputContextSnapshotKey = "_input_context_snapshot"
 
 type inputContextSnapshot []ContextFieldDigest
@@ -31,10 +29,10 @@ func InputFieldDigests(request map[string]any) []ContextFieldDigest {
 		if !present {
 			continue
 		}
-		data, err := json.Marshal(value)
+		digest, err := digestJSONContext(value)
 		if err == nil {
-			fields = append(fields, ContextFieldDigest{Name: name, Disposition: "adapter_input", ContextDigest: digestContext(data)})
-			if name == "messages" || name == "input" || name == "contents" {
+			fields = append(fields, ContextFieldDigest{Name: name, Disposition: "adapter_input", ContextDigest: digest})
+			if name == "messages" || name == "input" || name == "contents" || name == "system" || name == "systemInstruction" || name == "system_instruction" {
 				fields = appendInputItemDigests(fields, value, "/"+name)
 			}
 		}

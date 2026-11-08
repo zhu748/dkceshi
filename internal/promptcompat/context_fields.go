@@ -1,7 +1,6 @@
 package promptcompat
 
 import (
-	"encoding/json"
 	"sort"
 	"strings"
 )
@@ -25,7 +24,7 @@ func contextFieldDigests(message map[string]any, rendered bool) []ContextFieldDi
 	fields := make([]ContextFieldDigest, 0, len(keys))
 	role := strings.ToLower(strings.TrimSpace(asString(message["role"])))
 	for _, key := range keys {
-		data, err := json.Marshal(message[key])
+		digest, err := digestJSONContext(message[key])
 		if err != nil {
 			continue
 		}
@@ -48,7 +47,7 @@ func contextFieldDigests(message map[string]any, rendered bool) []ContextFieldDi
 			disposition = "omitted_message"
 		}
 		reason := map[string]string{"transport_only": "transport_hint", "opaque_provider_state": "opaque_provider_state", "omitted_message": "message_has_no_prompt_representation"}[disposition]
-		fields = append(fields, ContextFieldDigest{Name: key, Disposition: disposition, OmittedReason: reason, ContextDigest: digestContext(data)})
+		fields = append(fields, ContextFieldDigest{Name: key, Disposition: disposition, OmittedReason: reason, ContextDigest: digest})
 	}
 	return fields
 }

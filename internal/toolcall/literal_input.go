@@ -26,7 +26,7 @@ func restoreLiteralInput(call ParsedToolCall, compiled *jsonschema.Schema, hasSc
 		}
 		previous := input[key]
 		input[key] = raw
-		if !custom && hasSchema && !propertyExpectsString(compiled, key, 0) && (compiled == nil || compiled.Validate(input) != nil) {
+		if !custom && hasSchema && !propertyExpectsString(compiled, key, 0, input) && (compiled == nil || compiled.Validate(input) != nil) {
 			input[key] = previous
 		}
 	}
@@ -38,7 +38,7 @@ func restoreLiteralInput(call ParsedToolCall, compiled *jsonschema.Schema, hasSc
 }
 
 // References can form cycles or shared DAGs; visit each compiled node once.
-func propertyExpectsString(schema *jsonschema.Schema, key string, _ int) bool {
+func propertyExpectsString(schema *jsonschema.Schema, key string, _ int, values ...any) bool {
 	allows := schemaGraphAny(schema, func(node *jsonschema.Schema) bool {
 		if child := node.Properties[key]; child != nil && schemaExpectsString(child, 0) {
 			return true
@@ -54,7 +54,7 @@ func propertyExpectsString(schema *jsonschema.Schema, key string, _ int) bool {
 		}
 		child, ok := node.AdditionalProperties.(*jsonschema.Schema)
 		return !matched && ok && schemaExpectsString(child, 0)
-	})
+	}, values...)
 	return allows
 }
 
@@ -89,7 +89,7 @@ func schemaExpectsString(schema *jsonschema.Schema, _ int) bool {
 	})
 }
 
-func schemaGraphAny(schema *jsonschema.Schema, match func(*jsonschema.Schema) bool) bool {
+func schemaGraphAny(schema *jsonschema.Schema, match func(*jsonschema.Schema) bool, values ...any) bool {
 	pending := []*jsonschema.Schema{schema}
 	seen := map[*jsonschema.Schema]bool{}
 	for len(pending) > 0 {
@@ -106,6 +106,9 @@ func schemaGraphAny(schema *jsonschema.Schema, match func(*jsonschema.Schema) bo
 		pending = append(pending, node.AllOf...)
 		pending = append(pending, node.AnyOf...)
 		pending = append(pending, node.OneOf...)
+		if len(values) > 0 {
+			pending = append(pending, activeConditionalSchemas(node, values[0])...)
+		}
 	}
 	return false
 }

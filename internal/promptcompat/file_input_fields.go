@@ -9,5 +9,5 @@ func FileReferenceInputKeys() []string {
 }
 
 func InlineFileInputKeys() []string {
-	return append([]string{"messages", "input", "contents"}, AttachmentInputKeys()...)
+	return append([]string{"messages", "input", "contents", "system", "systemInstruction", "system_instruction"}, AttachmentInputKeys()...)
 }

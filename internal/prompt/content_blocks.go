@@ -15,15 +15,7 @@ func NormalizeAssistantContent(msg map[string]any) string {
 		}
 		content += "[refusal]" + refusal + "[/refusal]"
 	}
-	if audio, ok := msg["audio"].(map[string]any); ok {
-		if transcript, ok := audio["transcript"].(string); ok {
-			content += "\n[audio_transcript]" + transcript + "[/audio_transcript]"
-		}
-		if id, ok := audio["id"].(string); ok && id != "" {
-			encoded, _ := json.Marshal(id)
-			content += "\n[Audio reference] " + string(encoded)
-		}
-	}
+	content += audioContextText(msg["audio"])
 	return content
 }
 

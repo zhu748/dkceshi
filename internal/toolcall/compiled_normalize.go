@@ -99,6 +99,10 @@ func (r *normalizationRun) walk(value any, schema *jsonschema.Schema, depth int,
 	for _, child := range schema.AllOf {
 		apply(child)
 	}
+	if next, didChange := r.conditional(value, schema, depth); didChange {
+		value, changed = next, true
+		scope.version++
+	}
 	for _, alternatives := range [][]*jsonschema.Schema{schema.AnyOf, schema.OneOf} {
 		if len(alternatives) == 0 || schema.Validate(value) == nil {
 			continue

@@ -132,14 +132,8 @@ func preprocessInlineFilesOnce(ctx context.Context, a *auth.RequestAuth, req map
 		uploadedByID:    map[string]string{},
 		fallbackBytes:   map[string]int{},
 	}
-	for _, key := range promptcompat.InlineFileInputKeys() {
-		if raw, ok := req[key]; ok {
-			updated, err := state.walk(raw)
-			if err != nil {
-				return err
-			}
-			req[key] = updated
-		}
+	if err := state.walkRequestInputs(req); err != nil {
+		return err
 	}
 	return state.finalizeFileInputs(req)
 }

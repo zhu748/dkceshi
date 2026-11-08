@@ -7,17 +7,15 @@ import (
 	"ds2api/internal/prompt"
 )
 
-// claudeSystemText 提取 Anthropic 顶层 `system` 字段的文本。
-// 协议允许两种形态：纯字符串，或 content block 数组
-// （[{"type":"text","text":"..."}]，block 上可带 cache_control 等附加字段）。
-// 数组形态下拼接所有 text block；无法识别的形态返回空串（与旧行为一致，
-// 不再静默丢掉整个 system prompt）。
-func claudeSystemText(system any) string {
+// Retain structured system blocks until shared upload and rendering. Flattening
+// here would scrub attachment bytes before an internal Chat bridge uploads them.
+func claudeSystemContent(system any) any {
 	switch v := system.(type) {
 	case string:
 		return v
 	case []any:
-		var parts []string
+		var parts []any
+		structured := false
 		for _, item := range v {
 			block, ok := item.(map[string]any)
 			if !ok {
@@ -26,11 +24,20 @@ func claudeSystemText(system any) string {
 			if t, _ := block["type"].(string); t != "" && t != "text" {
 				continue
 			}
-			if text, ok := block["text"].(string); ok {
-				parts = append(parts, text+prompt.TextBlockMetadata(block))
+			if _, ok := block["text"].(string); ok {
+				structured = structured || block["attachments"] != nil || block["files"] != nil
+				copy := make(map[string]any, len(block)+1)
+				for key, value := range block {
+					copy[key] = value
+				}
+				copy["type"] = "text"
+				parts = append(parts, copy)
 			}
 		}
-		return strings.Join(parts, "")
+		if !structured {
+			return prompt.NormalizeContent(parts)
+		}
+		return parts
 	default:
 		return ""
 	}
@@ -49,7 +56,7 @@ func ConvertClaudeToDeepSeek(claudeReq map[string]any, aliasProvider config.Mode
 	}
 
 	convertedMessages := make([]any, 0, len(messages)+1)
-	if system := claudeSystemText(claudeReq["system"]); system != "" {
+	if system := claudeSystemContent(claudeReq["system"]); prompt.NormalizeContent(system) != "" {
 		convertedMessages = append(convertedMessages, map[string]any{"role": "system", "content": system})
 	}
 	convertedMessages = append(convertedMessages, messages...)

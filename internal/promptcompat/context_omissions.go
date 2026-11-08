@@ -38,6 +38,9 @@ func contextOmissions(messages []ContextMessageDigest) []ContextOmission {
 func contentOmittedPaths(message map[string]any) []string {
 	var paths []string
 	if strings.EqualFold(strings.TrimSpace(asString(message["role"])), "assistant") {
+		for _, path := range prompt.AudioContextOmittedPaths(message["audio"]) {
+			paths = append(paths, "/audio"+path)
+		}
 		calls, _ := message["tool_calls"].([]any)
 		for index, raw := range calls {
 			call, _ := raw.(map[string]any)
