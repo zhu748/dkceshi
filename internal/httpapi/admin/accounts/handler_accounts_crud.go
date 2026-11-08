@@ -15,48 +15,6 @@ import (
 	adminshared "ds2api/internal/httpapi/admin/shared"
 )
 
-func accountStatusCounts(accounts []config.Account) map[string]int {
-	enabled := 0
-	disabled := 0
-	muted := 0
-	banned := 0
-	for _, acc := range accounts {
-		if acc.IsEnabled() {
-			enabled++
-		} else {
-			disabled++
-		}
-		if acc.IsMuted() {
-			muted++
-		}
-		if acc.IsBanned() {
-			banned++
-		}
-	}
-	return map[string]int{
-		"total":    len(accounts),
-		"enabled":  enabled,
-		"disabled": disabled,
-		"muted":    muted,
-		"banned":   banned,
-	}
-}
-
-func matchesAccountStatusFilter(acc config.Account, status string) bool {
-	switch status {
-	case "enabled":
-		return acc.IsEnabled()
-	case "disabled":
-		return !acc.IsEnabled()
-	case "muted":
-		return acc.IsMuted()
-	case "banned":
-		return acc.IsBanned()
-	default:
-		return true
-	}
-}
-
 func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 	page := intFromQuery(r, "page", 1)
 	pageSize := intFromQuery(r, "page_size", 10)
@@ -75,8 +33,8 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 	// 将已启用且未禁言的账号排在前面，方便管理后台优先看到可用账号。
 	sort.SliceStable(accounts, func(i, j int) bool {
 		ai, aj := accounts[i], accounts[j]
-		activeI := ai.IsEnabled() && !ai.IsMuted()
-		activeJ := aj.IsEnabled() && !aj.IsMuted()
+		activeI := ai.IsSchedulable()
+		activeJ := aj.IsSchedulable()
 		return activeI && !activeJ
 	})
 	statusFilter := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("status")))
@@ -136,6 +94,7 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 			"device_brand": acc.DeviceBrand, "timezone": acc.Timezone,
 			"photo_compress_ratio": acc.PhotoCompressRatio, "picture_compress_format": acc.PictureCompressFormat,
 			"cooldown_until": acc.CooldownUntil, "manual_disabled": acc.ManualDisabled,
+			"cooling_down": acc.IsCoolingDown(), "schedulable": acc.IsSchedulable(),
 			"enabled":         acc.IsEnabled(),
 			"disabled_reason": acc.DisabledReason,
 			"banned":          acc.IsBanned(),

@@ -8,6 +8,8 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
     const queueRequests = useRef(createLatestRequest()).current
     const searchTimer = useRef(null)
     const lastConfigRefresh = useRef(0)
+    const accountPoll = useRef(null)
+    const accountsPending = useRef(false)
 
     const [accounts, setAccounts] = useState([])
     const [page, setPage] = useState(1)
@@ -29,17 +31,21 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
         disabled: 0,
         muted: 0,
         banned: 0,
+        cooling_down: 0,
     })
 
     const fetchAccounts = async (
         targetPage = page,
         targetPageSize = pageSize,
         targetQuery = searchQuery,
-        targetStatus = filterStatus
+        targetStatus = filterStatus,
+        quiet = false
     ) => {
         clearTimeout(searchTimer.current)
+        searchTimer.current = null
         const request = accountRequests.start()
-        setLoadingAccounts(true)
+        accountsPending.current = true
+        if (!quiet) setLoadingAccounts(true)
         try {
             let url = `/admin/accounts?page=${targetPage}&page_size=${targetPageSize}`
             if (targetQuery.trim()) url += `&q=${encodeURIComponent(targetQuery.trim())}`
@@ -55,13 +61,15 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
                         disabled: data.counts.disabled ?? 0,
                         muted: data.counts.muted ?? 0,
                         banned: data.counts.banned ?? 0,
+                        cooling_down: data.counts.cooling_down ?? 0,
                     }
                     : null
                 if (nextCounts) {
                     setAccountCounts(nextCounts)
                     if (
                         (targetStatus === 'muted' && nextCounts.muted === 0) ||
-                        (targetStatus === 'banned' && nextCounts.banned === 0)
+                        (targetStatus === 'banned' && nextCounts.banned === 0) ||
+                        (targetStatus === 'cooling_down' && nextCounts.cooling_down === 0)
                     ) {
                         setFilterStatus('all')
                         return await fetchAccounts(1, targetPageSize, targetQuery, 'all')
@@ -72,11 +80,11 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
                 setTotalAccounts(data.total || 0)
                 setPage(data.page || 1)
                 // Coalesce full-config refreshes while paging/searching.
-                if (Date.now() - lastConfigRefresh.current >= 5000) {
+                if (!quiet && Date.now() - lastConfigRefresh.current >= 5000) {
                     lastConfigRefresh.current = Date.now()
                     onConfigRefresh?.()
                 }
-            } else if (request.isCurrent()) {
+            } else if (request.isCurrent() && !quiet) {
                 // 非 200 静默失败会让列表停留在旧数据上；至少给出提示。
                 onMessage?.('error', t('messages.requestFailed'))
             }
@@ -84,8 +92,12 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
             if (!request.isCurrent()) return
             console.error('Failed to fetch accounts:', e)
         } finally {
-            if (request.isCurrent()) setLoadingAccounts(false)
+            if (request.isCurrent()) { accountsPending.current = false; setLoadingAccounts(false) }
         }
+    }
+
+    accountPoll.current = () => {
+        if (!accountsPending.current && !searchTimer.current) fetchAccounts(page, pageSize, searchQuery, filterStatus, true)
     }
 
     const changePageSize = (newSize) => {
@@ -123,7 +135,7 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
     useEffect(() => {
         fetchAccounts()
         fetchQueueStatus()
-        const interval = setInterval(fetchQueueStatus, 5000)
+        const interval = setInterval(() => { fetchQueueStatus(); accountPoll.current?.() }, 5000)
         return () => {
             clearInterval(interval)
             clearTimeout(searchTimer.current)

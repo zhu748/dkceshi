@@ -122,7 +122,6 @@ func TestExecuteStreamWithRetrySwitchesManagedAccountBeforeFinal429(t *testing.T
 	ds := &fakeDeepSeekCaller{
 		sessionByAccount: true,
 		responses: []*http.Response{
-			sseHTTPResponse(http.StatusOK, `data: {"response_message_id":12,"p":"response/thinking_content","v":"retry empty"}`),
 			sseHTTPResponse(http.StatusOK, `data: {"response_message_id":21,"p":"response/content","v":"ok from second account"}`),
 		},
 	}
@@ -162,13 +161,13 @@ func TestExecuteStreamWithRetrySwitchesManagedAccountBeforeFinal429(t *testing.T
 		},
 	})
 
-	if attemptsSeen != 3 {
-		t.Fatalf("expected three stream attempts, got %d", attemptsSeen)
+	if attemptsSeen != 2 {
+		t.Fatalf("expected immediate failover and two stream attempts, got %d", attemptsSeen)
 	}
 	if switchedSession != "session-acc2@test.com" {
 		t.Fatalf("expected switched session id, got %q", switchedSession)
 	}
-	wantAccounts := []string{"acc1@test.com", "acc2@test.com"}
+	wantAccounts := []string{"acc2@test.com"}
 	if len(ds.completionAccounts) != len(wantAccounts) {
 		t.Fatalf("completion accounts mismatch: got %v want %v", ds.completionAccounts, wantAccounts)
 	}
@@ -177,10 +176,10 @@ func TestExecuteStreamWithRetrySwitchesManagedAccountBeforeFinal429(t *testing.T
 			t.Fatalf("completion account %d = %q want %q (all=%v)", i, ds.completionAccounts[i], want, ds.completionAccounts)
 		}
 	}
-	if got := ds.payloads[1]["chat_session_id"]; got != "session-acc2@test.com" {
+	if got := ds.payloads[0]["chat_session_id"]; got != "session-acc2@test.com" {
 		t.Fatalf("switched payload session mismatch: %#v", got)
 	}
-	if prompt, _ := ds.payloads[1]["prompt"].(string); strings.Contains(prompt, EmptyOutputRetrySuffix) {
+	if prompt, _ := ds.payloads[0]["prompt"].(string); strings.Contains(prompt, EmptyOutputRetrySuffix) {
 		t.Fatalf("expected switched-account prompt without empty-output suffix, got %q", prompt)
 	}
 }

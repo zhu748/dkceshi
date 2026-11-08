@@ -24,13 +24,23 @@ func inspectCompletionJSON(body io.ReadCloser) (io.ReadCloser, map[string]any, e
 	}
 	reader := bufio.NewReader(body)
 	first, err := reader.Peek(1)
+	var prefix []byte
+	for err == nil && len(first) > 0 && strings.ContainsRune(" \t\r\n", rune(first[0])) && len(prefix) < 4096 {
+		ch, readErr := reader.ReadByte()
+		if readErr != nil {
+			return &inspectedStreamBody{io.MultiReader(bytes.NewReader(prefix), reader), body}, nil, readErr
+		}
+		prefix = append(prefix, ch)
+		first, err = reader.Peek(1)
+	}
+	source := io.MultiReader(bytes.NewReader(prefix), reader)
 	if err != nil && err != io.EOF {
-		return &inspectedStreamBody{reader, body}, nil, err
+		return &inspectedStreamBody{source, body}, nil, err
 	}
 	if len(first) == 0 || first[0] != '{' {
-		return &inspectedStreamBody{reader, body}, nil, nil
+		return &inspectedStreamBody{source, body}, nil, nil
 	}
-	data, err := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
+	data, err := io.ReadAll(io.LimitReader(source, (1<<20)+1))
 	replay := &inspectedStreamBody{io.MultiReader(bytes.NewReader(data), reader), body}
 	if err != nil {
 		return replay, nil, err

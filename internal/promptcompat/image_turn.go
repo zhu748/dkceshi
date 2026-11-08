@@ -1,25 +1,17 @@
 package promptcompat
 
-import "strings"
+import (
+	"strings"
 
-// A referenced image still represents a user turn even with no accompanying
-// text. Only uploaded/reference blocks qualify; unsupported URLs do not.
-func hasImageFileReference(raw any) bool {
-	switch value := raw.(type) {
-	case map[string]any:
-		return isImageContentBlock(value) && strings.TrimSpace(asString(value["file_id"])) != ""
-	case []any:
-		for _, item := range value {
-			if hasImageFileReference(item) {
-				return true
-			}
-		}
-	case []map[string]any:
-		for _, item := range value {
-			if hasImageFileReference(item) {
-				return true
-			}
-		}
+	"ds2api/internal/prompt"
+)
+
+// Uploaded untyped image_url attachments use the same reference serializer as
+// typed images. Keep their labels and metadata instead of losing the attachment.
+func imageReferenceText(block map[string]any) string {
+	if strings.TrimSpace(asString(block["type"])) == "" && isImageContentBlock(block) {
+		block = shallowCopyMap(block)
+		block["type"] = "image_url"
 	}
-	return false
+	return prompt.FileReferenceText(block)
 }

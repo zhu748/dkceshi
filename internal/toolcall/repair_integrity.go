@@ -94,6 +94,7 @@ func repairIdentities(text string) []repairIdentity {
 	var nodes []repairIdentity
 	inInvoke := false
 	inBatch := false
+	var batchHasCall []bool
 	unbound := func() {
 		if len(nodes) == 0 || nodes[len(nodes)-1].kind != "unbound" {
 			nodes = append(nodes, repairIdentity{kind: "unbound"})
@@ -158,7 +159,7 @@ func repairIdentities(text string) []repairIdentity {
 		}
 		if end < i {
 			r, size := utf8.DecodeRuneInString(text[i:])
-			if (inInvoke || inBatch) && !unicode.IsSpace(r) {
+			if ((inInvoke || inBatch) && !unicode.IsSpace(r)) || kind != "" && !closing || unfinishedRepairShellAt(text, i) {
 				unbound()
 			}
 			i += max(size, nextToolMarkupProbe(text, i)-i)
@@ -185,7 +186,15 @@ func repairIdentities(text string) []repairIdentity {
 			inInvoke = !closing
 		}
 		if kind == "tool_calls" || kind == "calls" {
-			inBatch = !closing
+			if !closing {
+				batchHasCall = append(batchHasCall, false)
+			} else if n := len(batchHasCall); n > 0 {
+				if !batchHasCall[n-1] {
+					unbound()
+				}
+				batchHasCall = batchHasCall[:n-1]
+			}
+			inBatch = len(batchHasCall) > 0
 		}
 		if !closing && (name != "" || kind == "parameter") {
 			if kind != "parameter" {
@@ -193,6 +202,9 @@ func repairIdentities(text string) []repairIdentity {
 			}
 			node := repairIdentity{kind: kind, name: name}
 			if kind == "invoke" {
+				for j := range batchHasCall {
+					batchHasCall[j] = true
+				}
 				raw := strings.TrimLeftFunc(text[end+1:], unicode.IsSpace)
 				if strings.HasPrefix(raw, "{") {
 					dec := json.NewDecoder(strings.NewReader(raw))
@@ -227,6 +239,12 @@ func repairIdentities(text string) []repairIdentity {
 			i = jsonEnd
 		} else {
 			i = end + 1
+		}
+	}
+	for _, hasCall := range batchHasCall {
+		if !hasCall {
+			unbound()
+			break
 		}
 	}
 	return nodes

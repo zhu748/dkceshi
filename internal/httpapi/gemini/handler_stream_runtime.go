@@ -264,7 +264,7 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 	}
 	terminalWritten := runtime.finalize(allowDeferEmpty)
 	if terminalWritten {
-		return completionruntime.ConsumeAttemptResult{Terminal: true}
+		return completionruntime.ConsumeAttemptResult{Terminal: true, Failure: &assistantturn.OutputError{Status: runtime.finalErrorStatus, Code: runtime.finalErrorCode, Message: runtime.finalErrorMessage}}
 	}
 	return completionruntime.ConsumeAttemptResult{Retryable: true}
 }

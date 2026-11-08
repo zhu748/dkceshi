@@ -11,6 +11,9 @@ import (
 // Failed or canceled prepare responses must not leave the managed account
 // leased. The caller's defer releases auth; TTL remains the network-race net.
 func (h *Handler) writePreparedLease(w http.ResponseWriter, r *http.Request, leaseID string, payload map[string]any) bool {
+	if a := h.lookupStreamLeaseAuth(leaseID); a != nil {
+		payload["account_id"] = a.AccountID
+	}
 	data, err := json.Marshal(payload)
 	if err == nil {
 		err = r.Context().Err()

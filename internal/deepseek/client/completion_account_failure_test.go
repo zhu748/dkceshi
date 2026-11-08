@@ -22,9 +22,11 @@ func TestCompletionAccountPolicyRecognizesLimitsAndBansWithoutBanningGeneric403(
 		limited, banned bool
 	}{
 		{"business rate limit", 200, `{"code":40029,"msg":"TOO_MANY_REQUESTS"}`, true, false},
+		{"whitespace rate limit", 200, " \r\n\t" + `{"code":40029,"msg":"TOO_MANY_REQUESTS"}`, true, false},
 		{"HTTP rate limit", 429, `slow down`, true, false},
 		{"banned JSON", 200, `{"code":0,"data":{"biz_code":10,"biz_msg":"USER_IS_BANNED"}}`, false, true},
 		{"banned HTTP", 403, `{"code":0,"data":{"biz_code":10,"biz_msg":"USER_IS_BANNED"}}`, false, true},
+		{"whitespace banned HTTP", 403, "\r\n " + `{"code":0,"data":{"biz_code":10,"biz_msg":"USER_IS_BANNED"}}`, false, true},
 		{"other forbidden", 403, `{"code":1,"msg":"access denied"}`, false, false},
 		{"normal SSE", 200, "data: {\"v\":\"hello\"}\n\ndata: [DONE]\n", false, false},
 	} {

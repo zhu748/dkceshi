@@ -10,13 +10,14 @@ import (
 )
 
 func canRetryOnAlternateAccount(ctx context.Context, a *auth.RequestAuth, outErr *assistantturn.OutputError, retryEnabled bool, attempted *bool) bool {
+	ObserveAccountOutputFailure(a, outErr)
 	if outErr == nil || !retryEnabled || a == nil || !a.UseConfigToken {
 		return false
 	}
 	if ctx != nil && ctx.Err() != nil {
 		return false
 	}
-	if outErr.Status == http.StatusTooManyRequests && outErr.Code != "upstream_empty_output" && a.ManagedPool() {
+	if outErr.Status == http.StatusTooManyRequests && a.ManagedPool() {
 		return a.SwitchAccountOnRateLimit(ctx)
 	}
 	if assistantturn.IsUnavailableEmptyOutput(outErr) && a.ManagedPool() {

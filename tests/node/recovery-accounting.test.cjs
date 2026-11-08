@@ -9,6 +9,46 @@ const cases = require('../fixtures/completion-account-failures.json');
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const sse = content => new Response('data: ' + JSON.stringify(content) + '\n\ndata: [DONE]\n\n');
 
+test('whitespace-prefixed account errors are recognized across response chunks', async () => {
+  for (const [body, expected] of [
+    ['{ "code":40029,"msg":"TOO_MANY_REQUESTS"}', 'rateLimited'],
+    ['{"code":0,"data":{"biz_code":10,"biz_msg":"USER_IS_BANNED"}}', 'banned'],
+    ['{"code":0,"data":{"biz_code":5,"biz_msg":"USER_IS_MUTED"}}', 'mutedUntil'],
+  ]) {
+    const raw = ' \n\t\r' + body;
+    const stream = new ReadableStream({ start(controller) { for (const ch of raw) controller.enqueue(Buffer.from(ch)); controller.close(); } });
+    const result = await detectMutedOrBannedResponse(new Response(stream, { headers: { 'content-type': 'application/json' } }));
+    assert.ok(result[expected]); assert.equal(result.response, null);
+  }
+  for (const raw of [' \n\t', ' \n data: [DONE]\n\n']) {
+    const result = await detectMutedOrBannedResponse(new Response(raw));
+    assert.equal(await result.response.text(), raw);
+  }
+});
+
+test('managed reasoning-only rate limits switch immediately without same-account regeneration', async t => {
+  const req = Object.assign(new EventEmitter(), { url: '/v1/chat/completions', headers: { host: 'test.example' } });
+  const res = Object.assign(new EventEmitter(), { chunks: [], setHeader() {}, flushHeaders() {}, flush() {},
+    write(value) { this.chunks.push(value); return true; }, end() { this.writableEnded = true; } });
+  const payloads = [], releases = [], switches = [];
+  t.mock.method(global, 'fetch', async (url, init) => {
+    if (String(url).includes('__stream_prepare')) return json({ model: 'model', managed_account: true, account_id: 'a', lease_id: 'lease', session_id: 's-a', deepseek_token: 'token', pow_header: 'pow', payload: { prompt: 'task', chat_session_id: 's-a' }, final_prompt: 'task', thinking_enabled: true });
+    if (String(url).includes('__stream_switch')) {
+      switches.push(JSON.parse(init.body));
+      return json({ account_id: 'b', session_id: 's-b', deepseek_token: 'token-b', pow_header: 'pow-b', payload: { prompt: 'task', chat_session_id: 's-b' }, final_prompt: 'task' });
+    }
+    if (String(url).includes('__stream_release')) { releases.push(JSON.parse(init.body)); return json({ success: true }); }
+    throw new Error('unexpected control request');
+  });
+  await handleVercelStream(req, res, Buffer.from('{}'), {}, async (_url, options) => {
+    payloads.push(JSON.parse(options.body));
+    return sse(payloads.length === 1 ? { p: 'response/thinking_content', v: 'plan' } : { p: 'response/content', v: 'healthy answer' });
+  });
+  assert.equal(payloads.length, 2); assert.equal(switches[0].rate_limited, true);
+  assert.equal(payloads[1].chat_session_id, 's-b'); assert.equal(payloads[1].prompt, 'task');
+  assert.equal(releases.at(-1).failure_account_id, 'b');
+});
+
 test('all corrective retries preserve the exact source prompt bytes', () => {
   const { clonePayloadForOutputRetry } = require('../../internal/js/chat-stream/stream_retry_policy');
   for (const original of ['  prelude\r\n[Assistant]:code\n\t  ', '\t \r\n', '']) {
@@ -20,6 +60,26 @@ test('all corrective retries preserve the exact source prompt bytes', () => {
       assert.equal(payload.prompt, original);
     }
   }
+});
+
+test('no replacement retains the terminal empty failure and its account owner on release', async t => {
+  const { req, res } = surfaces();
+  const releases = [];
+  let switches = 0;
+  t.mock.method(global, 'fetch', async (url, init) => {
+    if (String(url).includes('__stream_prepare')) return json({ model: 'model', managed_account: true, account_id: 'a', lease_id: 'lease', session_id: 's-a', deepseek_token: 'token', pow_header: 'pow', payload: { prompt: 'task' }, final_prompt: 'task' });
+    if (String(url).includes('__stream_switch')) { switches++; return json({ error: { message: 'no available account' } }, 503); }
+    if (String(url).includes('__stream_release')) { releases.push(JSON.parse(init.body)); return json({ success: true }); }
+    throw new Error('unexpected control request');
+  });
+  await handleVercelStream(req, res, Buffer.from('{}'), {}, async () => sse({ v: '' }));
+  assert.equal(switches, 1);
+  const released = releases.at(-1);
+  assert.equal(released.failure_account_id, 'a');
+  assert.equal(released.error_status, 503);
+  assert.equal(released.error_code, 'upstream_unavailable');
+  assert.match(released.error, /returned no output/);
+  assert.equal(res.writableEnded, true);
 });
 
 for (const entry of cases) test(`Go/Node completion contract: ${entry.name}`, async () => {

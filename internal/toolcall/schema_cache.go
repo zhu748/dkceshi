@@ -94,5 +94,12 @@ func compileSchemaBytes(data []byte) (*jsonschema.Schema, error) {
 	if err = c.AddResource(resource, doc); err != nil {
 		return nil, err
 	}
-	return c.Compile(resource)
+	schema, err := c.Compile(resource)
+	if err == nil {
+		err = checkSchemaWork(schema)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return schema, nil
 }

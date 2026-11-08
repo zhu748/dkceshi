@@ -11,6 +11,13 @@ func unsupportedImageSource(block map[string]any) error {
 	kind, _ := block["type"].(string)
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "image", "image_url", "input_image":
+	case "":
+		// The upload classifier accepts untyped image_url/file payloads too.
+		// They must fail here when no bytes or uploaded reference were resolved,
+		// before image cleanup can turn them into an empty user task.
+		if block["image_url"] == nil {
+			return fmt.Errorf("file input requires bytes, a data URL, or an uploaded file_id")
+		}
 	case "file", "input_file", "file_reference", "document":
 		return fmt.Errorf("file input requires bytes, a data URL, or an uploaded file_id")
 	default:

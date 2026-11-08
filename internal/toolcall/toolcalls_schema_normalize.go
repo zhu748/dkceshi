@@ -11,11 +11,16 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 	}
 	schemas := buildToolSchemaIndex(toolsRaw)
 	var compiled normalizationSchemaCache
+	run := normalizationRun{remaining: maxNormalizationSteps}
 
 	var changedAny bool
 	out := make([]ParsedToolCall, len(calls))
 	for i, call := range calls {
 		out[i] = call
+		if run.exhausted {
+			out[i].NormalizationLimitExceeded, changedAny = true, true
+			continue
+		}
 		name := strings.TrimSpace(call.Name)
 		meta, ok := schemas[name]
 		if (!ok && !callHasStringLiterals(call)) || call.Input == nil {
@@ -27,7 +32,11 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 		var normalized any = input
 		changed := false
 		if prepared != nil {
-			normalized, changed = normalizeCompiledToolValue(input, prepared, 0)
+			normalized, changed = run.root(input, prepared, 0)
+		}
+		if run.exhausted {
+			out[i].NormalizationLimitExceeded, changedAny = true, true
+			continue
 		}
 		if changed {
 			out[i].RecoverySteps = append(append([]string{}, call.RecoverySteps...), "schema_normalization")

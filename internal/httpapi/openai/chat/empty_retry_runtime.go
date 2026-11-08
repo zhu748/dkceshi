@@ -251,7 +251,7 @@ func (h *Handler) consumeChatStreamAttempt(r *http.Request, resp *http.Response,
 	terminalWritten := streamRuntime.finalize(finalReason, allowDeferEmpty && finalReason != "content_filter")
 	if terminalWritten {
 		recordChatStreamHistory(streamRuntime, historySession)
-		return completionruntime.ConsumeAttemptResult{Terminal: true}
+		return completionruntime.ConsumeAttemptResult{Terminal: true, Failure: &assistantturn.OutputError{Status: streamRuntime.finalErrorStatus, Code: streamRuntime.finalErrorCode, Message: streamRuntime.finalErrorMessage}}
 	}
 	return completionruntime.ConsumeAttemptResult{Retryable: true}
 }

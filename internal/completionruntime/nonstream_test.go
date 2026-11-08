@@ -252,7 +252,6 @@ func TestExecuteNonStreamWithRetrySwitchesManagedAccountBeforeFinal429(t *testin
 		sessionByAccount: true,
 		responses: []*http.Response{
 			sseHTTPResponse(http.StatusOK, `data: {"response_message_id":11,"p":"response/thinking_content","v":"first empty"}`),
-			sseHTTPResponse(http.StatusOK, `data: {"response_message_id":12,"p":"response/thinking_content","v":"retry empty"}`),
 			sseHTTPResponse(http.StatusOK, `data: {"response_message_id":21,"p":"response/content","v":"ok from second account"}`),
 		},
 	}
@@ -274,7 +273,7 @@ func TestExecuteNonStreamWithRetrySwitchesManagedAccountBeforeFinal429(t *testin
 	if result.SessionID != "session-acc2@test.com" {
 		t.Fatalf("expected switched account session, got %q", result.SessionID)
 	}
-	wantAccounts := []string{"acc1@test.com", "acc1@test.com", "acc2@test.com"}
+	wantAccounts := []string{"acc1@test.com", "acc2@test.com"}
 	if len(ds.completionAccounts) != len(wantAccounts) {
 		t.Fatalf("completion account count mismatch: got %v want %v", ds.completionAccounts, wantAccounts)
 	}
@@ -283,10 +282,10 @@ func TestExecuteNonStreamWithRetrySwitchesManagedAccountBeforeFinal429(t *testin
 			t.Fatalf("completion account %d = %q want %q (all=%v)", i, ds.completionAccounts[i], want, ds.completionAccounts)
 		}
 	}
-	if got := ds.payloads[2]["chat_session_id"]; got != "session-acc2@test.com" {
+	if got := ds.payloads[1]["chat_session_id"]; got != "session-acc2@test.com" {
 		t.Fatalf("switched payload session mismatch: %#v", got)
 	}
-	if prompt, _ := ds.payloads[2]["prompt"].(string); strings.Contains(prompt, "Previous reply had no visible output") {
+	if prompt, _ := ds.payloads[1]["prompt"].(string); strings.Contains(prompt, "Previous reply had no visible output") {
 		t.Fatalf("expected fresh switched-account prompt without empty-output suffix, got %q", prompt)
 	}
 }
@@ -497,7 +496,6 @@ func TestExecuteNonStreamWithRetryReuploadsCurrentInputFileAfterAccountSwitch(t 
 		sessionByAccount: true,
 		responses: []*http.Response{
 			sseHTTPResponse(http.StatusOK, `data: {"response_message_id":11,"p":"response/thinking_content","v":"first empty"}`),
-			sseHTTPResponse(http.StatusOK, `data: {"response_message_id":12,"p":"response/thinking_content","v":"retry empty"}`),
 			sseHTTPResponse(http.StatusOK, `data: {"response_message_id":21,"p":"response/content","v":"ok from second account"}`),
 		},
 	}
@@ -527,9 +525,9 @@ func TestExecuteNonStreamWithRetryReuploadsCurrentInputFileAfterAccountSwitch(t 
 	if len(ds.uploads) != 2 {
 		t.Fatalf("expected current input file uploaded once per account, got %d", len(ds.uploads))
 	}
-	refIDs, _ := ds.payloads[2]["ref_file_ids"].([]any)
+	refIDs, _ := ds.payloads[1]["ref_file_ids"].([]any)
 	if len(refIDs) != 1 || refIDs[0] != "file-runtime-acc2@test.com" {
-		t.Fatalf("expected switched account ref_file_ids to use reuploaded file, got %#v", ds.payloads[2]["ref_file_ids"])
+		t.Fatalf("expected switched account ref_file_ids to use reuploaded file, got %#v", ds.payloads[1]["ref_file_ids"])
 	}
 }
 

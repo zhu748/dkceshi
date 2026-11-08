@@ -1,6 +1,7 @@
 package toolcall
 
 type ParsedToolCall struct {
+	NormalizationLimitExceeded bool `json:"-"`
 	// CallID is retained for replaying text-form history. Response adapters
 	// continue allocating their own delivery IDs; model IDs are not trusted.
 	CallID         string            `json:"-"`

@@ -188,7 +188,7 @@ func (h *Handler) consumeResponsesStreamAttempt(r *http.Request, resp *http.Resp
 	}
 	terminalWritten := streamRuntime.finalize(finalReason, allowDeferEmpty && finalReason != "content_filter")
 	if terminalWritten {
-		return completionruntime.ConsumeAttemptResult{Terminal: true}
+		return completionruntime.ConsumeAttemptResult{Terminal: true, Failure: &assistantturn.OutputError{Status: streamRuntime.finalErrorStatus, Code: streamRuntime.finalErrorCode, Message: streamRuntime.finalErrorMessage}}
 	}
 	return completionruntime.ConsumeAttemptResult{Retryable: true}
 }

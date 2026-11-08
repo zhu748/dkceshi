@@ -5,7 +5,7 @@ const { asString } = require('./http_internal');
 const { readResponseChunk, replayResponse } = require('./response_read');
 
 // 检测 DeepSeek 是否返回了封号/停用 JSON 响应（HTTP 200 但 body 是 JSON 而非 SSE）。
-// 与 Go 侧 detectMutedCompletion / isUserBannedResponse 对齐：先 peek 第一个字节，只有 JSON 才读取全部 body。
+// 与 Go 侧对齐：有界跳过 JSON 空白前缀，只有 JSON 才读取完整的限长正文。
 // 返回 { mutedUntil, banned, response }：
 //   - mutedUntil > 0 时表示检测到禁言，response 为 null；
 //   - banned 为 true 时表示检测到 USER_IS_BANNED，response 为 null；
@@ -22,29 +22,31 @@ async function detectMutedOrBannedResponse(res, options = {}) {
     return { mutedUntil: 0, banned: false, response: res };
   }
   const reader = res.body.getReader();
-  let firstChunk;
+  const chunks = [];
+  let firstByte, total = 0;
   try {
-    let result;
-    do { result = await readResponseChunk(reader, options); } while (!result.done && !result.value?.length);
-    if (result.done) {
-      reader.releaseLock();
-      return { mutedUntil: 0, banned: false, response: new Response(null, res) };
+    while (firstByte === undefined && total < 4096) {
+      const result = await readResponseChunk(reader, options);
+      if (result.done) {
+        reader.releaseLock();
+        return { mutedUntil: 0, banned: false, response: replayJSONBodyResponse(res, chunks) };
+      }
+      if (!result.value?.length) continue;
+      chunks.push(result.value); total += result.value.length;
+      firstByte = result.value.find(byte => ![0x20, 0x09, 0x0a, 0x0d].includes(byte));
     }
-    firstChunk = result.value;
   } catch (error) {
     try { reader.releaseLock(); } catch (_e) {}
     throw error;
   }
-  if (firstChunk[0] !== 0x7b) { // '{'
-    return { mutedUntil: 0, banned: false, response: replayResponse(res, [firstChunk], reader, options) };
+  if (firstByte !== 0x7b) { // '{', after bounded JSON whitespace
+    return { mutedUntil: 0, banned: false, response: replayResponse(res, chunks, reader, options) };
   }
   // JSON body: read it in full (bounded), then either report the mute/ban
   // verdict or hand back a replayable response. Returning response:null with
   // the original res — whose body reader is now locked and never released —
   // made the downstream getReader() call throw "ReadableStream is locked"
   // after headers were already flushed, silently truncating the client stream.
-  const chunks = [firstChunk];
-  let total = firstChunk.length;
   let handedOff = false;
   try {
     while (true) {

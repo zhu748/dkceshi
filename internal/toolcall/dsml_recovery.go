@@ -73,7 +73,8 @@ func RecoverDSMLToolCalls(text string) ([]ParsedToolCall, bool) {
 	// canonical siblings that the DSML-only intent probe cannot recognize.
 	recovered.WriteString(text[prev:])
 	parsed := ParseStandaloneToolCallsDetailed(recovered.String(), nil)
-	if parsed.SawToolCallIntent || len(parsed.Calls) < len(calls) {
+	if parsed.ResourceLimitExceeded || parsed.SawToolCallIntent ||
+		HasUnresolvedToolMarkup(parsed.ResidualProtocolText) || len(parsed.Calls) < len(calls) {
 		return nil, false
 	}
 	return parsed.Calls, true

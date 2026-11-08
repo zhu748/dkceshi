@@ -209,6 +209,8 @@ JSON 兼容参数包只接受对象 input/parameters；空 input 的优先级在
 未知属性、重复参数、缺少标签、未闭合 CDATA 和未被覆盖的其他工具意图都会使本地恢复失败，
 继续使用原有修复路径。完整本地恢复不发起 LLM 请求，也不补造参数，并继续接受统一工具选择
 及正式 schema 校验。此规则位于共享收尾边界；Vercel 的全部候选工具调用通过现有 Go 校验端点复用，包括无正式目录的续聊。
+本地恢复还检查替换后整份批次的残留协议：未配对的 EPSE/canonical 开标签、截断调用和资源
+超限均不能被当作恢复成功。带有完整 DSML 调用的批次也不能跳过该检查或仅交付成功的部分。
 离线回放命令与样本结论见 [tool-call-history-audit.md](tool-call-history-audit.md)。
 
 
@@ -232,6 +234,7 @@ Gemini 在无工具目录的 agent 续轮中同样执行增量筛分：普通正
   `tool_safety.allow_reasoning_prose` 开启。此设置不放宽工具目录、Schema 或 tool_choice。
 - 普通 APPEND 增量保留相同调用的每次出现；SET（含嵌套 BATCH）按源片段字段去重。多片段重放先合并相邻同通道片段，修改已交付前缀时拒绝继续。显式快照的前缀比较没有最小长度门槛。
 - 编译后的本地 Schema 图同时用于类型归一化和最终验证，覆盖本地引用、properties 和全部匹配的 patternProperties；additionalProperties 只处理未覆盖字段，冲突约束不会被跳过。
+- 共享引用的归一化缓存按值隔离，类型变化后失效；超出批次工作量或嵌套预算时保留原参数并拒绝调用。编译缓存发布前限制同实例引用图的展开工作量，工具和结构化输出使用同一规则，不能通过去重 `oneOf` 或改写引用来放宽校验。具体上限见 `prompt-compatibility.md`。
 - 长块扫描的 CDATA、引号、注释和代码状态跨分片保存；字面量闭标签不会反复触发完整解析。
 
 回归覆盖 `internal/assistantturn/upstream_fidelity_test.go`、各协议的工具终态测试、共享可见性夹具、

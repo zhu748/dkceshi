@@ -3,6 +3,9 @@ import { ChevronLeft, ChevronRight, Check, Copy, Pencil, Plus, Trash2, FolderX, 
 import clsx from 'clsx'
 
 import AccountProxySelect from './AccountProxySelect'
+import AccountStatusFilters from './AccountStatusFilters'
+import AccountCooldownBadge from './AccountCooldownBadge'
+import { isAccountCoolingDown } from './accountCooldown.js'
 import { AccountTestButton, AccountTestProgress } from './AccountTestControls'
 import { formatMuteUntil } from './formatMuteUntil.js'
 
@@ -131,6 +134,7 @@ export default function AccountsTable({
         disabled: accountCounts?.disabled ?? 0,
         muted: accountCounts?.muted ?? 0,
         banned: accountCounts?.banned ?? 0,
+        cooling_down: accountCounts?.cooling_down ?? 0,
     }
 
     const copyId = (id) => {
@@ -229,67 +233,7 @@ export default function AccountsTable({
                 </div>
             </div>
 
-            <div className="px-6 py-3 border-b border-border bg-muted/20 flex items-center justify-end gap-1.5 flex-wrap">
-                <button
-                    onClick={() => onFilterChange?.('all')}
-                    className={clsx(
-                        'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
-                        filterStatus === 'all'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-muted-foreground border-border hover:bg-secondary'
-                    )}
-                >
-                    {t('accountManager.filterAll', { count: counts.total })}
-                </button>
-                <button
-                    onClick={() => onFilterChange?.('enabled')}
-                    className={clsx(
-                        'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
-                        filterStatus === 'enabled'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-muted-foreground border-border hover:bg-secondary'
-                    )}
-                >
-                    {t('accountManager.filterEnabled', { count: counts.enabled })}
-                </button>
-                <button
-                    onClick={() => onFilterChange?.('disabled')}
-                    className={clsx(
-                        'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
-                        filterStatus === 'disabled'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-muted-foreground border-border hover:bg-secondary'
-                    )}
-                >
-                    {t('accountManager.filterDisabled', { count: counts.disabled })}
-                </button>
-                {counts.muted > 0 && (
-                    <button
-                        onClick={() => onFilterChange?.('muted')}
-                        className={clsx(
-                            'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
-                            filterStatus === 'muted'
-                                ? 'bg-destructive text-destructive-foreground border-destructive'
-                                : 'bg-card text-destructive border-border hover:bg-destructive/10'
-                        )}
-                    >
-                        {t('accountManager.filterMuted', { count: counts.muted })}
-                    </button>
-                )}
-                {counts.banned > 0 && (
-                    <button
-                        onClick={() => onFilterChange?.('banned')}
-                        className={clsx(
-                            'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
-                            filterStatus === 'banned'
-                                ? 'bg-destructive text-destructive-foreground border-destructive'
-                                : 'bg-card text-destructive border-border hover:bg-destructive/10'
-                        )}
-                    >
-                        {t('accountManager.filterBanned', { count: counts.banned })}
-                    </button>
-                )}
-            </div>
+            <AccountStatusFilters counts={counts} filterStatus={filterStatus} onFilterChange={onFilterChange} t={t} />
 
             <AccountTestProgress t={t} running={testingAll} progress={batchProgress} />
 
@@ -304,19 +248,22 @@ export default function AccountsTable({
                         const isDisabled = acc.enabled === false
                         const isBanned = acc.banned === true
                         const isMuted = acc.muted === true
+                        const isCoolingDown = isAccountCoolingDown(acc)
                         const mutedRecoverAt = formatMuteUntil(acc.muted_until)
-                        const isActive = !isDisabled && !isBanned && !isMuted && (acc.test_status === 'ok' || acc.has_token)
+                        const isActive = !isDisabled && !isBanned && !isMuted && !isCoolingDown && (acc.test_status === 'ok' || acc.has_token)
                         return (
                             <div key={i} className={clsx(
                                 "p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-muted/50 transition-colors min-w-0",
-                                (isDisabled || isBanned || isMuted) && "opacity-60"
+                                (isDisabled || isBanned || isMuted || isCoolingDown) && "opacity-60"
                             )}>
                                 <div className="flex items-center gap-3 min-w-0">
                                     <div className={clsx(
                                         "w-2 h-2 rounded-full shrink-0",
-                                        isDisabled ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" :
                                         isBanned ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" :
                                         isMuted ? "bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]" :
+                                        acc.manual_disabled ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" :
+                                        isCoolingDown ? "bg-amber-500" :
+                                        isDisabled ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" :
                                         acc.test_status === 'failed' ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" :
                                         isActive ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
                                         runtimeUnknown ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" : "bg-amber-500"
@@ -337,8 +284,8 @@ export default function AccountsTable({
                                             <div className="text-xs text-muted-foreground truncate mt-0.5">{acc.remark}</div>
                                         )}
                                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mt-0.5 min-w-0">
-                                            <span>{isBanned ? (acc.disabled_reason || t('accountManager.accountBanned')) : isDisabled ? t('accountManager.accountDisabled') : isMuted ? t('accountManager.accountMuted') : acc.test_status === 'failed' ? t('accountManager.testStatusFailed') : isActive ? t('accountManager.sessionActive') : runtimeUnknown ? t('accountManager.runtimeStatusUnknown') : t('accountManager.reauthRequired')}</span>
-                                            {isDisabled && !isBanned && (
+                                            <span>{isBanned ? (acc.disabled_reason || t('accountManager.accountBanned')) : isMuted ? t('accountManager.accountMuted') : acc.manual_disabled ? t('accountManager.accountDisabled') : isCoolingDown ? t('accountManager.accountCoolingDown') : isDisabled ? t('accountManager.accountDisabled') : acc.test_status === 'failed' ? t('accountManager.testStatusFailed') : isActive ? t('accountManager.sessionActive') : runtimeUnknown ? t('accountManager.runtimeStatusUnknown') : t('accountManager.reauthRequired')}</span>
+                                            {isDisabled && !isBanned && !isMuted && (!isCoolingDown || acc.manual_disabled) && (
                                                 <span className="font-mono bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded text-[10px]" title={t('accountManager.accountDisabledHint')}>
                                                     {t('accountManager.accountDisabled')}
                                                 </span>
@@ -353,6 +300,7 @@ export default function AccountsTable({
                                                     {t('accountManager.accountMutedRecoverAt', { time: mutedRecoverAt })}
                                                 </span>
                                             )}
+                                            <AccountCooldownBadge account={acc} t={t} />
                                             {acc.token_preview && (
                                                 <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-[10px]">
                                                     {acc.token_preview}

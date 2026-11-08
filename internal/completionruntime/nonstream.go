@@ -304,7 +304,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			retryMax = EmptyOutputRetryMaxAttempts()
 		}
 		toolRetry := IsToolOutputError(turn.Error) && attempts < retryMax
-		cooldownEmpty := assistantturn.IsUnavailableEmptyOutput(turn.Error) && a.NoteRateLimit()
+		cooldownEmpty := ObserveAccountOutputFailure(a, turn.Error)
 		if cooldownEmpty || !opts.RetryEnabled || !toolRetry && !assistantturn.ShouldRetryEmptyOutput(turn, attempts, retryMax) {
 			if canRetryOnAlternateAccount(ctx, a, turn.Error, opts.RetryEnabled, &accountSwitchAttempted) {
 				switched, switchErr := startStandardCompletionOnAlternateAccount(ctx, ds, a, stdReq, opts, maxAttempts)

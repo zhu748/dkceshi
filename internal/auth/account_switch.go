@@ -35,6 +35,13 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 		return false
 	}
 	if a.AccountPinned() {
+		reason := "operation_pinned"
+		if a.TargetAccount != "" {
+			reason = "explicit_target"
+		} else if a.FileAccountID != "" {
+			reason = "client_file_owner"
+		}
+		config.Logger.Info("[account_switch] blocked", "account", a.AccountID, "reason", reason)
 		return false
 	}
 	if ctx == nil {
@@ -46,6 +53,7 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 	// Share the normal bounded queue rather than failing merely because the
 	// replacement account is busy. The caller's earlier deadline always wins.
 	if a.accountSwitches >= MaxAccountSwitches || a.failoverWait >= accountSwitchWaitTimeout {
+		config.Logger.Info("[account_switch] budget exhausted", "account", a.AccountID, "switches", a.accountSwitches)
 		return false
 	}
 	waitCtx, cancel := a.accountSwitchContext(ctx)
@@ -67,6 +75,7 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 		}
 		acc, ok := r.Pool.AcquireWait(waitCtx, "", a.TriedAccounts, filter)
 		if !ok {
+			config.Logger.Info("[account_switch] no eligible replacement", "account", a.AccountID, "tools_present", a.ToolsPresent, "tried_accounts", len(a.TriedAccounts), "error", waitCtx.Err())
 			// No replacement is available. a.AccountID still names the account whose
 			// slot this call just returned, and releaseAccountSlot remembers that, so
 			// the request-end Release will not return it a second time.

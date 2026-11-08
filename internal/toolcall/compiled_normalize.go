@@ -11,9 +11,22 @@ import (
 // on $ref/$id/anchors and recursive schemas. Bound schema-only cycles as well
 // as deeply nested values; final validation still decides whether to deliver.
 func normalizeCompiledToolValue(value any, schema *jsonschema.Schema, depth int) (any, bool) {
-	if value == nil || schema == nil || depth >= 128 {
+	run := normalizationRun{remaining: maxNormalizationSteps}
+	return run.root(value, schema, depth)
+}
+
+func (r *normalizationRun) walk(value any, schema *jsonschema.Schema, depth int, scope *normalizationScope) (next any, changed bool) {
+	if value == nil || schema == nil || scope.cached(schema) {
 		return value, false
 	}
+	if r.exhausted || r.remaining <= 0 || depth >= 128 {
+		r.exhausted = true
+		return value, false
+	}
+	r.remaining--
+	scope.begin(schema)
+	version := scope.version
+	defer func() { scope.finish(schema, version, changed) }()
 	if text, ok := value.(string); ok && !schemaExpectsString(schema, 0) && schema.Validate(text) != nil {
 		if parsed, ok := parseJSONLiteralValue(text); ok && schema.Validate(parsed) == nil {
 			return parsed, true
@@ -22,9 +35,8 @@ func normalizeCompiledToolValue(value any, schema *jsonschema.Schema, depth int)
 			return parsed, true
 		}
 	}
-	changed := false
 	apply := func(child *jsonschema.Schema) {
-		next, didChange := normalizeCompiledToolValue(value, child, depth+1)
+		next, didChange := r.walk(value, child, depth+1, scope)
 		value, changed = next, changed || didChange
 	}
 	if schema.Ref != nil {
@@ -43,26 +55,45 @@ func normalizeCompiledToolValue(value any, schema *jsonschema.Schema, depth int)
 	if shouldCoerceSchemaToString(stringSchema) {
 		next, didChange := stringifySchemaValue(value)
 		value, changed = next, changed || didChange
+		if didChange {
+			scope.version++
+		}
 	}
 	switch current := value.(type) {
 	case map[string]any:
-		out := make(map[string]any, len(current))
+		var out map[string]any
 		for key, item := range current {
-			next, didChange := normalizeCompiledProperty(item, key, schema, depth+1)
-			out[key], changed = next, changed || didChange
+			next, didChange := r.property(item, key, schema, depth+1)
+			if didChange {
+				if out == nil {
+					out = make(map[string]any, len(current))
+					for name, original := range current {
+						out[name] = original
+					}
+				}
+				out[key] = next
+			}
 		}
-		if changed {
-			value = out
+		if out != nil {
+			value, changed = out, true
+			scope.version++
 		}
 	case []any:
-		out := make([]any, len(current))
+		var out []any
 		for i, item := range current {
 			child := compiledItemSchema(schema, i)
-			next, didChange := normalizeCompiledToolValue(item, child, depth+1)
-			out[i], changed = next, changed || didChange
+			var childScope normalizationScope
+			next, didChange := r.walk(item, child, depth+1, &childScope)
+			if didChange {
+				if out == nil {
+					out = append([]any(nil), current...)
+				}
+				out[i] = next
+			}
 		}
-		if changed {
-			value = out
+		if out != nil {
+			value, changed = out, true
+			scope.version++
 		}
 	}
 	for _, child := range schema.AllOf {
@@ -75,7 +106,8 @@ func normalizeCompiledToolValue(value any, schema *jsonschema.Schema, depth int)
 		var candidate any
 		found, ambiguous := false, false
 		for _, child := range alternatives {
-			next, didChange := normalizeCompiledToolValue(value, child, depth+1)
+			var trial normalizationScope
+			next, didChange := r.walk(value, child, depth+1, &trial)
 			if !didChange || schema.Validate(next) != nil {
 				continue
 			}
@@ -87,6 +119,7 @@ func normalizeCompiledToolValue(value any, schema *jsonschema.Schema, depth int)
 		}
 		if found && !ambiguous {
 			value, changed = candidate, true
+			scope.version++
 		}
 	}
 	return value, changed
@@ -114,7 +147,7 @@ func compiledItemSchema(schema *jsonschema.Schema, index int) *jsonschema.Schema
 
 // properties and every matching pattern apply together. Additional properties
 // only applies when neither keyword evaluated the property.
-func normalizeCompiledProperty(value any, key string, schema *jsonschema.Schema, depth int) (any, bool) {
+func (r *normalizationRun) property(value any, key string, schema *jsonschema.Schema, depth int) (any, bool) {
 	children := []*jsonschema.Schema{}
 	if child := schema.Properties[key]; child != nil {
 		children = append(children, child)
@@ -135,8 +168,9 @@ func normalizeCompiledProperty(value any, key string, schema *jsonschema.Schema,
 		}
 	}
 	changed := false
+	var scope normalizationScope
 	for _, child := range children {
-		next, didChange := normalizeCompiledToolValue(value, child, depth)
+		next, didChange := r.walk(value, child, depth, &scope)
 		value, changed = next, changed || didChange
 	}
 	return value, changed

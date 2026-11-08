@@ -28,6 +28,8 @@ type StreamRetryOptions struct {
 
 // ConsumeAttemptResult describes what one stream-consuming attempt ended with.
 type ConsumeAttemptResult struct {
+	// Failure preserves terminal account-state observations when retries are off.
+	Failure *assistantturn.OutputError
 	// Terminal indicates the attempt wrote its terminal frame(s) (finish
 	// chunk, error chunk or [DONE]); the retry loop must stop.
 	Terminal bool
@@ -166,13 +168,16 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			return
 		}
 		if result.Terminal {
+			if !responseCompleted {
+				ObserveAccountOutputFailure(a, result.Failure)
+			}
 			if hooks.OnTerminal != nil {
 				hooks.OnTerminal(attempts)
 			}
 			return
 		}
 		pendingErr := buildEmptyOutputError(hooks)
-		cooldownEmpty := !result.ResumeContinue && assistantturn.IsUnavailableEmptyOutput(pendingErr) && a.NoteRateLimit()
+		cooldownEmpty := !result.ResumeContinue && ObserveAccountOutputFailure(a, pendingErr)
 		if !result.Retryable || !opts.RetryEnabled || !result.ResumeContinue && !IsRetryableOutputError(pendingErr) {
 			if !failed && hooks.Finalize != nil {
 				hooks.Finalize(attempts)

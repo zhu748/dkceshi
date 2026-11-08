@@ -3,6 +3,7 @@ package claude
 import (
 	"net/http"
 
+	"ds2api/internal/assistantturn"
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
 	"ds2api/internal/promptcompat"
@@ -48,7 +49,7 @@ func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Respons
 		return completionruntime.ConsumeAttemptResult{Terminal: true}
 	}
 	if s.finalize("end_turn", allowDeferEmpty && !s.contentFilter) {
-		return completionruntime.ConsumeAttemptResult{Terminal: true}
+		return completionruntime.ConsumeAttemptResult{Terminal: true, Failure: &assistantturn.OutputError{Status: s.finalErrorStatus, Code: s.finalErrorCode, Message: s.finalErrorMessage}}
 	}
 	return completionruntime.ConsumeAttemptResult{Retryable: true}
 }

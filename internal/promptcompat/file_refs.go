@@ -43,7 +43,7 @@ func appendOpenAIRefFileIDs(out *[]string, seen map[string]struct{}, raw any, al
 		}
 	case map[string]any:
 		kind := strings.ToLower(strings.TrimSpace(asString(x["type"])))
-		attachment := kind == "file" || kind == "input_file" || kind == "file_reference" || kind == "image" || kind == "input_image" || kind == "image_url" || kind == "document"
+		attachment := IsInlineAttachmentBlock(x) || kind == "document"
 		if fileID := strings.TrimSpace(asString(x["file_id"])); fileID != "" && (attachment || allowStrings) {
 			addOpenAIRefFileID(out, seen, fileID)
 		}

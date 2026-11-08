@@ -2985,14 +2985,16 @@ test('replacement account JSON ban is persisted as a ban after empty-output fail
 });
 
 test('every regenerated response inspects JSON and HTTP account rate limits', async () => {
+  const prefix = '<｜System｜>custom thinking instruction';
   const result = await runMockVercelStreamSequence([
-    ['data: {"p":"response/thinking_content","v":"thinking only"}\n\n', 'data: [DONE]\n\n'],
+    [`data: ${JSON.stringify({ p: 'response/content', v: prefix })}\n\n`, 'data: [DONE]\n\n'],
     jsonResponse({ code: 40029, msg: 'TOO_MANY_REQUESTS' }),
     new Response('slow down', { status: 429 }),
     ['data: {"p":"response/content","v":"healthy replacement"}\n\n', 'data: [DONE]\n\n'],
-  ], { managed_account: true, thinking_enabled: true, switch_result: { session_id: 'next', payload: { prompt: 'hello', chat_session_id: 'next' }, deepseek_token: 'next-token', pow_header: 'pow' } });
+  ], { managed_account: true, final_prompt: prefix, switch_result: { session_id: 'next', payload: { prompt: 'hello', chat_session_id: 'next' }, deepseek_token: 'next-token', pow_header: 'pow' } });
   const switches = result.fetchBodies.filter(body => body.rate_limited);
   assert.equal(switches.length, 2);
+  assert.equal(result.fetchURLs.filter(url => url.includes('__stream_pow=1')).length, 1);
   assert.ok(result.frames.some(frame => frame.includes('healthy replacement')));
   assert.equal(result.frames.some(frame => frame.includes('rate_limit_exceeded')), false);
 });
@@ -3006,14 +3008,16 @@ test('account inspection handles top-level bans and mute without timestamp', asy
 });
 
 test('explicit PoW rate limit rebuilds the request instead of using the old session', async () => {
+  const prefix = '<｜System｜>custom thinking instruction';
   const result = await runMockVercelStreamSequence([
-    ['data: {"p":"response/thinking_content","v":"thinking only"}\n\n', 'data: [DONE]\n\n'],
+    [`data: ${JSON.stringify({ p: 'response/content', v: prefix })}\n\n`, 'data: [DONE]\n\n'],
     ['data: {"p":"response/content","v":"recovered after pow limit"}\n\n', 'data: [DONE]\n\n'],
   ], {
-    managed_account: true, thinking_enabled: true,
+    managed_account: true, final_prompt: prefix,
     pow_response: { status: 429, body: { error: { code: 'rate_limit_exceeded', message: 'get pow throttled' } } },
     switch_result: { session_id: 'new-session', payload: { prompt: 'hello', chat_session_id: 'new-session' }, deepseek_token: 'next', pow_header: 'new-pow' },
   });
+  assert.equal(result.fetchURLs.filter(url => url.includes('__stream_pow=1')).length, 1);
   assert.equal(result.fetchBodies.filter(body => body.rate_limited).length, 1);
   const bodies = result.fetchBodies.filter(body => body.prompt);
   assert.equal(bodies.length, 2);

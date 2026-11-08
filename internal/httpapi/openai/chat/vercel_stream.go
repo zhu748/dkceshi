@@ -179,6 +179,7 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 	if h.Auth != nil && lease.Auth != nil {
 		defer h.Auth.Release(lease.Auth)
 	}
+	h.observeReleasedAccountFailure(lease.Auth, req)
 	usage := finalizeVercelUsage(lease.Standard, req)
 	finishLeaseDiagnostics(r, lease, req)
 	h.recordVercelStreamCompletion(r, lease.Auth, lease.Standard, req, lease.StartedAt)
@@ -346,6 +347,7 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 	}
 	h.updateStreamLeaseState(leaseID, stdReq, sessionID)
 	writeJSON(w, http.StatusOK, map[string]any{
+		"account_id":               a.AccountID,
 		"session_id":               sessionID,
 		"lease_id":                 leaseID,
 		"model":                    stdReq.ResponseModel,

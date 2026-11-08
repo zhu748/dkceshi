@@ -74,6 +74,7 @@ const DEEPSEEK_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completio
 const DEEPSEEK_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
 async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAppStream) {
   let leaseCompletion = {};
+  let activeAccountID = '';
   const delivery = { delivery_version: 1, tools_written: false, response_written: false };
   let partialCompletion = () => ({});
   let usageAccounting;
@@ -82,7 +83,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
   const report = createStreamReport();
   const { fail: sendFailedChunk, finishFailure: finishStreamFailure } = report;
   const lifecycle = createStreamLifecycle(req, res, () => report.snapshot({
-    ...(leaseCompletion.finish_reason ? leaseCompletion : partialCompletion()), ...usageAccounting?.metadata(), ...delivery,
+    ...(leaseCompletion.finish_reason ? leaseCompletion : partialCompletion()), failure_account_id: activeAccountID, ...usageAccounting?.metadata(), ...delivery,
     ...(outputWriteError && !delivery.response_written ? { finish_reason: 'error', error: outputWriteError, error_code: 'client_write_error', error_status: 499 } : {}),
   }));
   const releaseLease = lifecycle.release;
@@ -100,6 +101,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     }
 
     const model = asString(prep.body.model) || asString(payload.model);
+    activeAccountID = asString(prep.body.account_id);
     const responseID = asString(prep.body.session_id) || `chatcmpl-${Date.now()}`;
     const leaseID = asString(prep.body.lease_id);
     let deepseekToken = asString(prep.body.deepseek_token);
@@ -130,7 +132,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (streamStarted) resetForRegeneration();
       },
       fail: async (failure) => {
-        leaseCompletion = { finish_reason: 'error', error: failure.message, error_code: failure.code };
+        leaseCompletion = { finish_reason: 'error', error: failure.message, error_code: failure.code, error_status: failure.status, account_failure: failure.options };
         if (streamStarted) {
           sendFailedChunk(res, failure.status, failure.message, failure.code);
           if (!res.writableEnded && !res.destroyed) res.end();
@@ -154,6 +156,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     // applySwitchedPayload 把 __stream_switch 返回的新账号 payload / token / PoW
     // / session 应用到当前流式请求，供首包与重试阶段的临时上游故障切号复用。
     const applySwitchedPayload = (switched) => {
+      activeAccountID = asString(switched.body.account_id);
       completionPayload = switched.body.payload;
       finalPrompt = asString(switched.body.final_prompt) || finalPrompt;
       activeDeepSeekSessionID = asString(switched.body.session_id) || activeDeepSeekSessionID;
@@ -404,7 +407,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         }
         ended = true;
         const detail = lastEmptyDetail || upstreamEmptyOutputDetail(reason === 'content_filter', outputText, thinkingText);
-        leaseCompletion = { finish_reason: reason, usage: null, thinking: rawReasoning(), content: outputText, error: detail.message };
+        leaseCompletion = { finish_reason: reason, usage: null, thinking: rawReasoning(), content: outputText, error: detail.message, error_code: detail.code, error_status: detail.status };
         sendFailedChunk(res, detail.status, detail.message, detail.code);
         await releaseLease();
         if (!res.writableEnded && !res.destroyed) {
@@ -676,7 +679,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         ? await processStream(completionRes, allowDeferEmpty)
         : { terminal: false, retryable: true, interrupted: false };
       const isUpstreamUnavailable = lastEmptyDetail && lastEmptyDetail.code === 'upstream_unavailable';
-      const unavailableEmpty = prep.body.managed_account === true && isUnavailableEmptyOutput(lastEmptyDetail);
+      const unavailableEmpty = prep.body.managed_account === true && (isUnavailableEmptyOutput(lastEmptyDetail) || Number(lastEmptyDetail?.status) === 429);
       const isAccountUnauthorized = lastEmptyDetail && lastEmptyDetail.code === 'account_unauthorized';
       const isInputContentBlocked = lastEmptyDetail && lastEmptyDetail.code === 'input_content_blocked';
       if (processed.terminal) {
@@ -702,7 +705,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           await finish('stop');
           return;
         }
-        if (isUpstreamUnavailable || isAccountUnauthorized) {
+        if (isUpstreamUnavailable || isAccountUnauthorized || unavailableEmpty) {
           if (answerDelivered || prep.body.failover_budget_managed !== true && !unavailableEmpty && transientSwitchAttempts >= TRANSIENT_SWITCH_MAX_ATTEMPTS) {
             await finish('stop');
             return;

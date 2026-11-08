@@ -90,6 +90,10 @@ func validateToolArguments(calls []ParsedToolCall, toolsRaw any, detailed bool) 
 func (v *argumentValidator) validate(call ParsedToolCall) (result ArgumentValidation) {
 	meta, declared := v.catalog[call.Name]
 	result.Checked, result.HasSchema = true, meta.schema != nil && !meta.custom
+	if call.NormalizationLimitExceeded {
+		result.Error = fmt.Errorf("tool %q argument normalization exceeds the work or nesting limit", call.Name)
+		return result
+	}
 	if len(v.catalog) > 0 && !declared {
 		result.Error = fmt.Errorf("undeclared tool %q", call.Name)
 		return result

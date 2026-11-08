@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"ds2api/internal/config"
-	"ds2api/internal/prompt"
 )
 
 // RequestContainsImageContent reports whether the current user turn carries any
@@ -89,19 +88,11 @@ func isImageContentBlock(block map[string]any) bool {
 	if blockType == "image_url" || blockType == "input_image" || blockType == "image" {
 		return true
 	}
-	if blockType == "input_file" || blockType == "file" {
-		return false
-	}
-	if _, ok := block["image_url"]; ok {
-		return true
-	}
-	if _, ok := block["image_url"].(map[string]any); ok {
-		return true
-	}
+	// Match the upload boundary: an untyped image_url explicitly declares an
+	// image, while a URL alone or an image_url inside typed business data does
+	// not. Classifying those objects as images would erase them during cleanup.
 	if blockType == "" {
-		if _, ok := block["url"]; ok {
-			return true
-		}
+		return block["image_url"] != nil
 	}
 	return false
 }
@@ -143,8 +134,8 @@ func StripImageBlocksFromMessages(messages []any) []any {
 		}
 		if isBareContentPart(msg) {
 			if isImageContentBlock(msg) {
-				if hasImageFileReference(msg) {
-					out = append(out, map[string]any{"role": "user", "content": prompt.FileReferenceText(msg)})
+				if ref := imageReferenceText(msg); ref != "" {
+					out = append(out, map[string]any{"role": "user", "content": ref})
 				}
 				continue
 			}
@@ -190,7 +181,7 @@ func stripImageContent(v any) any {
 				continue
 			}
 			if isImageContentBlock(block) {
-				if ref := prompt.FileReferenceText(block); ref != "" {
+				if ref := imageReferenceText(block); ref != "" {
 					out = append(out, map[string]any{"type": "text", "text": ref})
 				}
 				continue
@@ -205,7 +196,7 @@ func stripImageContent(v any) any {
 		out := make([]map[string]any, 0, len(x))
 		for _, block := range x {
 			if isImageContentBlock(block) {
-				if ref := prompt.FileReferenceText(block); ref != "" {
+				if ref := imageReferenceText(block); ref != "" {
 					out = append(out, map[string]any{"type": "text", "text": ref})
 				}
 				continue
