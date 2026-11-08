@@ -1,5 +1,7 @@
 package toolcall
 
+import "strings"
+
 // LiteralState is a bounded incremental scheduling aid. It identifies quoted,
 // CDATA, comment and Markdown literal bytes across chunks; it never executes or
 // rewrites source. The authoritative parser still verifies complete structures.
@@ -10,6 +12,23 @@ type LiteralState struct {
 	code           rune
 	ticks, run     int
 	runChar        rune
+}
+
+func (s *LiteralState) active() bool {
+	if s.mode != 0 || s.quote || s.code != 0 || s.run != 0 {
+		return true
+	}
+	// A partial CDATA/comment opener also needs every subsequent rune.
+	for i, ch := range s.tail {
+		if ch != '<' {
+			continue
+		}
+		tail := string(s.tail[i:])
+		if strings.HasPrefix("<![cdata[", tail) || strings.HasPrefix("<!--", tail) {
+			return true
+		}
+	}
+	return false
 }
 
 // Feed reports whether r can belong to structural markup rather than a literal.

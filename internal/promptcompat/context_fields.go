@@ -29,7 +29,7 @@ func contextFieldDigests(message map[string]any, rendered bool) []ContextFieldDi
 		if err != nil {
 			continue
 		}
-		disposition := "unrendered"
+		disposition := "message_context"
 		switch key {
 		case "role", "name", "id", "tool_call_id", "is_error", "prefix":
 			disposition = "message_metadata"
@@ -41,11 +41,13 @@ func contextFieldDigests(message map[string]any, rendered bool) []ContextFieldDi
 			}
 		case "cache_control":
 			disposition = "transport_only"
+		case "signature", "thoughtSignature", "thought_signature", "encrypted_content":
+			disposition = "opaque_provider_state"
 		}
 		if !rendered {
 			disposition = "omitted_message"
 		}
-		reason := map[string]string{"unrendered": "field_has_no_prompt_serializer", "transport_only": "transport_hint", "omitted_message": "message_has_no_prompt_representation"}[disposition]
+		reason := map[string]string{"transport_only": "transport_hint", "opaque_provider_state": "opaque_provider_state", "omitted_message": "message_has_no_prompt_representation"}[disposition]
 		fields = append(fields, ContextFieldDigest{Name: key, Disposition: disposition, OmittedReason: reason, ContextDigest: digestContext(data)})
 	}
 	return fields

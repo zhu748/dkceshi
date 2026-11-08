@@ -21,6 +21,9 @@ func ReasoningBlockMetadata(block map[string]any) string {
 func blockMetadata(block map[string]any, excluded ...string) string {
 	metadata := make(map[string]any)
 	for key, value := range block {
+		if key == "encrypted_content" || key == "thoughtSignature" || key == "thought_signature" {
+			continue // These are provider state on documented text/reasoning blocks.
+		}
 		skip := false
 		for _, field := range excluded {
 			skip = skip || key == field

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"ds2api/internal/prompt"
 	"ds2api/internal/promptcompat"
 )
 
@@ -15,6 +16,7 @@ func largeActiveContext(messages []any) bool {
 		if message["role"] != "system" && message["role"] != "developer" {
 			text, _ := message["content"].(string)
 			chars += utf8.RuneCountInString(text)
+			chars += utf8.RuneCountInString(prompt.MessageContextText(message))
 			if chars > maxInlineFirstTaskChars {
 				return true
 			}

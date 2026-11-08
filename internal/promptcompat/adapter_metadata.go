@@ -9,7 +9,8 @@ import (
 // PreserveAdapterMessageMetadata assigns source message identity to the first
 // matching fragment and prefill to the last. Tool-result identities generated
 // by the adapter remain authoritative. Fragment ordering never changes.
-func PreserveAdapterMessageMetadata(messages []any, source map[string]any, role string) []any {
+func PreserveAdapterMessageMetadata(messages []any, source map[string]any, role string, consumed ...string) []any {
+	contextFields := messageContextFields(source, consumed...)
 	first, last := -1, -1
 	for i, raw := range messages {
 		message, _ := raw.(map[string]any)
@@ -21,7 +22,7 @@ func PreserveAdapterMessageMetadata(messages []any, source map[string]any, role 
 		}
 	}
 	if first < 0 {
-		if !hasPromptMessageMetadata(source) && (role != "assistant" || prompt.ReasoningText(source["reasoning_content"]) == "") {
+		if !hasPromptMessageIdentity(source) && len(contextFields) == 0 && (role != "assistant" || prompt.ReasoningText(source["reasoning_content"]) == "") {
 			return messages
 		}
 		message := map[string]any{"role": role, "content": ""}
@@ -48,6 +49,9 @@ func PreserveAdapterMessageMetadata(messages []any, source map[string]any, role 
 		}
 	}
 	AppendMessageAttachments(messages[last].(map[string]any), source)
+	for key, value := range contextFields {
+		mergeMessageContextField(messages[first].(map[string]any), key, value)
+	}
 	if role == "assistant" {
 		preserveAdapterAssistantContext(messages, source, first, last)
 	}

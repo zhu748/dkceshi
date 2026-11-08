@@ -9,11 +9,14 @@ import (
 func geminiMessagesFromRequest(req map[string]any) []any {
 	out := make([]any, 0, 8)
 	links := promptcompat.NewToolCallLinker("call_gemini")
-	if sys := normalizeGeminiSystemInstruction(req["systemInstruction"]); strings.TrimSpace(sys) != "" {
-		out = append(out, map[string]any{
-			"role":    "system",
-			"content": sys,
-		})
+	system := req["systemInstruction"]
+	sys := normalizeGeminiSystemInstruction(system)
+	systemMessage := map[string]any{"role": "system", "content": sys}
+	if container, ok := system.(map[string]any); ok && container["parts"] != nil {
+		promptcompat.PreserveAdapterMessageMetadata([]any{systemMessage}, container, "system", "parts", "text")
+	}
+	if strings.TrimSpace(sys) != "" || prompt.MessageContextText(systemMessage) != "" {
+		out = append(out, systemMessage)
 	}
 
 	contents, _ := req["contents"].([]any)
@@ -44,7 +47,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 		if len(parts) == 0 {
 			text, _ := content["text"].(string)
 			out = append(out, map[string]any{"role": role, "content": text})
-			out = append(out[:before], promptcompat.PreserveAdapterMessageMetadata(out[before:], content, role)...)
+			out = append(out[:before], promptcompat.PreserveAdapterMessageMetadata(out[before:], content, role, "parts", "text")...)
 			continue
 		}
 
@@ -111,6 +114,8 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 					pendingThinking = ""
 				}
 				promptcompat.AppendMessageAttachments(msg, fnCall, part)
+				promptcompat.PreserveNativeToolContext(msg, fnCall, "functionCall", "args", "call_id", "callId")
+				promptcompat.PreserveNativeToolContext(msg, part, "part", "functionCall", "thought")
 				out = append(out, msg)
 				continue
 			}
@@ -129,6 +134,8 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 					msg["name"] = name
 				}
 				promptcompat.AppendMessageAttachments(msg, fnResp, part)
+				promptcompat.PreserveNativeToolContext(msg, fnResp, "functionResponse", "response", "output", "parts", "call_id", "callId")
+				promptcompat.PreserveNativeToolContext(msg, part, "part", "functionResponse", "thought")
 				out = append(out, msg)
 				continue
 			}
@@ -148,7 +155,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 				"reasoning_content": pendingThinking,
 			})
 		}
-		out = append(out[:before], promptcompat.PreserveAdapterMessageMetadata(out[before:], content, role)...)
+		out = append(out[:before], promptcompat.PreserveAdapterMessageMetadata(out[before:], content, role, "parts", "text")...)
 	}
 	return out
 }

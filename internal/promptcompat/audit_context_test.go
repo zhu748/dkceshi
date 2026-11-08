@@ -36,11 +36,11 @@ func TestToolExamplesReachLivePromptAndExternalCatalog(t *testing.T) {
 	}
 }
 
-func TestContextFieldsExposeUnrenderedDataWithoutStoringValues(t *testing.T) {
+func TestContextFieldsExposePreservedExtensionsWithoutStoringValues(t *testing.T) {
 	r := StandardRequest{Messages: []any{map[string]any{"role": "user", "content": "visible", "custom_context": "PRIVATE_SENTINEL"}}}
 	manifest := r.ContextManifest()
 	fields := manifest.SourceMessages[0].Fields
-	if len(fields) != 3 || fields[1].Name != "custom_context" || fields[1].Disposition != "unrendered" || fields[1].SHA256 != digestContext([]byte(`"PRIVATE_SENTINEL"`)).SHA256 {
+	if len(fields) != 3 || fields[1].Name != "custom_context" || fields[1].Disposition != "message_context" || fields[1].SHA256 != digestContext([]byte(`"PRIVATE_SENTINEL"`)).SHA256 {
 		t.Fatalf("missing field coverage: %+v", fields)
 	}
 	r.SourceContext = manifest.SourceMessages

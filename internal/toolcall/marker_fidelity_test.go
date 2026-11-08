@@ -39,3 +39,27 @@ func TestMarkerNormalizationDoesNotRewriteLongerWords(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkerNormalizationPreservesJSONMarkdownAndComments(t *testing.T) {
+	const literal = "<|Q7ZK3M|invoke>"
+	const call = `<|Q7ZK3M|tool_calls><|Q7ZK3M|invoke name="write"><|Q7ZK3M|parameter name="payload">{"snippet":"` + literal + `","open":"<![CDATA[","escaped":"\"` + literal + `"}</|Q7ZK3M|parameter></|Q7ZK3M|invoke></|Q7ZK3M|tool_calls>`
+	const normalizedCall = `<|EPSE|tool_calls><|EPSE|invoke name="write"><|EPSE|parameter name="payload">{"snippet":"` + literal + `","open":"<![CDATA[","escaped":"\"` + literal + `"}</|EPSE|parameter></|EPSE|invoke></|EPSE|tool_calls>`
+	for _, example := range []string{
+		"`" + literal + "`", "``" + literal + "``", "```xml\n" + literal + "\n```", "~~~xml\n" + literal + "\n~~~",
+		`{"example":"` + literal + `"}`, "<!-- " + literal + " -->", "<![CDATA[" + literal + "]]>",
+	} {
+		input, want := example+"\n"+call, example+"\n"+normalizedCall
+		for split := 0; split <= len(input); split++ {
+			n := NewMarkerNormalizer("Q7ZK3M")
+			if got := n.Write(input[:split]) + n.Write(input[split:]) + n.Flush(); got != want {
+				t.Fatalf("split=%d: literal or real call changed:\n%s", split, got)
+			}
+		}
+		if got := NormalizeToolMarkupMarker(input, "Q7ZK3M"); got != want {
+			t.Fatalf("history changed literal data: %s", got)
+		}
+		if got := ApplyToolMarker(want, "Q7ZK3M"); got != input {
+			t.Fatalf("generated history changed literal data: %s", got)
+		}
+	}
+}

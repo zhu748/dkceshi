@@ -1,6 +1,8 @@
 package promptcompat
 
 import (
+	"sort"
+	"strconv"
 	"strings"
 
 	"ds2api/internal/prompt"
@@ -35,6 +37,26 @@ func contextOmissions(messages []ContextMessageDigest) []ContextOmission {
 
 func contentOmittedPaths(message map[string]any) []string {
 	var paths []string
+	if strings.EqualFold(strings.TrimSpace(asString(message["role"])), "assistant") {
+		calls, _ := message["tool_calls"].([]any)
+		for index, raw := range calls {
+			call, _ := raw.(map[string]any)
+			for group, fields := range prompt.ToolCallContextFields(call) {
+				base := "/tool_calls/" + strconv.Itoa(index)
+				if group == "function" {
+					base += "/function"
+				}
+				for _, path := range prompt.ContextValueOmittedPaths(fields) {
+					paths = append(paths, base+path)
+				}
+			}
+		}
+	}
+	for field, value := range prompt.MessageContextFields(message) {
+		for _, path := range prompt.ContextValueOmittedPaths(value) {
+			paths = append(paths, "/"+inputPathEscaper.Replace(field)+path)
+		}
+	}
 	for _, field := range []string{"content", "reasoning_content", "attachments", "files"} {
 		raw := message[field]
 		wrapped := false
@@ -58,5 +80,6 @@ func contentOmittedPaths(message map[string]any) []string {
 			paths = append(paths, "/"+field+path)
 		}
 	}
+	sort.Strings(paths)
 	return paths
 }

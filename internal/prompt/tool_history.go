@@ -61,5 +61,8 @@ func formatToolCallHistory(calls []any) string {
 		}
 	}
 	flush()
+	if context := toolHistoryContext(calls); context != "" {
+		parts = append([]string{context}, parts...)
+	}
 	return strings.Join(parts, "\n")
 }

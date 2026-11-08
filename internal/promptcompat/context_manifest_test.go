@@ -56,14 +56,14 @@ func TestContextManifestIdentifiesPromptContentAndOmittedMessages(t *testing.T) 
 func TestContextManifestExplainsOmissionsAcrossExternalization(t *testing.T) {
 	r := StandardRequest{Messages: []any{map[string]any{"role": "user", "content": "hello", "custom_context": "PRIVATE_SENTINEL", "cache_control": map[string]any{"type": "ephemeral"}}}}
 	before := r.ContextManifest()
-	if len(before.Omissions) != 2 || before.Omissions[0].Field != "cache_control" || before.Omissions[0].Reason != "transport_hint" || before.Omissions[1].Field != "custom_context" || before.Omissions[1].Reason != "field_has_no_prompt_serializer" {
+	if len(before.Omissions) != 1 || before.Omissions[0].Field != "cache_control" || before.Omissions[0].Reason != "transport_hint" {
 		t.Fatalf("missing omission explanation: %+v", before.Omissions)
 	}
 	r.SourceContext = before.SourceMessages
 	r.Messages = []any{map[string]any{"role": "user", "content": "continue"}}
 	r.CurrentInputFileApplied = true
 	after := r.ContextManifest()
-	if !reflect.DeepEqual(before.Omissions, after.Omissions) || strings.Contains(after.Omissions[1].Reason, "PRIVATE_SENTINEL") {
+	if !reflect.DeepEqual(before.Omissions, after.Omissions) || strings.Contains(after.Omissions[0].Reason, "PRIVATE_SENTINEL") {
 		t.Fatal("externalization lost omission evidence or exposed field values")
 	}
 }

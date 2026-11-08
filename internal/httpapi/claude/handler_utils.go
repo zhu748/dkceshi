@@ -174,6 +174,7 @@ func normalizeClaudeToolUseToAssistant(block map[string]any, state *claudeToolCa
 		"tool_calls": toolCalls,
 	}
 	promptcompat.AppendMessageAttachments(out, block)
+	promptcompat.PreserveNativeToolContext(out, block, "tool_use", "input", "tool_use_id")
 	return out
 }
 
@@ -197,6 +198,7 @@ func normalizeClaudeToolResultToToolMessage(block map[string]any, state *claudeT
 		out["name"] = name
 	}
 	promptcompat.AppendMessageAttachments(out, block)
+	promptcompat.PreserveNativeToolContext(out, block, "tool_result", "tool_use_id")
 	return out
 }
 

@@ -38,6 +38,14 @@ func ContentOmittedPaths(content any) []string {
 				}
 			}
 		}
+		switch strings.ToLower(strings.TrimSpace(kind)) {
+		case "text", "input_text", "output_text", "refusal", "thinking", "reasoning":
+			for _, key := range []string{"encrypted_content", "thoughtSignature", "thought_signature"} {
+				if _, present := block[key]; present {
+					sanitized.(map[string]any)[key] = "[omitted_binary_payload]"
+				}
+			}
+		}
 		collectOmittedPaths(block, sanitized, path, &paths)
 	}
 	sort.Strings(paths)

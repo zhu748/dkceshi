@@ -24,6 +24,9 @@ func validateToolCatalog(raw any) error {
 		if err := validateToolSchemaAliases(tool); err != nil {
 			return fmt.Errorf("tools[%d]: %w", i, err)
 		}
+		if err := validateToolExampleAliases(tool); err != nil {
+			return fmt.Errorf("tools[%d]: %w", i, err)
+		}
 		typ, validType := tool["type"].(string)
 		if tool["type"] != nil && !validType || typ != "" && typ != "function" && typ != "custom" {
 			return fmt.Errorf("tools[%d] has an unsupported type", i)

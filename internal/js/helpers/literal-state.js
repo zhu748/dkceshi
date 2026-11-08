@@ -4,6 +4,14 @@
 // replacement for authoritative full-source parsing or argument validation.
 class LiteralState {
   constructor() { this.tail = ''; this.mode = ''; this.quote = false; this.escaped = false; this.code = ''; this.ticks = 0; this.run = 0; this.runChar = ''; }
+  active() {
+    if (this.mode || this.quote || this.code || this.run) return true;
+    for (let i = this.tail.indexOf('<'); i >= 0; i = this.tail.indexOf('<', i + 1)) {
+      const suffix = this.tail.slice(i);
+      if ('<![cdata['.startsWith(suffix) || '<!--'.startsWith(suffix)) return true;
+    }
+    return false;
+  }
   feed(ch) {
     const normalized = ({ '＜': '<', '﹤': '<', '〈': '<', '＞': '>', '﹥': '>', '〉': '>', '！': '!', '、': '!' })[ch] || ch.toLowerCase();
     this.tail = (this.tail + normalized).slice(-9);

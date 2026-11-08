@@ -2,26 +2,32 @@ package promptcompat
 
 import "strings"
 
-// NormalizeLegacyToolHistory upgrades legacy function_call/function messages
-// without mutating caller data. Existing modern histories are returned as-is.
+// NormalizeLegacyToolHistory upgrades legacy messages and persists the FIFO
+// links used to validate ID-less modern history. Complete IDs are preserved.
+// Caller-owned messages/calls are never changed.
 func NormalizeLegacyToolHistory(messages []any) []any {
-	hasLegacy := false
+	needsLinking := false
 	links := NewToolCallLinker("call_legacy")
 	for _, raw := range messages {
 		msg, _ := raw.(map[string]any)
-		hasLegacy = hasLegacy || msg["function_call"] != nil || strings.EqualFold(strings.TrimSpace(asString(msg["role"])), "function")
+		role := strings.ToLower(strings.TrimSpace(asString(msg["role"])))
+		resultID := asString(msg["tool_call_id"])
+		needsLinking = needsLinking || msg["function_call"] != nil || role == "function" || role == "tool" &&
+			(resultID != strings.TrimSpace(resultID) || strings.TrimSpace(resultID) == "" && strings.TrimSpace(asString(msg["name"])) != "")
 		links.Reserve(asString(msg["tool_call_id"]))
 		links.Reserve(asString(msg["id"]))
 		calls, _ := msg["tool_calls"].([]any)
 		for _, rawCall := range calls {
 			call, _ := rawCall.(map[string]any)
-			links.Reserve(asString(call["id"]))
+			id := asString(call["id"])
+			links.Reserve(id)
+			needsLinking = needsLinking || id == "" || id != strings.TrimSpace(id)
 		}
 		if fn, ok := msg["function_call"].(map[string]any); ok {
 			links.Reserve(asString(fn["id"]))
 		}
 	}
-	if !hasLegacy {
+	if !needsLinking {
 		return messages
 	}
 	out := make([]any, 0, len(messages))

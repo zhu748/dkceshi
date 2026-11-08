@@ -35,6 +35,10 @@ func copyPromptMessageMetadata(out, source map[string]any) {
 }
 
 func hasPromptMessageMetadata(message map[string]any) bool {
+	return hasPromptMessageIdentity(message) || len(messageContextFields(message)) > 0
+}
+
+func hasPromptMessageIdentity(message map[string]any) bool {
 	for _, key := range []string{"name", "id", "prefix", "refusal", "audio", "tool_call_id", "is_error"} {
 		if message[key] != nil {
 			return true

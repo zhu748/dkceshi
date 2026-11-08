@@ -3,9 +3,46 @@ package toolcall
 import (
 	"context"
 	"testing"
+	"time"
 
 	"ds2api/internal/tooldiagnostics"
 )
+
+type cancelBeforeRetryDelay struct{ cancel context.CancelFunc }
+
+func (e cancelBeforeRetryDelay) Error() string { return "temporary provider failure" }
+func (e cancelBeforeRetryDelay) RetryDelay() time.Duration {
+	// Synchronize cancellation with the provider's retry metadata, after its
+	// response was processed and before the long backoff can start.
+	e.cancel()
+	return 30 * time.Second
+}
+
+func TestRepairCancellationInterruptsRetryAfter(t *testing.T) {
+	ctx, cancel := context.WithCancel(tooldiagnostics.WithRepairSettings(context.Background(), tooldiagnostics.RepairSettings{Mode: "custom", TimeoutSeconds: 5}))
+	defer cancel()
+	type result struct {
+		ok, delivered bool
+		attempts      int
+	}
+	done := make(chan result, 1)
+	go func() {
+		attempts := 0
+		calls, ok := RepairToolCallsWithLLM(ctx, `<|EPSE|call name="read"></|EPSE|call>`, func(context.Context, string) (string, error) {
+			attempts++
+			return "", cancelBeforeRetryDelay{cancel: cancel}
+		})
+		done <- result{ok: ok, delivered: len(calls) > 0, attempts: attempts}
+	}()
+	select {
+	case got := <-done:
+		if got.ok || got.delivered || got.attempts != 1 || ctx.Err() != context.Canceled {
+			t.Fatalf("cancelled retry returned unexpected result: %+v error=%v", got, ctx.Err())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancellation waited for provider backoff")
+	}
+}
 
 func TestRepairDiscardsValidOutputReturnedAfterCancellation(t *testing.T) {
 	for _, mode := range []string{"original", "custom"} {

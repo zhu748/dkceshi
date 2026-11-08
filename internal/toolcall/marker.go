@@ -4,7 +4,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"strings"
-	"sync"
 )
 
 // EPSEKeyword is the canonical, internal tool-call tag prefix. All prompt
@@ -119,12 +118,10 @@ func deriveToolMarkerAttempt(secret, callerID string, attempt int) string {
 // The zero value is a no-op normalizer, which is what callers get for the
 // canonical EPSE marker.
 type MarkerNormalizer struct {
-	marker     string
-	buf        string
-	tagPrefix  bool
-	inCDATA    bool
-	cdataOpen  int
-	cdataClose int
+	marker    string
+	buf       string
+	tagPrefix bool
+	literal   LiteralState
 }
 
 // NewMarkerNormalizer builds a normalizer for marker. Empty or canonical
@@ -158,17 +155,10 @@ func (n *MarkerNormalizer) Write(chunk string) string {
 	if !n.Active() {
 		return chunk
 	}
-	// Fast path: with an empty hold buffer, no CDATA section open, no pending
-	// tag prefix and no partial CDATA opener, a plain-ASCII chunk without '<'
-	// cannot change the state machine (tag prefixes, CDATA openers and the
-	// full-width variants observeRune normalizes all involve either '<' or a
-	// non-ASCII byte), cannot contain a rewritable occurrence, and — when it
-	// also does not end on a proper prefix of the marker — leaves nothing to
-	// withhold. Ordinary prose therefore skips the occurrence scan and the
-	// per-rune rewrite, which otherwise dominate the marker-normalization cost
-	// on streaming deltas.
-	if n.buf == "" && !n.inCDATA && !n.tagPrefix && n.cdataOpen == 0 &&
-		plainASCIIWithoutLessThan(chunk) && trailingMarkerPrefixLen(chunk, n.marker) == 0 {
+	// Ordinary ASCII can bypass lexical scanning only when no literal or
+	// delimiter prefix is pending and the chunk cannot start another literal.
+	if n.buf == "" && !n.tagPrefix && !n.literal.active() &&
+		plainMarkerText(chunk) && trailingMarkerPrefixLen(chunk, n.marker) == 0 {
 		return chunk
 	}
 	data := n.buf + chunk
@@ -219,50 +209,6 @@ func NormalizeToolMarkupMarker(text, marker string) string {
 		return text
 	}
 	return replaceToolMarkupMarker(text, marker, EPSEKeyword)
-}
-
-// replacerCache memoizes the marker Replacers: ApplyToolMarker and
-// NormalizeToolMarkupMarker run over every history message of every request,
-// and strings.NewReplacer construction is pure overhead on that path. The
-// cache is keyed by the (from,to) marker pair; distinct per-caller markers
-// make the entry set small (one per active API key) and unbounded growth is
-// capped by key count.
-var replacerCache sync.Map // string -> *strings.Replacer
-
-func markerReplacer(from, to string) *strings.Replacer {
-	key := from + "\x00" + to
-	if cached, ok := replacerCache.Load(key); ok {
-		return cached.(*strings.Replacer)
-	}
-	replacer := strings.NewReplacer("<|"+from+"|", "<|"+to+"|", "</|"+from+"|", "</|"+to+"|")
-	replacerCache.Store(key, replacer)
-	return replacer
-}
-
-func replaceToolMarkupMarker(text, from, to string) string {
-	if !strings.Contains(text, from) {
-		return text
-	}
-	replacer := markerReplacer(from, to)
-	// CDATA is literal tool argument content. Never rewrite user strings in it.
-	var out strings.Builder
-	for len(text) > 0 {
-		start := strings.Index(text, "<![CDATA[")
-		if start < 0 {
-			out.WriteString(replacer.Replace(text))
-			break
-		}
-		out.WriteString(replacer.Replace(text[:start]))
-		end := strings.Index(text[start+9:], "]]>")
-		if end < 0 {
-			out.WriteString(text[start:])
-			break
-		}
-		end += start + 12
-		out.WriteString(text[start:end])
-		text = text[end:]
-	}
-	return out.String()
 }
 
 // trailingMarkerPrefixLen returns the length of the longest suffix of data that
@@ -319,13 +265,10 @@ func asciiEqualFold(a, b string) bool {
 	return true
 }
 
-// plainASCIIWithoutLessThan reports whether s is pure ASCII and contains no
-// '<'. Such a chunk cannot advance any MarkerNormalizer state: the '<', ']',
-// '>' and slash transitions all need their ASCII form (full-width variants
-// are non-ASCII), and separators/identifiers never set state on their own.
-func plainASCIIWithoutLessThan(s string) bool {
+// Plain marker text cannot start markup, quotes or Markdown literals.
+func plainMarkerText(s string) bool {
 	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 || s[i] == '<' {
+		if s[i] >= 0x80 || s[i] == '<' || s[i] == '"' || s[i] == '`' || s[i] == '~' {
 			return false
 		}
 	}

@@ -3,6 +3,7 @@ package completionruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -84,20 +85,43 @@ func TestPermanentConfigurationBackoffIsIsolatedAndProbeBypassesIt(t *testing.T)
 	}
 }
 
-func TestRepairRetryAfterAndCancellationShareDeadline(t *testing.T) {
+func TestRepairRetryAfterStopsOnCancellation(t *testing.T) {
 	var calls atomic.Int32
+	requested := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Retry-After", "30")
 		w.WriteHeader(429)
+		select {
+		case requested <- struct{}{}:
+		default:
+		}
 	}))
 	defer server.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	started := time.Now()
-	_, err := TestRepairAPI(ctx, tooldiagnostics.RepairSettings{Mode: "custom", BaseURL: server.URL, Model: "model", TimeoutSeconds: 5})
-	if err == nil || calls.Load() != 1 || time.Since(started) > time.Second {
-		t.Fatalf("cancellation failed: calls=%d err=%v", calls.Load(), err)
+	done := make(chan error, 1)
+	go func() {
+		_, err := TestRepairAPI(ctx, tooldiagnostics.RepairSettings{Mode: "custom", BaseURL: server.URL, Model: "model", TimeoutSeconds: 5})
+		done <- err
+	}()
+	// Synchronize on the first request instead of assuming that a loaded
+	// machine can schedule its HTTP round trip within an arbitrary 100 ms.
+	select {
+	case <-requested:
+	case err := <-done:
+		t.Fatalf("repair exited before the request: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("repair never reached the test server")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) || calls.Load() != 1 {
+			t.Fatalf("cancellation failed: calls=%d err=%v", calls.Load(), err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("repair cancellation waited for Retry-After")
 	}
 }
 

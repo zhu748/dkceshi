@@ -58,6 +58,7 @@ func renderMessages(messages []map[string]any, completion, headings bool) string
 			encoded, _ := json.Marshal(metadata)
 			b.WriteString("Message metadata: " + string(encoded) + "\n")
 		}
+		b.WriteString(MessageContextText(m))
 		marker := map[string]string{"system": systemMarker, "developer": "[Developer]:", "user": userMarker, "assistant": assistantMarker, "tool": toolMarker}[role]
 		if marker == "" {
 			marker = "[Unknown]:"

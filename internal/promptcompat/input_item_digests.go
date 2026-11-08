@@ -1,7 +1,6 @@
 package promptcompat
 
 import (
-	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,11 +45,11 @@ func appendInputItemDigests(out []ContextFieldDigest, raw any, path string) []Co
 				if count >= maxInputSourceFields || len(fieldPath) > maxInputSourcePathLength || pathBytes+len(key)+len(fieldPath) > maxInputSourcePathBytes {
 					return append(out, ContextFieldDigest{Name: "source_field_trace", Path: path, Disposition: "adapter_source_trace_limit"})
 				}
-				data, err := json.Marshal(value[key])
+				data, fits, err := marshalSourceField(value[key], maxInputSourceEncodedBytes-encodedBytes)
 				if err != nil {
 					continue
 				}
-				if encodedBytes+len(data) > maxInputSourceEncodedBytes {
+				if !fits {
 					return append(out, ContextFieldDigest{Name: "source_field_trace", Path: path, Disposition: "adapter_source_trace_limit"})
 				}
 				out = append(out, ContextFieldDigest{Name: key, Path: fieldPath, Disposition: "adapter_source_field", ContextDigest: digestContext(data)})

@@ -1,5 +1,7 @@
 'use strict';
 
+const { LiteralState } = require('../helpers/literal-state');
+
 // Stateful tool-call marker normalizer. Mirrors internal/toolcall/marker.go
 // (MarkerNormalizer / NormalizeMarkerText) so the Node stream mirror and the Go
 // runtime agree byte-for-byte on how the per-API-key marker is folded back.
@@ -32,9 +34,7 @@ function createMarkerNormalizer(marker) {
   const active = normalizeMarker(marker);
   let buf = '';
   let tagPrefix = false;
-  let inCDATA = false;
-  let cdataOpen = 0;
-  let cdataClose = 0;
+  const literal = new LiteralState();
   if (!active) {
     return {
       active: false,
@@ -52,30 +52,17 @@ function createMarkerNormalizer(marker) {
     return ({ '〈': '<', '〉': '>', '“': '"', '”': '"', '‘': "'", '’': "'" })[ch] || ch;
   }
   function observeRune(original) {
-    const ch = normalizeRune(original).toLowerCase();
-    if (inCDATA) {
-      if (ch === ']') cdataClose = Math.min(2, cdataClose + 1);
-      else {
-        if (ch === '>' && cdataClose === 2) inCDATA = false;
-        cdataClose = 0;
-      }
-      tagPrefix = false;
-      return;
-    }
-    const opener = '<![cdata[';
-    if (ch === opener[cdataOpen]) {
-      cdataOpen++;
-      if (cdataOpen === opener.length) { inCDATA = true; cdataOpen = 0; }
-    } else cdataOpen = ch === '<' ? 1 : 0;
+    const ch = normalizeRune(original);
+    const structural = literal.feed(ch);
     const separator = !/[a-z0-9\s<>/=\["']/i.test(ch) && ch !== '▁';
-    if (ch === '<') tagPrefix = true;
+    if (!structural) tagPrefix = false;
+    else if (ch === '<') tagPrefix = true;
     else if (!tagPrefix || (!['/', '∕', '⁄', '⧸'].includes(ch) && !separator)) tagPrefix = false;
-    if (inCDATA) tagPrefix = false;
   }
   function rewrite(text, final) {
     let out = '';
     for (let i = 0; i < text.length;) {
-      if (!inCDATA && tagPrefix && equalsFold(text.slice(i, i + active.length), active)) {
+      if (tagPrefix && equalsFold(text.slice(i, i + active.length), active)) {
         const after = i + active.length;
         if (after === text.length && !final) return [out, text.slice(i)];
         if (after === text.length || !/[a-z0-9]/i.test(normalizeRune(String.fromCodePoint(text.codePointAt(after))))) {
@@ -110,18 +97,12 @@ function createMarkerNormalizer(marker) {
     // the tag prefix and waits for the following boundary if needed.
     write(chunk) {
       const incoming = typeof chunk === 'string' ? chunk : '';
-      // Fast path mirroring the Go MarkerNormalizer: with an empty hold, no
-      // open CDATA, no pending tag prefix and no partial CDATA opener, plain
-      // ASCII without '<' cannot change state, cannot be rewritten, and (when
-      // it does not end on a proper marker prefix) leaves nothing to withhold.
-      // This skips the occurrence scan and per-codepoint rewrite that
-      // otherwise dominate the normalization cost on streaming deltas.
+      // Skip lexical scanning only for plain ASCII with no literal state.
       if (
         buf === ''
-        && !inCDATA
         && !tagPrefix
-        && cdataOpen === 0
-        && plainASCIIWithoutLessThan(incoming)
+        && !literal.active()
+        && plainMarkerText(incoming)
         && trailingMarkerPrefixLen(incoming, active) === 0
       ) {
         return incoming;
@@ -188,14 +169,11 @@ function replaceMarkerKeyword(text, marker) {
   return normalizer.write(text) + normalizer.flush();
 }
 
-// plainASCIIWithoutLessThan reports whether s is pure ASCII with no '<'.
-// Such a chunk cannot advance any normalizer state: the '<', ']', '>' and
-// slash transitions all need their ASCII form (full-width variants are
-// non-ASCII), and separators never set state on their own.
-function plainASCIIWithoutLessThan(s) {
+// Plain marker text cannot start markup, quotes or Markdown literals.
+function plainMarkerText(s) {
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
-    if (c >= 0x80 || c === 0x3c) {
+    if (c >= 0x80 || '<"`~'.includes(s[i])) {
       return false;
     }
   }

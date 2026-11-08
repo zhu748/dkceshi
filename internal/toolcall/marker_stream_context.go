@@ -14,7 +14,7 @@ func (n *MarkerNormalizer) rewrite(text string, final bool) (string, string) {
 		if !final && !utf8.FullRuneInString(text[i:]) {
 			return out.String(), text[i:]
 		}
-		if !n.inCDATA && n.tagPrefix && len(text)-i >= len(n.marker) && asciiEqualFold(text[i:i+len(n.marker)], n.marker) {
+		if n.tagPrefix && len(text)-i >= len(n.marker) && asciiEqualFold(text[i:i+len(n.marker)], n.marker) {
 			after := i + len(n.marker)
 			if !final && (after == len(text) || !utf8.FullRuneInString(text[after:])) {
 				return out.String(), text[i:]
@@ -43,39 +43,11 @@ func (n *MarkerNormalizer) rewrite(text string, final bool) (string, string) {
 
 func (n *MarkerNormalizer) observeRune(r rune) {
 	ch := normalizeFullwidthASCII(r)
-	if ch >= 'A' && ch <= 'Z' {
-		ch += 'a' - 'A'
-	}
-	if n.inCDATA {
-		if ch == ']' {
-			n.cdataClose = min(2, n.cdataClose+1)
-		} else {
-			if ch == '>' && n.cdataClose == 2 {
-				n.inCDATA = false
-			}
-			n.cdataClose = 0
-		}
+	if !n.literal.Feed(ch) {
 		n.tagPrefix = false
-		return
-	}
-	const opener = "<![cdata["
-	if ch == rune(opener[n.cdataOpen]) {
-		n.cdataOpen++
-		if n.cdataOpen == len(opener) {
-			n.inCDATA = true
-			n.cdataOpen = 0
-		}
 	} else if ch == '<' {
-		n.cdataOpen = 1
-	} else {
-		n.cdataOpen = 0
-	}
-	if ch == '<' {
 		n.tagPrefix = true
 	} else if !n.tagPrefix || (ch != '/' && ch != '∕' && ch != '⁄' && ch != '⧸' && !isToolMarkupSeparator(r)) {
-		n.tagPrefix = false
-	}
-	if n.inCDATA {
 		n.tagPrefix = false
 	}
 }

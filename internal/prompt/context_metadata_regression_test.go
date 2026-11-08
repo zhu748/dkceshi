@@ -17,10 +17,34 @@ func TestBusinessFieldNamesDoNotMakeTextBinary(t *testing.T) {
 	for _, block := range []map[string]any{
 		{"type": "image", "base64": "OPAQUE_SENTINEL"},
 		{"type": "thinking", "signature": "OPAQUE_SENTINEL"},
-		{"type": "future", "thoughtSignature": "OPAQUE_SENTINEL"},
+		{"type": "redacted_thinking", "thoughtSignature": "OPAQUE_SENTINEL"},
 	} {
 		if strings.Contains(NormalizeContent([]any{block}), "OPAQUE_SENTINEL") {
 			t.Fatal("declared payload or provider signature escaped")
+		}
+	}
+}
+
+func TestOpaqueFieldNamesRemainBusinessDataOutsideProviderContainers(t *testing.T) {
+	value := map[string]any{"type": "record", "encrypted_content": "BUSINESS_TEXT", "thought_signature": "BUSINESS_ID", "nested": map[string]any{"thoughtSignature": "NESTED_ID"}}
+	for _, input := range []any{value, []any{value}, []any{map[string]any{"type": "text", "text": "body", "metadata": value}}} {
+		text := NormalizeContent(input)
+		for _, want := range []string{"BUSINESS_TEXT", "BUSINESS_ID", "NESTED_ID"} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("business data lost: %s", text)
+			}
+		}
+	}
+}
+
+func TestKnownTextBlocksStillOmitProviderStateAndReportItsPath(t *testing.T) {
+	for _, kind := range []string{"text", "thinking", "reasoning"} {
+		blocks := []any{map[string]any{"type": kind, "text": "BODY", "encrypted_content": "OPAQUE", "thoughtSignature": "OPAQUE"}}
+		if text := NormalizeContent(blocks); strings.Contains(text, "OPAQUE") || !strings.Contains(text, "BODY") {
+			t.Fatalf("provider state escaped into text: %s", text)
+		}
+		if paths := ContentOmittedPaths(blocks); len(paths) != 2 {
+			t.Fatalf("provider omissions missing: %+v", paths)
 		}
 	}
 }

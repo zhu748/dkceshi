@@ -52,7 +52,7 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 			})
 		default:
 			content := NormalizeOpenAIContentForPrompt(msg["content"])
-			if content == "" {
+			if content == "" && !hasExplicitPromptMessage(msg) {
 				continue
 			}
 			if role == "" {
@@ -64,6 +64,7 @@ func NormalizeOpenAIMessagesForPrompt(raw []any, traceID string, toolMarker ...s
 			})
 		}
 		if len(out) > before {
+			copyMessageContextFields(out[len(out)-1], msg)
 			for _, key := range []string{"name", "id", "prefix", "tool_call_id", "is_error"} {
 				if value, ok := msg[key]; ok {
 					out[len(out)-1][key] = value

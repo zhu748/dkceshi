@@ -35,6 +35,7 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"content": content,
 		}
 		copyPromptMessageMetadata(out, m)
+		copyMessageContextFields(out, m, "type", "text", "call_id")
 		if role == "tool" || role == "function" {
 			if value, ok := m["is_error"]; ok {
 				out["is_error"] = value
@@ -65,6 +66,7 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"content": content,
 		}
 		copyPromptMessageMetadata(out, m)
+		copyMessageContextFields(out, m, "type", "output", "call_id", "tool_name")
 		if value, ok := m["is_error"]; ok {
 			out["is_error"] = value
 		}
@@ -99,10 +101,10 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 		}
 		argsRaw, supplied := prompt.ToolCallArguments(m)
 
-		functionPayload := map[string]any{
-			"name":      name,
-			"arguments": prompt.StringifyToolCallArguments(argsRaw),
-		}
+		functionPayload := shallowCopyMap(fn)
+		delete(functionPayload, "input") // Consumed argument alias; retain extensions.
+		functionPayload["name"] = name
+		functionPayload["arguments"] = prompt.StringifyToolCallArguments(argsRaw)
 		if _, text := argsRaw.(string); supplied && (text || argsRaw == nil) {
 			functionPayload["arguments"] = argsRaw
 		}
@@ -128,6 +130,7 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"tool_calls": []any{call},
 		}
 		copyMessageAttachments(out, m)
+		copyMessageContextFields(out, m, "type", "arguments", "input", "function", "call_id")
 		return out
 	case "reasoning":
 		text := responsesReasoningText(m)
@@ -153,6 +156,7 @@ func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
 		"role": "assistant",
 	}
 	copyMessageAttachments(out, m)
+	copyMessageContextFields(out, m, "type", "text")
 	for _, key := range []string{"refusal", "id", "prefix", "name", "audio"} {
 		if value, exists := m[key]; exists {
 			out[key] = value
@@ -208,7 +212,7 @@ func responsesReasoningText(item map[string]any) string {
 		if entries, ok := item[key].([]any); ok {
 			for _, raw := range entries {
 				entry, _ := raw.(map[string]any)
-				if text, ok := entry["text"].(string); ok && text != "" {
+				if text, ok := entry["text"].(string); ok {
 					parts = append(parts, text+prompt.TextBlockMetadata(entry))
 				}
 			}
