@@ -7,13 +7,17 @@ const maxNormalizationSteps = 1 << 18
 // One budget covers a whole call batch. A failed traversal returns its original
 // input atomically; a partly coerced object must never escape this boundary.
 type normalizationRun struct {
-	remaining int
-	exhausted bool
+	remaining  int
+	exhausted  bool
+	conditions map[*jsonschema.Schema]bool
 }
 
 func (r *normalizationRun) root(value any, schema *jsonschema.Schema, depth int) (any, bool) {
 	var scope normalizationScope
 	next, changed := r.walk(value, schema, depth, &scope)
+	if changed && r.hasConditions(schema) && !r.preserveConditions(value, next, schema, depth, nil) {
+		return value, false
+	}
 	if r.exhausted {
 		return value, false
 	}

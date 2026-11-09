@@ -15,20 +15,18 @@ func FileReferenceText(block map[string]any) string {
 	default:
 		return ""
 	}
-	source := block
-	if nested, ok := block["file"].(map[string]any); ok {
-		source = nested
-	}
-	id, _ := source["file_id"].(string)
-	if id == "" && (kind == "file" || kind == "input_file" || kind == "file_reference") {
-		id, _ = source["id"].(string)
-	}
-	if strings.TrimSpace(id) == "" {
+	id, err := ResolveFileReferenceID(block)
+	if err != nil || id == "" {
 		return ""
+	}
+	sources := []map[string]any{block}
+	for nested, ok := block["file"].(map[string]any); ok; nested, ok = nested["file"].(map[string]any) {
+		sources = append(sources, nested)
 	}
 	ref := map[string]any{"type": kind, "file_id": id}
 	for _, aliases := range attachmentLabelAliases() {
-		for _, object := range []map[string]any{source, block} {
+		for i := len(sources) - 1; i >= 0; i-- {
+			object := sources[i]
 			for _, key := range aliases {
 				if value, ok := object[key].(string); ok && value != "" && ref[aliases[0]] == nil {
 					ref[aliases[0]] = value

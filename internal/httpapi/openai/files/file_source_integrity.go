@@ -12,20 +12,6 @@ import (
 
 var inlineLocatorKeys = []string{"file_data", "base64", "data", "file_url", "url", "file", "source", "inlineData", "inline_data", "image_url"}
 
-// Uploaded IDs are authoritative references; old inline bytes/URLs are hints
-// and must not force re-upload or source comparison on a later request.
-func hasUploadedInlineReference(block map[string]any) bool {
-	kind := strings.ToLower(strings.TrimSpace(shared.AsString(block["type"])))
-	if strings.TrimSpace(shared.AsString(block["file_id"])) != "" ||
-		(kind == "file" || kind == "input_file" || kind == "file_reference") && strings.TrimSpace(shared.AsString(block["id"])) != "" {
-		return true
-	}
-	if nested, ok := block["file"].(map[string]any); ok {
-		return strings.TrimSpace(shared.AsString(nested["file_id"])) != "" || strings.TrimSpace(shared.AsString(nested["id"])) != ""
-	}
-	return false
-}
-
 // Compare decoded bytes and media types, not transport spelling: padded/raw
 // base64 and data URLs may encode the same file. No payload value enters errors.
 // The common single-source path keeps its original one-decode behavior.

@@ -8,7 +8,7 @@ func JoinReasoningRepresentations(texts ...string) string {
 	var parts []string
 	seen := make(map[string]bool, len(texts))
 	for _, text := range texts {
-		if strings.TrimSpace(text) != "" && !seen[text] {
+		if text != "" && !seen[text] {
 			parts = append(parts, text)
 			seen[text] = true
 		}
@@ -53,7 +53,7 @@ func reasoningBlockText(block map[string]any) string {
 	case "reasoning", "thinking":
 		metadata := ReasoningBlockMetadata(block)
 		for _, key := range []string{"text", "thinking", "content"} {
-			if text, ok := block[key].(string); ok && strings.TrimSpace(text) != "" {
+			if text, ok := block[key].(string); ok && text != "" {
 				return text + metadata
 			}
 		}

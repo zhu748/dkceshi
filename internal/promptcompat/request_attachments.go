@@ -72,19 +72,23 @@ func appendRequestAttachments(out []any, raw any) []any {
 		}
 		return out
 	case map[string]any:
-		if value["type"] == nil && (value["file_id"] != nil || value["file"] != nil || value["file_data"] != nil || value["image_url"] != nil) {
-			block := make(map[string]any, len(value)+1)
-			for key, item := range value {
-				block[key] = item
-			}
-			block["type"] = "input_file"
-			if value["image_url"] != nil {
-				block["type"] = "image_url"
-			}
-			return append(out, block)
-		}
+		return append(out, NormalizeAttachmentInputBlock(value))
 	}
 	return append(out, raw)
+}
+
+// Only explicit attachments/files bags imply that a bare ID is a file ID.
+// Ordinary content/tool-result objects never use this conversion implicitly.
+func NormalizeAttachmentInputBlock(value map[string]any) map[string]any {
+	if value["type"] != nil || value["file_id"] == nil && value["id"] == nil && value["file"] == nil && value["file_data"] == nil && value["image_url"] == nil {
+		return value
+	}
+	block := shallowCopyMap(value)
+	block["type"] = "input_file"
+	if value["image_url"] != nil {
+		block["type"] = "image_url"
+	}
+	return block
 }
 
 // Top-level attachment arrays hold content blocks, not message envelopes.

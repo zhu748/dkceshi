@@ -115,6 +115,11 @@ func normalizeResponsesInputItemWithState(m map[string]any, callNameByID map[str
 			"type":     "function",
 			"function": functionPayload,
 		}
+		// A Responses item ID and its call ID identify different things. Keep
+		// item identity with this occurrence even when adjacent calls merge.
+		if value, present := m["id"]; present {
+			call["responses_item_id"] = value
+		}
 		if callID := strings.TrimSpace(asString(m["call_id"])); callID != "" {
 			call["id"] = callID
 		} else if callID = strings.TrimSpace(asString(m["tool_call_id"])); callID != "" {
@@ -173,7 +178,7 @@ func normalizeResponsesAssistantMessage(m map[string]any) map[string]any {
 	if hasContent {
 		out["content"] = content
 	}
-	if reasoning := strings.TrimSpace(normalizeOpenAIReasoningContentForPrompt(m["reasoning_content"])); reasoning != "" {
+	if reasoning := normalizeOpenAIReasoningContentForPrompt(m["reasoning_content"]); reasoning != "" {
 		out["reasoning_content"] = m["reasoning_content"]
 	}
 	if _, hasToolCalls := out["tool_calls"]; hasToolCalls || out["function_call"] != nil || hasContent || out["reasoning_content"] != nil || hasPromptMessageMetadata(out) {

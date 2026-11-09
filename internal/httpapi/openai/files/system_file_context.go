@@ -22,7 +22,7 @@ func (s *inlineUploadState) walkRequestInputs(req map[string]any) error {
 			continue
 		}
 		if raw, ok := req[key]; ok {
-			updated, err := s.walk(raw)
+			updated, err := s.walk(raw, key == "attachments" || key == "files")
 			if err != nil {
 				return err
 			}

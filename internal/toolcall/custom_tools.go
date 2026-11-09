@@ -1,6 +1,9 @@
 package toolcall
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Custom tools retain their raw string as a single input parameter in the
 // shared textual tool protocol. Only the Responses renderer changes its wire shape.
@@ -8,7 +11,7 @@ func IsCustomTool(toolsRaw any, name string) bool {
 	tools, _ := toolsRaw.([]any)
 	for _, raw := range tools {
 		tool, _ := raw.(map[string]any)
-		if tool["type"] == "custom" && tool["name"] == name {
+		if tool["type"] == "custom" && strings.TrimSpace(asStringValue(tool["name"])) == strings.TrimSpace(name) {
 			return true
 		}
 	}

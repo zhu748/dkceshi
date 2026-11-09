@@ -15,7 +15,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 	if container, ok := system.(map[string]any); ok && container["parts"] != nil {
 		promptcompat.PreserveAdapterMessageMetadata([]any{systemMessage}, container, "system", "parts", "text")
 	}
-	if strings.TrimSpace(prompt.NormalizeContent(sys)) != "" || prompt.MessageContextText(systemMessage) != "" {
+	if prompt.NormalizeContent(sys) != "" || prompt.MessageContextText(systemMessage) != "" {
 		out = append(out, systemMessage)
 	}
 
@@ -61,7 +61,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 				"role":    role,
 				"content": promptcompat.JoinContentText(textParts),
 			}
-			if role == "assistant" && strings.TrimSpace(pendingThinking) != "" {
+			if role == "assistant" && pendingThinking != "" {
 				msg["reasoning_content"] = pendingThinking
 				pendingThinking = ""
 			}
@@ -109,7 +109,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 						},
 					},
 				}
-				if strings.TrimSpace(pendingThinking) != "" {
+				if pendingThinking != "" {
 					msg["reasoning_content"] = pendingThinking
 					pendingThinking = ""
 				}
@@ -149,7 +149,7 @@ func geminiMessagesFromRequest(req map[string]any) []any {
 			}
 		}
 		flushText()
-		if role == "assistant" && strings.TrimSpace(pendingThinking) != "" {
+		if role == "assistant" && pendingThinking != "" {
 			out = append(out, map[string]any{
 				"role":              "assistant",
 				"reasoning_content": pendingThinking,

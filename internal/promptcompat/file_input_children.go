@@ -1,6 +1,10 @@
 package promptcompat
 
-import "strings"
+import (
+	"strings"
+
+	"ds2api/internal/prompt"
+)
 
 // FileInputChildKeys is shared by upload and reference discovery. Tool JSON
 // objects and function arguments are opaque data, not attachment containers.
@@ -14,8 +18,13 @@ func FileInputChildKeys(block map[string]any) []string {
 	case "tool_use", "function_call", "custom_tool_call", "tool_call":
 		return AttachmentInputKeys() // Arguments/input are opaque business data.
 	case "document":
-		if source, _ := block["source"].(map[string]any); source["type"] == "text" {
-			return nil
+		if source, _ := block["source"].(map[string]any); source["type"] == "text" || source["type"] == "content" {
+			return append(AttachmentInputKeys(), "source") // Text data is opaque; explicit attachment bags still apply.
+		}
+	}
+	if IsInlineAttachmentBlock(block) {
+		if id, err := prompt.ResolveFileReferenceID(block); err == nil && id != "" {
+			return AttachmentInputKeys() // Old locator bytes must not become a second upload.
 		}
 	}
 	role := strings.ToLower(strings.TrimSpace(asString(block["role"])))

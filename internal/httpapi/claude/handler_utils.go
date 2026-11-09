@@ -44,7 +44,7 @@ func normalizeClaudeMessages(messages []any) []any {
 				// into content: the shared prompt builder renders the labeled
 				// block from the field, so this turn renders the same way as it
 				// does for every other protocol surface.
-				if role == "assistant" && strings.TrimSpace(pendingThinking) != "" {
+				if role == "assistant" && pendingThinking != "" {
 					message["reasoning_content"] = pendingThinking
 					pendingThinking = ""
 				}
@@ -85,7 +85,7 @@ func normalizeClaudeMessages(messages []any) []any {
 					if role == "assistant" {
 						flushText()
 						if toolMsg := normalizeClaudeToolUseToAssistant(b, state); toolMsg != nil {
-							if strings.TrimSpace(pendingThinking) != "" {
+							if pendingThinking != "" {
 								toolMsg["reasoning_content"] = pendingThinking
 								pendingThinking = ""
 							}
@@ -114,7 +114,7 @@ func normalizeClaudeMessages(messages []any) []any {
 				}
 			}
 			flushText()
-			if role == "assistant" && strings.TrimSpace(pendingThinking) != "" {
+			if role == "assistant" && pendingThinking != "" {
 				out = append(out, map[string]any{
 					"role":              "assistant",
 					"reasoning_content": pendingThinking,

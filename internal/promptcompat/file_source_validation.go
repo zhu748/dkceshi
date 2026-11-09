@@ -3,15 +3,17 @@ package promptcompat
 import (
 	"fmt"
 	"strings"
+
+	"ds2api/internal/prompt"
 )
 
 func validateFileSource(block map[string]any, kind string) error {
 	file, _ := block["file"].(map[string]any)
-	if (kind == "file" || kind == "input_file" || kind == "file_reference") && strings.TrimSpace(asString(block["id"])) != "" {
-		return nil
-	}
-	if strings.TrimSpace(asString(block["file_id"])) != "" || strings.TrimSpace(asString(file["file_id"])) != "" || strings.TrimSpace(asString(file["id"])) != "" {
-		return nil // Uploaded IDs do not require replaying stale locator hints.
+	if IsInlineAttachmentBlock(block) || kind == "document" {
+		id, err := prompt.ResolveFileReferenceID(block)
+		if err != nil || id != "" {
+			return err // Valid IDs do not require replaying stale locator hints.
+		}
 	}
 	switch kind {
 	case "file", "input_file", "file_reference":

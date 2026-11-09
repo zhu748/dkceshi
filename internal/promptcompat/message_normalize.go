@@ -164,14 +164,6 @@ func formatPromptLabeledBlock(label, text string) string {
 	return "[" + label + "]\n" + text + "\n[/" + label + "]"
 }
 
-// Use trimming only to detect empty content, never to rewrite client text.
-func nonBlankPromptText(text string) string {
-	if strings.TrimSpace(text) == "" {
-		return ""
-	}
-	return text
-}
-
 func buildToolContentForPrompt(msg map[string]any) string {
 	content := NormalizeOpenAIContentForPrompt(msg["content"])
 	if msg["content"] == nil {

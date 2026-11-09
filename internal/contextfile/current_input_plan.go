@@ -9,6 +9,7 @@ import (
 
 type currentInputPlan struct {
 	messages                       []any
+	historyMessages                []any
 	historyText, toolsText, prompt string
 	toolNames                      []string
 }
@@ -49,6 +50,7 @@ func planCurrentInputContext(req promptcompat.StandardRequest) *currentInputPlan
 		}
 	}
 	plan := &currentInputPlan{}
+	plan.historyMessages = history
 	plan.toolsText, _ = promptcompat.BuildOpenAIToolsContextTranscript(req.ToolsRaw, req.ToolChoice)
 	plan.messages = append([]any{map[string]any{"role": "system", "content": currentInputFilePrompt(plan.toolsText != "")}}, live...)
 	plan.prompt, plan.toolNames = req.BuildPromptWithExternalTools(plan.messages, promptcompat.ReadToolResultNeedsCacheGuard(req.Messages))

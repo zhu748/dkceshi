@@ -143,12 +143,12 @@ func WriteInlineFileError(w http.ResponseWriter, err error) {
 	shared.WriteOpenAIError(w, status, message)
 }
 
-func (s *inlineUploadState) walk(raw any) (any, error) {
+func (s *inlineUploadState) walk(raw any, attachmentBag bool) (any, error) {
 	switch x := raw.(type) {
 	case []any:
 		out := make([]any, len(x))
 		for i, item := range x {
-			updated, err := s.walk(item)
+			updated, err := s.walk(item, attachmentBag)
 			if err != nil {
 				return nil, err
 			}
@@ -156,12 +156,15 @@ func (s *inlineUploadState) walk(raw any) (any, error) {
 		}
 		return out, nil
 	case map[string]any:
+		if attachmentBag {
+			x = promptcompat.NormalizeAttachmentInputBlock(x)
+		}
 		if replacement, replaced, err := s.tryUploadBlock(x); replaced || err != nil {
 			return replacement, err
 		}
 		for _, key := range promptcompat.FileInputChildKeys(x) {
 			if nested, ok := x[key]; ok {
-				updated, err := s.walk(nested)
+				updated, err := s.walk(nested, key == "attachments" || key == "files")
 				if err != nil {
 					return nil, err
 				}
@@ -255,8 +258,12 @@ func decodeOpenAIInlineFileBlock(block map[string]any) (inlineDecodedFile, bool,
 	if !promptcompat.IsInlineAttachmentBlock(block) {
 		return inlineDecodedFile{}, false, nil
 	}
+	id, err := prompt.ResolveFileReferenceID(block)
+	if err != nil {
+		return inlineDecodedFile{}, true, err
+	}
 	blockType := strings.ToLower(strings.TrimSpace(shared.AsString(block["type"])))
-	if hasUploadedInlineReference(block) {
+	if id != "" {
 		return inlineDecodedFile{}, false, nil
 	}
 	if err := validateInlineFileSources(block); err != nil {

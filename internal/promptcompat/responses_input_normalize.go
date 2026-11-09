@@ -20,7 +20,7 @@ func ResponsesMessagesFromRequest(req map[string]any) []any {
 
 func prependInstructionMessage(messages []any, instructions any) []any {
 	sys, _ := instructions.(string)
-	if strings.TrimSpace(sys) == "" {
+	if sys == "" {
 		return messages
 	}
 	out := make([]any, 0, len(messages)+1)
@@ -32,9 +32,6 @@ func prependInstructionMessage(messages []any, instructions any) []any {
 func NormalizeResponsesInputAsMessages(input any) []any {
 	switch v := input.(type) {
 	case string:
-		if strings.TrimSpace(v) == "" {
-			return nil
-		}
 		return []any{map[string]any{"role": "user", "content": v}}
 	case []any:
 		return normalizeResponsesInputArray(v)
@@ -95,7 +92,7 @@ func normalizeResponsesInputArray(items []any) []any {
 					continue
 				}
 				if isAssistantToolCallMessage(msg) && pendingAssistantReasoning != "" {
-					reasoning := nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
+					reasoning := normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"])
 					if reasoning != "" {
 						reasoning = "\n" + reasoning
 					}
@@ -126,10 +123,8 @@ func normalizeResponsesInputArray(items []any) []any {
 				}
 				s = string(encoded)
 			}
-			if strings.TrimSpace(s) != "" {
-				flushPendingReasoning()
-				fallbackParts = append(fallbackParts, s)
-			}
+			flushPendingReasoning()
+			fallbackParts = append(fallbackParts, s)
 		}
 	}
 	flushPendingReasoning()
@@ -149,13 +144,13 @@ func assistantReasoningOnlyContent(msg map[string]any) string {
 	}
 	if _, hasContent := msg["content"]; hasContent {
 		content := strings.TrimSpace(prompt.NormalizeAssistantContent(map[string]any{"content": msg["content"]}))
-		reasoning := nonBlankPromptText(extractOpenAIReasoningContentFromMessage(msg["content"]))
+		reasoning := extractOpenAIReasoningContentFromMessage(msg["content"])
 		if reasoning == "" || content != "" && content != strings.TrimSpace(reasoning) {
 			return ""
 		}
 		return prompt.AssistantReasoningText(msg)
 	}
-	return nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"]))
+	return normalizeOpenAIReasoningContentForPrompt(msg["reasoning_content"])
 }
 
 func isAssistantMessage(msg map[string]any) bool {
@@ -181,7 +176,7 @@ func mergeResponsesAssistantToolCalls(prev any, next map[string]any) bool {
 	}
 	// Moving the next message's reasoning onto prev would put later thoughts
 	// before calls that already preceded them in the source item sequence.
-	if nonBlankPromptText(normalizeOpenAIReasoningContentForPrompt(next["reasoning_content"])) != "" {
+	if normalizeOpenAIReasoningContentForPrompt(next["reasoning_content"]) != "" {
 		return false
 	}
 	prevCalls, _ := prevMsg["tool_calls"].([]any)

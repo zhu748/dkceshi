@@ -63,7 +63,7 @@ func schemaExpectsString(schema *jsonschema.Schema, _ int) bool {
 		if node.Bool != nil {
 			return *node.Bool
 		}
-		if node.Types == nil && node.Const == nil && node.Enum == nil && node.Ref == nil && node.Not == nil && len(node.AllOf) == 0 && len(node.AnyOf) == 0 && len(node.OneOf) == 0 {
+		if node.Types == nil && node.Const == nil && node.Enum == nil && node.Ref == nil && staticNormalizationReference(node) == nil && node.Not == nil && len(node.AllOf) == 0 && len(node.AnyOf) == 0 && len(node.OneOf) == 0 {
 			return true
 		}
 		if node.Types != nil {
@@ -103,6 +103,7 @@ func schemaGraphAny(schema *jsonschema.Schema, match func(*jsonschema.Schema) bo
 			return true
 		}
 		pending = append(pending, node.Ref)
+		pending = append(pending, staticNormalizationReference(node))
 		pending = append(pending, node.AllOf...)
 		pending = append(pending, node.AnyOf...)
 		pending = append(pending, node.OneOf...)

@@ -1,6 +1,10 @@
 package promptcompat
 
-import "strings"
+import (
+	"strings"
+
+	"ds2api/internal/prompt"
+)
 
 func CollectOpenAIRefFileIDs(req map[string]any) []string {
 	if len(req) == 0 {
@@ -44,19 +48,12 @@ func appendOpenAIRefFileIDs(out *[]string, seen map[string]struct{}, raw any, al
 	case map[string]any:
 		kind := strings.ToLower(strings.TrimSpace(asString(x["type"])))
 		attachment := IsInlineAttachmentBlock(x) || kind == "document"
-		if fileID := strings.TrimSpace(asString(x["file_id"])); fileID != "" && (attachment || allowStrings) {
-			addOpenAIRefFileID(out, seen, fileID)
-		}
-		if kind == "file" || kind == "input_file" || kind == "file_reference" {
-			if fileID := strings.TrimSpace(asString(x["id"])); fileID != "" {
-				addOpenAIRefFileID(out, seen, fileID)
+		if attachment || allowStrings {
+			block := x
+			if allowStrings {
+				block = NormalizeAttachmentInputBlock(x)
 			}
-		}
-		if fileMap, ok := x["file"].(map[string]any); ok && (attachment || allowStrings) {
-			if fileID := strings.TrimSpace(asString(fileMap["file_id"])); fileID != "" {
-				addOpenAIRefFileID(out, seen, fileID)
-			}
-			if fileID := strings.TrimSpace(asString(fileMap["id"])); fileID != "" {
+			if fileID, err := prompt.ResolveFileReferenceID(block); err == nil {
 				addOpenAIRefFileID(out, seen, fileID)
 			}
 		}

@@ -42,6 +42,9 @@ func (r *normalizationRun) walk(value any, schema *jsonschema.Schema, depth int,
 	if schema.Ref != nil {
 		apply(schema.Ref)
 	}
+	if target := staticNormalizationReference(schema); target != nil {
+		apply(target)
+	}
 	stringSchema := map[string]any{}
 	if schema.Types != nil {
 		stringSchema["type"] = schema.Types.ToStrings()

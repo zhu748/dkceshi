@@ -31,6 +31,7 @@ type StandardRequest struct {
 	// Prevent internal Chat bridges from adding request-wide attachments twice.
 	RequestAttachmentsInMessages bool `json:"-"`
 	SourceContext                []ContextMessageDigest
+	HistoryContext               []ContextMessageDigest
 	InputContext                 []ContextFieldDigest
 	RawRequest                   *ContextDigest `json:"-"`
 	HistoryText                  string

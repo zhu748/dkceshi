@@ -73,6 +73,9 @@ func (s Service) applyCurrentInputFileOnce(ctx context.Context, a *auth.RequestA
 	if stdReq.SourceContext == nil {
 		stdReq.SourceContext = stdReq.ContextMessageDigests()
 	}
+	historyRequest := stdReq
+	historyRequest.Messages = plan.historyMessages
+	stdReq.HistoryContext = historyRequest.ContextMessageDigests()
 	stdReq.Messages = plan.messages
 	stdReq.HistoryText = plan.historyText
 	stdReq.FinalPrompt = plan.prompt

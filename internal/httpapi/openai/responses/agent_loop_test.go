@@ -41,6 +41,7 @@ func TestAgentLoopContinuesTwelveToolRoundsByResponseID(t *testing.T) {
 		return decodeJSONBody(t, rec.Body.String())
 	}
 	seen := map[string]bool{}
+	itemIDs := map[string]string{}
 	for step := 0; step < 12; step++ {
 		ds.answer = fmt.Sprintf(`<tool_calls><invoke name="lookup"><parameter name="step">%d</parameter></invoke></tool_calls>`, step)
 		response := send()
@@ -51,6 +52,7 @@ func TestAgentLoopContinuesTwelveToolRoundsByResponseID(t *testing.T) {
 			t.Fatalf("call identity reused: %s", id)
 		}
 		seen[id] = true
+		itemIDs[id] = call["id"].(string)
 		body = map[string]any{"model": "deepseek-v4.1-flash", "tools": tools, "previous_response_id": response["id"], "input": []any{map[string]any{"type": "function_call_output", "call_id": id, "output": fmt.Sprintf("result-step-%d", step)}}}
 	}
 	ds.answer = "finished"
@@ -65,8 +67,14 @@ func TestAgentLoopContinuesTwelveToolRoundsByResponseID(t *testing.T) {
 		}
 	}
 	for id := range seen {
-		if strings.Count(prompt, id) != 2 {
+		// The native item ID now has its own contextual record, which also
+		// identifies its call. Count actual invocation/result positions instead
+		// of all occurrences of the ID across metadata and executable history.
+		if strings.Count(prompt, `call_id="`+id+`"`) != 1 || strings.Count(prompt, `"tool_call_id":"`+id+`"`) != 1 {
 			t.Fatalf("call/result pair changed for %s", id)
+		}
+		if strings.Count(prompt, itemIDs[id]) != 1 {
+			t.Fatalf("native item ID lost or duplicated for %s", id)
 		}
 	}
 }

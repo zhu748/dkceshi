@@ -19,7 +19,7 @@ func ContentOmittedPaths(content any) []string {
 	var paths []string
 	for i, raw := range blocks {
 		block, ok := raw.(map[string]any)
-		if !ok || FileReferenceText(block) != "" {
+		if !ok || !IsTextContextBlock(block) && FileReferenceText(block) != "" {
 			continue
 		}
 		path := "/" + strconv.Itoa(i)
