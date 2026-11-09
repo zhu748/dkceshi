@@ -619,7 +619,7 @@ func TestProcessToolSieveEmitsAllEmptyEPSEToolBlock(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected all-empty EPSE block to produce one tool call, got %#v", calls)
 	}
-	if calls[0].Input["command"] != "" || calls[0].Input["description"] != "" || calls[0].Input["timeout"] != "" {
+	if calls[0].Input["command"] != "" || calls[0].Input["description"] != "   " || calls[0].Input["timeout"] != "" {
 		t.Fatalf("expected empty parameters to be preserved, got %#v", calls[0].Input)
 	}
 }

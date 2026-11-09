@@ -695,7 +695,7 @@ func TestParseToolCallsAllowsAllEmptyParameterPayload(t *testing.T) {
 	if len(res.Calls) != 1 {
 		t.Fatalf("expected all-empty payload to be parsed, got %#v", res.Calls)
 	}
-	if res.Calls[0].Input["command"] != "" || res.Calls[0].Input["description"] != "" || res.Calls[0].Input["timeout"] != "" {
+	if res.Calls[0].Input["command"] != "" || res.Calls[0].Input["description"] != "   " || res.Calls[0].Input["timeout"] != "" {
 		t.Fatalf("expected empty parameters to be preserved, got %#v", res.Calls[0].Input)
 	}
 }

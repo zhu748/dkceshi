@@ -17,7 +17,11 @@ type claudeNormalizedRequest struct {
 	Standard promptcompat.StandardRequest
 }
 
-func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNormalizedRequest, error) {
+func normalizeClaudeRequest(store ConfigReader, req map[string]any, toolMarkers ...string) (claudeNormalizedRequest, error) {
+	marker := ""
+	if len(toolMarkers) > 0 {
+		marker = strings.TrimSpace(toolMarkers[0])
+	}
 	inputContext := promptcompat.InputFieldDigests(req)
 	output, ok := req["output_config"].(map[string]any)
 	if req["output_config"] != nil && !ok {
@@ -75,7 +79,7 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 	// system 轮），必须显式声明该形态，否则 system 文本里恰好出现 "tool" 字样就会
 	// 注入 EPSE 格式规范：prompt 要求模型输出工具调用，而这里 ToolNames 为空，
 	// Claude 流式运行时的工具筛分是关闭的，模型照做的输出会漏进可见正文。
-	finalPrompt, toolNames := promptcompat.BuildOpenAIPromptWithoutSystemTextTools(dsMessages, toolsRequested, "", toolPolicy, thinkingEnabled, reminder)
+	finalPrompt, toolNames := promptcompat.BuildOpenAIPromptWithoutSystemTextTools(dsMessages, toolsRequested, "", toolPolicy, thinkingEnabled, reminder, marker)
 	if len(toolNames) == 0 && len(toolsRequested) > 0 {
 		toolNames = []string{"__any_tool__"}
 	}
@@ -104,6 +108,7 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 			SystemTextToolsDisabled:      true,
 			Stream:                       util.ToBool(req["stream"]),
 			Thinking:                     thinkingEnabled,
+			ToolMarker:                   marker,
 			Search:                       searchEnabled,
 			ToolReminderDisabled:         !reminder.Enabled,
 			ToolReminderPrompt:           reminder.Prompt,

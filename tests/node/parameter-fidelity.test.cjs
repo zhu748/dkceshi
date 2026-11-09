@@ -5,6 +5,19 @@ const assert = require('node:assert/strict');
 const { parseToolCalls, createToolSieveState, processToolSieveChunk, flushToolSieve } = require('../../internal/js/helpers/stream-tool-sieve');
 const { resolveToolcallPolicy } = require('../../internal/js/chat-stream/toolcall_policy');
 
+test('unwrapped string whitespace survives parsing and every stream split', () => {
+  for (const value of ['  exact line\r\n    ', ' \r\n\t ', '', '  a &amp; b  ']) {
+    const raw = wrapper('<parameter name="old_string">' + value + '</parameter>');
+    const expected = [{ name: 'write', input: { old_string: value.replace('&amp;', '&') } }];
+    assert.deepEqual(parseToolCalls(raw, []), expected);
+    for (let split = 0; split <= raw.length; split++) {
+      const state = createToolSieveState();
+      const events = processToolSieveChunk(state, raw.slice(0, split), []).concat(processToolSieveChunk(state, raw.slice(split), []), flushToolSieve(state, []));
+      assert.deepEqual(events.flatMap(event => event.calls || []), expected, `split=${split}`);
+    }
+  }
+});
+
 test('stream schema lookup preserves case and prototype-like tool names', () => {
   const { formatOpenAIStreamToolCalls } = require('../../internal/js/helpers/stream-tool-sieve/format');
   const tools = ['Read', 'read', '__proto__', 'constructor'].map((name, index) => ({

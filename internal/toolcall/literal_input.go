@@ -6,18 +6,24 @@ import (
 
 // Keep a CDATA string's bytes even when the compatibility parser interpreted
 // them as JSON first. Schema constraints choose types, never rewrite strings.
-func restoreLiteralInput(call ParsedToolCall, compiled *jsonschema.Schema, hasSchema, custom bool) map[string]any {
+func restoreLiteralInput(call ParsedToolCall, compiled *jsonschema.Schema, hasSchema, custom bool, run *normalizationRun) map[string]any {
 	if !callHasStringLiterals(call) {
 		return call.Input
 	}
 	// Restore a valid literal batch atomically. Conditional schemas can require
 	// multiple fields/items to change together; map iteration cannot choose types.
 	preferred := literalInputCandidate(call)
-	if custom || !hasSchema || compiled != nil && compiled.Validate(preferred) == nil {
+	if custom || !hasSchema || compiled != nil && run.validate(compiled, preferred) == nil {
 		return preferred
+	}
+	if run.exhausted {
+		return call.Input
 	}
 	var input map[string]any
 	for key, raw := range call.StringLiterals {
+		if run.exhausted {
+			return call.Input
+		}
 		if input == nil {
 			input = make(map[string]any, len(call.Input))
 			for name, value := range call.Input {
@@ -26,11 +32,11 @@ func restoreLiteralInput(call ParsedToolCall, compiled *jsonschema.Schema, hasSc
 		}
 		previous := input[key]
 		input[key] = raw
-		if !custom && hasSchema && !propertyExpectsString(compiled, key, 0, input) && (compiled == nil || compiled.Validate(input) != nil) {
+		if !custom && hasSchema && !propertyExpectsString(compiled, key, 0, input) && (compiled == nil || run.validate(compiled, input) != nil) {
 			input[key] = previous
 		}
 	}
-	input = restoreRepeatedLiterals(call, input, compiled, hasSchema, custom)
+	input = restoreRepeatedLiterals(call, input, compiled, hasSchema, custom, run)
 	if input != nil {
 		return input
 	}

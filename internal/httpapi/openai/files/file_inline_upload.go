@@ -70,6 +70,7 @@ type inlineUploadState struct {
 	uploadCount     int
 	fallbackBytes   map[string]int
 	pendingFiles    []*dsclient.UploadFileResult
+	expectedRefs    []string
 }
 
 type inlineDecodedFile struct {
@@ -131,6 +132,7 @@ func preprocessInlineFilesOnce(ctx context.Context, a *auth.RequestAuth, req map
 		preserveImage:   req["preserve_image"] == true,
 		uploadedByID:    map[string]string{},
 		fallbackBytes:   map[string]int{},
+		expectedRefs:    refs,
 	}
 	if err := state.walkRequestInputs(req); err != nil {
 		return err
@@ -160,7 +162,10 @@ func (s *inlineUploadState) walk(raw any, attachmentBag bool) (any, error) {
 			x = promptcompat.NormalizeAttachmentInputBlock(x)
 		}
 		if replacement, replaced, err := s.tryUploadBlock(x); replaced || err != nil {
-			return replacement, err
+			if err != nil {
+				return nil, err
+			}
+			return s.walkUploadedAttachments(replacement, x)
 		}
 		for _, key := range promptcompat.FileInputChildKeys(x) {
 			if nested, ok := x[key]; ok {
@@ -201,7 +206,7 @@ func (s *inlineUploadState) tryUploadBlock(block map[string]any) (map[string]any
 		"type":    decoded.ReplacementType,
 		"file_id": fileID,
 	}
-	if metadata := prompt.AttachmentContextMetadata(block); len(metadata) > 0 {
+	if metadata := uploadContextMetadata(block); len(metadata) > 0 {
 		replacement["context_metadata"] = metadata
 	}
 	if decoded.Filename != "" {

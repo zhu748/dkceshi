@@ -63,18 +63,18 @@ func (r *normalizationRun) preserveConditions(before, after any, schema *jsonsch
 		// private resource scope, conditional coercion cannot prove stability.
 		return reflect.DeepEqual(before, after)
 	}
-	if schema.If != nil && (schema.If.Validate(before) == nil) != (schema.If.Validate(after) == nil) {
+	if schema.If != nil && (r.validate(schema.If, before) == nil) != (r.validate(schema.If, after) == nil) {
 		return false
 	}
 	children := []*jsonschema.Schema{schema.Ref, staticNormalizationReference(schema), schema.Not, schema.If}
-	for _, group := range [][]*jsonschema.Schema{schema.AllOf, activeConditionalSchemas(schema, before)} {
+	for _, group := range [][]*jsonschema.Schema{schema.AllOf, selectConditionalSchemas(schema, before, r.validate)} {
 		children = append(children, group...)
 	}
 	for _, group := range [][]*jsonschema.Schema{schema.AnyOf, schema.OneOf} {
 		for _, child := range group {
 			// An alternative invalid both before and after is not the branch
 			// being recovered. It cannot justify accepting the candidate.
-			if child.Validate(before) == nil || child.Validate(after) == nil {
+			if r.validate(child, before) == nil || r.validate(child, after) == nil {
 				children = append(children, child)
 			}
 		}

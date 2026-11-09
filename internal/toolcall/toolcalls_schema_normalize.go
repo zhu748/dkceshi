@@ -28,7 +28,12 @@ func NormalizeParsedToolCallsForSchemas(calls []ParsedToolCall, toolsRaw any) []
 		}
 		schema := meta.schema
 		prepared := compiled.get(name, schema)
-		input := restoreLiteralInput(call, prepared, schema != nil, meta.custom)
+		input := restoreLiteralInput(call, prepared, schema != nil, meta.custom, &run)
+		if run.exhausted || prepared != nil && checkSchemaEvaluation(prepared, input, &run.remaining) != nil {
+			run.exhausted = true
+			out[i].NormalizationLimitExceeded, changedAny = true, true
+			continue
+		}
 		var normalized any = input
 		changed := false
 		if prepared != nil {

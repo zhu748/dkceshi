@@ -96,13 +96,11 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 		h.writePreparationError(w, r, a, norm.Standard, err, startedAt, true)
 		return true
 	}
-	norm, err = normalizeClaudeRequest(h.Store, req)
+	norm, err = normalizeClaudeRequest(h.Store, req, a.ToolMarker)
 	if err != nil {
 		writeClaudeError(w, http.StatusBadRequest, err.Error())
 		return true
 	}
-	norm.Standard.ToolMarker = a.ToolMarker
-	norm.Standard.FinalPrompt, norm.Standard.ToolNames = norm.Standard.BuildPromptFromMessages(norm.Standard.Messages)
 	// Usage 口径必须等于实际发送的那份 prompt：OpenAI 出口在
 	// NormalizeOpenAIChatRequest / NormalizeOpenAIResponsesRequest 内把
 	// PromptTokenText 与出口替换后的 FinalPrompt 一起赋值，这里同步一次，

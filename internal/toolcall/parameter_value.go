@@ -5,7 +5,7 @@ import "strings"
 func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return ""
+		return raw
 	}
 	if value, ok := extractStandaloneCDATA(trimmed); ok {
 		if parameterMarkupLimitExceeded(value) || parameterXMLNeedsLiteral(value) {
@@ -34,9 +34,9 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 	}
 	// Nested XML decodes its own leaf values. Pre-decoding the entire tree
 	// would decode entities a second time when the child parser reads them.
-	decoded := trimmed
+	decoded := raw
 	if !strings.Contains(decoded, "<") || !strings.Contains(decoded, ">") {
-		decoded = extractRawTagValue(trimmed)
+		decoded = extractRawTagValue(raw)
 	}
 	if parsed, ok := parseJSONLiteralValue(decoded); ok {
 		return parsed

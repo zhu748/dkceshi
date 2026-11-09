@@ -24,6 +24,9 @@ func (s *inlineUploadState) finalizeFileInputs(req map[string]any) error {
 	if err := checkFileReferenceLimit(ids); err != nil {
 		return err
 	}
+	if err := s.checkReferenceCoverage(ids); err != nil {
+		return err
+	}
 	files := make(map[string]*dsclient.UploadFileResult, len(ids))
 	for _, file := range s.pendingFiles {
 		files[file.ID] = file

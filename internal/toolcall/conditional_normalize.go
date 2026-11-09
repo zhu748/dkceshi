@@ -9,9 +9,13 @@ import (
 // Select branches from the existing value, never by trying to turn a failed
 // discriminator into a different branch. Dependent schemas run in sorted order.
 func activeConditionalSchemas(schema *jsonschema.Schema, value any) []*jsonschema.Schema {
+	return selectConditionalSchemas(schema, value, ValidateLocalJSONSchema)
+}
+
+func selectConditionalSchemas(schema *jsonschema.Schema, value any, validate func(*jsonschema.Schema, any) error) []*jsonschema.Schema {
 	var children []*jsonschema.Schema
 	if schema.If != nil {
-		if schema.If.Validate(value) == nil {
+		if validate(schema.If, value) == nil {
 			children = append(children, schema.Then)
 		} else {
 			children = append(children, schema.Else)
@@ -47,8 +51,8 @@ func (r *normalizationRun) conditional(value any, schema *jsonschema.Schema, dep
 	if schema.If == nil && len(schema.DependentSchemas)+len(schema.Dependencies) == 0 {
 		return value, false
 	}
-	children := activeConditionalSchemas(schema, value)
-	if len(children) == 0 || schema.Validate(value) == nil {
+	children := selectConditionalSchemas(schema, value, r.validate)
+	if len(children) == 0 || r.validate(schema, value) == nil {
 		return value, false
 	}
 	next, changed := value, false
@@ -64,10 +68,10 @@ func (r *normalizationRun) conditional(value any, schema *jsonschema.Schema, dep
 		return value, false
 	}
 	// Coercion must preserve the selected condition and satisfy the whole node.
-	if schema.If != nil && (schema.If.Validate(value) == nil) != (schema.If.Validate(next) == nil) {
+	if schema.If != nil && (r.validate(schema.If, value) == nil) != (r.validate(schema.If, next) == nil) {
 		return value, false
 	}
-	if schema.Validate(next) != nil {
+	if r.validate(schema, next) != nil {
 		return value, false
 	}
 	return next, true

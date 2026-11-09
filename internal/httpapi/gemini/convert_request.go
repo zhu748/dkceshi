@@ -9,7 +9,11 @@ import (
 )
 
 //nolint:unused // kept for native Gemini adapter route compatibility.
-func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[string]any, stream bool) (promptcompat.StandardRequest, error) {
+func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[string]any, stream bool, toolMarkers ...string) (promptcompat.StandardRequest, error) {
+	marker := ""
+	if len(toolMarkers) > 0 {
+		marker = strings.TrimSpace(toolMarkers[0])
+	}
 	inputContext := promptcompat.InputFieldDigests(req)
 	var err error
 	req, err = normalizeGeminiSystemAliases(req)
@@ -68,7 +72,7 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 	}
 	toolPolicy = promptcompat.ApplyToolSafetySettings(store, toolPolicy)
 	reminder := promptcompat.ResolveToolReminder(store)
-	finalPrompt, toolNames := promptcompat.BuildOpenAIPrompt(messagesRaw, toolsRaw, "", toolPolicy, thinkingEnabled, reminder)
+	finalPrompt, toolNames := promptcompat.BuildOpenAIPrompt(messagesRaw, toolsRaw, "", toolPolicy, thinkingEnabled, reminder, marker)
 	if len(toolNames) == 0 && len(toolsRaw) > 0 {
 		toolNames = []string{"__any_tool__"}
 	}
@@ -91,6 +95,7 @@ func normalizeGeminiRequest(store ConfigReader, routeModel string, req map[strin
 		ToolsDisabled:                toolsDisabled,
 		Stream:                       stream,
 		Thinking:                     thinkingEnabled,
+		ToolMarker:                   marker,
 		Search:                       searchEnabled,
 		ToolReminderDisabled:         !reminder.Enabled,
 		ToolReminderPrompt:           reminder.Prompt,

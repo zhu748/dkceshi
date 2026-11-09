@@ -36,8 +36,15 @@ func ApplyOutputFormat(req StandardRequest, raw any) (StandardRequest, error) {
 	if err := format.Check(); err != nil {
 		return req, fmt.Errorf("invalid output format: %w", err)
 	}
+	// First-time format application can reuse the serialized conversation.
+	// Replacing an existing constraint or a thinking prelude needs a rebuild.
+	rebuild := req.OutputFormat.Enabled() || req.ThinkingInjectionPrompt != "" || req.FinalPrompt == ""
 	req.OutputFormat = format
-	req.FinalPrompt, req.ToolNames = req.BuildPromptFromMessages(req.Messages)
+	if rebuild {
+		req.FinalPrompt, req.ToolNames = req.BuildPromptFromMessages(req.Messages)
+	} else {
+		req.FinalPrompt = req.withOutputInstruction(req.FinalPrompt)
+	}
 	req.PromptTokenText = req.FinalPrompt
 	return req, nil
 }

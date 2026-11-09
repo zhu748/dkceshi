@@ -95,13 +95,11 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 		h.writePreparationError(w, r, a, stdReq, err, startedAt, true)
 		return true
 	}
-	stdReq, err = normalizeGeminiRequest(h.Store, routeModel, req, stream)
+	stdReq, err = normalizeGeminiRequest(h.Store, routeModel, req, stream, a.ToolMarker)
 	if err != nil {
 		writeGeminiError(w, http.StatusBadRequest, err.Error())
 		return true
 	}
-	stdReq.ToolMarker = a.ToolMarker
-	stdReq.FinalPrompt, stdReq.ToolNames = stdReq.BuildPromptFromMessages(stdReq.Messages)
 	// 与 OpenAI 出口保持一致：usage 按实际发送的 prompt 计数，
 	// 包括思考注入和 input_file 续写对 prompt 的改写。
 	stdReq.PromptTokenText = stdReq.FinalPrompt

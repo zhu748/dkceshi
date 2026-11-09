@@ -73,8 +73,11 @@ func literalInputCandidate(call ParsedToolCall) map[string]any {
 	return input
 }
 
-func restoreRepeatedLiterals(call ParsedToolCall, input map[string]any, schema *jsonschema.Schema, hasSchema, custom bool) map[string]any {
+func restoreRepeatedLiterals(call ParsedToolCall, input map[string]any, schema *jsonschema.Schema, hasSchema, custom bool, run *normalizationRun) map[string]any {
 	for key, literals := range call.RepeatedStringLiterals {
+		if run.exhausted {
+			return call.Input
+		}
 		values, ok := call.Input[key].([]any)
 		if !ok {
 			continue
@@ -88,12 +91,15 @@ func restoreRepeatedLiterals(call ParsedToolCall, input map[string]any, schema *
 		values = append([]any(nil), values...)
 		input[key] = values
 		for i, raw := range literals {
+			if run.exhausted {
+				return call.Input
+			}
 			if i < 0 || i >= len(values) {
 				continue
 			}
 			previous := values[i]
 			values[i] = raw
-			if !custom && hasSchema && !propertyItemExpectsString(schema, key, i, input) && (schema == nil || schema.Validate(input) != nil) {
+			if !custom && hasSchema && !propertyItemExpectsString(schema, key, i, input) && (schema == nil || run.validate(schema, input) != nil) {
 				values[i] = previous
 			}
 		}

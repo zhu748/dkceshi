@@ -27,11 +27,11 @@ func (r *normalizationRun) walk(value any, schema *jsonschema.Schema, depth int,
 	scope.begin(schema)
 	version := scope.version
 	defer func() { scope.finish(schema, version, changed) }()
-	if text, ok := value.(string); ok && !schemaExpectsString(schema, 0) && schema.Validate(text) != nil {
-		if parsed, ok := parseJSONLiteralValue(text); ok && schema.Validate(parsed) == nil {
+	if text, ok := value.(string); ok && !schemaExpectsString(schema, 0) && r.validate(schema, text) != nil {
+		if parsed, ok := parseJSONLiteralValue(text); ok && r.validate(schema, parsed) == nil {
 			return parsed, true
 		}
-		if parsed, ok := parseArrayMissingClosures(text); ok && schema.Validate(parsed) == nil {
+		if parsed, ok := parseArrayMissingClosures(text); ok && r.validate(schema, parsed) == nil {
 			return parsed, true
 		}
 	}
@@ -107,7 +107,7 @@ func (r *normalizationRun) walk(value any, schema *jsonschema.Schema, depth int,
 		scope.version++
 	}
 	for _, alternatives := range [][]*jsonschema.Schema{schema.AnyOf, schema.OneOf} {
-		if len(alternatives) == 0 || schema.Validate(value) == nil {
+		if len(alternatives) == 0 || r.validate(schema, value) == nil {
 			continue
 		}
 		var candidate any
@@ -115,7 +115,7 @@ func (r *normalizationRun) walk(value any, schema *jsonschema.Schema, depth int,
 		for _, child := range alternatives {
 			var trial normalizationScope
 			next, didChange := r.walk(value, child, depth+1, &trial)
-			if !didChange || schema.Validate(next) != nil {
+			if !didChange || r.validate(schema, next) != nil {
 				continue
 			}
 			if found && !reflect.DeepEqual(candidate, next) {

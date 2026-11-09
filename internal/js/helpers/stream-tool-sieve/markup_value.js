@@ -102,7 +102,7 @@ function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
   }
   if (parameterXMLNeedsLiteral(toRawString(raw))) return toRawString(raw);
   const source = toRawString(raw).trim();
-  const s = source.includes('<') && source.includes('>') ? source : toRawString(extractRawTagValue(raw)).trim();
+  const s = source.includes('<') && source.includes('>') ? toRawString(raw) : toRawString(extractRawTagValue(raw));
   if (!s) {
     return '';
   }
@@ -199,7 +199,7 @@ function preservesCDATAStringParameter(name) {
 function extractRawTagValue(inner) {
   const s = toRawString(inner).trim();
   if (!s) {
-    return '';
+    return toRawString(inner);
   }
 
   // 1. Check for CDATA

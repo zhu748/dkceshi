@@ -78,7 +78,7 @@ func (f Format) Validate(text string) error {
 		if err != nil {
 			return err
 		}
-		return schema.Validate(value)
+		return toolcall.ValidateLocalJSONSchema(schema, value)
 	}
 	return nil
 }

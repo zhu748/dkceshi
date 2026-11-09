@@ -50,8 +50,9 @@ type argumentSchema struct {
 	custom bool
 }
 type argumentValidator struct {
-	catalog  map[string]argumentSchema
-	compiled map[string]*jsonschema.Schema
+	catalog   map[string]argumentSchema
+	compiled  map[string]*jsonschema.Schema
+	remaining int
 }
 
 func validateToolArguments(calls []ParsedToolCall, toolsRaw any, detailed bool) ([]ArgumentValidation, error) {
@@ -62,7 +63,7 @@ func validateToolArguments(calls []ParsedToolCall, toolsRaw any, detailed bool) 
 		return nil, err
 	}
 	tools, _ := toolsRaw.([]any)
-	v := argumentValidator{catalog: make(map[string]argumentSchema, len(tools)), compiled: make(map[string]*jsonschema.Schema)}
+	v := argumentValidator{catalog: make(map[string]argumentSchema, len(tools)), compiled: make(map[string]*jsonschema.Schema), remaining: maxSchemaEvaluationWork}
 	for _, raw := range tools {
 		tool, _ := raw.(map[string]any)
 		name, _, schema := ExtractToolMeta(tool)
@@ -127,7 +128,7 @@ func (v *argumentValidator) validate(call ParsedToolCall) (result ArgumentValida
 		result.Error = err
 		return result
 	}
-	if err = schema.Validate(value); err != nil {
+	if err = validateSchemaWithBudget(schema, value, &v.remaining); err != nil {
 		result.Error = fmt.Errorf("invalid arguments for tool %q: %w", call.Name, err)
 	}
 	return result
