@@ -1107,7 +1107,16 @@
       "retry_disabled": "重试已关闭",
       "retry_disabled_or_exhausted": "当前不允许重试或次数已耗尽",
       "output_already_delivered": "正文或工具调用已经交付",
-      "not_retryable": "此错误不参与重试"
+      "not_retryable": "此错误不参与重试",
+      "account_switch_budget_exhausted": "换号额度已耗尽（本请求最多换号 3 次）",
+      "account_switch_wait_exhausted": "等待替代账号的 30 秒总额度已耗尽",
+      "no_eligible_account": "没有符合当前号池、冷却、并发和额度条件的替代账号",
+      "explicit_target": "请求显式指定了账号",
+      "client_file_owner": "客户端文件绑定到原账号，无法换号重放",
+      "operation_pinned": "当前操作的会话或文件正在绑定账号",
+      "unmanaged_account": "直传 Token 请求无法使用托管号池换号",
+      "account_switch_unavailable": "当前请求未关联可换号的账号解析器",
+      "request_cancelled": "请求已取消或超过期限"
     },
     "reason": {
       "native_dsml": "完整原生 DSML 本地恢复",

@@ -34,6 +34,7 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 	if a == nil || !a.UseConfigToken {
 		return false
 	}
+	a.accountSwitchFailure = ""
 	if a.AccountPinned() {
 		reason := "operation_pinned"
 		if a.TargetAccount != "" {
@@ -42,17 +43,23 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 			reason = "client_file_owner"
 		}
 		config.Logger.Info("[account_switch] blocked", "account", a.AccountID, "reason", reason)
+		a.accountSwitchFailure = reason
 		return false
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if ctx.Err() != nil {
+		a.accountSwitchFailure = "request_cancelled"
 		return false
 	}
 	// Share the normal bounded queue rather than failing merely because the
 	// replacement account is busy. The caller's earlier deadline always wins.
 	if a.accountSwitches >= MaxAccountSwitches || a.failoverWait >= accountSwitchWaitTimeout {
+		a.accountSwitchFailure = "account_switch_budget_exhausted"
+		if a.failoverWait >= accountSwitchWaitTimeout {
+			a.accountSwitchFailure = "account_switch_wait_exhausted"
+		}
 		config.Logger.Info("[account_switch] budget exhausted", "account", a.AccountID, "switches", a.accountSwitches)
 		return false
 	}
@@ -71,10 +78,18 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 	})
 	for {
 		if a.accountSwitches >= MaxAccountSwitches {
+			a.accountSwitchFailure = "account_switch_budget_exhausted"
 			return false
 		}
 		acc, ok := r.Pool.AcquireWait(waitCtx, "", a.TriedAccounts, filter)
 		if !ok {
+			a.accountSwitchFailure = "no_eligible_account"
+			if waitCtx.Err() != nil {
+				a.accountSwitchFailure = "account_switch_wait_exhausted"
+				if ctx.Err() != nil {
+					a.accountSwitchFailure = "request_cancelled"
+				}
+			}
 			config.Logger.Info("[account_switch] no eligible replacement", "account", a.AccountID, "tools_present", a.ToolsPresent, "tried_accounts", len(a.TriedAccounts), "error", waitCtx.Err())
 			// No replacement is available. a.AccountID still names the account whose
 			// slot this call just returned, and releaseAccountSlot remembers that, so
@@ -98,4 +113,16 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 		}
 		return true
 	}
+}
+
+// AccountSwitchFailureReason exposes the last scheduling decision without
+// credentials so every completion surface can explain why failover stopped.
+func (a *RequestAuth) AccountSwitchFailureReason() string {
+	if a == nil || !a.UseConfigToken {
+		return "unmanaged_account"
+	}
+	if a.resolver == nil {
+		return "account_switch_unavailable"
+	}
+	return a.accountSwitchFailure
 }

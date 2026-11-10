@@ -70,6 +70,10 @@ func finishLeaseDiagnostics(r *http.Request, lease streamLease, req map[string]a
 		}
 		std := lease.Standard
 		assistantturn.ObserveFailedOutput(asString(req["content"]), asString(req["thinking"]), asString(req["detection_thinking"]), assistantturn.BuildOptions{Model: std.ResponseModel, Prompt: std.PromptTokenText, ToolNames: std.ToolNames, ToolsRaw: std.ToolsRaw, ToolChoice: std.ToolChoice, ToolMarker: std.ToolMarker, DiagnosticContext: ctx}, &assistantturn.OutputError{Status: 502, Code: code, Message: message})
+		tooldiagnostics.Failure(ctx, code, message)
+		if reason := lease.Auth.AccountSwitchFailureReason(); reason != "" && reason != "unmanaged_account" {
+			tooldiagnostics.RetryDecision(ctx, reason, message)
+		}
 		status = 502
 	}
 	lease.Diagnostics.Finish(status, nil, stopped)

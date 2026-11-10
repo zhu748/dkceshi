@@ -95,6 +95,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 		retryMax = EmptyOutputRetryMaxAttempts()
 	}
 	attempts := 0
+	retries := 0 // Includes account replacement; attempts only bounds regeneration/resume.
 	accountSwitchAttempted := false
 	currentResp := initialResp
 	currentPayload := clonePayload(payload)
@@ -137,13 +138,16 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 		if !canRetryOnAlternateAccount(ctx, a, err, opts.RetryEnabled, &accountSwitchAttempted) {
 			return false
 		}
+		retries++
 		start, startErr := startPayloadCompletionOnAlternateAccount(ctx, ds, a, payload, opts, maxAttempts)
 		if startErr != nil {
 			fail(startErr)
 			return false
 		}
-		diagnosticRetry(ctx, a, "account_switch", err)
 		adopt(start)
+		if hooks.OnRetry != nil {
+			hooks.OnRetry(retries)
+		}
 		config.Logger.Info("[completion_runtime_account_switch_retry] retrying on alternate account", "surface", surface, "account", a.AccountID, "error_code", err.Code)
 		return true
 	}
@@ -172,7 +176,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 				ObserveAccountOutputFailure(a, result.Failure)
 			}
 			if hooks.OnTerminal != nil {
-				hooks.OnTerminal(attempts)
+				hooks.OnTerminal(retries)
 			}
 			return
 		}
@@ -180,7 +184,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 		cooldownEmpty := !result.ResumeContinue && ObserveAccountOutputFailure(a, pendingErr)
 		if !result.Retryable || !opts.RetryEnabled || !result.ResumeContinue && !IsRetryableOutputError(pendingErr) {
 			if !failed && hooks.Finalize != nil {
-				hooks.Finalize(attempts)
+				hooks.Finalize(retries)
 			}
 			return
 		}
@@ -200,16 +204,16 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 				continue
 			}
 			if !failed && hooks.EmptyOutputError != nil && hooks.EmptyOutputError() != nil {
-				tooldiagnostics.RetryDecision(ctx, "retry_exhausted", pendingErr.Message)
 				// Finalization already validated and optionally repaired this
 				// attempt. Report the stored failure without running repair twice.
 				fail(pendingErr)
 			} else if !failed && hooks.Finalize != nil {
-				hooks.Finalize(attempts)
+				hooks.Finalize(retries)
 			}
 			return
 		}
 		attempts++
+		retries++
 		parentMessageID := 0
 		if hooks.ParentMessageID != nil {
 			parentMessageID = hooks.ParentMessageID()
@@ -232,7 +236,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			}
 			currentResp = next
 			if hooks.OnRetry != nil {
-				hooks.OnRetry(attempts)
+				hooks.OnRetry(retries)
 			}
 			continue
 		}
@@ -259,7 +263,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 		}
 		reset()
 		if hooks.OnRetry != nil {
-			hooks.OnRetry(attempts)
+			hooks.OnRetry(retries)
 		}
 		usagePrompt = UsagePromptWithRetryPayload(usagePrompt, retryPayload)
 		if hooks.OnRetryPrompt != nil {

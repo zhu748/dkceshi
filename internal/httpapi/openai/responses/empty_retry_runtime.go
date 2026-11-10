@@ -196,7 +196,7 @@ func (h *Handler) consumeResponsesStreamAttempt(r *http.Request, resp *http.Resp
 func logResponsesStreamTerminal(streamRuntime *responsesStreamRuntime, attempts int) {
 	source := "first_attempt"
 	if attempts > 0 {
-		source = "synthetic_retry"
+		source = "retry"
 	}
 	if streamRuntime.finalErrorCode == string(streamengine.StopReasonContextCancelled) {
 		config.Logger.Info("[openai_empty_retry] terminal cancelled", "surface", "responses", "stream", true, "retry_attempts", attempts, "error_code", streamRuntime.finalErrorCode)

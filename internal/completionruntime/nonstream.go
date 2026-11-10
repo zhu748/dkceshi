@@ -250,6 +250,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 	pow := start.Pow
 
 	attempts := 0
+	retries := 0
 	accountSwitchAttempted := false
 	currentResp := start.Response
 	usagePrompt := stdReq.PromptTokenText
@@ -260,13 +261,13 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		turn, outErr := collectAttempt(ctx, currentResp, a, stdReq, usagePrompt, opts)
 		if outErr != nil {
 			if canRetryOnAlternateAccount(ctx, a, outErr, opts.RetryEnabled, &accountSwitchAttempted) {
+				retries++
 				switched, switchErr := startStandardCompletionOnAlternateAccount(ctx, ds, a, stdReq, opts, maxAttempts)
 				if switchErr != nil {
-					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, switchErr
+					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: retries}, switchErr
 				}
 				if switched.Response != nil {
-					diagnosticRetry(ctx, a, "account_switch", outErr)
-					config.Logger.Info("[completion_runtime_account_switch_retry] retrying after 429", "surface", stdReq.Surface, "stream", false, "account", a.AccountID)
+					config.Logger.Info("[completion_runtime_account_switch_retry] retrying on alternate account", "surface", stdReq.Surface, "stream", false, "account", a.AccountID, "error_code", outErr.Code)
 					sessionID = switched.SessionID
 					payload = switched.Payload
 					pow = switched.Pow
@@ -279,7 +280,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					continue
 				}
 			}
-			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, outErr
+			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: retries}, outErr
 		}
 		accumulatedThinking += sse.TrimContinuationOverlap(accumulatedThinking, turn.Thinking)
 		accumulatedRawThinking += sse.TrimContinuationOverlap(accumulatedRawThinking, turn.RawThinking)
@@ -307,13 +308,13 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		cooldownEmpty := ObserveAccountOutputFailure(a, turn.Error)
 		if cooldownEmpty || !opts.RetryEnabled || !toolRetry && !assistantturn.ShouldRetryEmptyOutput(turn, attempts, retryMax) {
 			if canRetryOnAlternateAccount(ctx, a, turn.Error, opts.RetryEnabled, &accountSwitchAttempted) {
+				retries++
 				switched, switchErr := startStandardCompletionOnAlternateAccount(ctx, ds, a, stdReq, opts, maxAttempts)
 				if switchErr != nil {
-					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, switchErr
+					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: retries}, switchErr
 				}
 				if switched.Response != nil {
-					diagnosticRetry(ctx, a, "account_switch", turn.Error)
-					config.Logger.Info("[completion_runtime_account_switch_retry] retrying after 429", "surface", stdReq.Surface, "stream", false, "account", a.AccountID)
+					config.Logger.Info("[completion_runtime_account_switch_retry] retrying on alternate account", "surface", stdReq.Surface, "stream", false, "account", a.AccountID, "error_code", turn.Error.Code)
 					sessionID = switched.SessionID
 					payload = switched.Payload
 					pow = switched.Pow
@@ -334,12 +335,15 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 				if !opts.RetryEnabled {
 					reason = "retry_disabled"
 				}
-				tooldiagnostics.RetryDecision(ctx, reason, turn.Error.Message)
+				if !IsRetryableOutputError(turn.Error) || !opts.RetryEnabled {
+					tooldiagnostics.RetryDecision(ctx, reason, turn.Error.Message)
+				}
 			}
-			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, turn.Error
+			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: retries}, turn.Error
 		}
 
 		attempts++
+		retries++
 		diagnosticRetry(ctx, a, "regeneration", turn.Error)
 		parentMessageID := retryParentMessageID(turn.ResponseMessageID, payload)
 		config.Logger.Info("[completion_runtime_empty_retry] attempting synthetic retry", "surface", stdReq.Surface, "stream", false, "retry_attempt", attempts, "parent_message_id", parentMessageID)
@@ -355,12 +359,12 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		}
 		if callErr != nil {
 			if canRetryOnAlternateAccount(ctx, a, callErr, opts.RetryEnabled, &accountSwitchAttempted) {
+				retries++
 				switched, switchErr := startStandardCompletionOnAlternateAccount(ctx, ds, a, stdReq, opts, maxAttempts)
 				if switchErr != nil {
-					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, switchErr
+					return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: retries}, switchErr
 				}
 				if switched.Response != nil {
-					diagnosticRetry(ctx, a, "account_switch", callErr)
 					config.Logger.Info("[completion_runtime_account_switch_retry] retrying after retry request failure", "surface", stdReq.Surface, "stream", false, "account", a.AccountID, "error_code", callErr.Code)
 					sessionID = switched.SessionID
 					payload = switched.Payload
@@ -374,7 +378,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					continue
 				}
 			}
-			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: attempts}, callErr
+			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: retries}, callErr
 		}
 		payload = retryPayload
 		usagePrompt = UsagePromptWithRetryPayload(usagePrompt, retryPayload)

@@ -24,6 +24,7 @@ func diagnosticRetry(ctx context.Context, a *auth.RequestAuth, kind string, err 
 	if a != nil {
 		account = a.AccountID
 	}
+	tooldiagnostics.Failure(ctx, err.Code, err.Message)
 	tooldiagnostics.NextAttempt(ctx, kind, err.Code, err.Message, account)
 }
 

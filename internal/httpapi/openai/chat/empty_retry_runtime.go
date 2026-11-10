@@ -277,7 +277,7 @@ func failChatStreamRetry(streamRuntime *chatStreamRuntime, historySession *chatH
 func logChatStreamTerminal(streamRuntime *chatStreamRuntime, attempts int) {
 	source := "first_attempt"
 	if attempts > 0 {
-		source = "synthetic_retry"
+		source = "retry"
 	}
 	if streamRuntime.finalErrorCode == string(streamengine.StopReasonContextCancelled) {
 		config.Logger.Info("[openai_empty_retry] terminal cancelled", "surface", "chat.completions", "stream", true, "retry_attempts", attempts, "error_code", streamRuntime.finalErrorCode)

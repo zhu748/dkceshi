@@ -1107,7 +1107,16 @@
       "retry_disabled": "Retries disabled",
       "retry_disabled_or_exhausted": "Retry disabled or exhausted",
       "output_already_delivered": "Response content or tools already delivered",
-      "not_retryable": "Error is not retryable"
+      "not_retryable": "Error is not retryable",
+      "account_switch_budget_exhausted": "Account switch limit exhausted (3 replacements per request)",
+      "account_switch_wait_exhausted": "The 30-second total replacement wait budget was exhausted",
+      "no_eligible_account": "No replacement matches the pool, cooldown, concurrency and quota rules",
+      "explicit_target": "The request explicitly selected an account",
+      "client_file_owner": "Client file references are bound to the original account",
+      "operation_pinned": "The current session or file operation pins the account",
+      "unmanaged_account": "Direct tokens cannot switch through the managed pool",
+      "account_switch_unavailable": "No account resolver is attached to this request",
+      "request_cancelled": "The request was cancelled or its deadline expired"
     },
     "reason": {
       "native_dsml": "Recovered complete native DSML locally",

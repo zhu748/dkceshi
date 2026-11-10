@@ -4,12 +4,41 @@ import (
 	"context"
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
+	"ds2api/internal/config"
 	"ds2api/internal/contextfile"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/tooldiagnostics"
 	"net/http"
 )
 
-func canRetryOnAlternateAccount(ctx context.Context, a *auth.RequestAuth, outErr *assistantturn.OutputError, retryEnabled bool, attempted *bool) bool {
+func canRetryOnAlternateAccount(ctx context.Context, a *auth.RequestAuth, outErr *assistantturn.OutputError, retryEnabled bool, attempted *bool) (retried bool) {
+	previousAccount := ""
+	if a != nil {
+		previousAccount = a.AccountID
+	}
+	defer func() {
+		if outErr == nil || !IsRetryableOutputError(outErr) {
+			return
+		}
+		if retried {
+			// Record the replacement before preparing its session/files/PoW,
+			// including replacements that fail before a completion is opened.
+			diagnosticRetry(ctx, a, "account_switch", outErr)
+			config.Logger.Info("[completion_runtime_account_switch_retry] preparing replacement", "from_account", previousAccount, "account", a.AccountID, "error_code", outErr.Code)
+			return
+		}
+		reason := "retry_exhausted"
+		if !retryEnabled {
+			reason = "retry_disabled"
+		} else if ctx != nil && ctx.Err() != nil {
+			reason = "request_cancelled"
+		} else if why := a.AccountSwitchFailureReason(); why != "" {
+			reason = why
+		}
+		tooldiagnostics.Failure(ctx, outErr.Code, outErr.Message)
+		tooldiagnostics.RetryDecision(ctx, reason, outErr.Message)
+		config.Logger.Info("[completion_runtime_account_switch_retry] stopped", "reason", reason, "error_code", outErr.Code)
+	}()
 	ObserveAccountOutputFailure(a, outErr)
 	if outErr == nil || !retryEnabled || a == nil || !a.UseConfigToken {
 		return false

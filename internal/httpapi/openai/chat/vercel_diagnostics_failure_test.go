@@ -61,3 +61,21 @@ func TestVercelReleaseRetainsOnlyRealToolEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestVercelEmptyFailureKeepsDiagnosticWithoutToolSyntax(t *testing.T) {
+	s := tooldiagnostics.New(filepath.Join(t.TempDir(), "diag.json"))
+	std := promptcompat.StandardRequest{ResponseModel: "model", ToolNames: []string{"read"}, ToolsRaw: []any{map[string]any{"type": "function", "name": "read"}}}
+	lease := streamLease{Diagnostics: tooldiagnostics.NewRecorder(s, "chat", true), Standard: std}
+	finishLeaseDiagnostics(httptest.NewRequest("POST", "/", nil), lease, map[string]any{"finish_reason": "error", "error": "Upstream service is unavailable and returned no output.", "error_code": "upstream_unavailable"})
+	page := s.List(tooldiagnostics.Query{})
+	if page.Total != 1 || page.Items[0].Status != "failed" {
+		t.Fatalf("lost empty-output failure: %+v", page)
+	}
+	record, err := s.Get(page.Items[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Attempts[0].Raw.Text != "" || len(record.Attempts[0].Calls) != 0 || record.ErrorCode != "upstream_unavailable" {
+		t.Fatalf("empty output was replaced with invented tool evidence: %+v", record)
+	}
+}

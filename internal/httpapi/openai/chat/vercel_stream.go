@@ -305,6 +305,7 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 		authRecovered = a.SwitchAccount(r.Context())
 	}
 	if !authRecovered {
+		config.Logger.Info("[vercel_stream_account_switch] stopped", "reason", a.AccountSwitchFailureReason(), "account", a.AccountID)
 		if banned {
 			writeOpenAIErrorWithCode(w, http.StatusForbidden, "Account is banned by upstream.", "account_banned")
 		} else if mutedUntil > 0 {

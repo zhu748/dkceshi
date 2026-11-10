@@ -139,8 +139,16 @@ func Failure(ctx context.Context, code, message string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.matchesAttempt(ctx) || !r.active || r.record.CompletedAt != 0 {
+	if !r.matchesAttempt(ctx) || r.record.CompletedAt != 0 {
 		return
+	}
+	if !r.active {
+		// A tool-enabled request can fail before producing any tool syntax.
+		// Keep that empty-output failure and its scheduling decision visible.
+		if !r.hasToolOutputFailureLocked(code) {
+			return
+		}
+		r.active = true
 	}
 	r.failLocked(code, message)
 }
