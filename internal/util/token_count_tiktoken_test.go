@@ -2,7 +2,10 @@
 
 package util
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestTokenizerEncodingForCountCachesSupportedModel(t *testing.T) {
 	encoding, release := tokenizerEncodingForCount(defaultTokenizerModel)
@@ -31,5 +34,36 @@ func TestTokenizerEncodingForCountCachesUnsupportedModel(t *testing.T) {
 	}
 	if _, ok := tokenEncodingUnsupported.Load(model); !ok {
 		t.Fatalf("expected unsupported tokenizer model to be cached")
+	}
+}
+
+func TestTokenCountTreatsSpecialMarkersAsLiteralText(t *testing.T) {
+	for _, model := range []string{defaultTokenizerModel, claudeTokenizerModel} {
+		encoding, release := tokenizerEncodingForCount(model)
+		if encoding == nil {
+			// The dependency does not expose every model through its factory;
+			// retain the existing heuristic fallback for unsupported models.
+			release()
+			if countWithTokenizer("中文 <|endoftext|>", model) != 0 {
+				t.Fatalf("unsupported tokenizer fallback changed for %s", model)
+			}
+			continue
+		}
+		for _, text := range []string{
+			"", "  \n\t", "ordinary source code", "中文🙂e\u0301\n文字",
+			"literal <|endoftext|> <|fim_prefix|> <|im_start|> <EOT> markers",
+			strings.Repeat("<|endoftext|> 中文🙂 ", 32),
+			"invalid UTF-8: \xff",
+		} {
+			trimmed := strings.TrimSpace(text)
+			ids, _, err := encoding.Encode(trimmed, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := countWithTokenizer(text, model); got != len(ids) {
+				t.Fatalf("model=%s text=%q got=%d want=%d", model, text, got, len(ids))
+			}
+		}
+		release()
 	}
 }

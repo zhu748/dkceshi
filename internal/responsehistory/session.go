@@ -58,6 +58,28 @@ func start(params StartParams) *Session {
 	if params.Request == nil || params.Auth == nil {
 		return nil
 	}
+	historyEnabled := params.Store != nil && params.Store.Enabled()
+	if !historyEnabled && params.Usage == nil {
+		return nil
+	}
+	startedAt := time.Now()
+	if !params.StartedAt.IsZero() && params.StartedAt.Before(startedAt) {
+		startedAt = params.StartedAt
+	}
+	model := usagestats.ModelForRequest(params.Standard.ResolvedModel, params.Standard.ResponseModel)
+	session := &Session{
+		usage:        usagestats.NewRequestRecorder(params.Usage, params.Auth, model, startedAt),
+		startedAt:    startedAt,
+		lastPersist:  time.Now(),
+		recordModel:  model,
+		usageRequest: params.Standard,
+	}
+	// Usage accounting needs normalized request metadata, not an archive of
+	// the messages/tools. Do not build that snapshot or attach a disabled
+	// history store (which would receive updates with an empty entry ID).
+	if !historyEnabled {
+		return session
+	}
 	params.Standard = WithRequestBodyDigest(params.Request, params.Standard)
 	manifest := params.Standard.ContextManifest()
 	startParams := chathistory.StartParams{
@@ -76,27 +98,8 @@ func start(params StartParams) *Session {
 		HistoryText:     params.Standard.HistoryText,
 		FinalPrompt:     params.Standard.FinalPrompt,
 	}
-	startedAt := time.Now()
-	if !params.StartedAt.IsZero() && params.StartedAt.Before(startedAt) {
-		startedAt = params.StartedAt
-	}
 	startParams.CreatedAt = startedAt.UnixMilli()
-	session := &Session{
-		store:        params.Store,
-		usage:        usagestats.NewRequestRecorder(params.Usage, params.Auth, usagestats.ModelForRequest(params.Standard.ResolvedModel, params.Standard.ResponseModel), startedAt),
-		startedAt:    startedAt,
-		lastPersist:  time.Now(),
-		recordModel:  usagestats.ModelForRequest(params.Standard.ResolvedModel, params.Standard.ResponseModel),
-		startParams:  startParams,
-		usageRequest: params.Standard,
-	}
-	historyEnabled := params.Store != nil && params.Store.Enabled()
-	if !historyEnabled {
-		if params.Usage == nil {
-			return nil
-		}
-		return session
-	}
+	session.store, session.startParams, session.usageRequest = params.Store, startParams, params.Standard
 	entry, err := params.Store.Start(startParams)
 	if entry.ID != "" {
 		session.entryID = entry.ID

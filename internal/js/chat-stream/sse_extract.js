@@ -6,6 +6,7 @@ const { isStatusPath, isFragmentScopedPath, isFinishedStatus, shouldSkipPath, is
 
 function extractContentRecursive(items, defaultType, newType, stripReferenceMarkers = true, thinkingEnabled = true, parentPath = '') {
   const parts = [];
+  let finished = false;
   for (const it of items) {
     if (!it || typeof it !== 'object') {
       continue;
@@ -23,7 +24,7 @@ function extractContentRecursive(items, defaultType, newType, stripReferenceMark
     // "正在搜索图片".
     if (isStatusPath(itemPath) && !isFragmentScopedPath(parentPath)) {
       if (isFinishedStatus(itemV)) {
-        return { parts, finished: true, newType };
+        finished = true;
       }
       continue;
     }
@@ -138,7 +139,7 @@ function extractContentRecursive(items, defaultType, newType, stripReferenceMark
       }
     }
   }
-  return { parts, finished: false, newType };
+  return { parts, finished, newType };
 }
 
 module.exports = {

@@ -20,6 +20,10 @@ func hasContentFilterStatusValue(v any) bool {
 			}
 		}
 	case map[string]any:
+		path, _ := x["p"].(string)
+		if responseSnapshotHasStatus(path, x["v"], "CONTENT_FILTER") {
+			return true
+		}
 		if p, _ := x["p"].(string); strings.Contains(strings.ToLower(p), "status") {
 			if s, _ := x["v"].(string); strings.EqualFold(strings.TrimSpace(s), "content_filter") {
 				return true

@@ -192,6 +192,12 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 
 			if result.Stop {
 				terminalSeen = true
+				if !cfg.Enabled {
+					// Data in a terminal BATCH must precede Stop, just like an
+					// accumulated flush. Preserve message IDs even without text.
+					pumpErr = forwardSnapshot(ctx, out, result, flushBuffer)
+					return pumpErr == nil
+				}
 				if cfg.Enabled && cfg.FlushOnFinish {
 					for _, p := range result.ToolDetectionThinkingParts {
 						toolDetectionThinkingBuffer.WriteString(p.Text)
@@ -211,15 +217,7 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 						}
 						flushBuffer(true)
 					}
-				} else if !cfg.Enabled {
-					var filteredParts []ContentPart
-					for _, p := range result.Parts {
-						if p.Type == "thinking" && !thinkingEnabled {
-							continue
-						}
-						filteredParts = append(filteredParts, p)
-					}
-					result.Parts = filteredParts
+					result.Parts, result.ToolDetectionThinkingParts = nil, nil
 				}
 				if result.ErrorMessage != "" || result.ContentFilter {
 					select {
@@ -283,14 +281,16 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 					}
 					parts = append(parts, p)
 				}
-				if len(parts) > 0 || len(result.ToolDetectionThinkingParts) > 0 {
+				if len(parts) > 0 || len(result.ToolDetectionThinkingParts) > 0 || pendingResponseMessageID > 0 {
 					filteredResult := LineResult{
 						Parsed:                     true,
 						Stop:                       false,
 						Parts:                      parts,
 						ToolDetectionThinkingParts: result.ToolDetectionThinkingParts,
 						NextType:                   currentType,
+						ResponseMessageID:          pendingResponseMessageID,
 					}
+					pendingResponseMessageID = 0
 					select {
 					case out <- filteredResult:
 					case <-ctx.Done():

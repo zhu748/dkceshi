@@ -27,6 +27,11 @@ function hasContentFilterStatusValue(v) {
     return false;
   }
   const pathValue = asString(v.p);
+  const value = v.v;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const response = pathValue === 'response' ? value : !pathValue ? value.response || value : null;
+    if (response && ['status', 'quasi_status'].some(key => asString(response[key]).trim().toUpperCase() === 'CONTENT_FILTER')) return true;
+  }
   if (pathValue && pathValue.toLowerCase().includes('status')) {
     if (asString(v.v).toLowerCase() === 'content_filter') {
       return true;

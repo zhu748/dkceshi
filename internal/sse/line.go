@@ -35,7 +35,7 @@ func ParseDeepSeekContentLine(raw []byte, thinkingEnabled bool, currentType stri
 		}
 		return result
 	}
-	return parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...)
+	return finishThinkingLine(parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...), thinkingEnabled, boundaries...)
 }
 
 // ParseDeepSeekContentChunk is ParseDeepSeekContentLine for a chunk that the
@@ -46,7 +46,7 @@ func ParseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, curre
 	if chunk == nil {
 		return LineResult{NextType: currentType}
 	}
-	return parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...)
+	return finishThinkingLine(parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...), thinkingEnabled, boundaries...)
 }
 
 func parseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, currentType string, boundaries ...*ThinkingBoundary) LineResult {

@@ -74,8 +74,16 @@ func normalize(v any) any {
 		if err != nil {
 			return x
 		}
+		formatted := strconv.FormatFloat(f, 'g', -1, 64)
+		// Most request numbers already use the float's shortest decimal form.
+		// Identical source bytes prove the same round trip without allocating
+		// two arbitrary-precision rationals. Other spellings still use the
+		// exact comparison below, including large/over-precise values.
+		if string(x) == formatted {
+			return f
+		}
 		before, ok := new(big.Rat).SetString(string(x))
-		after, valid := new(big.Rat).SetString(strconv.FormatFloat(f, 'g', -1, 64))
+		after, valid := new(big.Rat).SetString(formatted)
 		if ok && valid && before.Cmp(after) == 0 {
 			return f
 		}

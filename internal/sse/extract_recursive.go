@@ -15,6 +15,7 @@ func extractContentRecursive(items []any, defaultType string, thinkingEnabled bo
 // streams short right after a web-search fragment such as "正在搜索图片".
 func extractContentRecursiveFrom(items []any, defaultType string, thinkingEnabled bool, newType *string, parentPath string) ([]ContentPart, bool) {
 	parts := make([]ContentPart, 0, len(items))
+	finished := false
 	for _, it := range items {
 		m, ok := it.(map[string]any)
 		if !ok {
@@ -30,7 +31,7 @@ func extractContentRecursiveFrom(items []any, defaultType string, thinkingEnable
 		}
 		if isStatusPath(itemPath) && !isFragmentScopedPath(parentPath) {
 			if s, ok := itemV.(string); ok && strings.EqualFold(strings.TrimSpace(s), "FINISHED") {
-				return parts, true
+				finished = true
 			}
 			continue
 		}
@@ -152,5 +153,5 @@ func extractContentRecursiveFrom(items []any, defaultType string, thinkingEnable
 			}
 		}
 	}
-	return parts, false
+	return parts, finished
 }

@@ -15,8 +15,8 @@ func buildOptions(stdReq promptcompat.StandardRequest, prompt string, opts Optio
 }
 
 // buildOptionsWithoutRepair mirrors buildOptions but never attaches the LLM
-// repair invoker. Intermediate builds (per-attempt collection) must use this so
-// a single upstream output triggers at most one LLM repair pass.
+// repair invoker. Interrupted output must use this so truncated arguments are
+// never handed to a repair model.
 func buildOptionsWithoutRepair(stdReq promptcompat.StandardRequest, prompt string, opts Options) assistantturn.BuildOptions {
 	return assistantturn.BuildOptions{
 		Model:                 stdReq.ResponseModel,

@@ -66,6 +66,36 @@ type retryPowFailureDS struct {
 	powCalls int
 }
 
+func TestOriginalRepairKeepsItsSessionOwner(t *testing.T) {
+	t.Setenv("DS2API_CONFIG_JSON", `{"keys":["key"],"accounts":[{"email":"a@example.com","token":"ta"},{"email":"b@example.com","token":"tb"}]}`)
+	store := config.LoadStore()
+	pool := account.NewPool(store)
+	defer pool.Close()
+	resolver := auth.NewResolver(store, pool, func(context.Context, config.Account) (string, error) { return "token", nil })
+	request := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	request.Header.Set("Authorization", "Bearer key")
+	a, err := resolver.Determine(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resolver.Release(a)
+	owner := a.AccountID
+	ds := &ownershipDS{powCalls: 1, fakeDeepSeekCaller: fakeDeepSeekCaller{
+		sessionByAccount: true,
+		responses:        []*http.Response{sseHTTPResponse(200, `data: {"p":"response/content","v":"repaired"}`, "data: [DONE]")},
+	}}
+	output, err := callOriginalRepair(context.Background(), ds, a, "deepseek-v4.1-flash", "repair")
+	if err != nil || output.Text != "repaired" {
+		t.Fatalf("repair failed: %+v %v", output, err)
+	}
+	if ds.moved || a.AccountID != owner || ds.payloads[0]["chat_session_id"] != "session-"+owner {
+		t.Fatalf("repair mixed account resources: owner=%s current=%s payload=%v", owner, a.AccountID, ds.payloads)
+	}
+	if a.AccountPinned() {
+		t.Fatal("repair did not release its operation pin")
+	}
+}
+
 func (d *retryPowFailureDS) GetPow(_ context.Context, a *auth.RequestAuth, _ int) (string, error) {
 	d.powCalls++
 	if d.powCalls == 2 {

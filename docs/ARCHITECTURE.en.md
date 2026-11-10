@@ -294,3 +294,14 @@ the backend.
 The Go and Node `pending_literal` scanners only schedule authoritative parsing. Comments and CDATA
 use bulk delimiter searches with a retained chunk boundary; quoted strings retain escape state.
 These scanners never decide whether a tool call is valid or executable.
+
+When response history is disabled, `responsehistory.Start` creates only usage accounting state.
+It skips message/tool/manifest archive snapshots and sends no progress updates to the disabled
+history store. Successful and cancelled requests still use the normalized request for usage.
+This avoids unused copying, serialization and hashing of large contexts.
+
+For each complete non-stream attempt, `completionruntime` builds the shared assistant turn once,
+after raw SSE collection and reasoning accumulation. Interrupted attempts still build a complete
+failure turn with partial output and diagnostics. Token counting uses ordinary-text encoding;
+`jsonvalue` uses equivalent fast paths for plain keys and canonical decimal numbers while keeping
+escaped-key, Unicode and numeric precision validation. See [performance measurements](./performance-2026-11-10.md).

@@ -132,6 +132,10 @@ func repairModelForRequest(req promptcompat.StandardRequest) string {
 }
 
 func callOriginalRepair(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, model, prompt string) (repairOutput, error) {
+	// A repair session, its proof and completion must keep the same owner.
+	// Lower-level auth recovery may refresh tokens, but cannot move the main
+	// request to another account halfway through this isolated operation.
+	defer pinCompletionAccount(a)()
 	sessionID, err := ds.CreateSession(ctx, a, 1)
 	if err != nil {
 		return repairOutput{}, err

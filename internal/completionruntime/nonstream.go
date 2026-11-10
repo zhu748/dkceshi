@@ -254,7 +254,6 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 	accountSwitchAttempted := false
 	currentResp := start.Response
 	usagePrompt := stdReq.PromptTokenText
-	accumulatedThinking := ""
 	accumulatedRawThinking := ""
 	accumulatedToolDetectionThinking := ""
 	for {
@@ -274,7 +273,6 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					currentResp = switched.Response
 					stdReq = switched.Request
 					usagePrompt = stdReq.PromptTokenText
-					accumulatedThinking = ""
 					accumulatedRawThinking = ""
 					accumulatedToolDetectionThinking = ""
 					continue
@@ -282,10 +280,8 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 			}
 			return NonStreamResult{SessionID: sessionID, Payload: payload, Turn: turn, Attempts: retries}, outErr
 		}
-		accumulatedThinking += sse.TrimContinuationOverlap(accumulatedThinking, turn.Thinking)
 		accumulatedRawThinking += sse.TrimContinuationOverlap(accumulatedRawThinking, turn.RawThinking)
 		accumulatedToolDetectionThinking += sse.TrimContinuationOverlap(accumulatedToolDetectionThinking, turn.DetectionThinking)
-		turn.Thinking = accumulatedThinking
 		turn.RawThinking = accumulatedRawThinking
 		turn.DetectionThinking = accumulatedToolDetectionThinking
 		turn = assistantturn.BuildTurnFromCollected(sse.CollectResult{
@@ -321,7 +317,6 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					currentResp = switched.Response
 					stdReq = switched.Request
 					usagePrompt = stdReq.PromptTokenText
-					accumulatedThinking = ""
 					accumulatedRawThinking = ""
 					accumulatedToolDetectionThinking = ""
 					continue
@@ -372,7 +367,6 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 					currentResp = switched.Response
 					stdReq = switched.Request
 					usagePrompt = stdReq.PromptTokenText
-					accumulatedThinking = ""
 					accumulatedRawThinking = ""
 					accumulatedToolDetectionThinking = ""
 					continue
@@ -424,18 +418,22 @@ func collectAttempt(ctx context.Context, resp *http.Response, a *auth.RequestAut
 		}
 	}()
 	result := sse.CollectStreamWithOptions(resp, stdReq.Thinking, false, sse.CollectOptions{Context: ctx}, stdReq.FinalPrompt)
-	// collectAttempt only accumulates raw text/thinking across retries; the
-	// terminal turn is rebuilt once from turn.RawText by the retry loop (see
-	// ExecuteNonStreamStartedWithRetry). Running LLM repair here would repair
-	// the same output twice (H1) — one repair session/completion is created in
-	// this build and another in the terminal build, doubling cost, latency and
-	// leaked sessions. Build without the repair invoker so repair runs only in
-	// the single terminal build.
-	turn := assistantturn.BuildTurnFromCollected(result, collectedBuildOptions(ctx, stdReq, usagePrompt, opts, result.ReadError))
 	if result.ReadError != nil {
+		// Interrupted output exits before the terminal build. Preserve its
+		// partial content, usage and diagnostics without attempting LLM repair.
+		turn := assistantturn.BuildTurnFromCollected(result, collectedBuildOptions(ctx, stdReq, usagePrompt, opts, result.ReadError))
 		return turn, turn.Error
 	}
-	return turn, nil
+	// The retry loop combines raw reasoning, then performs the authoritative
+	// build once. Parsing, schema validation and BPE tokenization here would
+	// immediately be repeated by that build for the same complete response.
+	return assistantturn.Turn{
+		RawText: result.Text, RawThinking: result.Thinking,
+		DetectionThinking: result.ToolDetectionThinking,
+		ContentCut:        result.Cut, ContentFilter: result.ContentFilter,
+		UpstreamError: result.UpstreamError, CitationLinks: result.CitationLinks,
+		ResponseMessageID: result.ResponseMessageID, FirstResponseMessageID: result.FirstResponseMessageID,
+	}, nil
 }
 
 // OutputCodeAccountUnauthorized 标记"托管账号的 Token 被上游拒绝"。

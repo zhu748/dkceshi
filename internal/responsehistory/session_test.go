@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ds2api/internal/auth"
+	"ds2api/internal/chathistory"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/usagestats"
 )
@@ -57,5 +58,36 @@ func TestStartRecordsUsageWithoutHistoryStore(t *testing.T) {
 	}
 	if entry.Model != "deepseek-v4-pro" || entry.CallerID != "caller-a" {
 		t.Fatalf("unexpected usage dimensions: %+v", entry)
+	}
+}
+
+func TestDisabledHistorySkipsArchiveAndRetainsUsage(t *testing.T) {
+	history := chathistory.New(filepath.Join(t.TempDir(), "history.json"))
+	if _, err := history.SetLimit(chathistory.DisabledLimit); err != nil {
+		t.Fatal(err)
+	}
+	usage := usagestats.New(filepath.Join(t.TempDir(), "usage.json"))
+	defer usage.Close()
+	session := Start(StartParams{
+		Store: history, Usage: usage,
+		Request: httptest.NewRequest(http.MethodPost, "/v1/messages", nil),
+		Auth:    &auth.RequestAuth{CallerID: "usage-only"},
+		Standard: promptcompat.StandardRequest{
+			ResponseModel: "deepseek-v4.1-flash", FinalPrompt: "keep accounting",
+			Messages: []any{map[string]any{"role": "user", "content": "private input"}},
+		},
+	})
+	if session == nil || session.store != nil || len(session.startParams.Messages) != 0 {
+		t.Fatalf("disabled history retained an unused archive: %+v", session)
+	}
+	session.Progress("", "partial")
+	session.Stopped("", "partial", "stopped")
+	entries := usage.Summary()
+	if len(entries) != 1 || entries[0].Calls != 1 || entries[0].PromptTokens == 0 {
+		t.Fatalf("usage lost with disabled history: %+v", entries)
+	}
+	state, err := history.Snapshot()
+	if err != nil || len(state.Items) != 0 {
+		t.Fatalf("disabled history was written: %+v %v", state, err)
 	}
 }

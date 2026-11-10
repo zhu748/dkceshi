@@ -24,10 +24,10 @@ func countWithTokenizer(text, model string) int {
 		return 0
 	}
 	defer release()
-	ids, _, err := encoding.Encode(text, nil, nil)
-	if err != nil {
-		return 0
-	}
+	// Accounting has always treated special-token-looking source as literal
+	// text (no allowed/disallowed specials). EncodeOrdinary preserves that
+	// meaning without repeatedly scanning/copying suffixes around each marker.
+	ids, _ := encoding.EncodeOrdinary(text)
 	return len(ids)
 }
 

@@ -78,3 +78,14 @@ func (b *ThinkingBoundary) pendingLine(thinkingEnabled bool, currentType string)
 	}
 	return result
 }
+
+// Successful terminal statuses can arrive without [DONE]. Release a partial
+// literal before the terminal frame, while consumers still accept content.
+func finishThinkingLine(result LineResult, thinkingEnabled bool, boundaries ...*ThinkingBoundary) LineResult {
+	if result.Stop && !result.ContentFilter && result.ErrorMessage == "" && len(boundaries) > 0 && boundaries[0] != nil {
+		tail := boundaries[0].pendingLine(thinkingEnabled, result.NextType)
+		result.Parts = append(result.Parts, tail.Parts...)
+		result.ToolDetectionThinkingParts = append(result.ToolDetectionThinkingParts, tail.ToolDetectionThinkingParts...)
+	}
+	return result
+}

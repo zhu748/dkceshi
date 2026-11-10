@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 )
 
 var ErrDuplicateKey = errors.New("duplicate JSON object key")
@@ -38,8 +39,10 @@ func CheckDuplicateKeys(raw []byte) error {
 			}
 		case '"':
 			start := i
+			escaped := false
 			for i++; i < len(raw); i++ {
 				if raw[i] == '\\' {
+					escaped = true
 					i++
 					continue
 				}
@@ -55,8 +58,14 @@ func CheckDuplicateKeys(raw []byte) error {
 			}
 			current := &stack[len(stack)-1]
 			var key string
-			if err := json.Unmarshal(raw[start:i+1], &key); err != nil {
-				return err
+			if !escaped && utf8.Valid(raw[start+1:i]) {
+				// Plain keys need no JSON decoder. Copy only the key bytes;
+				// escaped aliases and malformed Unicode retain decoder semantics.
+				key = string(raw[start+1 : i])
+			} else {
+				if err := json.Unmarshal(raw[start:i+1], &key); err != nil {
+					return err
+				}
 			}
 			if _, exists := current.keys[key]; exists {
 				// Values and names may contain secrets; errors report only position.
