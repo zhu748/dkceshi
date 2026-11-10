@@ -1,14 +1,17 @@
 import { createToolCallStream } from './toolCallStream.js'
+import { createSseLines } from './chatSseLines.js'
+import streamLimits from '../../../../internal/streambudget/defaults.json' with { type: 'json' }
 
-// Consume complete SSE events, including CRLF, multiline data and an EOF tail.
+// Consume complete SSE events, including CR/LF/CRLF and an EOF tail.
 export async function readChatStream(body, signal, onDelta) {
     const reader = body.getReader()
     const decoder = new TextDecoder()
     const tools = createToolCallStream()
-    let pending = '', data = [], content = '', thinking = '', finishReason = null, done = false
+    let data = [], eventChars = 0, outputBytes = 0, content = '', thinking = '', finishReason = null, done = false
     const event = () => {
         const value = data.join('\n')
         data = []
+        eventChars = 0
         if (!value) return
         if (value.trim() === '[DONE]') { done = true; return }
         const json = JSON.parse(value)
@@ -30,11 +33,16 @@ export async function readChatStream(body, signal, onDelta) {
             onDelta(delta, tools.append(delta.tool_calls))
         }
     }
-    const line = raw => {
-        const value = raw.replace(/\r$/, '')
-        if (value === '') { event(); return }
-        if (value.startsWith('data:')) data.push(value.slice(5).replace(/^ /, ''))
-    }
+    const lines = createSseLines(value => {
+        if (value === '') event()
+        else if (value.startsWith('data:')) {
+            const text = value.slice(5).replace(/^ /, '')
+            eventChars += text.length + 1
+            if (eventChars > streamLimits.max_line_bytes) throw new Error('SSE event exceeded the API tester limit')
+            data.push(text)
+        }
+        return !done
+    }, streamLimits.max_line_bytes)
     const cancel = () => {
         reader.cancel().catch(error => console.warn('Stream cancellation failed:', error))
     }
@@ -44,16 +52,12 @@ export async function readChatStream(body, signal, onDelta) {
         while (!done) {
             const chunk = await reader.read()
             if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-            pending += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true })
-            let newline
-            while (!done && (newline = pending.indexOf('\n')) >= 0) {
-                const current = pending.slice(0, newline)
-                pending = pending.slice(newline + 1)
-                line(current)
-            }
+            outputBytes += chunk.value?.byteLength || 0
+            if (outputBytes > streamLimits.max_output_bytes) throw new Error('Stream exceeded the API tester limit')
+            lines.push(chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true }))
             if (chunk.done) {
-                if (pending) line(pending)
-                if (data.length) event()
+                if (!done) lines.finish()
+                if (!done && data.length) event()
                 break
             }
         }

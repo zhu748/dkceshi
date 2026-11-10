@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createChatRequest } from './chatRequest.js'
 import { readChatStream } from './chatStream.js'
+import { createSseLines } from './chatSseLines.js'
 import { createRequestGroup } from '../../utils/latestRequest.js'
 
 const deferred = () => {
@@ -132,4 +133,48 @@ test('tool fragments assemble by index and arrive before the terminal event', as
     assert.equal(result.content, '先说明。')
     assert.deepEqual(result.toolCalls.map(call => [call.id, call.function.name, call.function.arguments]), [['first', 'list', '{}'], ['second', 'read_file', '{"path":"a.txt"}']])
     assert.equal(snapshots[0][0].function.name, 'read')
+})
+
+test('SSE accepts CR-only events and CRLF split at every byte boundary', async () => {
+    for (const separator of ['\r', '\r\n', '\n']) {
+        const text = '\uFEFF: keepalive' + separator +
+            'data: {"choices":[{"delta":{"content":"中文😀"}}]}' + separator.repeat(2) +
+            'data: [DONE]' + separator.repeat(2) + 'ignored invalid tail'
+        const bytes = new TextEncoder().encode(text)
+        const result = await readChatStream(stream([...bytes].map(byte => Uint8Array.of(byte))), new AbortController().signal, () => {})
+        assert.equal(result.content, '中文😀')
+    }
+})
+
+test('SSE line bounds include every fragment and reset after CRLF', () => {
+    const output = [], lines = createSseLines(line => output.push(line), 4)
+    lines.push('ab')
+    lines.push('cd\r')
+    lines.push('\nef\n')
+    lines.finish()
+    assert.deepEqual(output, ['abcd', 'ef'])
+    lines.push('abcd')
+    assert.throws(() => lines.push('e'), /line exceeded/)
+})
+
+test('oversized multiline SSE events fail and cancel the upstream reader', async () => {
+    const line = new TextEncoder().encode('data: ' + ' '.repeat(1024 * 1024) + '\n')
+    let cancelled = false
+    const body = new ReadableStream({
+        pull(controller) { controller.enqueue(line) },
+        cancel() { cancelled = true },
+    })
+    await assert.rejects(readChatStream(body, new AbortController().signal, () => {}), /event exceeded/)
+    assert.equal(cancelled, true)
+})
+
+test('SSE total output bounds include comments and cancel the reader', async () => {
+    const comment = new TextEncoder().encode(':' + ' '.repeat(1024 * 1024) + '\n')
+    let cancelled = false
+    const body = new ReadableStream({
+        pull(controller) { controller.enqueue(comment) },
+        cancel() { cancelled = true },
+    })
+    await assert.rejects(readChatStream(body, new AbortController().signal, () => {}), /Stream exceeded/)
+    assert.equal(cancelled, true)
 })

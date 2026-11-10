@@ -140,6 +140,9 @@ func (p *Pool) isRateLimitedAtLocked(accountID string, now time.Time) bool {
 		entry.count = 0
 		entry.unavailable = false
 		entry.windowStart = time.Time{}
+		// A status/acquire probe can beat the reset callback and stop its
+		// timer. It must also perform that callback's queue notification.
+		p.drainWaitersLocked()
 		return false
 	}
 

@@ -12,9 +12,10 @@ import (
 )
 
 type h2Session struct {
-	conn   net.Conn
-	client *fh2.ClientConn
-	timer  *time.Timer
+	conn        net.Conn
+	client      *fh2.ClientConn
+	timer       *time.Timer
+	idleVersion uint64 // Identifies one idle stay, including reuse of this session.
 }
 
 func h2IdentityKey(req *http.Request, headers []OrderedHeader) string {
@@ -71,14 +72,21 @@ func (c *H2FramedClient) returnIdle(key string, session *h2Session, generation u
 	if c.idle == nil {
 		c.idle = make(map[string][]*h2Session)
 	}
-	session.timer = time.AfterFunc(90*time.Second, func() { c.expireIdle(key, session) })
+	session.idleVersion++
+	version := session.idleVersion
+	session.timer = time.AfterFunc(90*time.Second, func() { c.expireIdle(key, session, version) })
 	c.idle[key] = append(c.idle[key], session)
 	c.idleCount++
 }
 
-func (c *H2FramedClient) expireIdle(key string, session *h2Session) {
+func (c *H2FramedClient) expireIdle(key string, session *h2Session, version uint64) {
 	c.poolMu.Lock()
 	defer c.poolMu.Unlock()
+	// Stop cannot retract a callback already waiting for poolMu. The session
+	// may have been checked out and returned again before that callback runs.
+	if session.idleVersion != version {
+		return
+	}
 	for i, candidate := range c.idle[key] {
 		if candidate == session {
 			c.idle[key] = append(c.idle[key][:i], c.idle[key][i+1:]...)

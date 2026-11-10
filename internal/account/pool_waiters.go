@@ -73,7 +73,13 @@ func (p *Pool) notifyWaiterLocked() {
 	}
 	view := waiterAvailability{pool: p, checks: p.acquireChecksLocked()}
 	for i, waiter := range p.waiters {
-		if !view.matches(waiter) {
+		matches := view.matches(waiter)
+		// Building availability may lazily expire a rate window, which wakes
+		// the entire queue. Do not remove or close an already woken waiter.
+		if len(p.waiters) == 0 {
+			return
+		}
+		if !matches {
 			continue
 		}
 		p.waiters = append(p.waiters[:i], p.waiters[i+1:]...)

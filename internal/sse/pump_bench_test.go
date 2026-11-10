@@ -7,7 +7,7 @@ import (
 )
 
 func BenchmarkParsedLinePump(b *testing.B) {
-	body := strings.Repeat("data: {\"v\":\"an independent text fragment\"}\n", 512)
+	body := strings.Repeat("data: {\"v\":\"an independent text fragment\"}\n", 512) + "data: [DONE]\n"
 	b.ReportAllocs()
 	b.SetBytes(int64(len(body)))
 	for b.Loop() {
