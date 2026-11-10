@@ -26,9 +26,9 @@ type CredentialFlagReader interface {
 // This is the only place on the request path that reads a per-key flag. An exit
 // calls it once, before anything that depends on the request's tool content, and
 // never reads a flag itself.
-func ApplyCallerFlags(flags CredentialFlagReader, r *http.Request, req map[string]any) bool {
+func ApplyCallerFlags(flags CredentialFlagReader, r *http.Request, req map[string]any, surface ...string) bool {
 	if flags != nil && flags.CredentialFlagForRequest(r, config.CredentialFlagForceDisableTools) {
 		DisableToolsForRequest(req)
 	}
-	return RequestBodyHasTools(req)
+	return RequestBodyHasTools(req, surface...)
 }

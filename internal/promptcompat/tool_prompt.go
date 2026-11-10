@@ -155,6 +155,7 @@ func buildToolPromptParts(tools []any, policy ToolChoicePolicy, includeReadCache
 			data, _ := json.Marshal(examples)
 			toolSchemas[len(toolSchemas)-1] += "\nInput examples: " + string(data)
 		}
+		toolSchemas[len(toolSchemas)-1] += toolDefinitionContextText(tool)
 	}
 	if len(toolSchemas) == 0 {
 		return toolPromptParts{Names: names}

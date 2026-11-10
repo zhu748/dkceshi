@@ -76,7 +76,7 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 	routeModel := strings.TrimSpace(chi.URLParam(r, "model"))
 	promptcompat.CaptureInputFieldDigests(req)
 	// 按 Key 的开关在号池路由判定前应用。
-	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req, "google_gemini")))
 	stdReq, err := normalizeGeminiRequest(h.Store, routeModel, req, stream)
 	if err != nil {
 		writeGeminiError(w, http.StatusBadRequest, err.Error())
@@ -228,7 +228,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 		return true
 	}
 
-	promptcompat.ApplyCallerFlags(h.Auth, r, req)
+	promptcompat.ApplyCallerFlags(h.Auth, r, req, "google_gemini")
 	standard, err := normalizeGeminiRequest(h.Store, routeModel, req, stream)
 	if err != nil {
 		writeGeminiError(w, http.StatusBadRequest, err.Error())

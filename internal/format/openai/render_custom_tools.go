@@ -24,6 +24,6 @@ func BuildResponsesToolItem(name, field, value, itemID, callID, status string) m
 
 // FormatValidatedChatToolCalls keeps arguments JSON inside strings when crossing
 // the Go/Node boundary, so JavaScript cannot round large numeric literals.
-func FormatValidatedChatToolCalls(calls []toolcall.ParsedToolCall, toolsRaw any) []map[string]any {
-	return toolcall.FormatOpenAIStreamToolCalls(calls, toolsRaw)
+func FormatValidatedChatToolCalls(calls []toolcall.ParsedToolCall, _ any) []map[string]any {
+	return toolcall.FormatValidatedOpenAIStreamToolCalls(calls)
 }

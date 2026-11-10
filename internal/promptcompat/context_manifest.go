@@ -27,18 +27,20 @@ type ContextMessageDigest struct {
 // Digests enable comparisons without duplicating message/attachment contents.
 // It does not assert that an upstream model read or understood the text.
 type ContextManifest struct {
-	Scope           string                 `json:"scope"`
-	RawRequest      *ContextDigest         `json:"raw_request,omitempty"`
-	InputFields     []ContextFieldDigest   `json:"input_fields,omitempty"`
-	SourceMessages  []ContextMessageDigest `json:"source_messages"`
-	LiveMessages    []ContextMessageDigest `json:"live_messages"`
-	HistoryMessages []ContextMessageDigest `json:"history_messages,omitempty"`
-	Prompt          ContextDigest          `json:"final_prompt"`
-	History         ContextDigest          `json:"history_text"`
-	Tools           ContextDigest          `json:"tool_catalog"`
-	RefFileIDs      []string               `json:"ref_file_ids,omitempty"`
-	Externalized    bool                   `json:"externalized"`
-	Omissions       []ContextOmission      `json:"omissions,omitempty"`
+	Scope             string                    `json:"scope"`
+	RawRequest        *ContextDigest            `json:"raw_request,omitempty"`
+	InputFields       []ContextFieldDigest      `json:"input_fields,omitempty"`
+	SourceMessages    []ContextMessageDigest    `json:"source_messages"`
+	LiveMessages      []ContextMessageDigest    `json:"live_messages"`
+	HistoryMessages   []ContextMessageDigest    `json:"history_messages,omitempty"`
+	Prompt            ContextDigest             `json:"final_prompt"`
+	History           ContextDigest             `json:"history_text"`
+	Tools             ContextDigest             `json:"tool_catalog"`
+	RefFileIDs        []string                  `json:"ref_file_ids,omitempty"`
+	Externalized      bool                      `json:"externalized"`
+	Omissions         []ContextOmission         `json:"omissions,omitempty"`
+	ToolFields        []ContextToolFieldDigest  `json:"tool_fields,omitempty"`
+	MessageTransports []ContextMessageTransport `json:"message_transports,omitempty"`
 }
 
 func digestContext(data []byte) ContextDigest {
@@ -85,6 +87,7 @@ func (r StandardRequest) ContextManifest() ContextManifest {
 		raw = &copy
 	}
 	return ContextManifest{Scope: "normalized_api_context", SourceMessages: source, LiveMessages: live,
+		ToolFields: r.toolContextFieldDigests(), MessageTransports: messageContextTransports(source, live, r.HistoryContext),
 		HistoryMessages: cloneContextDigests(r.HistoryContext),
 		RawRequest:      raw,
 		InputFields:     append([]ContextFieldDigest(nil), r.InputContext...),

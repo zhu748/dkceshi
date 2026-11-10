@@ -319,8 +319,8 @@ func (s *responsesStreamRuntime) emitFunctionCallDoneEvents(calls []toolcall.Par
 	if len(offsets) > 0 {
 		offset = offsets[0]
 	}
-	normalizedCalls := toolcall.NormalizeParsedToolCallsForSchemas(calls, s.toolsRaw)
-	for idx, tc := range normalizedCalls {
+	// Calls come from the shared, validated final turn.
+	for idx, tc := range calls {
 		idx += offset
 		if strings.TrimSpace(tc.Name) == "" {
 			continue

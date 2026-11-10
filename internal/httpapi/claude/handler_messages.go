@@ -79,7 +79,7 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 	}
 	promptcompat.CaptureInputFieldDigests(req)
 	// 按 Key 的开关在号池路由判定前应用。
-	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req, "anthropic_messages")))
 	norm, err := normalizeClaudeRequest(h.Store, req)
 	if err != nil {
 		writeClaudeError(w, http.StatusBadRequest, err.Error())
@@ -235,7 +235,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 		return true
 	}
 
-	promptcompat.ApplyCallerFlags(h.Auth, r, req)
+	promptcompat.ApplyCallerFlags(h.Auth, r, req, "anthropic_messages")
 	norm, err := normalizeClaudeRequest(store, req)
 	if err != nil {
 		writeClaudeError(w, http.StatusBadRequest, err.Error())

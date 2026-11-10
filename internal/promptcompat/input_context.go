@@ -32,7 +32,7 @@ func InputFieldDigests(request map[string]any) []ContextFieldDigest {
 		digest, err := digestJSONContext(value)
 		if err == nil {
 			fields = append(fields, ContextFieldDigest{Name: name, Disposition: "adapter_input", ContextDigest: digest})
-			if name == "messages" || name == "input" || name == "contents" || name == "system" || name == "systemInstruction" || name == "system_instruction" {
+			if name == "messages" || name == "input" || name == "contents" || name == "system" || name == "systemInstruction" || name == "system_instruction" || name == "tools" || name == "functions" {
 				fields = appendInputItemDigests(fields, value, "/"+name)
 			}
 		}

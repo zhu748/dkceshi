@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"ds2api/internal/assistantturn"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
 	"strings"
@@ -13,7 +14,15 @@ func BuildChatCompletion(completionID, model, finalPrompt, finalThinking, finalT
 }
 
 func BuildChatCompletionWithToolCalls(completionID, model, finalPrompt, finalThinking, finalText string, detected []toolcall.ParsedToolCall, toolsRaw any) map[string]any {
-	if len(detected) > 0 {
+	return buildChatCompletion(completionID, model, finalPrompt, finalThinking, finalText, toolcall.FormatOpenAIToolCalls(detected, toolsRaw))
+}
+
+func BuildChatCompletionFromTurn(completionID, model string, turn assistantturn.Turn) map[string]any {
+	return buildChatCompletion(completionID, model, turn.Prompt, turn.Thinking, turn.Text, toolcall.FormatValidatedOpenAIToolCalls(turn.ToolCalls))
+}
+
+func buildChatCompletion(completionID, model, finalPrompt, finalThinking, finalText string, calls []map[string]any) map[string]any {
+	if len(calls) > 0 {
 		finalText = toolstream.ToolResponseText(finalText)
 	}
 	finishReason := "stop"
@@ -21,9 +30,9 @@ func BuildChatCompletionWithToolCalls(completionID, model, finalPrompt, finalThi
 	if strings.TrimSpace(finalThinking) != "" {
 		messageObj["reasoning_content"] = finalThinking
 	}
-	if len(detected) > 0 {
+	if len(calls) > 0 {
 		finishReason = "tool_calls"
-		messageObj["tool_calls"] = toolcall.FormatOpenAIToolCalls(detected, toolsRaw)
+		messageObj["tool_calls"] = calls
 		if strings.TrimSpace(finalText) == "" {
 			messageObj["content"] = nil
 		}

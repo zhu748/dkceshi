@@ -101,8 +101,7 @@ func (s *responsesStreamRuntime) buildCompletedResponseObject(finalThinking, fin
 		})
 	}
 
-	normalizedCalls := toolcall.NormalizeParsedToolCallsForSchemas(calls, s.toolsRaw)
-	for idx, tc := range normalizedCalls {
+	for idx, tc := range calls {
 		if strings.TrimSpace(tc.Name) == "" {
 			continue
 		}

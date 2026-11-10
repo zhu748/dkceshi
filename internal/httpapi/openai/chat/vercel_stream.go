@@ -43,7 +43,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 	promptcompat.CaptureInputFieldDigests(req)
 	// 与非流式链路一致：工具目录与 Key 开关共同决定号池路由。
 	// 按 Key 的开关同样经 promptcompat.ApplyCallerFlags 生效，两条链路不会分叉。
-	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req, "openai_chat")))
 
 	a, err := h.Auth.Determine(r)
 	if err != nil {

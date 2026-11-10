@@ -64,7 +64,7 @@ func (h *Handler) handleNonStreamWithRetry(w http.ResponseWriter, ctx context.Co
 		writeOpenAIErrorWithCode(w, outErr.Status, outErr.Message, outErr.Code)
 		return
 	}
-	respBody := openaifmt.BuildChatCompletionWithToolCalls(result.SessionID, model, result.Turn.Prompt, result.Turn.Thinking, result.Turn.Text, result.Turn.ToolCalls, toolsRaw)
+	respBody := openaifmt.BuildChatCompletionFromTurn(result.SessionID, model, result.Turn)
 	respBody["usage"] = assistantturn.OpenAIChatUsage(result.Turn)
 	outcome := assistantturn.FinalizeTurn(result.Turn, assistantturn.FinalizeOptions{})
 	if historySession != nil {

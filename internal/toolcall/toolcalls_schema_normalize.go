@@ -87,7 +87,7 @@ func buildToolSchemaIndex(toolsRaw any) map[string]argumentSchema {
 
 func ExtractToolMeta(tool map[string]any) (string, string, any) {
 	name := strings.TrimSpace(asStringValue(tool["name"]))
-	desc := strings.TrimSpace(asStringValue(tool["description"]))
+	desc := asStringValue(tool["description"])
 	schema := firstNonNil(
 		tool["parameters"],
 		tool["input_schema"],
@@ -101,7 +101,7 @@ func ExtractToolMeta(tool map[string]any) (string, string, any) {
 			name = strings.TrimSpace(asStringValue(fn["name"]))
 		}
 		if desc == "" {
-			desc = strings.TrimSpace(asStringValue(fn["description"]))
+			desc = asStringValue(fn["description"])
 		}
 		schema = firstNonNil(
 			schema,

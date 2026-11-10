@@ -29,10 +29,11 @@ func convertGeminiTools(raw any) []any {
 					continue
 				}
 				function := geminiFunctionDefinition(decl)
-				out = append(out, map[string]any{
-					"type":     "function",
-					"function": function,
-				})
+				entry := map[string]any{"type": "function", "function": function}
+				if context := geminiCatalogContext(tool); len(context) > 0 {
+					entry["native_catalog_context"] = context
+				}
+				out = append(out, entry)
 			}
 			continue
 		}
@@ -59,6 +60,16 @@ func convertGeminiTools(raw any) []any {
 		return nil
 	}
 	return out
+}
+
+func geminiCatalogContext(tool map[string]any) map[string]any {
+	context := make(map[string]any)
+	for key, value := range tool {
+		if key != "functionDeclarations" && key != "cache_control" {
+			context[key] = value
+		}
+	}
+	return context
 }
 
 // Keep every schema spelling until shared alias validation has compared them.

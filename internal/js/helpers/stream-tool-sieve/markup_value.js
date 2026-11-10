@@ -103,11 +103,12 @@ function parseMarkupValue(raw, paramName = '', literalCDATA = false) {
   if (parameterXMLNeedsLiteral(toRawString(raw))) return toRawString(raw);
   const source = toRawString(raw).trim();
   const s = source.includes('<') && source.includes('>') ? toRawString(raw) : toRawString(extractRawTagValue(raw));
+  if (!(source.includes('<') && source.includes('>')) && s.includes('<') && s.includes('>')) return s;
   if (!s) {
     return '';
   }
 
-  if (s.includes('<') && s.includes('>')) {
+  if (source.includes('<') && source.includes('>')) {
     const nested = parseMarkupInput(s);
     if (Array.isArray(nested)) {
       return nested;

@@ -57,8 +57,11 @@ func parseMarkupValue(inner string) any {
 	if value == "" {
 		return ""
 	}
+	if (!strings.Contains(inner, "<") || !strings.Contains(inner, ">")) && strings.Contains(value, "<") && strings.Contains(value, ">") {
+		return value
+	}
 
-	if strings.Contains(value, "<") && strings.Contains(value, ">") {
+	if strings.Contains(inner, "<") && strings.Contains(inner, ">") {
 		if parsed := parseStructuredToolCallInput(value); len(parsed) > 0 {
 			if len(parsed) == 1 {
 				if raw, ok := parsed["_raw"].(string); ok {

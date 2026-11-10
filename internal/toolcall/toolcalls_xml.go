@@ -110,6 +110,11 @@ func parseXMLNodeValue(dec *xml.Decoder, start xml.StartElement, source string) 
 			s := string([]byte(t))
 			if raw, ok := extractStandaloneCDATA(source[offset:dec.InputOffset()]); ok {
 				literalCDATA, s = true, raw
+			} else if strings.ContainsRune(source[offset:dec.InputOffset()], '\r') {
+				s, err = decodeXMLTextWithLineEndings(source[offset:dec.InputOffset()])
+				if err != nil {
+					return nil, err
+				}
 			}
 			if hasChild && strings.TrimSpace(s) == "" {
 				continue

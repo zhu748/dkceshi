@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"ds2api/internal/assistantturn"
 	"ds2api/internal/jsonvalue"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/toolstream"
@@ -19,7 +20,15 @@ func BuildResponseObject(responseID, model, finalPrompt, finalThinking, finalTex
 }
 
 func BuildResponseObjectWithToolCalls(responseID, model, finalPrompt, finalThinking, finalText string, detected []toolcall.ParsedToolCall, toolsRaw any) map[string]any {
-	if len(detected) > 0 {
+	return buildResponseObject(responseID, model, finalPrompt, finalThinking, finalText, toResponsesFunctionCallItems(detected, toolsRaw))
+}
+
+func BuildResponseObjectFromTurn(responseID, model string, turn assistantturn.Turn, toolsRaw any) map[string]any {
+	return buildResponseObject(responseID, model, turn.Prompt, turn.Thinking, turn.Text, toValidatedResponsesFunctionCallItems(turn.ToolCalls, toolsRaw))
+}
+
+func buildResponseObject(responseID, model, finalPrompt, finalThinking, finalText string, calls []any) map[string]any {
+	if len(calls) > 0 {
 		finalText = toolstream.ToolResponseText(finalText)
 	}
 	exposedOutputText := finalText
@@ -34,8 +43,8 @@ func BuildResponseObjectWithToolCalls(responseID, model, finalPrompt, finalThink
 			"content": []any{map[string]any{"type": "output_text", "text": finalText}},
 		})
 	}
-	if len(detected) > 0 {
-		output = append(output, toResponsesFunctionCallItems(detected, toolsRaw)...)
+	if len(calls) > 0 {
+		output = append(output, calls...)
 	} else if strings.TrimSpace(finalText) == "" && strings.TrimSpace(finalThinking) != "" {
 		exposedOutputText = finalThinking
 	}
@@ -84,12 +93,15 @@ func BuildResponseObjectFromItems(responseID, model, finalPrompt, finalThinking,
 }
 
 func toResponsesFunctionCallItems(toolCalls []toolcall.ParsedToolCall, toolsRaw any) []any {
+	return toValidatedResponsesFunctionCallItems(toolcall.NormalizeParsedToolCallsForSchemas(toolCalls, toolsRaw), toolsRaw)
+}
+
+func toValidatedResponsesFunctionCallItems(toolCalls []toolcall.ParsedToolCall, toolsRaw any) []any {
 	if len(toolCalls) == 0 {
 		return nil
 	}
-	normalizedCalls := toolcall.NormalizeParsedToolCallsForSchemas(toolCalls, toolsRaw)
 	out := make([]any, 0, len(toolCalls))
-	for _, tc := range normalizedCalls {
+	for _, tc := range toolCalls {
 		if strings.TrimSpace(tc.Name) == "" {
 			continue
 		}

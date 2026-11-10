@@ -7,9 +7,10 @@ import "strings"
 // pool a request should be routed to: a request that declares tools is treated
 // as a "tools" request, one that does not is treated as a "no-tools" request.
 //
-// The check runs on the normalized request map after any protocol adapter has
-// mapped its own shape onto the shared `tools` field, so OpenAI Chat / OpenAI
-// Responses / Claude / Gemini all funnel through the same detection. The result
+// The check reads protocol input before account selection. Surface selects
+// the adapter's consumed message containers; omitted surface also recognizes
+// Responses envelopes for compatibility callers. All adapters share the same
+// catalog-text recognition and structured tools check. The result
 // also governs whether tool-call prompt injection happens for the request; it
 // reflects the tools that the caller actually sent. The request body is not
 // rewritten to strip `tools`, with one exception: an API key that enables the
@@ -29,8 +30,9 @@ import "strings"
 //     array at all; instead they embed the tool catalog inside a system message
 //     (e.g. "Available tools: workspace_read_file ..."). To route those to the
 //     tools pool we scan system/developer text for explicit catalog headings
-//     and definitions. An explicit empty array disables this fallback.
-func RequestBodyHasTools(req map[string]any) bool {
+//     and definitions, including Responses instructions/input. An explicit empty
+//     array disables this fallback.
+func RequestBodyHasTools(req map[string]any, surface ...string) bool {
 	if len(req) == 0 {
 		return false
 	}
@@ -42,6 +44,9 @@ func RequestBodyHasTools(req map[string]any) bool {
 	}
 	if functions, ok := req["functions"].([]any); ok && functions != nil {
 		return len(functions) > 0
+	}
+	if len(surface) == 0 || surface[0] == "openai_responses" {
+		return responsesSystemMessagesMentionTools(req)
 	}
 	return systemMessagesMentionTools(req)
 }

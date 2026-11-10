@@ -8,9 +8,15 @@ import (
 )
 
 func FormatOpenAIToolCalls(calls []ParsedToolCall, toolsRaw any) []map[string]any {
-	normalized := NormalizeParsedToolCallsForSchemas(calls, toolsRaw)
+	return FormatValidatedOpenAIToolCalls(NormalizeParsedToolCallsForSchemas(calls, toolsRaw))
+}
+
+// Shared final validation owns argument normalization. These renderers only
+// allocate delivery IDs and serialize the accepted values, without rerunning
+// recovery or schema traversal after the executable batch has been approved.
+func FormatValidatedOpenAIToolCalls(calls []ParsedToolCall) []map[string]any {
 	out := make([]map[string]any, 0, len(calls))
-	for _, c := range normalized {
+	for _, c := range calls {
 		args, _ := json.Marshal(c.Input)
 		out = append(out, map[string]any{
 			"id":   "call_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
@@ -25,9 +31,12 @@ func FormatOpenAIToolCalls(calls []ParsedToolCall, toolsRaw any) []map[string]an
 }
 
 func FormatOpenAIStreamToolCalls(calls []ParsedToolCall, toolsRaw any) []map[string]any {
-	normalized := NormalizeParsedToolCallsForSchemas(calls, toolsRaw)
+	return FormatValidatedOpenAIStreamToolCalls(NormalizeParsedToolCallsForSchemas(calls, toolsRaw))
+}
+
+func FormatValidatedOpenAIStreamToolCalls(calls []ParsedToolCall) []map[string]any {
 	out := make([]map[string]any, 0, len(calls))
-	for i, c := range normalized {
+	for i, c := range calls {
 		args, _ := json.Marshal(c.Input)
 		out = append(out, map[string]any{
 			"index": i,

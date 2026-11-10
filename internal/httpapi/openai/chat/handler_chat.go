@@ -59,7 +59,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 是否注入工具提示词与号池路由均按“请求 body 是否携带工具定义”决定，
 	// 写入请求上下文供 Determine 使用。按 Key 的开关（如「强制禁用工具调用」）
 	// 由 promptcompat.ApplyCallerFlags 在判定之前应用，这里不再逐个开关接线。
-	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req, "openai_chat")))
 
 	a, err := h.Auth.Determine(r)
 	if err != nil {
@@ -124,7 +124,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 			writeOpenAIErrorWithCode(w, outErr.Status, outErr.Message, outErr.Code)
 			return
 		}
-		respBody := openaifmt.BuildChatCompletionWithToolCalls(result.SessionID, stdReq.ResponseModel, result.Turn.Prompt, result.Turn.Thinking, result.Turn.Text, result.Turn.ToolCalls, stdReq.ToolsRaw)
+		respBody := openaifmt.BuildChatCompletionFromTurn(result.SessionID, stdReq.ResponseModel, result.Turn)
 		respBody["usage"] = assistantturn.OpenAIChatUsage(result.Turn)
 		finishReason := assistantturn.FinalizeTurn(result.Turn, assistantturn.FinalizeOptions{}).FinishReason
 		if historySession != nil {

@@ -52,6 +52,9 @@ func (s Service) applyCurrentInputFileOnce(ctx context.Context, a *auth.RequestA
 	if plan == nil {
 		return stdReq, nil
 	}
+	if err := promptcompat.ValidateMessageTransportCoverage(stdReq.Messages, plan.historyMessages, plan.messages); err != nil {
+		return stdReq, err
+	}
 	generated := 1
 	if plan.toolsText != "" {
 		generated++

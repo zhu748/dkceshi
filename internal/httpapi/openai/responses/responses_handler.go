@@ -74,7 +74,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 	}
 	// 是否注入工具提示词与号池路由均按“body 是否携带工具定义”决定，写入上下文供 Determine 读取。
 	// 按 Key 的开关由 promptcompat.ApplyCallerFlags 在判定之前应用。
-	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req)))
+	r = r.WithContext(auth.WithToolsPresent(r.Context(), promptcompat.ApplyCallerFlags(h.Auth, r, req, "openai_responses")))
 
 	a, err := h.Auth.Determine(r)
 	if err != nil {
@@ -150,7 +150,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 			writeOpenAIErrorWithCode(w, outErr.Status, outErr.Message, outErr.Code)
 			return
 		}
-		responseObj := openaifmt.BuildResponseObjectWithToolCalls(responseID, stdReq.ResponseModel, result.Turn.Prompt, result.Turn.Thinking, result.Turn.Text, result.Turn.ToolCalls, stdReq.ToolsRaw)
+		responseObj := openaifmt.BuildResponseObjectFromTurn(responseID, stdReq.ResponseModel, result.Turn, stdReq.ToolsRaw)
 		responseObj["usage"] = assistantturn.OpenAIResponsesUsage(result.Turn)
 		writeStoredResponse(w, responseObj, persist, historySession, result.Turn)
 		return

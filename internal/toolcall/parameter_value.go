@@ -34,14 +34,18 @@ func parseInvokeParameterValue(paramName, raw string, recovery ...*[]string) any
 	}
 	// Nested XML decodes its own leaf values. Pre-decoding the entire tree
 	// would decode entities a second time when the child parser reads them.
+	hasMarkup := strings.Contains(raw, "<") && strings.Contains(raw, ">")
 	decoded := raw
-	if !strings.Contains(decoded, "<") || !strings.Contains(decoded, ">") {
+	if !hasMarkup {
 		decoded = extractRawTagValue(raw)
+		if strings.Contains(decoded, "<") && strings.Contains(decoded, ">") {
+			return decoded // Entity decoding cannot introduce executable structure.
+		}
 	}
 	if parsed, ok := parseJSONLiteralValue(decoded); ok {
 		return parsed
 	}
-	if strings.Contains(decoded, "<") && strings.Contains(decoded, ">") {
+	if hasMarkup {
 		if parsedValue, ok := parseXMLFragmentValue(decoded); ok {
 			switch v := parsedValue.(type) {
 			case map[string]any:

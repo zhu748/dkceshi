@@ -135,5 +135,47 @@
     "parameter": "__proto__",
     "body": "<![CDATA[exact string]]>",
     "expected": "exact string"
+  },
+  {
+    "name": "escaped XML stays text",
+    "parameter": "body",
+    "body": "  &lt;note&gt;hello&lt;/note&gt;\r\n",
+    "expected": "  <note>hello</note>\r\n"
+  },
+  {
+    "name": "escaped XML array stays text",
+    "parameter": "items",
+    "body": "&lt;item&gt;x&lt;/item&gt;",
+    "expected": "<item>x</item>"
+  },
+  {
+    "name": "escaped XML entities decode once",
+    "parameter": "body",
+    "body": "&lt;note&gt;&amp;amp;&lt;/note&gt;",
+    "expected": "<note>&amp;</note>"
+  },
+  {
+    "name": "nested XML line endings",
+    "parameter": "options",
+    "body": "<body>  a\r\nb\rc\n </body>",
+    "expected": {
+      "body": "  a\r\nb\rc\n "
+    }
+  },
+  {
+    "name": "nested XML entities and line endings",
+    "parameter": "options",
+    "body": "<body>\r\n&amp;#13;&#13;&#10;&amp;amp;\r</body>",
+    "expected": {
+      "body": "\r\n&#13;\r\n&amp;\r"
+    }
+  },
+  {
+    "name": "nested escaped XML stays text",
+    "parameter": "options",
+    "body": "<body>&lt;note&gt;hello&lt;/note&gt;\r\n</body>",
+    "expected": {
+      "body": "<note>hello</note>\r\n"
+    }
   }
 ]
