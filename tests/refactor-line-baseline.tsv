@@ -15,7 +15,6 @@ internal/deepseek/client/client_continue.go	348
 internal/deepseek/client/client_file_status.go	324
 internal/deepseek/client/client_upload.go	423
 internal/deepseek/transport/ws.go	433
-internal/httpapi/admin/accounts/handler_accounts_crud.go	429
 internal/httpapi/admin/rawsamples/handler_raw_samples.go	553
 internal/httpapi/admin/vercel/handler_vercel.go	374
 internal/httpapi/claude/handler_messages.go	497
@@ -56,6 +55,5 @@ internal/toolcall/toolcalls_parse.go	369
 internal/toolcall/toolcalls_parse_markup.go	625
 internal/toolcall/toolcalls_scan.go	676
 internal/toolstream/tool_sieve_core.go	190
-internal/webui/handler.go	468
 start.mjs	569
 webui/src/features/account/AccountsTable.jsx	519

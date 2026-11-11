@@ -37,7 +37,7 @@ function ViewModeToggle({ t, viewMode, setViewMode, mobile = false }) {
     )
 }
 
-export function ChatHistoryListPane({ items, selectedItem, deletingId, t, lang, onSelectItem, onDeleteItem }) {
+export function ChatHistoryListPane({ items, selectedItem, deletingId, busy, t, lang, onSelectItem, onDeleteItem }) {
     return (
         <div className="rounded-2xl border border-border bg-card shadow-sm min-h-0 overflow-hidden flex flex-col">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -82,7 +82,7 @@ export function ChatHistoryListPane({ items, selectedItem, deletingId, t, lang, 
                                         event.stopPropagation()
                                         onDeleteItem(item.id)
                                     }}
-                                    disabled={deletingId === item.id}
+                                    disabled={busy || deletingId === item.id}
                                     className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                                 >
                                     {deletingId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}

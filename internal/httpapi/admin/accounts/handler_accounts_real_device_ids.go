@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"sort"
 	"strings"
 
 	"ds2api/internal/config"
@@ -32,7 +31,7 @@ func (h *Handler) realDeviceAccounts() []string {
 	if h == nil || h.Store == nil {
 		return nil
 	}
-	accounts := h.Store.Snapshot().Accounts
+	accounts := h.Store.Accounts()
 	out := make([]string, 0, len(accounts))
 	for _, acc := range accounts {
 		if config.NormalizeDeviceIDType(acc.DeviceIDType) != config.DeviceIDTypeAuto {
@@ -77,42 +76,39 @@ func (h *Handler) listRealDeviceIDs(w http.ResponseWriter, r *http.Request) {
 	if pageSize > 5000 {
 		pageSize = 5000
 	}
-	accounts := append([]config.Account(nil), h.Store.Snapshot().Accounts...)
-	// 已启用且未被禁言的账号排前面，其余保持配置顺序：管理端先看到在跑的设备。
-	sort.SliceStable(accounts, func(i, j int) bool {
-		activeI := accounts[i].IsEnabled() && !accounts[i].IsMuted()
-		activeJ := accounts[j].IsEnabled() && !accounts[j].IsMuted()
-		return activeI && !activeJ
-	})
+	accounts := h.Store.Accounts()
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	all := make([]map[string]any, 0, len(accounts))
-	for _, acc := range accounts {
+	totalAll := 0
+	indices := orderedAccountIndices(accounts, false, func(acc config.Account) bool {
 		identifier := acc.Identifier()
 		if identifier == "" || config.NormalizeDeviceIDType(acc.DeviceIDType) != config.DeviceIDTypeAuto {
-			continue
+			return false
 		}
-		if q != "" && !strings.Contains(strings.ToLower(identifier), q) {
-			continue
-		}
-		all = append(all, map[string]any{
-			"identifier": identifier,
-			"device_id":  strings.TrimSpace(acc.DeviceID),
-		})
-	}
-	total := len(all)
+		totalAll++
+		return q == "" || strings.Contains(strings.ToLower(identifier), q)
+	}, func(acc config.Account) bool { return acc.IsEnabled() && !acc.IsMuted() })
+	total := len(indices)
 	totalPages := 1
 	if total > 0 {
 		totalPages = (total + pageSize - 1) / pageSize
 	}
 	start, end := adminshared.PageBounds(page, pageSize, total)
+	items := make([]map[string]any, 0, end-start)
+	for _, index := range indices[start:end] {
+		acc := accounts[index]
+		items = append(items, map[string]any{
+			"identifier": acc.Identifier(),
+			"device_id":  strings.TrimSpace(acc.DeviceID),
+		})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"mode":    h.Store.RuntimeDeviceIDMode(),
-		"items":   all[start:end],
+		"items":   items,
 		"total":   total,
 		// total_all 是过滤前的 real 账号数：批量刷新作用于全量，界面据此决定
 		// 批量按钮是否可用（搜索把当前页筛空不等于没有可刷新的账号）。
-		"total_all":   len(h.realDeviceAccounts()),
+		"total_all":   totalAll,
 		"page":        page,
 		"page_size":   pageSize,
 		"total_pages": totalPages,

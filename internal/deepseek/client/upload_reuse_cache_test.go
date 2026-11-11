@@ -143,6 +143,33 @@ func TestUploadCacheInvalidationPreventsInflightResurrection(t *testing.T) {
 	}
 }
 
+func TestUploadCacheInvalidationPreservesOtherOwnersInflightResults(t *testing.T) {
+	cache := newUploadReuseCache(time.Minute, 4)
+	if _, err := cache.do(context.Background(), "b", "owner-b", func(*UploadFileResult) (*UploadFileResult, bool, error) {
+		return &UploadFileResult{ID: "file-b", Status: "SUCCESS"}, true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	uploads := 0
+	load := func(cached *UploadFileResult) (*UploadFileResult, bool, error) {
+		if cached == nil {
+			uploads++
+			// B's session deletion races with A's upload or validation.
+			cache.invalidateOwner("owner-b")
+			cached = &UploadFileResult{ID: "file-a", Status: "SUCCESS"}
+		}
+		return cached, true, nil
+	}
+	for range 2 {
+		if _, err := cache.do(context.Background(), "a", "owner-a", load); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if uploads != 1 || cache.entries["a"].file == nil || cache.entries["b"].file != nil {
+		t.Fatalf("owner B invalidated A's upload: uploads=%d entries=%+v", uploads, cache.entries)
+	}
+}
+
 func TestUploadCacheCanceledWaiterDoesNotCancelLeader(t *testing.T) {
 	cache := newUploadReuseCache(time.Minute, 2)
 	leaderCtx, cancel := context.WithCancel(context.Background())

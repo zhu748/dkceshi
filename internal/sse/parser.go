@@ -64,7 +64,13 @@ func ParseSSEChunkForContentDetailed(chunk map[string]any, thinkingEnabled bool,
 		return nil, nil, false, currentFragmentType
 	}
 	newType := currentFragmentType
-	parts := make([]ContentPart, 0, 8)
+	capacity := 8
+	if _, directText := v.(string); directText {
+		// A scalar increment can append only one part here. Keep batch
+		// capacity for structured frames without reserving it per token.
+		capacity = 1
+	}
+	parts := make([]ContentPart, 0, capacity)
 	// The one-size-fits-all rule keys off whether visible body output had
 	// already begun when this chunk arrived (the sticky cursor was already in
 	// the text segment). Once the body has begun, every residual thinking /

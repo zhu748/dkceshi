@@ -4,6 +4,7 @@ import clsx from 'clsx'
 
 import { useI18n } from '../../i18n'
 import { createDetailResource } from './detailResource'
+import { useChatHistoryList } from './useChatHistoryList'
 import { ChatHistoryListPane, ConfirmClearDialog, DesktopDetailPane, MobileDetailModal } from './ChatHistoryPanels'
 import {
     DISABLED_LIMIT,
@@ -11,24 +12,14 @@ import {
     VIEW_MODE_KEY,
 } from './chatHistoryUtils'
 
-const LIST_REFRESH_MS = 1500
 const STREAMING_DETAIL_REFRESH_MS = 750
 
 export default function ChatHistoryContainer({ authFetch, onMessage }) {
     const { t, lang } = useI18n()
     const apiFetch = authFetch || fetch
-    const [items, setItems] = useState([])
-    const [limit, setLimit] = useState(20)
-    const [loading, setLoading] = useState(true)
-    const [refreshing, setRefreshing] = useState(false)
-    const [selectedId, setSelectedId] = useState('')
+    const [preferredId, setSelectedId] = useState('')
     const [selectedDetail, setSelectedDetail] = useState(null)
-    const [savingLimit, setSavingLimit] = useState(false)
-    const [clearing, setClearing] = useState(false)
-    const [deletingId, setDeletingId] = useState('')
-    const [detail, setDetail] = useState('')
     const [confirmClearOpen, setConfirmClearOpen] = useState(false)
-    const [autoRefreshReady, setAutoRefreshReady] = useState(false)
     const [viewMode, setViewMode] = useState(() => {
         if (typeof localStorage === 'undefined') return 'list'
         const stored = localStorage.getItem(VIEW_MODE_KEY)
@@ -40,69 +31,37 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     const [mobileOrigin, setMobileOrigin] = useState({ x: 50, y: 50 })
     const [pendingJumpToAssistant, setPendingJumpToAssistant] = useState(false)
 
-    const inFlightRef = useRef(false)
-    const selectedIdRef = useRef(selectedId)
-    selectedIdRef.current = selectedId
+    const selectedIdRef = useRef('')
     const detailResource = useRef(createDetailResource()).current
-    const listETagRef = useRef('')
     const assistantStartRef = useRef(null)
     const detailScrollRef = useRef(null)
     const mobileCloseTimerRef = useRef(null)
 
-    const selectedSummary = items.find(item => item.id === selectedId) || items[0] || null
+    const {
+        items, limit, loading, refreshing, clearing, deletingId, detail, autoRefreshReady, busy,
+        loadList, handleLimitChange, handleDeleteItem, handleClear,
+    } = useChatHistoryList({ apiFetch, t, onMessage, onMutation: ({ kind, id }) => {
+        if (kind === 'clear' || (kind === 'delete' && selectedIdRef.current === id)) {
+            detailResource.invalidate()
+            setSelectedDetail(null)
+        }
+    } })
+
+    const selectedSummary = items.find(item => item.id === preferredId) || items[0] || null
+    const selectedId = selectedSummary?.id || ''
+    selectedIdRef.current = selectedId
     const selectedItem = selectedDetail && selectedDetail.id === selectedId ? selectedDetail : null
 
-    const syncItems = (nextItems) => {
-        setItems(nextItems)
-        setSelectedId(prev => {
-            if (!nextItems.length) return ''
-            if (prev && nextItems.some(item => item.id === prev)) return prev
-            return nextItems[0].id
-        })
-    }
+    useEffect(() => {
+        if (preferredId !== selectedId) setSelectedId(selectedId)
+    }, [preferredId, selectedId])
 
-    const loadList = async ({ mode = 'silent', announceError = false } = {}) => {
-        if (inFlightRef.current) return
-        inFlightRef.current = true
-        if (mode === 'manual') {
-            setRefreshing(true)
-        } else if (mode === 'initial') {
-            setLoading(true)
-        }
-        if (announceError) {
-            setDetail('')
-        }
-        try {
-            const headers = {}
-            if (listETagRef.current) {
-                headers['If-None-Match'] = listETagRef.current
-            }
-            const res = await apiFetch('/admin/chat-history', { headers })
-            if (res.status === 304) {
-                return
-            }
-            const data = await res.json()
-            if (!res.ok) {
-                throw new Error(data?.detail || t('chatHistory.loadFailed'))
-            }
-            listETagRef.current = res.headers.get('ETag') || ''
-            setLimit(typeof data.limit === 'number' ? data.limit : 20)
-            syncItems(Array.isArray(data.items) ? data.items : [])
-        } catch (error) {
-            setDetail(error.message || t('chatHistory.loadFailed'))
-            if (announceError) {
-                onMessage?.('error', error.message || t('chatHistory.loadFailed'))
-            }
-        } finally {
-            if (mode === 'initial') {
-                setLoading(false)
-            }
-            if (mode === 'manual') {
-                setRefreshing(false)
-            }
-            inFlightRef.current = false
-        }
-    }
+    useEffect(() => {
+        detailResource.invalidate()
+        setSelectedDetail(null)
+        setSelectedId('')
+        return () => detailResource.invalidate()
+    }, [apiFetch, detailResource])
 
     const loadDetail = async (id, { announceError = false } = {}) => {
         if (!id || id !== selectedIdRef.current) return
@@ -116,33 +75,19 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     }
 
     useEffect(() => {
-        loadList({ mode: 'initial', announceError: true }).finally(() => {
-            setAutoRefreshReady(true)
-        })
-    }, [])
-
-    useEffect(() => {
-        if (!autoRefreshReady || limit === DISABLED_LIMIT) return undefined
-        const timer = window.setInterval(() => {
-            loadList({ mode: 'silent', announceError: false })
-        }, LIST_REFRESH_MS)
-        return () => window.clearInterval(timer)
-    }, [autoRefreshReady, limit])
-
-    useEffect(() => {
         if (!autoRefreshReady || !selectedId || selectedSummary?.status !== 'streaming') return undefined
         const timer = window.setInterval(() => {
             loadDetail(selectedId, { announceError: false })
         }, STREAMING_DETAIL_REFRESH_MS)
         return () => window.clearInterval(timer)
-    }, [autoRefreshReady, selectedId, selectedSummary?.status])
+    }, [autoRefreshReady, selectedId, selectedSummary?.status, apiFetch])
 
     useEffect(() => {
         detailResource.invalidate()
         setSelectedDetail(null)
         if (selectedId) loadDetail(selectedId, { announceError: false })
         return () => detailResource.cancel()
-    }, [selectedId, mobileDetailOpen])
+    }, [selectedId, mobileDetailOpen, apiFetch])
 
     // Fetch the final revision even when a completed summary stops polling
     // before the last streaming detail request has seen the completed output.
@@ -152,7 +97,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
                 selectedSummary?.detail_revision > (selectedDetail?.revision || 0))) {
             loadDetail(selectedId, { announceError: false })
         }
-    }, [selectedId, selectedSummary?.status, selectedSummary?.detail_revision, selectedDetail?.id, selectedDetail?.revision])
+    }, [selectedId, selectedSummary?.status, selectedSummary?.detail_revision, selectedDetail?.id, selectedDetail?.revision, apiFetch])
 
     useEffect(() => {
         if (!pendingJumpToAssistant || !selectedItem || selectedItem.id !== selectedId) return undefined
@@ -192,84 +137,12 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     }, [])
 
     const handleRefresh = async ({ manual = true } = {}) => {
-        await loadList({ mode: manual ? 'manual' : 'silent', announceError: manual })
+        const reads = [loadList({ mode: manual ? 'manual' : 'silent', announceError: manual })]
         if (selectedId) {
             detailResource.invalidate()
-            await loadDetail(selectedId, { announceError: manual })
+            reads.push(loadDetail(selectedId, { announceError: manual }))
         }
-    }
-
-    const handleLimitChange = async (nextLimit) => {
-        if (nextLimit === limit || savingLimit) return
-        setSavingLimit(true)
-        try {
-            const res = await apiFetch('/admin/chat-history/settings', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ limit: nextLimit }),
-            })
-            const data = await res.json()
-            if (!res.ok) {
-                throw new Error(data?.detail || t('chatHistory.updateLimitFailed'))
-            }
-            const resolvedLimit = typeof data.limit === 'number' ? data.limit : nextLimit
-            setLimit(resolvedLimit)
-            listETagRef.current = ''
-            syncItems(Array.isArray(data.items) ? data.items : [])
-            onMessage?.(
-                'success',
-                resolvedLimit === DISABLED_LIMIT
-                    ? t('chatHistory.disabledSuccess')
-                    : t('chatHistory.limitUpdated', { limit: resolvedLimit })
-            )
-        } catch (error) {
-            onMessage?.('error', error.message || t('chatHistory.updateLimitFailed'))
-        } finally {
-            setSavingLimit(false)
-        }
-    }
-
-    const handleDeleteItem = async (id) => {
-        if (!id || deletingId) return
-        setDeletingId(id)
-        try {
-            const res = await apiFetch(`/admin/chat-history/${encodeURIComponent(id)}`, { method: 'DELETE' })
-            const data = await res.json()
-            if (!res.ok) {
-                throw new Error(data?.detail || t('chatHistory.deleteFailed'))
-            }
-            if (selectedIdRef.current === id) {
-                detailResource.invalidate()
-                setSelectedDetail(null)
-            }
-            syncItems(items.filter(item => item.id !== id))
-            onMessage?.('success', t('chatHistory.deleteSuccess'))
-        } catch (error) {
-            onMessage?.('error', error.message || t('chatHistory.deleteFailed'))
-        } finally {
-            setDeletingId('')
-        }
-    }
-
-    const handleClear = async () => {
-        if (clearing || !items.length) return
-        setClearing(true)
-        try {
-            const res = await apiFetch('/admin/chat-history', { method: 'DELETE' })
-            const data = await res.json()
-            if (!res.ok) {
-                throw new Error(data?.detail || t('chatHistory.clearFailed'))
-            }
-            listETagRef.current = ''
-            detailResource.invalidate()
-            setSelectedDetail(null)
-            syncItems([])
-            onMessage?.('success', t('chatHistory.clearSuccess'))
-        } catch (error) {
-            onMessage?.('error', error.message || t('chatHistory.clearFailed'))
-        } finally {
-            setClearing(false)
-        }
+        await Promise.all(reads)
     }
 
     const openMobileDetail = (itemId, event) => {
@@ -333,7 +206,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
                         <button
                             key={option}
                             type="button"
-                            disabled={savingLimit}
+                            disabled={busy}
                             onClick={() => handleLimitChange(option)}
                             className={clsx(
                                 'h-9 px-3 rounded-lg border text-sm transition-colors',
@@ -350,7 +223,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
                     <button
                         type="button"
                         onClick={() => handleRefresh({ manual: true })}
-                        disabled={refreshing}
+                        disabled={refreshing || busy}
                         className={clsx(
                             'h-9 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-secondary/70 flex items-center',
                             isMobileView ? 'w-9 justify-center px-0' : 'gap-2 px-3'
@@ -362,7 +235,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
                     <button
                         type="button"
                         onClick={() => setConfirmClearOpen(true)}
-                        disabled={clearing || !items.length}
+                        disabled={busy || !items.length}
                         className="h-10 w-10 rounded-xl border border-border bg-[#111214] text-muted-foreground hover:text-destructive hover:bg-[#181a1d] disabled:opacity-50 flex items-center justify-center"
                         title={t('chatHistory.clearAll')}
                     >
@@ -382,6 +255,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
                     items={items}
                     selectedItem={selectedItem}
                     deletingId={deletingId}
+                    busy={busy}
                     t={t}
                     lang={lang}
                     onSelectItem={handleSelectItem}

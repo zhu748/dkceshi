@@ -17,6 +17,8 @@
 ### 专题文档
 
 - [DS2API 项目价值说明](./project-value.md)
+- [2026-11-11 管理查询、统计性能与代码职责审查](./performance-review-2026-11-11.md)
+- [2026-11-11 后续审查：上传复用、聊天记录与续写释放](./performance-review-2026-11-11-round2.md)
 - [2026-11-10 流式边界、工具修复与归档性能审查](./review-2026-11-10.md)
 - [2026-11-10 非流式收尾、Token 计数与 JSON 性能优化](./performance-2026-11-10.md)
 - [2026-10-31 项目审查与性能优化记录](./review-2026-10-31.md)
@@ -58,6 +60,8 @@ Recommended reading order:
 ### Topical docs
 
 - [DS2API project value note](./project-value.md)
+- [2026-11-11 admin query, usage performance and module review (Chinese)](./performance-review-2026-11-11.md)
+- [2026-11-11 follow-up: upload reuse, history lifecycle and stream cleanup (Chinese)](./performance-review-2026-11-11-round2.md)
 - [API -> pure-text web-chat compatibility pipeline](./prompt-compatibility.md)
 - [Tool-calling unified semantics](./toolcall-semantics.md)
 - [DeepSeek SSE behavior notes (reverse-engineered)](./DeepSeekSSE行为结构说明-2026-04-05.md)

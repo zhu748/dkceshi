@@ -9,7 +9,9 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
     const searchTimer = useRef(null)
     const lastConfigRefresh = useRef(0)
     const accountPoll = useRef(null)
+    const queuePoll = useRef(null)
     const accountsPending = useRef(false)
+    const queuePending = useRef(false)
 
     const [accounts, setAccounts] = useState([])
     const [page, setPage] = useState(1)
@@ -118,6 +120,9 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
     }
 
     const fetchQueueStatus = async () => {
+        // A periodic tick must not abort a slow but healthy request.
+        if (queuePending.current) return
+        queuePending.current = true
         const request = queueRequests.start()
         try {
             const res = await apiFetch('/admin/queue/status', { signal: request.signal })
@@ -129,20 +134,25 @@ export function useAccountsData({ apiFetch, t, onConfigRefresh, onMessage }) {
         } catch (e) {
             if (!request.isCurrent()) return
             console.error('Failed to fetch queue status:', e)
+        } finally {
+            if (request.isCurrent()) queuePending.current = false
         }
     }
+    queuePoll.current = fetchQueueStatus
 
     useEffect(() => {
         fetchAccounts()
         fetchQueueStatus()
-        const interval = setInterval(() => { fetchQueueStatus(); accountPoll.current?.() }, 5000)
+        const interval = setInterval(() => { queuePoll.current?.(); accountPoll.current?.() }, 5000)
         return () => {
             clearInterval(interval)
             clearTimeout(searchTimer.current)
             accountRequests.cancel()
             queueRequests.cancel()
+            accountsPending.current = false
+            queuePending.current = false
         }
-    }, [])
+    }, [apiFetch, accountRequests, queueRequests])
 
     return {
         queueStatus,

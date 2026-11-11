@@ -12,13 +12,12 @@ import (
 // Only small metadata is retained. File bytes, signed URLs and credentials
 // never enter this cache. Every non-concurrent hit is checked upstream.
 type uploadReuseCache struct {
-	mu         sync.Mutex
-	entries    map[string]uploadReuseEntry
-	flights    map[string]*uploadReuseFlight
-	ttl        time.Duration
-	limit      int
-	generation uint64
-	now        func() time.Time
+	mu      sync.Mutex
+	entries map[string]uploadReuseEntry
+	flights map[string]*uploadReuseFlight
+	ttl     time.Duration
+	limit   int
+	now     func() time.Time
 }
 
 type uploadReuseEntry struct {
@@ -28,10 +27,12 @@ type uploadReuseEntry struct {
 }
 
 type uploadReuseFlight struct {
-	done  chan struct{}
-	file  *UploadFileResult
-	err   error
-	share bool
+	done        chan struct{}
+	file        *UploadFileResult
+	err         error
+	share       bool
+	owner       string
+	invalidated bool
 }
 
 func newUploadReuseCacheFromEnv() *uploadReuseCache {
@@ -84,14 +85,13 @@ func (c *uploadReuseCache) do(ctx context.Context, key, owner string, load func(
 			delete(c.entries, key)
 			entry = uploadReuseEntry{}
 		}
-		flight := &uploadReuseFlight{done: make(chan struct{})}
+		flight := &uploadReuseFlight{done: make(chan struct{}), owner: owner}
 		c.flights[key] = flight
-		generation := c.generation
 		c.mu.Unlock()
 
 		result, share, err := load(uploadMetadataCopy(entry.file))
 		c.mu.Lock()
-		share = share && generation == c.generation
+		share = share && !flight.invalidated
 		if err == nil && share && result != nil && result.ID != "" && !isFailedUploadFileStatus(result.Status) {
 			expiresAt := entry.expiresAt
 			if entry.file == nil || entry.file.ID != result.ID {
@@ -139,7 +139,13 @@ func (c *uploadReuseCache) invalidateOwner(owner string) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.generation++ // Prevent an in-flight upload/validation from repopulating.
+	// Invalidate only this owner's flights. A different account's session
+	// deletion must not disable upload/validation coalescing for live callers.
+	for _, flight := range c.flights {
+		if flight.owner == owner {
+			flight.invalidated = true
+		}
+	}
 	for key, entry := range c.entries {
 		if entry.owner == owner {
 			delete(c.entries, key)

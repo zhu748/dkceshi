@@ -8,12 +8,15 @@ const { act, create }=TestRenderer
 const server=await createServer({root:fileURLToPath(new URL('../../webui/',import.meta.url)),server:{middlewareMode:true,watch:null},appType:'custom',logLevel:'silent'})
 const {useVercelSyncState}=await server.ssrLoadModule('/src/features/vercel/useVercelSyncState.js')
 const {useSettingsForm}=await server.ssrLoadModule('/src/features/settings/useSettingsForm.js')
+const {useAccountsData}=await server.ssrLoadModule('/src/features/account/useAccountsData.js')
 const noop=()=>{}, translate=key=>key
 
 test('Vercel status polling schedules another successful poll',async t=>{
  const timers=new Map();let id=0,statusCalls=0,renderer
  const nativeTimeout=global.setTimeout,nativeClear=global.clearTimeout
- t.mock.method(global,'setTimeout',(fn,delay,...args)=>{if(delay>=1000){const n=++id;timers.set(n,fn);return n};return nativeTimeout(fn,delay,...args)})
+ // Track the successful poll cadence only. Vite's SSR maintenance timers
+ // may run between React flushes and are unrelated to status polling.
+ t.mock.method(global,'setTimeout',(fn,delay,...args)=>{if(delay===15000){const n=++id;timers.set(n,fn);return n};return nativeTimeout(fn,delay,...args)})
  t.mock.method(global,'clearTimeout',n=>{if(timers.has(n))timers.delete(n);else nativeClear(n)})
  const apiFetch=async url=>{if(url.endsWith('/status'))statusCalls++;return {ok:true,json:async()=>({})}}
  function Harness(){useVercelSyncState({apiFetch,onMessage:noop,t:translate,isVercel:true});return null}
@@ -72,4 +75,47 @@ test('settings saves coalesce and ignore results after unmount',async()=>{
  await act(async()=>{saved.resolve(settingsResponse());await operation})
  assert.equal(signal.aborted,true)
  assert.deepEqual(messages,[])
+})
+
+const accountResponse = name => ({ok:true,json:async()=>({items:[{identifier:name}],page:1,total:1,total_pages:1})})
+
+test('slow queue polling completes without being repeatedly aborted',async t=>{
+ const intervals=new Set(),queue=deferred();let current,renderer,calls=0,signal
+ t.mock.method(global,'setInterval',fn=>{intervals.add(fn);return fn})
+ t.mock.method(global,'clearInterval',id=>intervals.delete(id))
+ const apiFetch=async(url,options)=>{
+  if(url==='/admin/queue/status'){calls++;signal=options.signal;return queue.promise}
+  return accountResponse('account')
+ }
+ function Harness(){current=useAccountsData({apiFetch,t:translate,onMessage:noop,onConfigRefresh:noop});return null}
+ try{
+  await act(async()=>{renderer=create(React.createElement(Harness))})
+  await act(async()=>{for(let i=0;i<3;i++)for(const tick of intervals)tick()})
+  assert.equal(calls,1,'polling started a replacement while the queue request was pending')
+  assert.equal(signal.aborted,false)
+  await act(async()=>{queue.resolve({ok:true,json:async()=>({in_use:2})});await queue.promise})
+  assert.equal(current.queueStatus.in_use,2)
+ }finally{act(()=>renderer.unmount())}
+ assert.equal(intervals.size,0)
+})
+
+test('account polling replaces its request source and ignores late old responses',async t=>{
+ const intervals=new Set(),old=deferred(),signals=[];let current,renderer
+ t.mock.method(global,'setInterval',fn=>{intervals.add(fn);return fn})
+ t.mock.method(global,'clearInterval',id=>intervals.delete(id))
+ const first=async(_url,options)=>{signals.push(options.signal);return old.promise}
+ const second=async url=>url==='/admin/queue/status'
+  ? {ok:true,json:async()=>({in_use:3})} : accountResponse('new')
+ function Harness({apiFetch}){current=useAccountsData({apiFetch,t:translate,onMessage:noop,onConfigRefresh:noop});return null}
+ try{
+  await act(async()=>{renderer=create(React.createElement(Harness,{apiFetch:first}))})
+  await act(async()=>renderer.update(React.createElement(Harness,{apiFetch:second})))
+  assert.ok(signals.every(signal=>signal.aborted))
+  assert.equal(intervals.size,1)
+  await act(async()=>{old.resolve(accountResponse('old'));await old.promise})
+  assert.equal(current.accounts[0].identifier,'new')
+  assert.equal(current.queueStatus.in_use,3)
+  assert.equal(current.loadingAccounts,false)
+ }finally{act(()=>renderer.unmount())}
+ assert.equal(intervals.size,0)
 })

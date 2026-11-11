@@ -5,113 +5,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"ds2api/internal/account"
 	"ds2api/internal/config"
-	adminshared "ds2api/internal/httpapi/admin/shared"
 )
-
-func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
-	page := intFromQuery(r, "page", 1)
-	pageSize := intFromQuery(r, "page_size", 10)
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 1
-	}
-	if pageSize > 5000 {
-		pageSize = 5000
-	}
-	accounts := h.Store.Snapshot().Accounts
-	counts := accountStatusCounts(accounts)
-	reverseAccounts(accounts)
-	// 将已启用且未禁言的账号排在前面，方便管理后台优先看到可用账号。
-	sort.SliceStable(accounts, func(i, j int) bool {
-		ai, aj := accounts[i], accounts[j]
-		activeI := ai.IsSchedulable()
-		activeJ := aj.IsSchedulable()
-		return activeI && !activeJ
-	})
-	statusFilter := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("status")))
-	if statusFilter != "" && statusFilter != "all" {
-		filtered := make([]config.Account, 0, len(accounts))
-		for _, acc := range accounts {
-			if matchesAccountStatusFilter(acc, statusFilter) {
-				filtered = append(filtered, acc)
-			}
-		}
-		accounts = filtered
-	}
-	q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
-	if q != "" {
-		filtered := make([]config.Account, 0, len(accounts))
-		for _, acc := range accounts {
-			id := strings.ToLower(acc.Identifier())
-			if strings.Contains(id, q) ||
-				strings.Contains(strings.ToLower(acc.Name), q) ||
-				strings.Contains(strings.ToLower(acc.Remark), q) ||
-				strings.Contains(strings.ToLower(acc.Email), q) ||
-				strings.Contains(strings.ToLower(acc.Mobile), q) {
-				filtered = append(filtered, acc)
-			}
-		}
-		accounts = filtered
-	}
-	total := len(accounts)
-	totalPages := 1
-	if total > 0 {
-		totalPages = (total + pageSize - 1) / pageSize
-	}
-	start, end := adminshared.PageBounds(page, pageSize, total)
-	items := make([]map[string]any, 0, end-start)
-	for _, acc := range accounts[start:end] {
-		testStatus, _ := h.Store.AccountTestStatus(acc.Identifier())
-		token := strings.TrimSpace(acc.Token)
-		items = append(items, map[string]any{
-			"identifier":     acc.Identifier(),
-			"name":           acc.Name,
-			"remark":         acc.Remark,
-			"email":          acc.Email,
-			"mobile":         acc.Mobile,
-			"proxy_id":       acc.ProxyID,
-			"manual_binding": acc.ManualBinding,
-			"no_proxy":       acc.NoProxy,
-			"pool_type":      config.NormalizePoolType(acc.PoolType),
-			"priority":       acc.Priority,
-			"has_password":   acc.Password != "",
-			"has_token":      token != "",
-			"token_preview":  maskSecretPreview(token),
-			"test_status":    testStatus,
-			"device_id_type": config.NormalizeDeviceIDType(acc.DeviceIDType),
-			"device_model":   acc.DeviceModel, "android_api_level": acc.AndroidAPILevel,
-			"rangers_id": acc.RangersID, "device_id": acc.DeviceID,
-			"installation_id": acc.InstallationID, "android_id": acc.AndroidID,
-			"device_brand": acc.DeviceBrand, "timezone": acc.Timezone,
-			"photo_compress_ratio": acc.PhotoCompressRatio, "picture_compress_format": acc.PictureCompressFormat,
-			"cooldown_until": acc.CooldownUntil, "manual_disabled": acc.ManualDisabled,
-			"cooling_down": acc.IsCoolingDown(), "schedulable": acc.IsSchedulable(),
-			"enabled":         acc.IsEnabled(),
-			"disabled_reason": acc.DisabledReason,
-			"banned":          acc.IsBanned(),
-			"auth_failed":     acc.IsAuthFailed(),
-			"muted":           acc.IsMuted(),
-			"muted_until":     acc.MutedUntil,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items":       items,
-		"total":       total,
-		"page":        page,
-		"page_size":   pageSize,
-		"total_pages": totalPages,
-		"counts":      counts,
-	})
-}
 
 func (h *Handler) addAccount(w http.ResponseWriter, r *http.Request) {
 	var req map[string]any

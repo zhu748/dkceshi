@@ -36,7 +36,6 @@ func (h *Handler) inflightAccounts() map[string]bool {
 	return h.Pool.InUseIDs()
 }
 
-func reverseAccounts(a []config.Account) { adminshared.ReverseAccounts(a) }
 func intFromQuery(r *http.Request, key string, d int) int {
 	return adminshared.IntFromQuery(r, key, d)
 }

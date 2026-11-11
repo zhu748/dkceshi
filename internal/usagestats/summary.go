@@ -1,6 +1,7 @@
 package usagestats
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 )
@@ -36,10 +37,34 @@ func (s *Store) SummaryWithRevision() ([]Entry, string) {
 	s.mu.Lock()
 	version := s.revisionLocked()
 	out := make([]Entry, 0, len(s.entries))
-	for _, entry := range s.entries {
-		out = append(out, *entry)
+	// A flush already orders these keys by date/model/identity. Recording
+	// changes values without invalidating that order; a new key changes its
+	// length, and import/clear invalidate it under the writer lock.
+	ordered := len(s.checkpointOrder) == len(s.entries)
+	if ordered {
+		for _, key := range s.checkpointOrder {
+			out = append(out, *s.entries[key])
+		}
+	} else {
+		for _, entry := range s.entries {
+			out = append(out, *entry)
+		}
 	}
 	s.mu.Unlock()
+	if ordered {
+		// Checkpoints sort dates ascending; the UI wants dates descending
+		// while models and identities within each date remain ascending.
+		slices.Reverse(out)
+		for start := 0; start < len(out); {
+			end := start + 1
+			for end < len(out) && out[end].Date == out[start].Date {
+				end++
+			}
+			slices.Reverse(out[start:end])
+			start = end
+		}
+		return out, version
+	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Date != out[j].Date {
 			return out[i].Date > out[j].Date

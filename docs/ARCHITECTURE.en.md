@@ -275,6 +275,7 @@ and lifecycle; `ledger.go`, `summary.go`, `mutations.go` and `import.go` own acc
 and `legacy.go` own loading, quarantine and migration; `persistence.go` owns periodic snapshots,
 revision checks and atomic writes. Settings models/defaults, validation and persistence live in
 `settings.go`, `settings_validation.go` and `settings_store.go` respectively.
+`usage.go` reads protocol usage fields; `pricing.go` owns model-price matching and peak/cache pricing.
 
 The usage UI separates conversion/date/format helpers (`usageUtils.js`), daily aggregation and
 bounded buckets (`usageAggregation.js`), pricing migration and storage (`usagePricing.js`), pure
@@ -282,7 +283,9 @@ dashboard calculations (`usageDashboard.js`) and React memoization (`useUsageDas
 `TokenUsageContainer.jsx` assembles interactions and presentation.
 
 Ledger checkpoints use compact JSON with the existing schema and atomic-write ordering.
-`summary.go` copies values and their version under one lock, then sorts outside the lock. Each
+`summary.go` copies live values and their version under one lock, then orders them outside the lock.
+When checkpoint keys are still valid it reverses date groups in linear time; new keys or
+administrative replacements fall back to a full sort. Only key order is reused, never old counters or labels. Each
 store instance has a distinct identity. The HTTP layer alone formats ETags and skips full snapshot
 work for matching conditional requests. `usageRecordsResource.js` owns accepted validators, request
 identity, 304 handling and clear invalidation; the hook binds this lifecycle to React.
@@ -305,3 +308,33 @@ after raw SSE collection and reasoning accumulation. Interrupted attempts still 
 failure turn with partial output and diagnostics. Token counting uses ordinary-text encoding;
 `jsonvalue` uses equivalent fast paths for plain keys and canonical decimal numbers while keeping
 escaped-key, Unicode and numeric precision validation. See [performance measurements](./performance-2026-11-10.md).
+
+## Admin query and static page boundaries
+
+Account writes live in `handler_accounts_crud.go`, list HTTP rendering in `handler_accounts_list.go`,
+and filtering/stable partitioning in `account_list.go`. Lists read only an account snapshot, partition
+indices in linear time, and construct responses for the requested page. Accounts keep reverse
+configuration order with schedulable entries first; automatic devices keep forward order with
+enabled, unmuted entries first. Global counts and device `total_all` remain independent of filtering.
+
+`useAccountsData.js` skips overlapping queue polls, cancels old requests when the fetch source
+changes, reads current state during polling, and cleans up requests/timers on unmount.
+
+`useChatHistoryList.js` owns history list reads, validators, polling and mutations;
+`ChatHistoryContainer.jsx` owns selection, details and presentation. Reads coalesce while pending.
+Writes invalidate older reads/validators and pause polling; duplicate writes have one synchronous
+owner. Source changes and unmount cancel both reads and writes, including late JSON completion.
+The selected ID is derived from the accepted list; `detailResource.js` still owns detail requests.
+
+Upload invalidation marks only flights belonging to the affected credential. File bytes are hashed
+once per upload operation while post-request checks still read the live credential/device identity.
+The SSE parser reserves one part for scalar text increments and retains batch capacity for structured frames.
+
+`auto_continue_body.go` registers the current upstream body before reading. Consumer `Close`
+synchronously closes it and cancels continuation work; bodies arriving after closure are closed
+immediately. One shared close owner prevents duplicate underlying closes across cancellation,
+consumer cleanup and parser finalization, with cleanup failures returned or logged.
+
+The root landing page lives in `internal/webui/welcome.html` and is compiled into the binary with
+`go:embed`. `handler.go` owns routes, SPA fallback, MIME types and cache policy. No extra HTML
+deployment step is needed. Landing copy still needs to stay aligned with its React counterpart.

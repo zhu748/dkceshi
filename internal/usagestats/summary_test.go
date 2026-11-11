@@ -15,6 +15,11 @@ func TestSummaryRevisionDescribesTheSameSnapshot(t *testing.T) {
 	defer s.Close()
 	done := make(chan struct{})
 	at := time.Now()
+	// Exercise the ordered-read path while recordings change live values.
+	s.Record("model", "caller", map[string]any{"prompt_tokens": 10}, at)
+	if err := s.flushNow(); err != nil {
+		t.Fatal(err)
+	}
 	go func() {
 		defer close(done)
 		for range 500 {
@@ -34,7 +39,7 @@ func TestSummaryRevisionDescribesTheSameSnapshot(t *testing.T) {
 		}
 	}
 	<-done
-	if got := s.Summary(); len(got) != 1 || got[0].Calls != 500 {
+	if got := s.Summary(); len(got) != 1 || got[0].Calls != 501 {
 		t.Fatalf("snapshot mutation leaked into live entries: %+v", got)
 	}
 }

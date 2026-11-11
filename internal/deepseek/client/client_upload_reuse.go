@@ -13,16 +13,22 @@ import (
 )
 
 func (c *Client) reuseUploadedFile(ctx context.Context, a *auth.RequestAuth, req UploadFileRequest, maxAttempts int) (*UploadFileResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if c.uploadCache == nil || a == nil || a.DeepSeekToken == "" {
 		return c.uploadFilePendingUncached(ctx, a, req, maxAttempts)
 	}
-	key := uploadReuseKey(a, req)
+	// Request bytes stay immutable throughout retries. Hash them once, while
+	// still checking the live auth/device identity after every upstream call.
+	digest := sha256.Sum256(req.Data)
+	key := uploadReuseKey(a, req, digest)
 	return c.uploadCache.do(ctx, key, uploadReuseOwner(a.DeepSeekToken), func(cached *UploadFileResult) (*UploadFileResult, bool, error) {
 		if cached != nil {
 			current, err := c.FetchUploadedFile(ctx, a, cached.ID)
 			if err == nil && current != nil && !isFailedUploadFileStatus(current.Status) {
 				mergeUploadFileResults(cached, current)
-				return cached, key == uploadReuseKey(a, req), nil
+				return cached, key == uploadReuseKey(a, req, digest), nil
 			}
 			if err != nil && !errors.Is(err, ErrUploadFileNotFound) {
 				// An auth/transport failure is not proof that the file expired.
@@ -33,7 +39,7 @@ func (c *Client) reuseUploadedFile(ctx context.Context, a *auth.RequestAuth, req
 		file, err := c.uploadFilePendingUncached(ctx, a, req, maxAttempts)
 		// Upload retries may refresh credentials or change accounts. Never lend
 		// that result to another request still holding the original identity.
-		return file, key == uploadReuseKey(a, req), err
+		return file, key == uploadReuseKey(a, req, digest), err
 	})
 }
 
@@ -41,7 +47,7 @@ func uploadReuseOwner(token string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(token)))
 }
 
-func uploadReuseKey(a *auth.RequestAuth, req UploadFileRequest) string {
+func uploadReuseKey(a *auth.RequestAuth, req UploadFileRequest, digest [sha256.Size]byte) string {
 	headers := BaseHeadersForAuth(a)
 	ratio := os.Getenv("DS2API_DEEPSEEK_PHOTO_COMPRESS_RATIO")
 	if req.PhotoCompressRatio != nil {
@@ -58,7 +64,7 @@ func uploadReuseKey(a *auth.RequestAuth, req UploadFileRequest) string {
 		headers["x-device-id"], headers["x-rangers-id"],
 		req.Filename, strings.ToLower(strings.TrimSpace(req.ContentType)), req.Purpose,
 		strconv.FormatBool(req.ThinkingEnabled), strconv.FormatBool(req.PreserveImage), ratio, format,
-		fmt.Sprintf("%x", sha256.Sum256(req.Data)),
+		fmt.Sprintf("%x", digest),
 	}
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%q", fields))))
 }
