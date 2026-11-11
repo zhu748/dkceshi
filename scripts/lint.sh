@@ -8,7 +8,7 @@ LINT_BIN="${GOLANGCI_LINT_BIN:-golangci-lint}"
 BOOTSTRAP_VERSION="${GOLANGCI_LINT_VERSION:-v2.11.4}"
 BOOTSTRAP_BIN="${ROOT_DIR}/.tmp/golangci-lint-${BOOTSTRAP_VERSION}"
 
-export GOCACHE="${GOCACHE:-${ROOT_DIR}/.tmp/go-build-cache}"
+export GOCACHE="${GOCACHE:-$(go env GOCACHE)}"
 export GOLANGCI_LINT_CACHE="${GOLANGCI_LINT_CACHE:-${ROOT_DIR}/.tmp/golangci-lint-cache}"
 mkdir -p "$GOCACHE" "$GOLANGCI_LINT_CACHE"
 

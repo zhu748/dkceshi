@@ -75,6 +75,23 @@ if [[ -z "$tag" ]]; then
   exit 1
 fi
 
+if [[ "${1:-}" == "--target" ]]; then
+  if [[ $# -ne 2 ]]; then
+    echo "usage: $0 --target <package-label>" >&2
+    exit 1
+  fi
+  selected=""
+  for target in "${DS2API_RELEASE_TARGETS[@]}"; do
+    read -r goos goarch goarm label <<< "$target"
+    if [[ "$label" == "$2" ]]; then selected="$target"; break; fi
+  done
+  if [[ -z "$selected" ]]; then
+    echo "unknown release target: $2" >&2
+    exit 1
+  fi
+  DS2API_RELEASE_TARGETS=("$selected")
+fi
+
 build_version="${BUILD_VERSION:-$tag}"
 jobs="${RELEASE_BUILD_JOBS:-}"
 if [[ -z "$jobs" ]]; then

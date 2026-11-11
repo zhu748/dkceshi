@@ -21,6 +21,7 @@ import (
 )
 
 type responsesStreamRuntime struct {
+	toolRecovery       completionruntime.ToolRecovery
 	diagnosticProgress assistantturn.DiagnosticProgress
 	output             streamwriter.Writer
 	w                  http.ResponseWriter
@@ -234,7 +235,7 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 		if p.CitationOnly {
 			continue
 		}
-		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
+		if s.toolRecovery.Hold || completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
 			continue
 		}
 		if !s.bufferToolContent {

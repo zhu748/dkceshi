@@ -34,6 +34,9 @@ func (r *normalizationRun) walk(value any, schema *jsonschema.Schema, depth int,
 		if parsed, ok := parseArrayMissingClosures(text); ok && r.validate(schema, parsed) == nil {
 			return parsed, true
 		}
+		if parsed, ok := parseRepeatedCDATANumber(text); ok && r.validate(schema, parsed) == nil {
+			return parsed, true
+		}
 	}
 	apply := func(child *jsonschema.Schema) {
 		next, didChange := r.walk(value, child, depth+1, scope)

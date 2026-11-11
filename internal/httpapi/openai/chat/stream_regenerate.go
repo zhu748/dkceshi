@@ -5,10 +5,11 @@ import (
 	"ds2api/internal/toolstream"
 )
 
-// Only called after the runtime deferred an error with no delivered answer.
+// Called after a deferred failure; delivered tool preambles remain visible.
 // Preserve reasoning already streamed, but discard malformed tool fragments,
 // old message IDs and error state before parsing a replacement generation.
 func (s *chatStreamRuntime) resetForRegeneration() {
+	s.toolRecovery.Start(s.finalErrorCode, s.visibleTextEmitted)
 	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.toolCallsPending = false
 	s.accumulator.RawText.Reset()

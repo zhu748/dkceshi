@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestSearchToolFailureRespectsDeliveredProse(t *testing.T) {
+func TestSearchToolFailureRetriesAfterDeliveredProse(t *testing.T) {
 	tools := []any{map[string]any{"name": "web_search", "input_schema": map[string]any{
 		"type": "object", "required": []any{"queries"},
 		"properties": map[string]any{"queries": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}},
@@ -32,12 +32,10 @@ func TestSearchToolFailureRespectsDeliveredProse(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/", nil)
 			result := (&Handler{}).consumeClaudeStreamAttempt(req, content(prefix, bad), runtime, false, true)
 			if strings.TrimSpace(prefix) != "" {
-				if !result.Terminal || result.Retryable || !strings.Contains(rec.Body.String(), prefix) {
-					t.Fatalf("delivered prose was replaced: %+v body=%s", result, rec.Body.String())
+				if result.Terminal || !result.Retryable || !strings.Contains(rec.Body.String(), prefix) {
+					t.Fatalf("tool correction blocked after prose: %+v body=%s", result, rec.Body.String())
 				}
-				return
-			}
-			if result.Terminal || !result.Retryable || rec.Body.Len() != 0 {
+			} else if result.Terminal || !result.Retryable || rec.Body.Len() != 0 {
 				t.Fatalf("incorrect delivery boundary: terminal=%t retryable=%t code=%s body=%s", result.Terminal, result.Retryable, runtime.finalErrorCode, rec.Body.String())
 			}
 			runtime.resetForRegeneration()

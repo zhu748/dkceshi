@@ -67,7 +67,7 @@ func (s *geminiStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 			}
 			continue
 		}
-		if s.bufferContent || p.RawText == "" || p.CitationOnly {
+		if s.bufferContent || s.toolRecovery.Hold || p.RawText == "" || p.CitationOnly {
 			continue
 		}
 		for _, event := range toolstream.ProcessChunk(&s.toolSieve, p.RawText, s.toolNames) {

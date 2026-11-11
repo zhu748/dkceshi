@@ -76,6 +76,7 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 
 //nolint:unused // retained for native Gemini stream handling path.
 type geminiStreamRuntime struct {
+	toolRecovery       completionruntime.ToolRecovery
 	diagnosticProgress assistantturn.DiagnosticProgress
 	output             streamwriter.Writer
 	leadingText        completionruntime.LeadingText
@@ -98,6 +99,7 @@ type geminiStreamRuntime struct {
 	deferredText          strings.Builder
 	toolCallsPending      bool
 	answerDelivered       bool
+	toolsDelivered        bool
 	bufferContent         bool
 	stripReferenceMarkers bool
 	toolNames             []string
@@ -271,17 +273,17 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 
 // resetForRegeneration discards the previous attempt's accumulated output
 // before a replacement generation starts (empty-output retry or account
-// switch). Only called after the runtime deferred an error with no delivered
-// answer; keep the buffers clean so the new answer is not appended to the old
-// one. Mirrors chat/claude stream_regenerate.go.
+// switch). Delivered tool preambles remain visible, while replacement prose
+// waits for validation. Mirrors chat/claude stream_regenerate.go.
 func (s *geminiStreamRuntime) resetForRegeneration() {
+	s.toolRecovery.Start(s.finalErrorCode, s.answerDelivered)
 	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.accumulator.ResetForRegeneration()
 	s.toolSieve = toolstream.State{CleanVisible: true, DeferMalformed: true, Marker: s.toolMarker, StripReferenceMarkers: s.stripReferenceMarkers}
 	s.deferredText.Reset()
 	s.leadingText.Reset()
 	s.toolCallsPending = false
-	s.answerDelivered = false
+	// Delivered prose remains committed across replacement attempts.
 	s.contentFilter = false
 	s.responseMessageID = 0
 	s.upstreamErr = ""
@@ -427,7 +429,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	})
 	outcome := assistantturn.FinalizeTurn(turn, assistantturn.FinalizeOptions{})
 	if outcome.ShouldFail {
-		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.answerDelivered, s.toolCallRepairCtx) {
+		if completionruntime.CanDeferToolAwareOutputError(outcome.Error, deferEmptyOutput, s.answerDelivered, s.toolsDelivered, s.toolCallRepairCtx) {
 			s.finalErrorStatus = outcome.Error.Status
 			s.finalErrorMessage = outcome.Error.Message
 			s.finalErrorCode = outcome.Error.Code
@@ -441,16 +443,17 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	}
 
 	turn.Thinking = "" // Visible thinking has already streamed on every path.
-	if s.bufferContent {
-		s.emitStreamText(completionruntime.ValidatedToolText(turn, s.toolNames, s.toolMarker, s.stripReferenceMarkers))
+	if s.bufferContent || s.toolRecovery.Hold {
+		s.emitStreamText(s.toolRecovery.Text(turn, s.toolNames, s.toolMarker, s.stripReferenceMarkers))
 	}
 	if len(turn.ToolCalls) > 0 {
 		turn.Text = "" // The prefix was delivered incrementally or flushed above.
 		s.sendParts(buildGeminiPartsFromTurn(turn))
 		if s.output.ToolsWritten(s.toolCallRepairCtx) {
 			s.answerDelivered = true
+			s.toolsDelivered = true
 		}
-	} else if !s.bufferContent {
+	} else if !s.bufferContent && !s.toolRecovery.Hold {
 		s.emitStreamText(toolstream.FilterVisible(s.deferredText.String(), ""))
 		s.deferredText.Reset()
 		for _, event := range toolstream.Flush(&s.toolSieve, s.toolNames) {

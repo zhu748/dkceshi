@@ -56,6 +56,7 @@ const {
   switchOptionsForStatus, isUnavailableEmptyOutput, switchOptionsForFailure,
   isTransientUpstreamMessage,
   EMPTY_OUTPUT_RETRY_MAX_ATTEMPTS,
+  isToolOutputError, canDeferOutputError,
   clonePayloadForOutputRetry,
 } = require('./stream_retry_policy');
 const {
@@ -227,10 +228,11 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let ended = false;
     let lastEmptyDetail = null;
     let answerDelivered = false;
+    let recoveringToolsAfterText = false;
     const leadingText = createLeadingText();
     const finalValidation = createFinalValidation();
     const diagnosticProgress = createDiagnosticProgress({ enabled: prep.body.diagnostic_progress === true, req, leaseID, deadline: watch.finalDeadline, signal: lifecycle.signal, diagnostic: report.diagnostic, read: () => ({ content: outputText, thinking: rawReasoning() }) });
-    const holdToolText = () => toolPolicy.holdText;
+    const holdToolText = () => toolPolicy.holdText || recoveringToolsAfterText;
     const { sendFrame, sendDeltaFrame: emitDeltaFrame } = createChatCompletionEmitter({
       res,
       sessionID: responseID,
@@ -253,6 +255,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     };
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
     const resetForRegeneration = () => {
+      recoveringToolsAfterText ||= answerDelivered && isToolOutputError(lastEmptyDetail);
       report.regenerate(lastEmptyDetail);
       finalValidation.reset();
       diagnosticProgress.reset();
@@ -336,7 +339,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           const validation = await finalValidation.run(() => report.measure('validation_ms', () => fetchStreamValidation(req, leaseID, outputText, rawReasoning(), detectionThinkingText, lifecycle.signal, watch.finalDeadline, { ...report.diagnostic(), ...usageAccounting.validation() }, prep.body.tool_repair_timeout_ms)));
           if (!validation.ok) {
             const error = validation.body.error || {};
-            if (options.deferEmpty && !answerDelivered && ['invalid_tool_arguments', 'tool_choice_violation', 'upstream_empty_output', 'upstream_unavailable'].includes(error.code)) {
+            if (canDeferOutputError(error, options.deferEmpty, answerDelivered, toolCallsEmitted || toolCallsDoneEmitted)) {
               lastEmptyDetail = { status: validation.status, message: error.message || 'Tool validation failed', code: error.code };
               return false;
             }
@@ -363,7 +366,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
       const violation = (detected.length > 0 || toolCallsEmitted || hasVisibleOutput)
         ? toolChoiceViolation(detected, toolPolicy.choice) : '';
       if (violation) {
-        if (options.deferEmpty && !answerDelivered) {
+        if (canDeferOutputError({code: 'tool_choice_violation'}, options.deferEmpty, answerDelivered, toolCallsEmitted || toolCallsDoneEmitted)) {
           lastEmptyDetail = { status: 422, message: violation, code: 'tool_choice_violation' };
           return false;
         }
@@ -374,7 +377,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
         if (!res.writableEnded && !res.destroyed) res.end();
         return true;
       }
-      if (holdToolText()) { deltaCoalescer.append('content', validatedText ?? validatedToolText(outputText, toolNames, detected.length > 0)); deltaCoalescer.flush(); }
+      if (holdToolText() && !(recoveringToolsAfterText && detected.length)) { deltaCoalescer.append('content', validatedText ?? validatedToolText(outputText, toolNames, detected.length > 0)); deltaCoalescer.flush(); }
       if (!holdToolText() && !detected.length && !toolCallsEmitted && deferredToolText) { deltaCoalescer.append('content', filterVisible(deferredToolText)); deferredToolText = ''; }
       if (detected.length > 0 && !toolCallsDoneEmitted) {
         if (sendDeltaFrame({ tool_calls: validatedCalls })) {

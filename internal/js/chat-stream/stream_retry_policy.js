@@ -110,3 +110,14 @@ function clonePayloadForOutputRetry(payload, parentMessageID, failure, invalidOu
 
 module.exports.clonePayloadForOutputRetry = clonePayloadForOutputRetry;
 module.exports.PROMPT_ECHO_RETRY_SUFFIX = PROMPT_ECHO_RETRY_SUFFIX;
+
+// A streamed preamble is not an executed tool batch.
+function isToolOutputError(failure) {
+  return ['invalid_tool_arguments', 'tool_choice_violation'].includes(failure?.code);
+}
+function canDeferOutputError(failure, enabled, textDelivered, toolsDelivered) {
+  return enabled && !toolsDelivered && (!textDelivered || isToolOutputError(failure))
+    && (isToolOutputError(failure) || ['upstream_empty_output', 'upstream_unavailable'].includes(failure?.code));
+}
+module.exports.isToolOutputError = isToolOutputError;
+module.exports.canDeferOutputError = canDeferOutputError;

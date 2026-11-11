@@ -1,0 +1,60 @@
+name: Release Go checks
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GO_VERSION: "1.26.x"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.sum
+            proxybridge/go.sum
+      - name: Cache lint binary and analysis
+        uses: actions/cache@v4
+        with:
+          path: |
+            .tmp/golangci-lint-v2.11.4
+            .tmp/golangci-lint-cache
+          key: ${{ runner.os }}-release-lint-v2.11.4-${{ hashFiles('go.sum', 'proxybridge/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-release-lint-v2.11.4-${{ hashFiles('go.sum', 'proxybridge/go.sum') }}-
+      - name: Lint and refactor gates
+        run: |
+          ./scripts/lint.sh
+          ./tests/scripts/check-refactor-line-gate.sh
+
+  go-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.sum
+            proxybridge/go.sum
+      - name: Go unit gates (application and proxy bridge)
+        run: ./tests/scripts/run-unit-go.sh

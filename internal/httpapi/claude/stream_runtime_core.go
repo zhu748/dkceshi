@@ -21,6 +21,7 @@ import (
 )
 
 type claudeStreamRuntime struct {
+	toolRecovery       completionruntime.ToolRecovery
 	diagnosticProgress assistantturn.DiagnosticProgress
 	output             streamwriter.Writer
 	leadingText        completionruntime.LeadingText
@@ -205,7 +206,7 @@ func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Parse
 			continue
 		}
 		s.text.WriteString(rawTrimmed)
-		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
+		if s.toolRecovery.Hold || completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
 			continue
 		}
 

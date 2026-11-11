@@ -45,3 +45,9 @@ func CanDeferOutputError(err *assistantturn.OutputError, retryEnabled, outputDel
 	}
 	return allowed
 }
+
+// CanDeferToolAwareOutputError treats only an executable call as committed for
+// tool failures. A streamed preamble cannot prevent correction of a rejected batch.
+func CanDeferToolAwareOutputError(err *assistantturn.OutputError, retryEnabled, textDelivered, toolsDelivered bool, contexts ...context.Context) bool {
+	return CanDeferOutputError(err, retryEnabled, toolsDelivered || textDelivered && !IsToolOutputError(err), contexts...)
+}

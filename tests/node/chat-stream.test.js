@@ -2816,19 +2816,25 @@ test('tool contexts stream prose before upstream EOF while executable calls stil
   }
 });
 
-test('auto prose is never silently replaced after a subsequent tool validation failure', async () => {
+test('auto prose allows correction without repeating the preamble or delivering the rejected batch', async () => {
   const line = text => 'data: ' + JSON.stringify({p: 'response/content', v: text}) + '\n\n';
+  const tool_calls = [{index: 0, id: 'read_fixed', type: 'function', function: {name: 'read', arguments: '{"offset":120}'}}];
   const result = await runMockVercelStreamSequence([
     [line('Visible explanation has already been delivered.'), line('<tool_calls><invoke name="read"></invoke></tool_calls>'), 'data: [DONE]\n\n'],
-    [line('Replacement must not appear.'), 'data: [DONE]\n\n'],
-  ], {validate_tools: true, tool_names: ['read'], validation_status: 422, validation_result: {error: {code: 'invalid_tool_arguments', message: 'missing path'}}});
+    [line('Duplicate explanation must not appear.'), line('<tool_calls><invoke name="read"><parameter name="offset">120</parameter></invoke></tool_calls>'), 'data: [DONE]\n\n'],
+  ], {validate_tools: true, tool_names: ['read'], validation_responses: [
+    {status: 422, body: {error: {code: 'invalid_tool_arguments', message: "at '/offset': got string, want number"}}},
+    {body: {tool_calls, content: 'Duplicate explanation must not appear.'}},
+  ]});
   const events = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
   const deltas = events.flatMap(event => event.choices?.map(choice => choice.delta || {}) || []);
   assert.equal(deltas.map(delta => delta.content || '').join(''), 'Visible explanation has already been delivered.');
-  assert.equal(events.some(event => event.error?.code === 'invalid_tool_arguments'), true);
-  assert.equal(deltas.some(delta => delta.tool_calls), false);
-  assert.equal(result.fetchURLs.some(url => url.includes('__stream_pow=1')), false);
+  assert.equal(events.some(event => event.error), false);
+  assert.deepEqual(deltas.flatMap(delta => delta.tool_calls || []), tool_calls);
+  assert.equal(result.fetchURLs.filter(url => url.includes('__stream_pow=1')).length, 1);
   assert.equal(result.fetchURLs.some(url => url.includes('__stream_switch=1')), false);
+  assert.equal(result.frames.filter(frame => frame === '[DONE]').length, 1);
+  assert.ok(result.fetchBodies.some(body => body.prompt?.includes("at '/offset': got string, want number")));
 });
 
 test('authoritative usage reaches the final frame and lease report unchanged', async () => {
@@ -3024,4 +3030,28 @@ test('explicit PoW rate limit rebuilds the request instead of using the old sess
   assert.equal(bodies[1].chat_session_id, 'new-session');
   assert.equal(bodies[1].prompt, 'hello');
   assert.ok(result.frames.some(frame => frame.includes('recovered after pow limit')));
+});
+
+test('tool recovery after prose preserves text-only answers and survives account replacement', async () => {
+  const line = value => `data: ${JSON.stringify({p:'response/content', v:value})}\n\n`;
+  const batch = '<tool_calls><invoke name="read"></invoke></tool_calls>';
+  const wire = [{index:0,id:'fixed',type:'function',function:{name:'read',arguments:'{}'}}];
+  for (const textOnly of [true, false]) {
+    const sequences = [[line('Original preamble. '), line(batch), 'data: [DONE]\n\n']];
+    const invalid = {status:422,body:{error:{code:'invalid_tool_arguments',message:'broken arguments'}}};
+    const validation_responses = [invalid];
+    if (!textOnly) { sequences.push([line('FAILED RETRY'),line(batch),'data: [DONE]\n\n']); validation_responses.push(invalid); }
+    sequences.push([line(textOnly ? 'Recovered final answer.' : 'DUPLICATE'+batch), 'data: [DONE]\n\n']);
+    validation_responses.push({body:{tool_calls:textOnly ? [] : wire,content:textOnly ? 'Recovered final answer.' : 'DUPLICATE'}});
+    const result = await runMockVercelStreamSequence(sequences, {validate_tools:true,tool_names:['read'],validation_responses,
+      switch_result:{session_id:'replacement',payload:{prompt:'hello',chat_session_id:'replacement'},deepseek_token:'replacement',pow_header:'pow'},
+    });
+    const events = result.frames.filter(frame=>frame!=='[DONE]').map(JSON.parse);
+    const deltas = events.flatMap(event=>event.choices?.map(choice=>choice.delta||{})||[]);
+    assert.equal(events.some(event=>event.error),false);
+    assert.equal(deltas.map(delta=>delta.content||'').join(''),'Original preamble. '+(textOnly ? 'Recovered final answer.' : ''));
+    assert.deepEqual(deltas.flatMap(delta=>delta.tool_calls||[]),textOnly ? [] : wire);
+    assert.equal(result.fetchURLs.filter(url=>url.includes('__stream_switch=1')).length,textOnly ? 0 : 1);
+    assert.equal(result.frames.filter(frame=>frame==='[DONE]').length,1);
+  }
 });

@@ -157,7 +157,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		AlreadyEmittedToolCalls: s.toolCallsDetected,
 	})
 	if outcome.ShouldFail {
-		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput && !s.contentFilter, s.visibleTextEmitted || s.toolCallsDetected, s.toolCallRepairCtx) {
+		if completionruntime.CanDeferToolAwareOutputError(outcome.Error, deferEmptyOutput && !s.contentFilter, s.visibleTextEmitted, s.toolCallsDetected, s.toolCallRepairCtx) {
 			s.finalErrorStatus = outcome.Error.Status
 			s.finalErrorMessage = outcome.Error.Message
 			s.finalErrorCode = outcome.Error.Code
@@ -173,8 +173,8 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		return true
 	}
 
-	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
-		s.deferredText.WriteString(completionruntime.ValidatedToolText(turn, s.toolNames, s.sieve.Marker, s.stripReferenceMarkers))
+	if s.toolRecovery.Hold || completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
+		s.deferredText.WriteString(s.toolRecovery.Text(turn, s.toolNames, s.sieve.Marker, s.stripReferenceMarkers))
 		s.emitDeferredText()
 	} else if len(turn.ToolCalls) == 0 && !s.toolCallsDetected {
 		s.emitDeferredText()

@@ -10,3 +10,7 @@ DS2API_RELEASE_TARGETS=(
   "windows amd64 - windows_amd64"
   "windows arm64 - windows_arm64"
 )
+
+if [[ "${BASH_SOURCE[0]}" == "$0" && "${1:-}" == "--json" ]]; then
+  printf '%s\n' "${DS2API_RELEASE_TARGETS[@]}" | python3 -c 'import json,sys; print(json.dumps([line.split()[3] for line in sys.stdin if line.strip()]))'
+fi

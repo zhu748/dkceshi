@@ -21,8 +21,8 @@ func TestRegressionSystemCatalogRejectedTurn(t *testing.T) {
 	s.onParsed(sse.LineResult{Parsed: true, Parts: []sse.ContentPart{{Type: "text", Text: `I will read it now. <tool_calls><invoke name="read_file"><parameter name="path">`}}})
 	terminal := s.finalize("stop", true)
 	t.Logf("hold=%v delivered=%v terminal=%v error=%s", completionruntime.HoldToolOutput(std.ToolNames, std.ToolsRaw, std.ToolChoice), s.visibleTextEmitted, terminal, s.finalErrorCode)
-	if !terminal || !s.visibleTextEmitted || s.finalErrorCode != "invalid_tool_arguments" {
-		t.Fatalf("delivered prose must prevent regeneration: %s", rec.Body.String())
+	if terminal || !s.visibleTextEmitted || s.finalErrorCode != "invalid_tool_arguments" {
+		t.Fatalf("delivered prose must allow tool correction: %s", rec.Body.String())
 	}
 }
 

@@ -13,6 +13,7 @@ func (s *claudeStreamRuntime) rejectedOutput() string {
 }
 
 func (s *claudeStreamRuntime) resetForRegeneration() {
+	s.toolRecovery.Start(s.finalErrorCode, s.visibleTextEmitted)
 	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.toolCallsPending = false
 	s.rawText.Reset()

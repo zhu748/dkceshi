@@ -2,18 +2,20 @@ name: Release Artifacts
 
 on:
   release:
-    types:
-      - published
+    types: [published]
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag to build/publish (e.g. v2.1.6)"
+        description: "Release tag to build/publish (e.g. v1.0.9)"
         required: true
         type: string
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
+
+defaults:
+  run:
+    shell: bash
 
 concurrency:
   group: release-artifacts-${{ github.event.release.tag_name || github.event.inputs.release_tag }}
@@ -22,76 +24,144 @@ concurrency:
 env:
   GO_VERSION: "1.26.x"
   NODE_VERSION: "24"
+  RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.release_tag }}
   DEVID_SOURCE_TAG: "v1.0.0"
   DEVID_SOURCE_ASSET: "devid-android-websdk-v4.6.7.zip"
   DEVID_SOURCE_SHA256: "32276a0e8dcceacd7267b29c614936834e085f33eb10ea3cb14a374b136af559"
 
 jobs:
-  build-and-upload:
+  checks:
+    uses: ./.github/workflows/release-checks.yml
+    with:
+      release_tag: ${{ github.event.release.tag_name || github.event.inputs.release_tag }}
+
+  prepare:
+    name: Node tests, WebUI and verified SDK
     runs-on: ubuntu-latest
-    env:
-      RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.release_tag }}
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            go.sum
-            proxybridge/go.sum
-
-      - name: Install golangci-lint
+      - name: Validate tag and derive platform matrix
+        id: targets
         run: |
-          mkdir -p "$RUNNER_TEMP/golangci-lint-bin"
-          GOBIN="$RUNNER_TEMP/golangci-lint-bin" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          echo "targets=$(bash scripts/release-targets.sh --json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: npm
           cache-dependency-path: webui/package-lock.json
-
-      - name: Install WebUI dependencies
-        run: npm ci --prefix webui --prefer-offline --no-audit
-
-      - name: Release Blocking Gates
-        env:
-          GOLANGCI_LINT_BIN: ${{ runner.temp }}/golangci-lint-bin/golangci-lint
+      - name: Node tests and shared WebUI build
         run: |
-          ./scripts/lint.sh
-          ./tests/scripts/check-refactor-line-gate.sh
-          ./tests/scripts/run-unit-all.sh
-
-      - name: Build WebUI
-        run: npm run build --prefix webui
-
-      - name: Build Multi-Platform Archives
-        env:
-          RELEASE_BUILD_JOBS: "3"
-        run: ./scripts/build-release-archives.sh
-
+          npm ci --prefix webui --prefer-offline --no-audit
+          ./tests/scripts/run-unit-node.sh
+          npm run build --prefix webui
+          mkdir -p .tmp/release-inputs
+          tar -czf .tmp/release-inputs/webui.tar.gz static/admin
       - name: Prepare verified bundled devid resources
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          mkdir -p dist/sdk-source dist/docker-input
-          gh release download "${DEVID_SOURCE_TAG}" --repo "${GITHUB_REPOSITORY}" \
-            --pattern "${DEVID_SOURCE_ASSET}" --dir dist/sdk-source
-          printf '%s  %s\n' "${DEVID_SOURCE_SHA256}" "dist/sdk-source/${DEVID_SOURCE_ASSET}" | sha256sum --check
-          python3 scripts/install-devid-assets.py "dist/sdk-source/${DEVID_SOURCE_ASSET}" --assets-dir dist/sdk-source/verified
-          python3 scripts/build-android-devid.py --assets dist/sdk-source/verified --output "dist/devid-android-websdk_${RELEASE_TAG}.zip"
-          python3 scripts/install-devid-assets.py "dist/devid-android-websdk_${RELEASE_TAG}.zip" --assets-dir dist/devid-assets
-          tar -C dist/devid-assets -czf dist/docker-input/devid-assets.tar.gz \
+          mkdir -p .tmp/sdk-source
+          gh release download "$DEVID_SOURCE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$DEVID_SOURCE_ASSET" --dir .tmp/sdk-source
+          printf '%s  %s\n' "$DEVID_SOURCE_SHA256" ".tmp/sdk-source/$DEVID_SOURCE_ASSET" | sha256sum --check
+          python3 scripts/install-devid-assets.py ".tmp/sdk-source/$DEVID_SOURCE_ASSET" --assets-dir .tmp/sdk-source/verified
+          python3 scripts/build-android-devid.py --assets .tmp/sdk-source/verified --output ".tmp/release-inputs/devid-android-websdk_${RELEASE_TAG}.zip"
+          python3 scripts/install-devid-assets.py ".tmp/release-inputs/devid-android-websdk_${RELEASE_TAG}.zip" --assets-dir .tmp/devid-assets
+          tar -C .tmp/devid-assets -czf .tmp/release-inputs/devid-assets.tar.gz \
             fp-1.min.js gpus.json patches.json profiles.json verify.js public_key \
             browser_env.js fonts.json ANDROID-PACKAGE.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-inputs
+          path: .tmp/release-inputs/*
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
 
+  archives:
+    name: Archive (${{ matrix.target }})
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Cache Go modules and toolchains
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-release-modules-${{ hashFiles('go.sum', 'proxybridge/go.sum') }}
+      - name: Cache platform compilation
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-release-build-${{ matrix.target }}-${{ hashFiles('go.sum', 'proxybridge/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-release-build-${{ matrix.target }}-${{ hashFiles('go.sum', 'proxybridge/go.sum') }}-
+            ${{ runner.os }}-release-build-${{ matrix.target }}-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-inputs
+          path: .tmp/release-inputs
+      - name: Build one platform using shared WebUI
+        env:
+          TARGET_LABEL: ${{ matrix.target }}
+          RELEASE_BUILD_JOBS: "1"
+        run: |
+          tar -xzf .tmp/release-inputs/webui.tar.gz
+          ./scripts/build-release-archives.sh --target "$TARGET_LABEL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+
+  publish:
+    name: Publish archives and Docker images
+    needs: [checks, prepare, archives]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-inputs
+          path: .tmp/release-inputs
+      - name: Restore verified SDK inputs
+        run: |
+          mkdir -p dist/docker-input
+          cp .tmp/release-inputs/devid-android-websdk_*.zip dist/
+          cp .tmp/release-inputs/devid-assets.tar.gz dist/docker-input/
       - name: Upload binary release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -206,15 +276,6 @@ jobs:
         run: |
           set -euo pipefail
           (cd dist && sha256sum *.tar.gz *.zip > sha256sums.txt)
-
-      - name: Validate release tag
-        run: |
-          set -euo pipefail
-          TAG="${RELEASE_TAG}"
-          if [ -z "${TAG}" ]; then
-            echo "release tag is empty; set release_tag when using workflow_dispatch." >&2
-            exit 1
-          fi
 
       - name: Upload Release Assets
         env:

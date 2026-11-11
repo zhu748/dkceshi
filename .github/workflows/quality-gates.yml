@@ -36,12 +36,15 @@ jobs:
             go.sum
             proxybridge/go.sum
 
-      - name: Setup golangci-lint
-        uses: golangci/golangci-lint-action@v8
+      - name: Cache golangci-lint binary and analysis
+        uses: actions/cache@v4
         with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          install-mode: binary
-          verify: true
+          path: |
+            .tmp/golangci-lint-v2.11.4
+            .tmp/golangci-lint-cache
+          key: ${{ runner.os }}-quality-lint-v2.11.4-${{ hashFiles('go.sum', 'proxybridge/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-quality-lint-v2.11.4-${{ hashFiles('go.sum', 'proxybridge/go.sum') }}-
 
       - name: Go Format & Lint Gates
         run: ./scripts/lint.sh

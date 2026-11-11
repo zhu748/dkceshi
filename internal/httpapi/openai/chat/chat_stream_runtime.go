@@ -18,6 +18,7 @@ import (
 )
 
 type chatStreamRuntime struct {
+	toolRecovery       completionruntime.ToolRecovery
 	diagnosticProgress assistantturn.DiagnosticProgress
 	output             streamwriter.Writer
 	leadingText        completionruntime.LeadingText
@@ -265,7 +266,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	})
 	if turn.Error != nil {
 		s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = turn.Error.Status, turn.Error.Message, turn.Error.Code
-		if completionruntime.CanDeferOutputError(turn.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
+		if completionruntime.CanDeferToolAwareOutputError(turn.Error, deferEmptyOutput, s.visibleTextEmitted, s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
 			return false
 		}
 		s.sendFailedChunk(turn.Error.Status, turn.Error.Message, turn.Error.Code)
@@ -273,8 +274,8 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	}
 	s.finalThinking = turn.Thinking
 	s.finalText = turn.Text
-	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
-		if text := completionruntime.ValidatedToolText(turn, s.toolNames, s.toolSieve.Marker, s.stripReferenceMarkers); text != "" {
+	if s.toolRecovery.Hold || completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
+		if text := s.toolRecovery.Text(turn, s.toolNames, s.toolSieve.Marker, s.stripReferenceMarkers); text != "" {
 			s.sendDelta(map[string]any{"content": text})
 		}
 	}
@@ -319,7 +320,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	})
 	if outcome.ShouldFail {
 		status, message, code := outcome.Error.Status, outcome.Error.Message, outcome.Error.Code
-		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, s.visibleTextEmitted || s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
+		if completionruntime.CanDeferToolAwareOutputError(outcome.Error, deferEmptyOutput, s.visibleTextEmitted, s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
 			s.finalErrorStatus = status
 			s.finalErrorMessage = message
 			s.finalErrorCode = code
@@ -380,7 +381,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 		if p.CitationOnly {
 			continue
 		}
-		if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
+		if s.toolRecovery.Hold || completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
 			continue
 		}
 		if !s.bufferToolContent {

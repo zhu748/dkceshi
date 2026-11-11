@@ -64,7 +64,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	detected := turn.ToolCalls
 	s.logToolPolicyRejections(textParsed)
 	if turn.Error != nil {
-		if completionruntime.CanDeferOutputError(turn.Error, deferEmptyOutput, strings.TrimSpace(s.visibleText.String()) != "" || s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
+		if completionruntime.CanDeferToolAwareOutputError(turn.Error, deferEmptyOutput, strings.TrimSpace(s.visibleText.String()) != "", s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
 			s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = turn.Error.Status, turn.Error.Message, turn.Error.Code
 			return false
 		}
@@ -74,8 +74,8 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 		return true
 	}
 
-	if completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
-		s.emitTextDelta(completionruntime.ValidatedToolText(turn, s.toolNames, s.sieve.Marker, s.stripReferenceMarkers))
+	if s.toolRecovery.Hold || completionruntime.HoldToolOutput(s.toolNames, s.toolsRaw, s.toolChoice, s.outputFormat) {
+		s.emitTextDelta(s.toolRecovery.Text(turn, s.toolNames, s.sieve.Marker, s.stripReferenceMarkers))
 	}
 	if len(detected) == 0 && s.deferredText.Len() > 0 {
 		s.emitTextDelta(cleanVisibleOutput(toolstream.FilterVisible(s.deferredText.String(), ""), s.stripReferenceMarkers))
@@ -89,7 +89,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	})
 	if outcome.ShouldFail {
 		status, message, code := outcome.Error.Status, outcome.Error.Message, outcome.Error.Code
-		if completionruntime.CanDeferOutputError(outcome.Error, deferEmptyOutput, strings.TrimSpace(s.visibleText.String()) != "" || s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
+		if completionruntime.CanDeferToolAwareOutputError(outcome.Error, deferEmptyOutput, strings.TrimSpace(s.visibleText.String()) != "", s.toolCallsEmitted || s.toolCallsDoneEmitted, s.toolCallRepairCtx) {
 			s.finalErrorStatus = status
 			s.finalErrorMessage = message
 			s.finalErrorCode = code

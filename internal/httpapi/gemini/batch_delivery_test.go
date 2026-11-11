@@ -66,12 +66,12 @@ func TestSchemaLessStreamWithholdsSplitMarkersAndPreservesArguments(t *testing.T
 	}
 }
 
-func TestGeminiStreamNeverRegeneratesAfterDeliveredText(t *testing.T) {
+func TestGeminiStreamRetriesToolFailureAfterDeliveredText(t *testing.T) {
 	rt, rec := schemaLessGeminiRuntime()
 	feedGeminiText(rt, "already delivered")
 	feedGeminiText(rt, `<tool_calls><invoke name="write"><param name="path">a.txt</param></invoke></tool_calls>`)
-	if !rt.finalize(true) || !strings.Contains(rec.Body.String(), `"error"`) {
-		t.Fatalf("delivered answer was discarded for regeneration: %s", rec.Body.String())
+	if rt.finalize(true) || strings.Contains(rec.Body.String(), `"error"`) || rt.finalErrorCode != "invalid_tool_arguments" {
+		t.Fatalf("tool correction blocked after prose: %s", rec.Body.String())
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 )
 
 func (s *responsesStreamRuntime) resetForRegeneration() {
+	s.toolRecovery.Start(s.finalErrorCode, s.visibleText.Len() > 0)
 	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.toolCallsPending = false
 	s.accumulator.RawText.Reset()
