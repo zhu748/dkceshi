@@ -1,6 +1,7 @@
 package chathistory
 
 import (
+	"ds2api/internal/tokenusage"
 	"fmt"
 	"sort"
 	"strings"
@@ -57,6 +58,7 @@ func (s *Store) nextRevisionLocked() int64 {
 
 func summaryFromEntry(item Entry) SummaryEntry {
 	return SummaryEntry{
+		Usage:          tokenusage.Summarize(item.Usage),
 		ID:             item.ID,
 		Revision:       item.Revision,
 		CreatedAt:      item.CreatedAt,

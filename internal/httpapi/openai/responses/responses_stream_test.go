@@ -763,8 +763,11 @@ func TestHandleResponsesNonStreamPromotesHiddenThinkingEPSEToolCallsWhenTextEmpt
 	if got := asString(first["type"]); got != "function_call" {
 		t.Fatalf("expected function_call output, got %#v", first["type"])
 	}
-	if strings.Contains(rec.Body.String(), "reasoning") {
-		t.Fatalf("did not expect hidden reasoning in response body, got %s", rec.Body.String())
+	for _, item := range output {
+		entry, _ := item.(map[string]any)
+		if entry["type"] == "reasoning" {
+			t.Fatalf("hidden reasoning became output: %#v", output)
+		}
 	}
 }
 

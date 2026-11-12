@@ -1,6 +1,7 @@
 package chathistory
 
 import (
+	"ds2api/internal/tokenusage"
 	"encoding/json"
 )
 
@@ -11,7 +12,22 @@ func cloneFile(in File) File {
 		Revision: in.Revision,
 		Items:    make([]SummaryEntry, len(in.Items)),
 	}
-	copy(out.Items, in.Items)
+	for i, item := range in.Items {
+		out.Items[i] = item
+		if item.Usage != nil {
+			raw := *item.Usage
+			raw.PromptTokens = copyCount(raw.PromptTokens)
+			raw.CompletionTokens = copyCount(raw.CompletionTokens)
+			raw.ReasoningTokens = copyCount(raw.ReasoningTokens)
+			raw.TotalTokens = copyCount(raw.TotalTokens)
+			raw.AccumulatedTokens = copyCount(raw.AccumulatedTokens)
+			if raw.Complete != nil {
+				complete := *raw.Complete
+				raw.Complete = &complete
+			}
+			out.Items[i].Usage = &raw
+		}
+	}
 	return out
 }
 
@@ -24,16 +40,7 @@ func cloneEntry(item Entry) Entry {
 	return item
 }
 
-func cloneMap(in map[string]any) map[string]any {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
+func cloneMap(in map[string]any) map[string]any { return tokenusage.CloneMap(in) }
 
 func cloneMessages(messages []Message) []Message {
 	if len(messages) == 0 {
@@ -55,4 +62,12 @@ func cloneMessages(messages []Message) []Message {
 		}
 	}
 	return out
+}
+
+func copyCount(n *int) *int {
+	if n == nil {
+		return nil
+	}
+	copy := *n
+	return &copy
 }

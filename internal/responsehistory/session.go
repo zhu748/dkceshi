@@ -200,12 +200,17 @@ func (s *Session) recordUsage(usage map[string]any) {
 	s.usage.Record(usage)
 }
 
-func (s *Session) Error(statusCode int, message, finishReason, thinking, content string) {
+func (s *Session) Error(statusCode int, message, finishReason, thinking, content string, usage ...map[string]any) {
 	if s == nil || s.store == nil || s.disabled {
 		return
 	}
+	var reported map[string]any
+	if len(usage) > 0 {
+		reported = usage[0]
+	}
 	s.persistUpdate(chathistory.UpdateParams{
 		Status:           "error",
+		Usage:            reported,
 		ReasoningContent: thinking,
 		Content:          content,
 		Error:            message,
@@ -267,6 +272,7 @@ func ThinkingForArchive(raw, detection, visible string) string {
 
 func GenericUsage(turn assistantturn.Turn) map[string]any {
 	return map[string]any{
+		"ds2api":           turn.Usage.Metadata,
 		"input_tokens":     turn.Usage.InputTokens,
 		"output_tokens":    turn.Usage.OutputTokens,
 		"reasoning_tokens": turn.Usage.ReasoningTokens,

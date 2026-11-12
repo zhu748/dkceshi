@@ -78,3 +78,5 @@ Recommended reading order:
 - [与参考项目的功能对齐及验证边界](function-alignment.md)
 
 - [工具调用诊断与异常保留](./tool-call-diagnostics.md)
+
+- [Token 用量与来源](token-usage.md)：上游原始计数、共享结算、客户端字段与历史请求展示。

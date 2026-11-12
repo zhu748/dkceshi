@@ -14,6 +14,7 @@ import (
 	"ds2api/internal/httpapi/openai/shared"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/textclean"
+	"ds2api/internal/tokenusage"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/tooldiagnostics"
 	"ds2api/internal/usagestats"
@@ -37,6 +38,7 @@ type Handler struct {
 }
 
 type streamLease struct {
+	UsageResolver  tokenusage.Resolver
 	Diagnostics    *tooldiagnostics.Recorder
 	RepairSettings tooldiagnostics.RepairSettings
 	StartedAt      time.Time

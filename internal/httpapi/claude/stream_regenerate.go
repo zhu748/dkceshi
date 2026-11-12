@@ -3,6 +3,7 @@ package claude
 import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/completionruntime"
+	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolstream"
@@ -16,6 +17,9 @@ func (s *claudeStreamRuntime) resetForRegeneration() {
 	s.toolRecovery.Start(s.finalErrorCode, s.visibleTextEmitted)
 	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.toolCallsPending = false
+	s.upstreamUsage.Request = nil
+	s.upstreamUsage.Messages = nil
+	s.upstreamUsage.Truncated = false
 	s.rawText.Reset()
 	s.text.Reset()
 	s.rawThinking.Reset()
@@ -37,7 +41,7 @@ func (s *claudeStreamRuntime) failRetry(status int, message, code string) {
 	s.closeThinkingBlock()
 	s.closeTextBlock()
 	if s.history != nil {
-		s.history.Error(status, message, code, responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()))
+		s.history.ErrorWithUpstream(status, message, code, responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()), s.upstreamUsage, promptcompat.StandardRequest{PromptTokenText: s.promptTokenText, RefFileTokens: s.refFileTokens})
 	}
 	s.sendErrorWithCode(status, message, code)
 }

@@ -573,7 +573,7 @@ func TestResponsesNonStreamRetriesThinkingOnlyOutput(t *testing.T) {
 	}
 }
 
-func TestResponsesNonStreamUsageIgnoresPromptAndOutputTokenUsage(t *testing.T) {
+func TestResponsesNonStreamUsageUsesExplicitUpstreamTokenUsage(t *testing.T) {
 	statuses := make([]int, 0, 1)
 	h := &openAITestSurface{
 		Store: mockOpenAIConfig{},
@@ -611,8 +611,12 @@ func TestResponsesNonStreamUsageIgnoresPromptAndOutputTokenUsage(t *testing.T) {
 	input, _ := usage["input_tokens"].(float64)
 	output, _ := usage["output_tokens"].(float64)
 	total, _ := usage["total_tokens"].(float64)
-	if int(output) == 29 {
-		t.Fatalf("expected upstream completion token usage to be ignored, got %#v", usage["output_tokens"])
+	if int(input) != 11 || int(output) != 29 {
+		t.Fatalf("expected explicit upstream usage, got %#v", usage)
+	}
+	metadata, _ := usage["ds2api"].(map[string]any)
+	if metadata["source"] != "upstream" {
+		t.Fatalf("missing provenance: %#v", usage)
 	}
 	if int(total) != int(input)+int(output) {
 		t.Fatalf("expected total_tokens=input_tokens+output_tokens, usage=%#v", usage)

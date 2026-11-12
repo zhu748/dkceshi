@@ -3,10 +3,7 @@ package translatorcliproxy
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
-	"strconv"
-	"strings"
 
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 )
@@ -22,6 +19,7 @@ type OpenAIStreamTranslatorWriter struct {
 	statusCode    int
 	headersSent   bool
 	lineBuf       bytes.Buffer
+	latestUsage   *openAIUsage
 }
 
 func NewOpenAIStreamTranslatorWriter(dst http.ResponseWriter, target sdktranslator.Format, model string, originalReq, translatedReq []byte) *OpenAIStreamTranslatorWriter {
@@ -80,18 +78,16 @@ func (w *OpenAIStreamTranslatorWriter) Write(p []byte) (int, error) {
 		if !bytes.HasPrefix(trimmed, []byte("data:")) {
 			continue
 		}
-		// Only the Gemini target consumes the injected usage metadata; skipping
-		// the per-chunk JSON unmarshal for Claude saves a full decode per SSE
-		// line on the proxied Claude stream path.
-		var usage openAIUsage
-		hasUsage := false
-		if w.target == sdktranslator.FormatGemini {
-			usage, hasUsage = extractOpenAIUsage(trimmed)
+		// Decode only usage-bearing lines, preserving the cheap text path.
+		if bytes.Contains(trimmed, []byte(`"usage"`)) {
+			if usage, ok := extractOpenAIUsage(trimmed); ok {
+				w.latestUsage = &usage
+			}
 		}
 		chunks := sdktranslator.TranslateStream(context.Background(), sdktranslator.FormatOpenAI, w.target, w.model, w.originalReq, w.translatedReq, trimmed, &w.param)
-		if hasUsage {
+		if w.latestUsage != nil {
 			for i := range chunks {
-				chunks[i] = injectStreamUsageMetadata(chunks[i], w.target, usage)
+				chunks[i] = injectStreamUsageMetadata(chunks[i], w.target, *w.latestUsage)
 			}
 		}
 		for i := range chunks {
@@ -133,115 +129,4 @@ func (w *OpenAIStreamTranslatorWriter) readOneLine() ([]byte, bool) {
 	line := append([]byte(nil), b[:idx]...)
 	w.lineBuf.Next(idx + 1)
 	return line, true
-}
-
-type openAIUsage struct {
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
-}
-
-func extractOpenAIUsage(line []byte) (openAIUsage, bool) {
-	raw := strings.TrimSpace(strings.TrimPrefix(string(line), "data:"))
-	if raw == "" || raw == "[DONE]" {
-		return openAIUsage{}, false
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return openAIUsage{}, false
-	}
-	usageObj, _ := payload["usage"].(map[string]any)
-	if usageObj == nil {
-		return openAIUsage{}, false
-	}
-	p := toInt(usageObj["prompt_tokens"])
-	c := toInt(usageObj["completion_tokens"])
-	t := toInt(usageObj["total_tokens"])
-	if p <= 0 {
-		p = toInt(usageObj["input_tokens"])
-	}
-	if c <= 0 {
-		c = toInt(usageObj["output_tokens"])
-	}
-	if p <= 0 && c <= 0 && t <= 0 {
-		return openAIUsage{}, false
-	}
-	if t <= 0 {
-		t = p + c
-	}
-	return openAIUsage{PromptTokens: p, CompletionTokens: c, TotalTokens: t}, true
-}
-
-func injectStreamUsageMetadata(chunk []byte, target sdktranslator.Format, usage openAIUsage) []byte {
-	if target != sdktranslator.FormatGemini {
-		return chunk
-	}
-	suffix := ""
-	switch {
-	case bytes.HasSuffix(chunk, []byte("\n\n")):
-		suffix = "\n\n"
-	case bytes.HasSuffix(chunk, []byte("\n")):
-		suffix = "\n"
-	}
-	text := strings.TrimSpace(string(chunk))
-	if text == "" {
-		return chunk
-	}
-	var (
-		hasDataPrefix bool
-		jsonText      = text
-	)
-	if strings.HasPrefix(jsonText, "data:") {
-		hasDataPrefix = true
-		jsonText = strings.TrimSpace(strings.TrimPrefix(jsonText, "data:"))
-	}
-	if jsonText == "" || jsonText == "[DONE]" {
-		return chunk
-	}
-	obj := map[string]any{}
-	if err := json.Unmarshal([]byte(jsonText), &obj); err != nil {
-		return chunk
-	}
-	if _, ok := obj["candidates"]; !ok {
-		return chunk
-	}
-	obj["usageMetadata"] = map[string]any{
-		"promptTokenCount":     usage.PromptTokens,
-		"candidatesTokenCount": usage.CompletionTokens,
-		"totalTokenCount":      usage.TotalTokens,
-	}
-	b, err := json.Marshal(obj)
-	if err != nil {
-		return chunk
-	}
-	if hasDataPrefix {
-		return []byte("data: " + string(b) + suffix)
-	}
-	if suffix != "" {
-		return append(b, []byte(suffix)...)
-	}
-	return b
-}
-
-func toInt(v any) int {
-	switch x := v.(type) {
-	case int:
-		return x
-	case int32:
-		return int(x)
-	case int64:
-		return int(x)
-	case float64:
-		return int(x)
-	case float32:
-		return int(x)
-	case string:
-		n, err := strconv.Atoi(strings.TrimSpace(x))
-		if err != nil {
-			return 0
-		}
-		return n
-	default:
-		return 0
-	}
 }

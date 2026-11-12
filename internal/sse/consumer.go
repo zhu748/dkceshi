@@ -2,6 +2,7 @@ package sse
 
 import (
 	"context"
+	"ds2api/internal/tokenusage"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 // CollectResult holds the aggregated text and thinking content from a
 // DeepSeek SSE stream, consumed to completion (non-streaming use case).
 type CollectResult struct {
+	UpstreamUsage         tokenusage.Snapshot
 	Text                  string
 	Thinking              string
 	ToolDetectionThinking string
@@ -68,6 +70,7 @@ func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBo
 		policy.Prompt = prompts[0]
 	}
 	collector := newCitationLinkCollector()
+	var upstreamUsage tokenusage.Snapshot
 	responseMessageID := 0
 	firstResponseMessageID := 0
 	boundary := &ThinkingBoundary{}
@@ -90,6 +93,7 @@ func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBo
 			return false
 		}
 		if stopped {
+			upstreamUsage.Observe(tokenusage.Parse(chunk))
 			return true
 		}
 		if !parsed {
@@ -99,6 +103,7 @@ func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBo
 		// The line was already decoded above; reuse the chunk instead of
 		// unmarshalling the same payload a second time per line.
 		result := ParseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundary)
+		upstreamUsage.Observe(result.UpstreamUsage)
 		currentType = result.NextType
 		if !result.Parsed {
 			return true
@@ -162,7 +167,21 @@ func CollectStreamWithOptions(resp *http.Response, thinkingEnabled bool, closeBo
 		toolDetectionThinking.WriteString(tail)
 	}
 	text.WriteString(policy.Flush())
+	if readErr == nil && stopped && !contentFilter && upstreamError == "" && policy.Cut() == CutNone {
+		limits.idle.Stop()
+		if limits.drain != nil {
+			limits.drain.Stop()
+		}
+		usageCtx := opts.Context
+		if usageCtx == nil {
+			usageCtx = defaultCollectOptions(resp).Context
+		}
+		if observed := resolveBodyUsage(usageCtx, resp.Body, responseMessageID); observed != nil {
+			upstreamUsage.SetRequest(*observed)
+		}
+	}
 	return CollectResult{
+		UpstreamUsage:          upstreamUsage,
 		Text:                   text.String(),
 		Thinking:               thinking.String(),
 		ToolDetectionThinking:  toolDetectionThinking.String(),

@@ -3,6 +3,7 @@ package translatorcliproxy
 import (
 	"bytes"
 	"context"
+	"ds2api/internal/tokenusage"
 	"encoding/json"
 	"strings"
 
@@ -27,6 +28,7 @@ func FromOpenAINonStream(to sdktranslator.Format, model string, originalReq, tra
 func FromOpenAIStream(to sdktranslator.Format, model string, originalReq, translatedReq, streamBody []byte) []byte {
 	var out bytes.Buffer
 	var param any
+	var latest *openAIUsage
 	for _, line := range bytes.Split(streamBody, []byte("\n")) {
 		trimmed := strings.TrimSpace(string(line))
 		if trimmed == "" {
@@ -36,7 +38,15 @@ func FromOpenAIStream(to sdktranslator.Format, model string, originalReq, transl
 		if !bytes.HasPrefix(payload, []byte("data:")) {
 			continue
 		}
+		if usage, ok := extractOpenAIUsage(payload); ok {
+			latest = &usage
+		}
 		chunks := sdktranslator.TranslateStream(context.Background(), sdktranslator.FormatOpenAI, to, model, originalReq, translatedReq, payload, &param)
+		if latest != nil {
+			for i := range chunks {
+				chunks[i] = injectStreamUsageMetadata(chunks[i], to, *latest)
+			}
+		}
 		for i := range chunks {
 			out.Write(chunks[i])
 			if !bytes.HasSuffix(chunks[i], []byte("\n")) {
@@ -81,22 +91,19 @@ func extractOpenAIUsageFromJSON(raw []byte) (openAIUsage, bool) {
 	if usageObj == nil {
 		return openAIUsage{}, false
 	}
-	p := toInt(usageObj["prompt_tokens"])
-	c := toInt(usageObj["completion_tokens"])
-	t := toInt(usageObj["total_tokens"])
-	if p <= 0 {
-		p = toInt(usageObj["input_tokens"])
-	}
-	if c <= 0 {
-		c = toInt(usageObj["output_tokens"])
-	}
-	if t <= 0 {
-		t = p + c
-	}
-	if p <= 0 && c <= 0 && t <= 0 {
+	summary := tokenusage.Summarize(usageObj)
+	if summary.PromptTokens == nil && summary.CompletionTokens == nil && summary.TotalTokens == nil {
 		return openAIUsage{}, false
 	}
-	return openAIUsage{PromptTokens: p, CompletionTokens: c, TotalTokens: t}, true
+	result := openAIUsage{ReasoningTokens: summary.ReasoningTokens, Metadata: tokenusage.CloneMap(usageObj)["ds2api"]}
+	if summary.PromptTokens != nil {
+		result.PromptTokens = *summary.PromptTokens
+	}
+	if summary.CompletionTokens != nil {
+		result.CompletionTokens = *summary.CompletionTokens
+	}
+	result.TotalTokens, _ = tokenusage.Count(int64(result.PromptTokens) + int64(result.CompletionTokens))
+	return result, true
 }
 
 func injectNonStreamUsageMetadata(converted []byte, target sdktranslator.Format, usage openAIUsage) []byte {
@@ -106,16 +113,9 @@ func injectNonStreamUsageMetadata(converted []byte, target sdktranslator.Format,
 	}
 	switch target {
 	case sdktranslator.FormatClaude:
-		obj["usage"] = map[string]any{
-			"input_tokens":  usage.PromptTokens,
-			"output_tokens": usage.CompletionTokens,
-		}
+		obj["usage"] = translatedUsage(target, usage)
 	case sdktranslator.FormatGemini:
-		obj["usageMetadata"] = map[string]any{
-			"promptTokenCount":     usage.PromptTokens,
-			"candidatesTokenCount": usage.CompletionTokens,
-			"totalTokenCount":      usage.TotalTokens,
-		}
+		obj["usageMetadata"] = translatedUsage(target, usage)
 	default:
 		return converted
 	}

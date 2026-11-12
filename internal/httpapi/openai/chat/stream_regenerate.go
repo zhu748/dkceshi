@@ -12,6 +12,9 @@ func (s *chatStreamRuntime) resetForRegeneration() {
 	s.toolRecovery.Start(s.finalErrorCode, s.visibleTextEmitted)
 	s.diagnosticProgress = assistantturn.DiagnosticProgress{}
 	s.toolCallsPending = false
+	s.accumulator.UpstreamUsage.Request = nil
+	s.accumulator.UpstreamUsage.Messages = nil
+	s.accumulator.UpstreamUsage.Truncated = false
 	s.accumulator.RawText.Reset()
 	s.accumulator.Text.Reset()
 	s.accumulator.RawThinking.Reset()

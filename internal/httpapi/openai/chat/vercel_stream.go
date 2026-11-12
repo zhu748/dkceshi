@@ -168,7 +168,7 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if req["usage_only"] == true {
-		h.previewStreamUsage(w, leaseID, req)
+		h.previewStreamUsage(w, r, leaseID, req)
 		return
 	}
 	lease, ok := h.releaseStreamLease(leaseID)
@@ -180,7 +180,7 @@ func (h *Handler) handleVercelStreamRelease(w http.ResponseWriter, r *http.Reque
 		defer h.Auth.Release(lease.Auth)
 	}
 	h.observeReleasedAccountFailure(lease.Auth, req)
-	usage := finalizeVercelUsage(lease.Standard, req)
+	usage := h.finalizeLeaseUsage(r.Context(), lease, req)
 	finishLeaseDiagnostics(r, lease, req)
 	h.recordVercelStreamCompletion(r, lease.Auth, lease.Standard, req, lease.StartedAt)
 	writeVercelUsageReply(w, usage)
@@ -430,11 +430,12 @@ func (h *Handler) holdStreamLease(a *auth.RequestAuth, stdReq promptcompat.Stand
 	}
 	leaseID := newLeaseID()
 	h.streamLeases[leaseID] = streamLease{
-		StartedAt: startedAt,
-		Auth:      a,
-		Standard:  stdReq,
-		SessionID: sessionID,
-		ExpiresAt: now.Add(ttl),
+		UsageResolver: h.newLeaseUsageResolver(a, sessionID),
+		StartedAt:     startedAt,
+		Auth:          a,
+		Standard:      stdReq,
+		SessionID:     sessionID,
+		ExpiresAt:     now.Add(ttl),
 	}
 	h.leaseMu.Unlock()
 	h.releaseExpiredAuths(expired)
@@ -461,22 +462,6 @@ func (h *Handler) lookupStreamLeaseAuth(leaseID string) *auth.RequestAuth {
 		return nil
 	}
 	return lease.Auth
-}
-
-func (h *Handler) updateStreamLeaseState(leaseID string, stdReq promptcompat.StandardRequest, sessionID string) {
-	leaseID = strings.TrimSpace(leaseID)
-	if leaseID == "" {
-		return
-	}
-	h.leaseMu.Lock()
-	defer h.leaseMu.Unlock()
-	lease, ok := h.streamLeases[leaseID]
-	if !ok {
-		return
-	}
-	lease.Standard = stdReq
-	lease.SessionID = sessionID
-	h.streamLeases[leaseID] = lease
 }
 
 func (h *Handler) releaseStreamLease(leaseID string) (streamLease, bool) {

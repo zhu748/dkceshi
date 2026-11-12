@@ -1,6 +1,7 @@
 package assistantturn
 
 import (
+	"ds2api/internal/tokenusage"
 	"strings"
 
 	"ds2api/internal/sse"
@@ -9,6 +10,7 @@ import (
 )
 
 type StreamAccumulator struct {
+	UpstreamUsage         tokenusage.Snapshot
 	Prompt                string
 	ThinkingEnabled       bool
 	SearchEnabled         bool
@@ -50,6 +52,7 @@ type StreamAccumulatorResult struct {
 
 func (a *StreamAccumulator) Apply(parsed sse.LineResult) StreamAccumulatorResult {
 	out := StreamAccumulatorResult{}
+	parsed.ApplyUsage(&a.UpstreamUsage)
 	if parsed.OutputLimit {
 		a.policy.RejectOutputLimit()
 	}

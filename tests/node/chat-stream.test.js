@@ -2842,9 +2842,12 @@ test('authoritative usage reaches the final frame and lease report unchanged', a
   const tool_calls = [{index: 0, id: 'read_1', type: 'function', function: {name: 'read', arguments: '{}'}}];
   const result = await runMockVercelStream(['data: ' + JSON.stringify({p: 'response/content', v: '<tool_calls><invoke name="read"></invoke></tool_calls>'}) + '\n\n', 'data: [DONE]\n\n'], {validate_tools: true, tool_names: ['read'], validation_result: {tool_calls, usage, content: ''}});
   const events = result.frames.filter(frame => frame !== '[DONE]').map(JSON.parse);
-  assert.deepEqual(events.find(event => event.usage).usage, usage);
+  const finalUsage = events.find(event => event.usage).usage;
+  const { ds2api, ...counts } = finalUsage;
+  assert.deepEqual(counts, usage);
+  assert.equal(ds2api.source, 'estimated');
   const release = result.fetchBodies.find(body => body.finish_reason === 'tool_calls');
-  assert.deepEqual(release.usage, usage);
+  assert.deepEqual(release.usage, finalUsage);
   assert.equal(typeof release.started_at_ms, 'number');
   assert.ok(release.elapsed_ms >= 0);
   assert.ok(release.timings.validation_ms >= 0);

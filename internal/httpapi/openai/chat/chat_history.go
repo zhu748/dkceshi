@@ -182,22 +182,6 @@ func (s *chatHistorySession) success(statusCode int, thinking, content, finishRe
 	})
 }
 
-func (s *chatHistorySession) error(statusCode int, message, finishReason, thinking, content string) {
-	if s == nil || s.store == nil || s.disabled {
-		return
-	}
-	s.persistUpdate(chathistory.UpdateParams{
-		Status:           "error",
-		ReasoningContent: thinking,
-		Content:          content,
-		Error:            message,
-		StatusCode:       statusCode,
-		ElapsedMs:        time.Since(s.startedAt).Milliseconds(),
-		FinishReason:     finishReason,
-		Completed:        true,
-	})
-}
-
 func (s *chatHistorySession) recordUsage(usage map[string]any) {
 	if s == nil || s.usage == nil {
 		return

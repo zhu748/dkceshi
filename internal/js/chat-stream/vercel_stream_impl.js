@@ -207,7 +207,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     let detectionThinkingText = '';
     const rawReasoning = () => mergeReasoningForUsage(rawThinkingText, detectionThinkingText, thinkingText);
     let outputText = '';
-    partialCompletion = () => ({ finish_reason: 'stopped', usage: usageAccounting.build(rawReasoning(), outputText), thinking: rawReasoning(), content: outputText, error: '' });
+    partialCompletion = () => ({ finish_reason: 'stopped', usage: usageAccounting.build(rawReasoning(), outputText, null, false), thinking: rawReasoning(), content: outputText, error: '' });
     let hasVisibleOutput = false;
     let deferredToolText = '';
     // Content policy is shared with Go; regeneration resets attempt-local state.
@@ -255,6 +255,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
     };
     const deltaCoalescer = createDeltaCoalescer({ sendDeltaFrame });
     const resetForRegeneration = () => {
+      usageAccounting.resetUpstream();
       recoveringToolsAfterText ||= answerDelivered && isToolOutputError(lastEmptyDetail);
       report.regenerate(lastEmptyDetail);
       finalValidation.reset();
@@ -354,7 +355,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
           detected = validatedCalls.map(call => ({ name: call.function.name }));
         } catch (error) {
           if (lifecycle.closed) {
-            ended = true; leaseCompletion = { finish_reason: 'stopped', usage: usageAccounting.build(rawReasoning(), outputText), thinking: rawReasoning(), content: outputText, error: '' };
+            ended = true; leaseCompletion = { finish_reason: 'stopped', usage: usageAccounting.build(rawReasoning(), outputText, null, false), thinking: rawReasoning(), content: outputText, error: '' };
             await releaseLease(); return true;
           }
           ended = true;
@@ -495,6 +496,7 @@ async function handleVercelStream(req, res, rawBody, payload, appFetch = fetchAp
               if (!parsed.parsed) {
                 continue;
               }
+              usageAccounting.observe(parsed.upstreamUsage);
               currentType = parsed.newType;
               if (parsed.detectionThinking || parsed.parts.some(part => part.text)) continueState.sawContent = true;
               if (parsed.errorMessage) {

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"ds2api/internal/tokenusage"
 	"net/http"
 	"time"
 
@@ -10,6 +11,10 @@ import (
 )
 
 func (s *chatHistorySession) stopped(thinking, content, finishReason string, current ...promptcompat.StandardRequest) {
+	s.stoppedWithUpstream(thinking, content, finishReason, tokenusage.Snapshot{}, current...)
+}
+
+func (s *chatHistorySession) stoppedWithUpstream(thinking, content, finishReason string, observed tokenusage.Snapshot, current ...promptcompat.StandardRequest) {
 	if s == nil {
 		return
 	}
@@ -20,7 +25,7 @@ func (s *chatHistorySession) stopped(thinking, content, finishReason string, cur
 	if request.ResolvedModel == "" {
 		request.ResolvedModel = s.recordModel
 	}
-	usage := usagestats.PartialUsage(request, thinking, content, current...)
+	usage := usagestats.PartialUsageWithUpstream(request, thinking, content, observed, current...)
 	s.stoppedWithUsage(thinking, content, finishReason, usage)
 }
 

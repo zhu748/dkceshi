@@ -441,6 +441,7 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 	streamRuntime.sieve.Marker = a.ToolMarker
 	streamRuntime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory, stdReq)
 	streamRuntime.toolCallRepairCtx = r.Context()
+	streamRuntime.refFileTokens = stdReq.RefFileTokens
 	streamRuntime.sendMessageStart()
 
 	completionruntime.ExecuteStreamWithRetry(r.Context(), h.DS, a, resp, payload, pow, completionruntime.StreamRetryOptions{
@@ -466,6 +467,7 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		},
 		OnRegenerate:   streamRuntime.resetForRegeneration,
 		RejectedOutput: streamRuntime.rejectedOutput,
+		OnRequest:      func(request promptcompat.StandardRequest) { streamRuntime.refFileTokens = request.RefFileTokens },
 		OnRetryPrompt: func(prompt string) {
 			streamRuntime.promptTokenText = prompt
 		},

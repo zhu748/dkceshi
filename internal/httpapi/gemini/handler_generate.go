@@ -29,7 +29,6 @@ import (
 	"ds2api/internal/sse"
 	"ds2api/internal/toolcall"
 	"ds2api/internal/translatorcliproxy"
-	"ds2api/internal/util"
 )
 
 func (h *Handler) handleGenerateContent(w http.ResponseWriter, r *http.Request, stream bool) {
@@ -368,25 +367,14 @@ func buildGeminiGenerateContentResponseFromTurn(turn assistantturn.Turn) map[str
 				"finishReason": "STOP",
 			},
 		},
-		"modelVersion": turn.Model,
-		"usageMetadata": map[string]any{
-			"promptTokenCount":     turn.Usage.InputTokens,
-			"candidatesTokenCount": turn.Usage.OutputTokens,
-			"totalTokenCount":      turn.Usage.TotalTokens,
-		},
+		"modelVersion":  turn.Model,
+		"usageMetadata": assistantturn.GeminiUsage(turn),
 	}
 }
 
 //nolint:unused // compatibility entry point.
 func buildGeminiUsage(model, finalPrompt, finalThinking, finalText string) map[string]any {
-	promptTokens := util.CountPromptTokens(finalPrompt, model)
-	reasoningTokens := util.CountOutputTokens(finalThinking, model)
-	completionTokens := util.CountOutputTokens(finalText, model)
-	return map[string]any{
-		"promptTokenCount":     promptTokens,
-		"candidatesTokenCount": reasoningTokens + completionTokens,
-		"totalTokenCount":      promptTokens + reasoningTokens + completionTokens,
-	}
+	return assistantturn.GeminiUsage(assistantturn.Turn{Usage: assistantturn.BuildUsage(model, finalPrompt, finalThinking, finalText, 0)})
 }
 
 func buildGeminiPartsFromFinal(finalText, finalThinking string, toolNames []string) []map[string]any {

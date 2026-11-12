@@ -1,5 +1,7 @@
 'use strict';
 
+const { parseUpstreamUsage } = require('./upstream_usage');
+
 // Decode one upstream content chunk; public helpers are re-exported here.
 const { asString, asContentString, stripReferenceMarkersText, stripThinkTags } = require('./sse_text');
 const { hasContentFilterStatus } = require('./sse_content_filter');
@@ -16,10 +18,11 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
   if (!chunk || typeof chunk !== 'object') {
     return { parsed: false, parts: [], finished: false, contentFilter: false, errorMessage: '', outputTokens: 0, newType: currentType };
   }
-  const usage = extractAccumulatedTokenUsage(chunk);
+  const upstreamUsage = parseUpstreamUsage(chunk);
+  const usage = { prompt: upstreamUsage.input_tokens ?? 0, output: upstreamUsage.output_tokens ?? 0 };
   const result = {
     parsed: true, parts: [], finished: false, contentFilter: false,
-    errorMessage: '', promptTokens: usage.prompt, outputTokens: usage.output, newType: currentType, snapshot: isContentSnapshot(chunk),
+    errorMessage: '', upstreamUsage, promptTokens: usage.prompt, outputTokens: usage.output, newType: currentType, snapshot: isContentSnapshot(chunk),
   };
   if (Object.prototype.hasOwnProperty.call(chunk, 'error')) {
     return { ...result, finished: true, errorMessage: formatErrorMessage(chunk.error) };
@@ -164,10 +167,8 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
 }
 
 function extractAccumulatedTokenUsage(chunk) {
-  // 临时策略：忽略上游 usage 字段（accumulated_token_usage / token_usage），
-  // 统一使用内部估算计数，避免上下文累计口径误差。
-  void chunk;
-  return { prompt: 0, output: 0 };
+  const usage = parseUpstreamUsage(chunk);
+  return { prompt: usage.input_tokens ?? 0, output: usage.output_tokens ?? 0 };
 }
 
 function formatErrorMessage(v) {

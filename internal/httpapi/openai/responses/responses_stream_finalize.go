@@ -4,6 +4,7 @@ import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/completionruntime"
 	openaifmt "ds2api/internal/format/openai"
+	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	"ds2api/internal/toolstream"
@@ -35,6 +36,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	finalToolDetectionThinking := s.accumulator.ToolDetectionThinking.String()
 	finalText := s.accumulator.Text.String()
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
+		UpstreamUsage:         s.accumulator.UpstreamUsage,
 		ContentCut:            s.accumulator.Cut(),
 		RawText:               s.accumulator.RawText.String(),
 		VisibleText:           finalText,
@@ -117,7 +119,7 @@ func (s *responsesStreamRuntime) finalize(finishReason string, deferEmptyOutput 
 	if !s.output.Complete(s.toolCallRepairCtx) {
 		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
 		if s.history != nil {
-			s.history.Error(499, s.finalErrorMessage, s.finalErrorCode, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text))
+			s.history.ErrorWithUpstream(499, s.finalErrorMessage, s.finalErrorCode, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text), s.accumulator.UpstreamUsage, promptcompat.StandardRequest{PromptTokenText: s.finalPrompt, RefFileTokens: s.refFileTokens})
 		}
 	} else if s.history != nil {
 		s.history.Success(

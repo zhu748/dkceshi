@@ -79,6 +79,9 @@ func (a *Accumulator) ResetForRegeneration() {
 	if a == nil {
 		return
 	}
+	a.inner.UpstreamUsage.Request = nil
+	a.inner.UpstreamUsage.Messages = nil
+	a.inner.UpstreamUsage.Truncated = false
 	a.inner.RawText.Reset()
 	a.inner.Text.Reset()
 	a.inner.RawThinking.Reset()

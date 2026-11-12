@@ -5,6 +5,7 @@ import (
 	"ds2api/internal/auth"
 	"ds2api/internal/config"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/tokenusage"
 	"ds2api/internal/util"
 	"net/http"
 	"strings"
@@ -50,7 +51,7 @@ func (h *Handler) recordVercelStreamCompletion(r *http.Request, a *auth.RequestA
 		if code == "" {
 			code = finishReason
 		}
-		session.error(status, errorMessage, code, thinking, content)
+		session.errorWithUpstream(status, errorMessage, code, thinking, content, tokenusage.FromMap(req["upstream_usage"]))
 		return
 	}
 	if finishReason == "stopped" {

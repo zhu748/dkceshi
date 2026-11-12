@@ -534,6 +534,26 @@
       "tool": "工具",
       "developer": "开发者",
       "system": "系统"
+    },
+    "usageTitle": "Token 用量",
+    "usageInput": "输入",
+    "usageOutput": "输出",
+    "usageReasoning": "思考",
+    "usageTotal": "合计",
+    "usagePending": "统计中",
+    "usagePartial": "部分用量 · 请求未完整结束",
+    "usageUpstream": "上游累计",
+    "usageUpstreamTitle": "上游返回的计数",
+    "usageMessage": "消息",
+    "usageReasoningHelp": "思考 token 已包含在输出中，不重复计入合计。",
+    "usageUpstreamHelp": "上游累计包含输入上下文；输出 token 由回复累计减去对应输入累计得到，累计值不能直接当作输出。",
+    "usageTruncated": "上游消息数量超过保留上限，原始计数不完整。",
+    "usageSources": {
+      "upstream": "上游计数",
+      "estimated": "本地估算",
+      "mixed": "上游与估算混合",
+      "derived": "按输入与输出计算",
+      "unknown": "来源未知"
     }
   },
   "batchImport": {

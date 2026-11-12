@@ -59,7 +59,7 @@ func (h *Handler) handleNonStreamWithRetry(w http.ResponseWriter, ctx context.Co
 	})
 	if outErr != nil {
 		if historySession != nil {
-			historySession.error(outErr.Status, outErr.Message, outErr.Code, historyThinkingForArchive(result.Turn.RawThinking, result.Turn.DetectionThinking, result.Turn.Thinking), historyTextForArchive(result.Turn.RawText, result.Turn.Text))
+			historySession.error(outErr.Status, outErr.Message, outErr.Code, historyThinkingForArchive(result.Turn.RawThinking, result.Turn.DetectionThinking, result.Turn.Thinking), historyTextForArchive(result.Turn.RawText, result.Turn.Text), assistantturn.IncompleteUsage(result.Turn))
 		}
 		writeOpenAIErrorWithCode(w, outErr.Status, outErr.Message, outErr.Code)
 		return
@@ -113,6 +113,7 @@ func (h *Handler) handleStreamWithRetry(w http.ResponseWriter, r *http.Request, 
 		RejectedOutput: func() string {
 			return completionruntime.ToolRetrySource(streamRuntime.accumulator.RawText.String(), streamRuntime.accumulator.ToolDetectionThinking.String())
 		},
+		OnRequest: func(request promptcompat.StandardRequest) { streamRuntime.refFileTokens = request.RefFileTokens },
 		OnRetryPrompt: func(prompt string) {
 			streamRuntime.finalPrompt = prompt
 		},
@@ -224,7 +225,7 @@ func (h *Handler) consumeChatStreamAttempt(r *http.Request, resp *http.Response,
 		OnContextDone: func() {
 			streamRuntime.markContextCancelled()
 			if historySession != nil {
-				historySession.stopped(streamRuntime.historyThinking(), streamRuntime.historyText(), string(streamengine.StopReasonContextCancelled), promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens})
+				historySession.stoppedWithUpstream(streamRuntime.historyThinking(), streamRuntime.historyText(), string(streamengine.StopReasonContextCancelled), streamRuntime.accumulator.UpstreamUsage, promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens})
 			}
 		},
 	})
@@ -261,7 +262,7 @@ func recordChatStreamHistory(streamRuntime *chatStreamRuntime, historySession *c
 		return
 	}
 	if streamRuntime.finalErrorMessage != "" {
-		historySession.error(streamRuntime.finalErrorStatus, streamRuntime.finalErrorMessage, streamRuntime.finalErrorCode, streamRuntime.historyThinking(), streamRuntime.historyText())
+		historySession.errorWithUpstream(streamRuntime.finalErrorStatus, streamRuntime.finalErrorMessage, streamRuntime.finalErrorCode, streamRuntime.historyThinking(), streamRuntime.historyText(), streamRuntime.accumulator.UpstreamUsage, promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens})
 		return
 	}
 	historySession.success(http.StatusOK, streamRuntime.historyThinking(), streamRuntime.historyText(), streamRuntime.finalFinishReason, streamRuntime.finalUsage)
@@ -270,7 +271,7 @@ func recordChatStreamHistory(streamRuntime *chatStreamRuntime, historySession *c
 func failChatStreamRetry(streamRuntime *chatStreamRuntime, historySession *chatHistorySession, status int, message, code string) {
 	streamRuntime.sendFailedChunk(status, message, code)
 	if historySession != nil {
-		historySession.error(status, message, code, streamRuntime.historyThinking(), streamRuntime.historyText())
+		historySession.errorWithUpstream(status, message, code, streamRuntime.historyThinking(), streamRuntime.historyText(), streamRuntime.accumulator.UpstreamUsage, promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens})
 	}
 }
 

@@ -64,3 +64,40 @@ func TestClaudeMessagesAndCountTokensIncludeReferencedFileUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeStreamingCountsFilesInInitialAndFinalUsage(t *testing.T) {
+	count := func(tokens int) int {
+		ds := &claudeUsageDS{tokens: tokens}
+		h := &Handler{Store: claudeHistoryConfig{}, Auth: claudeCurrentInputAuth{}, DS: ds}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"describe"}],"file_ids":["file-existing"]}`))
+		h.Messages(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("%d %s", rec.Code, rec.Body)
+		}
+		initial, final := -1, -1
+		for _, line := range strings.Split(rec.Body.String(), "\n") {
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			var frame map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &frame); err != nil {
+				t.Fatal(err)
+			}
+			if frame["type"] == "message_start" {
+				msg := frame["message"].(map[string]any)
+				initial = int(msg["usage"].(map[string]any)["input_tokens"].(float64))
+			}
+			if frame["type"] == "message_delta" {
+				final = int(frame["usage"].(map[string]any)["input_tokens"].(float64))
+			}
+		}
+		if initial < 0 || initial != final {
+			t.Fatalf("stream usage diverged: initial=%d final=%d body=%s", initial, final, rec.Body)
+		}
+		return final
+	}
+	if delta := count(954) - count(0); delta != 954 {
+		t.Fatalf("file token delta=%d", delta)
+	}
+}

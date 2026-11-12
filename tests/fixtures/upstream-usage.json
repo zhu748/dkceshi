@@ -1,0 +1,13 @@
+[
+  {"name":"snapshot zero is reported", "chunk":{"v":{"response":{"message_id":2,"accumulated_token_usage":0}}}, "expected":{"message_id":2,"accumulated_tokens":0}},
+  {"name":"terminal batch", "chunk":{"p":"response","o":"BATCH","v":[{"p":"token_usage","v":{"prompt_tokens":11,"completion_tokens":29,"completion_tokens_details":{"reasoning_tokens":9},"total_tokens":40}},{"p":"quasi_status","v":"FINISHED"}]}, "expected":{"input_tokens":11,"output_tokens":29,"reasoning_tokens":9,"total_tokens":40}},
+  {"name":"nested usage batch", "chunk":{"p":"response/usage","o":"BATCH","v":[{"p":"input_tokens","v":"0"},{"p":"output_tokens","v":"23"},{"p":"output_tokens_details/reasoning_tokens","v":4}]}, "expected":{"input_tokens":0,"output_tokens":23,"reasoning_tokens":4}},
+  {"name":"cumulative string", "chunk":{"p":"response/accumulated_token_usage","v":"2551"}, "expected":{"accumulated_tokens":2551}},
+  {"name":"output count string is metadata", "chunk":{"p":"response/output_tokens","v":"17"}, "expected":{"output_tokens":17}},
+  {"name":"fragment usage excluded", "chunk":{"p":"response","o":"BATCH","v":[{"p":"fragments","o":"BATCH","v":[{"p":"token_usage","v":{"input_tokens":999,"output_tokens":888}}]}]}, "expected":{}},
+  {"name":"tool JSON excluded", "chunk":{"p":"response/content","v":"{\"usage\":{\"output_tokens\":1000}}"}, "expected":{}},
+  {"name":"file usage excluded", "chunk":{"v":{"file":{"token_usage":999}}}, "expected":{}},
+  {"name":"invalid numeric values", "chunk":{"usage":{"input_tokens":-1,"output_tokens":1.5,"reasoning_tokens":"12junk","total_tokens":9007199254740992}}, "expected":{}},
+  {"name":"invalid numeric strings", "chunk":{"usage":{"input_tokens":"1.0","output_tokens":"1e2","reasoning_tokens":"-0","total_tokens":true}}, "expected":{}},
+  {"name":"explicit zero usage", "chunk":{"usage":{"input_tokens":0,"output_tokens":0,"reasoning_tokens":0,"total_tokens":0}}, "expected":{"input_tokens":0,"output_tokens":0,"reasoning_tokens":0,"total_tokens":0}}
+]

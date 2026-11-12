@@ -3,6 +3,7 @@ package claude
 import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/completionruntime"
+	"ds2api/internal/promptcompat"
 	"ds2api/internal/responsehistory"
 	"ds2api/internal/sse"
 	"ds2api/internal/textclean"
@@ -127,6 +128,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 	}
 
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
+		UpstreamUsage:         s.upstreamUsage,
 		ContentCut:            s.policy.Cut(),
 		ContentFilter:         s.contentFilter,
 		RawText:               s.rawText.String(),
@@ -141,6 +143,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 	}, assistantturn.BuildOptions{
 		Model:                 s.model,
 		Prompt:                s.promptTokenText,
+		RefFileTokens:         s.refFileTokens,
 		PromptTokenCountFn:    s.promptTokenCountFor,
 		SearchEnabled:         s.searchEnabled,
 		StripReferenceMarkers: s.stripReferenceMarkers,
@@ -167,7 +170,7 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 		s.closeThinkingBlock()
 		s.closeTextBlock()
 		if s.history != nil {
-			s.history.Error(outcome.Error.Status, outcome.Error.Message, outcome.Error.Code, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text))
+			s.history.ErrorWithUpstream(outcome.Error.Status, outcome.Error.Message, outcome.Error.Code, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text), s.upstreamUsage, promptcompat.StandardRequest{PromptTokenText: s.promptTokenText, RefFileTokens: s.refFileTokens})
 		}
 		s.sendErrorWithCode(outcome.Error.Status, outcome.Error.Message, outcome.Error.Code)
 		return true
@@ -230,15 +233,13 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 			"stop_reason":   stopReason,
 			"stop_sequence": nil,
 		},
-		"usage": map[string]any{
-			"output_tokens": outcome.Usage.OutputTokens,
-		},
+		"usage": assistantturn.ClaudeUsage(turn),
 	})
 	s.send("message_stop", map[string]any{"type": "message_stop"})
 	if !s.output.Complete(s.toolCallRepairCtx) {
 		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
 		if s.history != nil {
-			s.history.Error(499, s.finalErrorMessage, s.finalErrorCode, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text))
+			s.history.ErrorWithUpstream(499, s.finalErrorMessage, s.finalErrorCode, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text), s.upstreamUsage, promptcompat.StandardRequest{PromptTokenText: s.promptTokenText, RefFileTokens: s.refFileTokens})
 		}
 	} else if s.history != nil {
 		s.history.Success(
@@ -255,14 +256,14 @@ func (s *claudeStreamRuntime) finalize(stopReason string, deferEmptyOutput bool)
 func (s *claudeStreamRuntime) onFinalize(reason streamengine.StopReason, scannerErr error) {
 	if string(reason) == "upstream_error" {
 		if s.history != nil {
-			s.history.Error(500, s.upstreamErr, "upstream_error", responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()))
+			s.history.ErrorWithUpstream(500, s.upstreamErr, "upstream_error", responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()), s.upstreamUsage, promptcompat.StandardRequest{PromptTokenText: s.promptTokenText, RefFileTokens: s.refFileTokens})
 		}
 		s.sendError(s.upstreamErr)
 		return
 	}
 	if scannerErr != nil {
 		if s.history != nil {
-			s.history.Error(500, scannerErr.Error(), "error", responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()))
+			s.history.ErrorWithUpstream(500, scannerErr.Error(), "error", responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()), s.upstreamUsage, promptcompat.StandardRequest{PromptTokenText: s.promptTokenText, RefFileTokens: s.refFileTokens})
 		}
 		s.sendError(scannerErr.Error())
 		return

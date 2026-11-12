@@ -118,7 +118,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 				if completionruntime.IsDirectTokenAuthError(outErr) {
 					historySession.discard()
 				} else {
-					historySession.error(outErr.Status, outErr.Message, outErr.Code, historyThinkingForArchive(result.Turn.RawThinking, result.Turn.DetectionThinking, result.Turn.Thinking), historyTextForArchive(result.Turn.RawText, result.Turn.Text))
+					historySession.error(outErr.Status, outErr.Message, outErr.Code, historyThinkingForArchive(result.Turn.RawThinking, result.Turn.DetectionThinking, result.Turn.Thinking), historyTextForArchive(result.Turn.RawText, result.Turn.Text), assistantturn.IncompleteUsage(result.Turn))
 				}
 			}
 			writeOpenAIErrorWithCode(w, outErr.Status, outErr.Message, outErr.Code)
@@ -180,7 +180,7 @@ func (h *Handler) handleNonStream(w http.ResponseWriter, resp *http.Response, co
 	if outcome.ShouldFail {
 		status, message, code := outcome.Error.Status, outcome.Error.Message, outcome.Error.Code
 		if historySession != nil {
-			historySession.error(status, message, code, historyThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), historyTextForArchive(turn.RawText, turn.Text))
+			historySession.error(status, message, code, historyThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), historyTextForArchive(turn.RawText, turn.Text), assistantturn.IncompleteUsage(turn))
 		}
 		writeOpenAIErrorWithCode(w, status, message, code)
 		return
@@ -274,7 +274,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, r *http.Request, resp *htt
 				return
 			}
 			if streamRuntime.finalErrorMessage != "" {
-				historySession.error(streamRuntime.finalErrorStatus, streamRuntime.finalErrorMessage, streamRuntime.finalErrorCode, streamRuntime.historyThinking(), streamRuntime.historyText())
+				historySession.errorWithUpstream(streamRuntime.finalErrorStatus, streamRuntime.finalErrorMessage, streamRuntime.finalErrorCode, streamRuntime.historyThinking(), streamRuntime.historyText(), streamRuntime.accumulator.UpstreamUsage, promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens})
 				return
 			}
 			historySession.success(http.StatusOK, streamRuntime.historyThinking(), streamRuntime.historyText(), streamRuntime.finalFinishReason, streamRuntime.finalUsage)
@@ -282,7 +282,7 @@ func (h *Handler) handleStream(w http.ResponseWriter, r *http.Request, resp *htt
 		OnContextDone: func() {
 			streamRuntime.markContextCancelled()
 			if historySession != nil {
-				historySession.stopped(streamRuntime.historyThinking(), streamRuntime.historyText(), string(streamengine.StopReasonContextCancelled), promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens})
+				historySession.stoppedWithUpstream(streamRuntime.historyThinking(), streamRuntime.historyText(), string(streamengine.StopReasonContextCancelled), streamRuntime.accumulator.UpstreamUsage, promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens})
 			}
 		},
 	})

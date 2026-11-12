@@ -1,3 +1,4 @@
+import HistoryUsage from './HistoryUsage'
 import { ArrowDown, Bot, ChevronDown, Clock3, Copy, Download, Sparkles, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -247,6 +248,7 @@ export default function DetailConversation({ selectedItem, t, viewMode, detailSc
 
     return (
         <>
+            <HistoryUsage item={selectedItem} t={t} />
             {showHistoryAtTop && <HistoryTextView item={selectedItem} t={t} onMessage={onMessage} />}
 
             {viewMode === 'list'

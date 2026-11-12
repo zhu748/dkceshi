@@ -39,6 +39,7 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 		var thinkingPendingType string
 		var anyFlushed bool
 		var pendingResponseMessageID int
+		usageForwarder := bodyUsageForwarder{body: body}
 
 		scanCh := make(chan []byte, parsedLineBufferSize)
 		scanDone := make(chan error, 1)
@@ -180,6 +181,11 @@ func startParsedLinePumpWithConfig(ctx context.Context, body io.Reader, thinking
 		}
 
 		processLine := func(result LineResult) bool {
+			if err := usageForwarder.forward(ctx, &result, out); err != nil {
+				pumpErr = err
+				return false
+			}
+
 			currentType = result.NextType
 			if result.ResponseMessageID > 0 {
 				pendingResponseMessageID = result.ResponseMessageID

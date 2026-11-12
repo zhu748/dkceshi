@@ -264,6 +264,8 @@ Node 协调入口把租约 / 断开清理交给 `stream_lifecycle`，把重试�
 
 ## 用量模块职责
 
+`internal/tokenusage` 负责上游计数校验、响应元数据提取、有界消息快照、来源与历史列表摘要；`assistantturn.ResolveUsage` 统一结算。各协议只负责字段映射，Vercel 桥通过已有内部接口传递上游证据。详细口径见 [Token 用量](token-usage.md)。
+
 `internal/usagestats` 保持一个 Store 和原有锁顺序，按以下职责组织：
 
 | 文件 | 职责 |

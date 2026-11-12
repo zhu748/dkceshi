@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"ds2api/internal/tokenusage"
 	"fmt"
 	"net/http"
 	"strings"
@@ -21,6 +22,7 @@ import (
 )
 
 type claudeStreamRuntime struct {
+	upstreamUsage      tokenusage.Snapshot
 	toolRecovery       completionruntime.ToolRecovery
 	diagnosticProgress assistantturn.DiagnosticProgress
 	output             streamwriter.Writer
@@ -36,10 +38,10 @@ type claudeStreamRuntime struct {
 	toolChoice      promptcompat.ToolChoicePolicy
 	outputFormat    outputformat.Format
 	promptTokenText string
+	refFileTokens   int
 	// inputTokenCounts memoizes prompt token counts so message_start, finalize
 	// and retry attempts encode each distinct prompt only once.
-	inputTokenCounts map[string]int
-
+	inputTokenCounts      map[string]int
 	thinkingEnabled       bool
 	searchEnabled         bool
 	bufferToolContent     bool
@@ -125,6 +127,7 @@ func newClaudeStreamRuntime(
 }
 
 func (s *claudeStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedDecision {
+	parsed.ApplyUsage(&s.upstreamUsage)
 	if s.output.Err() != nil {
 		return streamengine.StopForWrite(s.output.Err(), streamengine.ParsedDecision{})
 	}

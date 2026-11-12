@@ -1,12 +1,15 @@
 package sse
 
 import (
+	"ds2api/internal/tokenusage"
 	"fmt"
 	"strings"
 )
 
 // LineResult is the normalized parse result for one DeepSeek SSE line.
 type LineResult struct {
+	ResolvedUsage bool
+	UpstreamUsage tokenusage.Observation
 	// Flush is an internal finalization signal, never decoded from upstream.
 	OutputLimit                bool
 	Flush                      bool
@@ -35,7 +38,9 @@ func ParseDeepSeekContentLine(raw []byte, thinkingEnabled bool, currentType stri
 		}
 		return result
 	}
-	return finishThinkingLine(parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...), thinkingEnabled, boundaries...)
+	result := finishThinkingLine(parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...), thinkingEnabled, boundaries...)
+	result.UpstreamUsage = tokenusage.Parse(chunk)
+	return result
 }
 
 // ParseDeepSeekContentChunk is ParseDeepSeekContentLine for a chunk that the
@@ -46,7 +51,9 @@ func ParseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, curre
 	if chunk == nil {
 		return LineResult{NextType: currentType}
 	}
-	return finishThinkingLine(parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...), thinkingEnabled, boundaries...)
+	result := finishThinkingLine(parseDeepSeekContentChunk(chunk, thinkingEnabled, currentType, boundaries...), thinkingEnabled, boundaries...)
+	result.UpstreamUsage = tokenusage.Parse(chunk)
+	return result
 }
 
 func parseDeepSeekContentChunk(chunk map[string]any, thinkingEnabled bool, currentType string, boundaries ...*ThinkingBoundary) LineResult {

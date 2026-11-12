@@ -1,0 +1,107 @@
+[
+  {
+    "name": "documents",
+    "session_id": "session-documents",
+    "message_id": 2,
+    "input": 86969,
+    "output": 102,
+    "total": 87071,
+    "payload": {
+      "code": 0,
+      "data": {
+        "biz_code": 0,
+        "biz_data": {
+          "chat_session": {
+            "id": "session-documents"
+          },
+          "chat_messages": [
+            {
+              "message_id": 1,
+              "parent_id": null,
+              "role": "USER",
+              "status": "FINISHED",
+              "accumulated_token_usage": 86969
+            },
+            {
+              "message_id": 2,
+              "parent_id": 1,
+              "role": "ASSISTANT",
+              "status": "FINISHED",
+              "accumulated_token_usage": 87071
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "images",
+    "session_id": "session-images",
+    "message_id": 2,
+    "input": 1953,
+    "output": 576,
+    "total": 2529,
+    "payload": {
+      "code": 0,
+      "data": {
+        "biz_code": 0,
+        "biz_data": {
+          "chat_session": {
+            "id": "session-images"
+          },
+          "chat_messages": [
+            {
+              "message_id": 1,
+              "parent_id": null,
+              "role": "USER",
+              "status": "FINISHED",
+              "accumulated_token_usage": 1953
+            },
+            {
+              "message_id": 2,
+              "parent_id": 1,
+              "role": "ASSISTANT",
+              "status": "FINISHED",
+              "accumulated_token_usage": 2529
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "text",
+    "session_id": "session-text",
+    "message_id": 2,
+    "input": 58,
+    "output": 23,
+    "total": 81,
+    "payload": {
+      "code": 0,
+      "data": {
+        "biz_code": 0,
+        "biz_data": {
+          "chat_session": {
+            "id": "session-text"
+          },
+          "chat_messages": [
+            {
+              "message_id": 1,
+              "parent_id": null,
+              "role": "USER",
+              "status": "FINISHED",
+              "accumulated_token_usage": 58
+            },
+            {
+              "message_id": 2,
+              "parent_id": 1,
+              "role": "ASSISTANT",
+              "status": "FINISHED",
+              "accumulated_token_usage": 81
+            }
+          ]
+        }
+      }
+    }
+  }
+]

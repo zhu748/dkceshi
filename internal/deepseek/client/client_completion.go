@@ -33,6 +33,8 @@ func (c *Client) CallCompletion(ctx context.Context, a *auth.RequestAuth, payloa
 	}
 	if resp.StatusCode == http.StatusOK {
 		resp = c.wrapCompletionWithAutoContinue(ctx, a, payload, powResp, resp)
+		sessionID, _ := payload["chat_session_id"].(string)
+		resp.Body = &usageResponseBody{ReadCloser: resp.Body, Resolver: c.NewUsageResolver(a, sessionID)}
 		// 复刻真实 Android App：completion 成功后立刻异步预取下一个 PoW，
 		// 让下一次 completion 几乎零延迟拿到 PoW。使用独立 context 避免被当前
 		// 请求取消影响。

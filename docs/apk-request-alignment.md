@@ -150,3 +150,13 @@ APK 的相册比例缺省是 NaN（不启用普通照片压缩）；相机压缩
 仍需真实设备网络样本核对：TLS ClientHello、HTTP/2 SETTINGS/窗口/HPACK、连接复用策略、
 完整 client/settings/report 生命周期、HIF 自动获取、遥测注册、HEIF/动画转换及 Android 编码器结果。
 现有 HAR 只验证 HTTP 层样本，不能替代这些证据。
+
+## 最新发消息、图片与文档抓包核对
+
+此次 HAR 共 32 条记录，包含 3 次完成请求、5 次上传和对应文件查询、消息历史。请求头为 `DeepSeek/2.7.1 Android/36`，语言 `zh_CN`，时区偏移 `28800`，包名 `com.deepseek.chat`，Accept 为 JSON，压缩为 gzip，与共享默认配置一致。上传使用 `default`、思考头 `1`、上传路径 PoW、70 字符 boundary、单个 `file`、octet-stream、CRLF 结尾，不发送 multipart 总 Content-Length。原始 DOC 和一张 WebP 的 Base64 HAR 部分可精确还原，文件大小与 x-file-size 分别为 44,032 和 251,672 字节，吻合。
+
+本抓包没有 `x-device-id`，且保留空 `x-rangers-id`；代码默认发送账号安装头并省略空值。可通过既有 `DS2API_DEEPSEEK_SEND_INSTALLATION_HEADER=0` 选择无安装头场景，不应把某一抓包设备值写成全局值。图片均已是 WebP，抓包不能证明原图压缩比例和编码结果逐字节一致。
+
+文件真实计数分别为 DOC 149、HTML 86,700、TXT 4，两张图片各 947。上传响应可为 PENDING、轮询为 PARSING，完成流的 `event: update_file` 再给出 SUCCESS 和 token_usage。当前上传层等待就绪后才引用，处理节奏比本次 App 记录更保守；文件 token 有值时直接使用，包括真实零。
+
+消息历史同时给出 USER/ASSISTANT 累计值，已接入真实请求结算。数值与查询、回退规则见 [Token 用量](token-usage.md)。脱敏回归夹具仅保留消息关系与计数，不包含上传内容、账号凭据或抓包设备标识。本核对不代表已复现该设备的 TLS/HTTP2 指纹，也未使用抓包凭据进行线上调用。

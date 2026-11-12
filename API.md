@@ -319,7 +319,7 @@ data: [DONE]
 - 开启 thinking 时会输出 `delta.reasoning_content`
 - 普通文本输出 `delta.content`
 - 最后一段包含 `finish_reason` 和 `usage`
-- 文本和输出 token 使用内部估算，忽略 SSE 上游累计 `accumulated_token_usage` / `token_usage`；文件输入优先采用就绪元数据的真实 `token_usage`，避免把整段上下文累计值当作本次用量。失败/中断型结束（例如 `response.failed`）可能不会携带 `usage`
+- 成功生成后优先使用上游消息历史配对的输入、输出和合计；直接提供的显式分项也优先使用，缺失项才本地估算。原始累计值及请求级配对计数保存在 `usage.ds2api.upstream`。文件输入按共享规则处理，明确的上游输入不重复叠加文件 token。详见 [Token 用量与来源](docs/token-usage.md)。失败/中断型结束（例如 `response.failed`）可能不会携带 `usage`
 
 #### Tool Calls
 
@@ -642,7 +642,7 @@ data: {"type":"message_stop"}
 - thinking：持续返回 `parts[].thought=true` 的增量 chunk
 - `tools` 场景：会缓冲并在结束时输出 `functionCall` 结构
 - 结束 chunk：包含 `finishReason: "STOP"` 与 `usageMetadata`
-- 文本和输出 token 使用内部估算，忽略 SSE 上游累计 `accumulated_token_usage` / `token_usage`；文件输入优先采用就绪元数据的真实 `token_usage`
+- 成功生成后优先使用上游消息历史配对的输入、输出和合计；未取到时回退估算。累计原值及分项来源保存在 `usage.ds2api`，详见 [Token 用量与来源](docs/token-usage.md)。文件输入仍按共享规则处理
 
 ---
 

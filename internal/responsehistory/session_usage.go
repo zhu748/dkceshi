@@ -1,6 +1,7 @@
 package responsehistory
 
 import (
+	"ds2api/internal/tokenusage"
 	"net/http"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 // 生成的部分内容估算 token 用量入账，避免条目永久停留在 "streaming" 且账本
 // 漏记已消耗的请求（对齐 openai/chat 表面的 stopped 语义）。
 func (s *Session) Stopped(thinking, content, finishReason string, current ...promptcompat.StandardRequest) {
+	s.StoppedWithUpstream(thinking, content, finishReason, tokenusage.Snapshot{}, current...)
+}
+
+func (s *Session) StoppedWithUpstream(thinking, content, finishReason string, observed tokenusage.Snapshot, current ...promptcompat.StandardRequest) {
 	if s == nil {
 		return
 	}
@@ -23,7 +28,7 @@ func (s *Session) Stopped(thinking, content, finishReason string, current ...pro
 	if request.ResolvedModel == "" {
 		request.ResolvedModel = s.recordModel
 	}
-	usage := usagestats.PartialUsage(request, thinking, content, current...)
+	usage := usagestats.PartialUsageWithUpstream(request, thinking, content, observed, current...)
 	s.recordUsage(usage)
 	if s.store == nil || s.disabled {
 		return

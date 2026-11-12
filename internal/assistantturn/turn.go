@@ -2,6 +2,7 @@ package assistantturn
 
 import (
 	"context"
+	"ds2api/internal/tokenusage"
 	"net/http"
 	"strings"
 
@@ -23,6 +24,7 @@ const (
 )
 
 type Usage struct {
+	Metadata        *tokenusage.Metadata
 	InputTokens     int
 	OutputTokens    int
 	ReasoningTokens int
@@ -36,6 +38,7 @@ type OutputError struct {
 }
 
 type Turn struct {
+	UpstreamUsage          tokenusage.Snapshot
 	Model                  string
 	Prompt                 string
 	RawText                string
@@ -162,6 +165,7 @@ func maybeRepairToolCalls(parsed toolcall.ToolCallParseResult, rawText string, o
 }
 
 type StreamSnapshot struct {
+	UpstreamUsage         tokenusage.Snapshot
 	ContentCut            sse.CutReason
 	RawText               string
 	VisibleText           string
@@ -223,6 +227,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) (built 
 	}
 
 	turn := Turn{
+		UpstreamUsage:          result.UpstreamUsage,
 		Model:                  opts.Model,
 		Prompt:                 opts.Prompt,
 		RawText:                result.Text,
@@ -244,6 +249,7 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) (built 
 	turn.Usage = buildTurnUsage(opts, turn)
 	turn.Error = validateToolOutput(&turn, opts, repairCompleted)
 	if result.ReadError != nil {
+		turn.Usage.Metadata.Complete = false
 		turn.Error = readOutputError(result.ReadError)
 	}
 	if turn.Error != nil {
@@ -309,6 +315,7 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) (bu
 	}
 
 	turn := Turn{
+		UpstreamUsage:     snapshot.UpstreamUsage,
 		Model:             opts.Model,
 		Prompt:            opts.Prompt,
 		RawText:           snapshot.RawText,
@@ -422,22 +429,18 @@ func FinalizeTurn(turn Turn, opts FinalizeOptions) FinalOutcome {
 }
 
 func OpenAIChatUsage(turn Turn) map[string]any {
-	return map[string]any{
-		"prompt_tokens":     turn.Usage.InputTokens,
-		"completion_tokens": turn.Usage.OutputTokens,
-		"total_tokens":      turn.Usage.TotalTokens,
-		"completion_tokens_details": map[string]any{
-			"reasoning_tokens": turn.Usage.ReasoningTokens,
-		},
+	usage := map[string]any{"prompt_tokens": turn.Usage.InputTokens, "completion_tokens": turn.Usage.OutputTokens, "total_tokens": turn.Usage.TotalTokens, "ds2api": usageMetadata(turn.Usage)}
+	if usageMetadata(turn.Usage).ReasoningSource != "unknown" {
+		usage["completion_tokens_details"] = map[string]any{"reasoning_tokens": turn.Usage.ReasoningTokens}
 	}
+	return usage
 }
-
 func OpenAIResponsesUsage(turn Turn) map[string]any {
-	return map[string]any{
-		"input_tokens":  turn.Usage.InputTokens,
-		"output_tokens": turn.Usage.OutputTokens,
-		"total_tokens":  turn.Usage.TotalTokens,
+	usage := map[string]any{"input_tokens": turn.Usage.InputTokens, "output_tokens": turn.Usage.OutputTokens, "total_tokens": turn.Usage.TotalTokens, "ds2api": usageMetadata(turn.Usage)}
+	if usageMetadata(turn.Usage).ReasoningSource != "unknown" {
+		usage["output_tokens_details"] = map[string]any{"reasoning_tokens": turn.Usage.ReasoningTokens}
 	}
+	return usage
 }
 
 func FinishReason(turn Turn) string {

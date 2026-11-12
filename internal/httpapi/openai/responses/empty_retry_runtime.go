@@ -57,6 +57,7 @@ func (h *Handler) handleResponsesStreamWithRetry(w http.ResponseWriter, r *http.
 		RejectedOutput: func() string {
 			return completionruntime.ToolRetrySource(streamRuntime.accumulator.RawText.String(), streamRuntime.accumulator.ToolDetectionThinking.String())
 		},
+		OnRequest: func(request promptcompat.StandardRequest) { streamRuntime.refFileTokens = request.RefFileTokens },
 		OnRetryPrompt: func(prompt string) {
 			streamRuntime.finalPrompt = prompt
 		},
@@ -159,10 +160,10 @@ func (h *Handler) consumeResponsesStreamAttempt(r *http.Request, resp *http.Resp
 			// usage) instead of leaving it "streaming" forever — the
 			// same handling the chat surface does on cancellation.
 			if streamRuntime.history != nil {
-				streamRuntime.history.Stopped(
+				streamRuntime.history.StoppedWithUpstream(
 					responsehistory.ThinkingForArchive(streamRuntime.accumulator.RawThinking.String(), streamRuntime.accumulator.ToolDetectionThinking.String(), streamRuntime.accumulator.Thinking.String()),
 					responsehistory.TextForArchive(streamRuntime.accumulator.RawText.String(), streamRuntime.accumulator.Text.String()),
-					string(streamengine.StopReasonContextCancelled), promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens},
+					string(streamengine.StopReasonContextCancelled), streamRuntime.accumulator.UpstreamUsage, promptcompat.StandardRequest{PromptTokenText: streamRuntime.finalPrompt, RefFileTokens: streamRuntime.refFileTokens},
 				)
 			}
 		},

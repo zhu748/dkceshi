@@ -42,6 +42,7 @@ function isFinishedStatus(value) {
 }
 
 function shouldSkipPath(pathValue) {
+  if (/^(?:response\/)?(?:usage|token_usage|accumulated_token_usage|input_tokens|prompt_tokens|output_tokens|completion_tokens|reasoning_tokens|total_tokens|completion_tokens_details|output_tokens_details)(?:\/|$)/.test(pathValue)) return true;
   if (isFragmentStatusPath(pathValue)) {
     return true;
   }

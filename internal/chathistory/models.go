@@ -1,6 +1,7 @@
 package chathistory
 
 import (
+	"ds2api/internal/tokenusage"
 	"encoding/json"
 	"errors"
 )
@@ -66,23 +67,24 @@ type Message struct {
 }
 
 type SummaryEntry struct {
-	ID             string `json:"id"`
-	Revision       int64  `json:"revision"`
-	CreatedAt      int64  `json:"created_at"`
-	UpdatedAt      int64  `json:"updated_at"`
-	CompletedAt    int64  `json:"completed_at,omitempty"`
-	Status         string `json:"status"`
-	CallerID       string `json:"caller_id,omitempty"`
-	AccountID      string `json:"account_id,omitempty"`
-	Surface        string `json:"surface,omitempty"`
-	Model          string `json:"model,omitempty"`
-	Stream         bool   `json:"stream"`
-	UserInput      string `json:"user_input,omitempty"`
-	Preview        string `json:"preview,omitempty"`
-	StatusCode     int    `json:"status_code,omitempty"`
-	ElapsedMs      int64  `json:"elapsed_ms,omitempty"`
-	FinishReason   string `json:"finish_reason,omitempty"`
-	DetailRevision int64  `json:"detail_revision"`
+	Usage          *tokenusage.Summary `json:"usage,omitempty"`
+	ID             string              `json:"id"`
+	Revision       int64               `json:"revision"`
+	CreatedAt      int64               `json:"created_at"`
+	UpdatedAt      int64               `json:"updated_at"`
+	CompletedAt    int64               `json:"completed_at,omitempty"`
+	Status         string              `json:"status"`
+	CallerID       string              `json:"caller_id,omitempty"`
+	AccountID      string              `json:"account_id,omitempty"`
+	Surface        string              `json:"surface,omitempty"`
+	Model          string              `json:"model,omitempty"`
+	Stream         bool                `json:"stream"`
+	UserInput      string              `json:"user_input,omitempty"`
+	Preview        string              `json:"preview,omitempty"`
+	StatusCode     int                 `json:"status_code,omitempty"`
+	ElapsedMs      int64               `json:"elapsed_ms,omitempty"`
+	FinishReason   string              `json:"finish_reason,omitempty"`
+	DetailRevision int64               `json:"detail_revision"`
 }
 
 type File struct {

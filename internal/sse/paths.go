@@ -1,13 +1,14 @@
 package sse
 
 import (
+	"ds2api/internal/tokenusage"
 	"strings"
 
 	dsprotocol "ds2api/internal/deepseek/protocol"
 )
 
 func shouldSkipPath(path string) bool {
-	if isFragmentStatusPath(path) {
+	if tokenusage.IsMetadataPath(path) || isFragmentStatusPath(path) {
 		return true
 	}
 	if _, ok := dsprotocol.SkipExactPathSet[path]; ok {

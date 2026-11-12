@@ -170,7 +170,7 @@ func (s *responsesStreamRuntime) failResponse(status int, message, code string) 
 		s.persistResponse(failedResp)
 	}
 	if s.history != nil {
-		s.history.Error(status, message, code, responsehistory.ThinkingForArchive(s.accumulator.RawThinking.String(), s.accumulator.ToolDetectionThinking.String(), s.accumulator.Thinking.String()), responsehistory.TextForArchive(s.accumulator.RawText.String(), s.accumulator.Text.String()))
+		s.history.ErrorWithUpstream(status, message, code, responsehistory.ThinkingForArchive(s.accumulator.RawThinking.String(), s.accumulator.ToolDetectionThinking.String(), s.accumulator.Thinking.String()), responsehistory.TextForArchive(s.accumulator.RawText.String(), s.accumulator.Text.String()), s.accumulator.UpstreamUsage, promptcompat.StandardRequest{PromptTokenText: s.finalPrompt, RefFileTokens: s.refFileTokens})
 	}
 	s.sendEvent("response.failed", openaifmt.BuildResponsesFailedPayload(s.responseID, s.model, status, message, code))
 	s.sendDone()

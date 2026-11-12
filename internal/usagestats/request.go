@@ -7,9 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
 	"ds2api/internal/promptcompat"
-	"ds2api/internal/util"
+	"ds2api/internal/tokenusage"
 )
 
 // RequestRecorder keeps attribution live until completion: retries can replace
@@ -87,6 +88,10 @@ func maskAccount(id string) string {
 // part of completion_tokens. An optional current request replaces the initial
 // accounting context without changing the archived original request.
 func PartialUsage(initial promptcompat.StandardRequest, thinking, content string, current ...promptcompat.StandardRequest) map[string]any {
+	return PartialUsageWithUpstream(initial, thinking, content, tokenusage.Snapshot{}, current...)
+}
+
+func PartialUsageWithUpstream(initial promptcompat.StandardRequest, thinking, content string, observed tokenusage.Snapshot, current ...promptcompat.StandardRequest) map[string]any {
 	request := initial
 	if len(current) > 0 {
 		request = current[0]
@@ -99,9 +104,5 @@ func PartialUsage(initial promptcompat.StandardRequest, thinking, content string
 		prompt = request.FinalPrompt
 	}
 	model := ModelForRequest(initial.ResolvedModel, initial.ResponseModel)
-	input := util.CountPromptTokens(prompt, model) + request.RefFileTokens
-	reasoning := util.CountOutputTokens(thinking, model)
-	output := reasoning + util.CountOutputTokens(content, model)
-	return map[string]any{"prompt_tokens": input, "completion_tokens": output, "total_tokens": input + output,
-		"completion_tokens_details": map[string]any{"reasoning_tokens": reasoning}}
+	return assistantturn.OpenAIChatUsage(assistantturn.Turn{Usage: assistantturn.BuildUsageFromUpstream(model, prompt, thinking, content, request.RefFileTokens, observed, false)})
 }

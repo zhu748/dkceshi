@@ -285,6 +285,7 @@ func ExecuteNonStreamStartedWithRetry(ctx context.Context, ds DeepSeekCaller, a 
 		turn.RawThinking = accumulatedRawThinking
 		turn.DetectionThinking = accumulatedToolDetectionThinking
 		turn = assistantturn.BuildTurnFromCollected(sse.CollectResult{
+			UpstreamUsage:          turn.UpstreamUsage,
 			Cut:                    turn.ContentCut,
 			Text:                   turn.RawText,
 			Thinking:               turn.RawThinking,
@@ -428,7 +429,8 @@ func collectAttempt(ctx context.Context, resp *http.Response, a *auth.RequestAut
 	// build once. Parsing, schema validation and BPE tokenization here would
 	// immediately be repeated by that build for the same complete response.
 	return assistantturn.Turn{
-		RawText: result.Text, RawThinking: result.Thinking,
+		UpstreamUsage: result.UpstreamUsage,
+		RawText:       result.Text, RawThinking: result.Thinking,
 		DetectionThinking: result.ToolDetectionThinking,
 		ContentCut:        result.Cut, ContentFilter: result.ContentFilter,
 		UpstreamError: result.UpstreamError, CitationLinks: result.CitationLinks,

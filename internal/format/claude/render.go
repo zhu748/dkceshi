@@ -52,10 +52,7 @@ func BuildMessageResponseFromTurn(messageID, model string, turn assistantturn.Tu
 		"content":       content,
 		"stop_reason":   stopReason,
 		"stop_sequence": nil,
-		"usage": map[string]any{
-			"input_tokens":  turn.Usage.InputTokens,
-			"output_tokens": turn.Usage.OutputTokens,
-		},
+		"usage":         assistantturn.ClaudeUsage(turn),
 	}
 }
 

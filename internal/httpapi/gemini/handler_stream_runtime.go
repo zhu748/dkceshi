@@ -90,6 +90,7 @@ type geminiStreamRuntime struct {
 	// finalize (and each retry attempt's finalize) does not re-encode the same
 	// hundreds-of-KB prompt.
 	inputTokenCounts map[string]int
+	refFileTokens    int
 
 	thinkingEnabled bool
 	searchEnabled   bool
@@ -150,6 +151,7 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 	// M4: wire the phase-3 finalize-only LLM repair into the stream finalize.
 	runtime.toolCallRepair = completionruntime.NewToolCallRepairInvoker(h.DS, a, h.ChatHistory, stdReq)
 	runtime.toolCallRepairCtx = r.Context()
+	runtime.refFileTokens = stdReq.RefFileTokens
 	runtime.toolMarker = a.ToolMarker
 	runtime.toolSieve.Marker = a.ToolMarker
 	runtime.toolChoice = stdReq.ToolChoice
@@ -183,6 +185,7 @@ func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r 
 		// (chat and claude already reset; see their resetForRegeneration).
 		OnRegenerate:   runtime.resetForRegeneration,
 		RejectedOutput: runtime.rejectedOutput,
+		OnRequest:      func(request promptcompat.StandardRequest) { runtime.refFileTokens = request.RefFileTokens },
 		OnRetryPrompt: func(prompt string) {
 			runtime.finalPrompt = prompt
 		},
@@ -225,10 +228,10 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 			// Mirrors the chat surface's OnContextDone handling.
 			if runtime.history != nil {
 				rawText, text, rawThinking, thinking, detectionThinking := runtime.accumulator.Snapshot()
-				runtime.history.Stopped(
+				runtime.history.StoppedWithUpstream(
 					responsehistory.ThinkingForArchive(rawThinking, detectionThinking, thinking),
 					responsehistory.TextForArchive(rawText, text),
-					string(streamengine.StopReasonContextCancelled), promptcompat.StandardRequest{PromptTokenText: runtime.finalPrompt},
+					string(streamengine.StopReasonContextCancelled), runtime.accumulator.UsageSnapshot(), promptcompat.StandardRequest{PromptTokenText: runtime.finalPrompt, RefFileTokens: runtime.refFileTokens},
 				)
 			}
 		},
@@ -258,9 +261,9 @@ func (h *Handler) consumeGeminiStreamAttempt(ctx context.Context, resp *http.Res
 		runtime.sendErrorChunk(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.", "upstream_interrupted")
 		if runtime.history != nil {
 			rawText, text, rawThinking, thinking, detectionThinking := runtime.accumulator.Snapshot()
-			runtime.history.Error(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.", "upstream_interrupted",
+			runtime.history.ErrorWithUpstream(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.", "upstream_interrupted",
 				responsehistory.ThinkingForArchive(rawThinking, detectionThinking, thinking),
-				responsehistory.TextForArchive(rawText, text))
+				responsehistory.TextForArchive(rawText, text), runtime.accumulator.UsageSnapshot(), promptcompat.StandardRequest{PromptTokenText: runtime.finalPrompt, RefFileTokens: runtime.refFileTokens})
 		}
 		return completionruntime.ConsumeAttemptResult{Terminal: true}
 	}
@@ -404,6 +407,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	s.finalErrorStatus, s.finalErrorMessage, s.finalErrorCode = 0, "", ""
 	rawText, text, rawThinking, thinking, detectionThinking := s.accumulator.Snapshot()
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
+		UpstreamUsage:     s.accumulator.UsageSnapshot(),
 		ContentCut:        s.accumulator.Cut(),
 		RawText:           rawText,
 		VisibleText:       text,
@@ -416,6 +420,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 	}, assistantturn.BuildOptions{
 		Model:                 s.model,
 		Prompt:                s.finalPrompt,
+		RefFileTokens:         s.refFileTokens,
 		PromptTokenCountFn:    s.promptTokenCountFor,
 		SearchEnabled:         s.searchEnabled,
 		StripReferenceMarkers: s.stripReferenceMarkers,
@@ -436,7 +441,7 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 			return false
 		}
 		if s.history != nil {
-			s.history.Error(outcome.Error.Status, outcome.Error.Message, outcome.Error.Code, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text))
+			s.history.ErrorWithUpstream(outcome.Error.Status, outcome.Error.Message, outcome.Error.Code, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text), s.accumulator.UsageSnapshot(), promptcompat.StandardRequest{PromptTokenText: s.finalPrompt, RefFileTokens: s.refFileTokens})
 		}
 		s.sendErrorChunk(outcome.Error.Status, outcome.Error.Message, outcome.Error.Code)
 		return true
@@ -478,17 +483,13 @@ func (s *geminiStreamRuntime) finalize(deferEmptyOutput bool) bool {
 				"finishReason": "STOP",
 			},
 		},
-		"modelVersion": s.model,
-		"usageMetadata": map[string]any{
-			"promptTokenCount":     outcome.Usage.InputTokens,
-			"candidatesTokenCount": outcome.Usage.OutputTokens,
-			"totalTokenCount":      outcome.Usage.TotalTokens,
-		},
+		"modelVersion":  s.model,
+		"usageMetadata": assistantturn.GeminiUsage(turn),
 	})
 	if !s.output.Complete(s.toolCallRepairCtx) {
 		s.finalErrorStatus, s.finalErrorCode, s.finalErrorMessage = 499, "client_write_error", s.output.Err().Error()
 		if s.history != nil {
-			s.history.Error(499, s.finalErrorMessage, s.finalErrorCode, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text))
+			s.history.ErrorWithUpstream(499, s.finalErrorMessage, s.finalErrorCode, responsehistory.ThinkingForArchive(turn.RawThinking, turn.DetectionThinking, turn.Thinking), responsehistory.TextForArchive(turn.RawText, turn.Text), s.accumulator.UsageSnapshot(), promptcompat.StandardRequest{PromptTokenText: s.finalPrompt, RefFileTokens: s.refFileTokens})
 		}
 	} else if s.history != nil {
 		s.history.Success(

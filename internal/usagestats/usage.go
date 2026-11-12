@@ -1,10 +1,6 @@
 package usagestats
 
-import (
-	"encoding/json"
-	"fmt"
-	"strings"
-)
+import "ds2api/internal/tokenusage"
 
 // ParseUsage 从 OpenAI/Claude/Gemini 风格的 usage map 中提取
 // prompt/completion/reasoning/total tokens。
@@ -35,36 +31,8 @@ func ParseUsage(usage map[string]any) (prompt, completion, reasoning, total int6
 
 func firstInt(source map[string]any, keys ...string) int64 {
 	for _, key := range keys {
-		value, ok := source[key]
-		if !ok || value == nil {
-			continue
-		}
-		if n := toInt64(value); n != 0 {
-			return n
-		}
-	}
-	return 0
-}
-
-func toInt64(value any) int64 {
-	switch v := value.(type) {
-	case float64:
-		return int64(v)
-	case float32:
-		return int64(v)
-	case int:
-		return int64(v)
-	case int32:
-		return int64(v)
-	case int64:
-		return v
-	case json.Number:
-		n, _ := v.Int64()
-		return n
-	case string:
-		var n int64
-		if _, err := fmt.Sscanf(strings.TrimSpace(v), "%d", &n); err == nil {
-			return n
+		if n, ok := tokenusage.Count(source[key]); ok {
+			return int64(n)
 		}
 	}
 	return 0

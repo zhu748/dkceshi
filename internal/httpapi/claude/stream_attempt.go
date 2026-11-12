@@ -36,7 +36,7 @@ func (h *Handler) consumeClaudeStreamAttempt(r *http.Request, resp *http.Respons
 	})
 	if r.Context().Err() != nil {
 		if s.history != nil {
-			s.history.Stopped(responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()), string(streamengine.StopReasonContextCancelled), promptcompat.StandardRequest{PromptTokenText: s.promptTokenText})
+			s.history.StoppedWithUpstream(responsehistory.ThinkingForArchive(s.rawThinking.String(), s.toolDetectionThinking.String(), s.thinking.String()), responsehistory.TextForArchive(s.rawText.String(), s.text.String()), string(streamengine.StopReasonContextCancelled), s.upstreamUsage, promptcompat.StandardRequest{PromptTokenText: s.promptTokenText, RefFileTokens: s.refFileTokens})
 		}
 		return completionruntime.ConsumeAttemptResult{Terminal: true}
 	}

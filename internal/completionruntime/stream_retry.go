@@ -53,6 +53,7 @@ type StreamRetryHooks struct {
 	// OnRegenerate discards undelivered output before a new generation.
 	// Continue/resume deliberately preserves the current attempt state.
 	OnRegenerate     func()
+	OnRequest        func(request promptcompat.StandardRequest)
 	OnRetryPrompt    func(prompt string)
 	OnRetryFailure   func(status int, message, code string)
 	OnAccountSwitch  func(sessionID string)
@@ -124,6 +125,9 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 		if start.Request.FinalPrompt != "" {
 			opts.Request = start.Request
 			opts.UsagePrompt = start.Request.PromptTokenText
+		}
+		if hooks.OnRequest != nil {
+			hooks.OnRequest(opts.Request)
 		}
 		usagePrompt = opts.UsagePrompt
 		reset()

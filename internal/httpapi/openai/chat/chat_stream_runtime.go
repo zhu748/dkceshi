@@ -239,6 +239,7 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 	finalToolDetectionThinking := s.accumulator.ToolDetectionThinking.String()
 	finalText := s.accumulator.Text.String()
 	turn := assistantturn.BuildTurnFromStreamSnapshot(assistantturn.StreamSnapshot{
+		UpstreamUsage:         s.accumulator.UpstreamUsage,
 		ContentCut:            s.accumulator.Cut(),
 		RawText:               s.accumulator.RawText.String(),
 		VisibleText:           finalText,

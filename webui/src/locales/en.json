@@ -534,6 +534,26 @@
       "tool": "Tool",
       "developer": "Developer",
       "system": "System"
+    },
+    "usageTitle": "Token usage",
+    "usageInput": "Input",
+    "usageOutput": "Output",
+    "usageReasoning": "Reasoning",
+    "usageTotal": "Total",
+    "usagePending": "Counting…",
+    "usagePartial": "Partial usage · request incomplete",
+    "usageUpstream": "Upstream cumulative",
+    "usageUpstreamTitle": "Counts reported by upstream",
+    "usageMessage": "Message",
+    "usageReasoningHelp": "Reasoning tokens are included in output and counted once in the total.",
+    "usageUpstreamHelp": "The upstream cumulative count includes input context. Output tokens equal the reply cumulative count minus its paired input count; the cumulative value alone is not output usage.",
+    "usageTruncated": "The upstream message limit was reached; raw counts are incomplete.",
+    "usageSources": {
+      "upstream": "Upstream counts",
+      "estimated": "Local estimate",
+      "mixed": "Upstream and estimated",
+      "derived": "Input plus output",
+      "unknown": "Unknown source"
     }
   },
   "batchImport": {

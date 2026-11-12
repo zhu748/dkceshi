@@ -9,6 +9,7 @@ import (
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/config"
 	"ds2api/internal/promptcompat"
+	"ds2api/internal/tokenusage"
 	"ds2api/internal/util"
 )
 
@@ -44,7 +45,7 @@ func finalizeVercelUsage(std promptcompat.StandardRequest, req map[string]any) m
 	if req["usage"] == nil && asString(req["thinking"]) == "" && asString(req["content"]) == "" {
 		return nil // A lease returned before generation consumes no model tokens.
 	}
-	usage := assistantturn.BuildUsage(std.ResponseModel, vercelUsagePrompt(std, req), asString(req["thinking"]), asString(req["content"]), std.RefFileTokens)
+	usage := assistantturn.BuildUsageFromUpstream(std.ResponseModel, vercelUsagePrompt(std, req), asString(req["thinking"]), asString(req["content"]), std.RefFileTokens, tokenusage.FromMap(req["upstream_usage"]), asString(req["finish_reason"]) != "stopped" && asString(req["finish_reason"]) != "upstream_interrupted")
 	result := assistantturn.OpenAIChatUsage(assistantturn.Turn{Usage: usage})
 	req["usage"] = result
 	return result
@@ -52,13 +53,13 @@ func finalizeVercelUsage(std promptcompat.StandardRequest, req map[string]any) m
 
 // Count usage before the terminal frame without releasing the live lease or
 // declaring its response delivered. Final release carries the write evidence.
-func (h *Handler) previewStreamUsage(w http.ResponseWriter, id string, req map[string]any) {
+func (h *Handler) previewStreamUsage(w http.ResponseWriter, r *http.Request, id string, req map[string]any) {
 	lease, ok := h.lookupStreamLease(id)
 	if !ok {
 		writeOpenAIError(w, http.StatusNotFound, "stream lease not found")
 		return
 	}
-	writeVercelUsageReply(w, finalizeVercelUsage(lease.Standard, req))
+	writeVercelUsageReply(w, h.finalizeLeaseUsage(r.Context(), lease, req))
 }
 
 // Complete the response before potentially slow remote cleanup. Content-Length

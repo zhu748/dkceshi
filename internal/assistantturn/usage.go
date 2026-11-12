@@ -2,6 +2,7 @@ package assistantturn
 
 import (
 	"ds2api/internal/sse"
+	"ds2api/internal/tokenusage"
 	"ds2api/internal/util"
 	"strings"
 )
@@ -24,7 +25,7 @@ func buildTurnUsage(opts BuildOptions, turn Turn) Usage {
 	if text == "" {
 		text = turn.Text
 	}
-	return buildUsageWithPrefill(opts, thinking, text)
+	return buildObservedUsage(opts, thinking, text, turn.UpstreamUsage, turn.UpstreamError == "" && turn.ContentCut == sse.CutNone)
 }
 
 // buildUsageWithPrefill is BuildUsage with the BuildOptions prompt-count
@@ -53,13 +54,24 @@ func buildUsageWithPrefill(opts BuildOptions, thinking, text string) Usage {
 }
 
 func BuildUsage(model, prompt, thinking, text string, refFileTokens int) Usage {
-	inputTokens := util.CountPromptTokens(prompt, model) + refFileTokens
-	reasoningTokens := util.CountOutputTokens(thinking, model)
-	outputTokens := reasoningTokens + util.CountOutputTokens(text, model)
-	return Usage{
-		InputTokens:     inputTokens,
-		OutputTokens:    outputTokens,
-		ReasoningTokens: reasoningTokens,
-		TotalTokens:     inputTokens + outputTokens,
+	return ResolveUsage(buildUsageWithPrefill(BuildOptions{Model: model, Prompt: prompt, RefFileTokens: refFileTokens}, thinking, text), tokenusage.Snapshot{}, true)
+}
+
+// BuildUsageFromUpstream avoids tokenizing full prompts/output when the upstream
+// has already supplied authoritative input and output counts.
+func BuildUsageFromUpstream(model, prompt, thinking, text string, refFileTokens int, observed tokenusage.Snapshot, complete bool) Usage {
+	return buildObservedUsage(BuildOptions{Model: model, Prompt: prompt, RefFileTokens: refFileTokens}, thinking, text, observed, complete)
+}
+func buildObservedUsage(opts BuildOptions, thinking, text string, observed tokenusage.Snapshot, complete bool) Usage {
+	if o, ok := observed.Effective(); ok && o.InputTokens != nil && o.OutputTokens != nil {
+		sum, sumOK := tokenusage.Count(int64(*o.InputTokens) + int64(*o.OutputTokens))
+		if sumOK && (o.TotalTokens == nil || *o.TotalTokens == sum) {
+			reasoning := 0
+			if o.ReasoningTokens == nil {
+				reasoning = util.CountOutputTokens(thinking, opts.Model)
+			}
+			return ResolveUsage(Usage{ReasoningTokens: reasoning}, observed, complete)
+		}
 	}
+	return ResolveUsage(buildUsageWithPrefill(opts, thinking, text), observed, complete)
 }
