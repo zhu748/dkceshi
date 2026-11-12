@@ -40,6 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.targets.outputs.targets }}
+      full: ${{ steps.targets.outputs.full }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,8 +48,18 @@ jobs:
       - name: Validate tag and derive platform matrix
         id: targets
         run: |
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
-          echo "targets=$(bash scripts/release-targets.sh --json)" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "targets=$(bash scripts/release-targets.sh --json)" >> "$GITHUB_OUTPUT"
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$RELEASE_TAG" == "ceshi" ]]; then
+            echo "Test tag '${RELEASE_TAG}': keeping release as-is; platform archives and publishing are skipped." >&2
+            echo "targets=[]" >> "$GITHUB_OUTPUT"
+            echo "full=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::unsupported release tag '${RELEASE_TAG}'; expected vMAJOR.MINOR.PATCH with optional ./- suffix, or the test tag 'ceshi'" >&2
+            exit 1
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -87,6 +98,7 @@ jobs:
   archives:
     name: Archive (${{ matrix.target }})
     needs: prepare
+    if: needs.prepare.outputs.full == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -140,6 +152,7 @@ jobs:
   publish:
     name: Publish archives and Docker images
     needs: [checks, prepare, archives]
+    if: needs.prepare.outputs.full == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
