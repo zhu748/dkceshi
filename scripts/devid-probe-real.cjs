@@ -2,7 +2,7 @@
 /*
  * devid-probe-real.cjs — 真实环境指纹明文提取（diff 基准）。
  *
- * Playwright 真 Chromium 打开 chat.deepseek.com/sign_in，
+ * Playwright 真 Chromium 打开 DeepSeek 新前端登录页（platform.deepseek.com/sign_up），
  * route 拦截 fp.min.js → 注入带 priId 泄露补丁的本地同版本 SDK，
  * 真实环境采集上报后：
  *   - 抓上报 body + __leak.priId + 响应 deviceId
@@ -71,7 +71,7 @@ function resolvePlaywright() {
         });
 
         log('打开 sign_in …');
-        try { await page.goto('https://chat.deepseek.com/sign_in', { waitUntil: 'domcontentloaded' }); }
+        try { await page.goto('https://platform.deepseek.com/sign_up', { waitUntil: 'domcontentloaded' }); }
         catch (e) { log('goto:', e.message.split('\n')[0]); }
 
         const t0 = Date.now();

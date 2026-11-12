@@ -17,7 +17,7 @@ async function sendViaChromium(captured, reqHeaders, o, log) {
         });
         const page = await context.newPage();
         page.setDefaultTimeout(60000);
-        try { await page.goto('https://chat.deepseek.com/sign_in', { waitUntil: 'domcontentloaded' }); } catch (e) { log('goto:', e.message.split('\n')[0]); }
+        try { await page.goto('https://platform.deepseek.com/sign_up', { waitUntil: 'domcontentloaded' }); } catch (e) { log('goto:', e.message.split('\n')[0]); }
         const result = await page.evaluate(async ({ url, body }) => {
             try {
                 const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json;charset=UTF-8' }, body });
@@ -42,7 +42,7 @@ async function runViaBrowser(o, log, finish) {
         await context.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); window.chrome = window.chrome || { runtime: {} }; });
         const page = await context.newPage();
         page.setDefaultTimeout(Math.max(10000, o.timeout * 1000));
-        try { await page.goto('https://chat.deepseek.com/sign_in', { waitUntil: 'domcontentloaded' }); } catch (e) { log('goto:', e.message.split('\n')[0]); }
+        try { await page.goto('https://platform.deepseek.com/sign_up', { waitUntil: 'domcontentloaded' }); } catch (e) { log('goto:', e.message.split('\n')[0]); }
         await page.waitForFunction('typeof SMSdk !== "undefined"', null, { timeout: Math.max(5000, o.timeout * 1000), polling: 1000 });
         await page.waitForFunction(() => { if (typeof SMSdk === 'undefined' || typeof SMSdk.getDeviceId !== 'function') return false; const id = SMSdk.getDeviceId(); return typeof id === 'string' && id.trim().length > 0; }, null, { timeout: Math.max(5000, o.timeout * 1000), polling: 1000 });
         const deviceId = String(await page.evaluate('SMSdk.getDeviceId()')).trim();

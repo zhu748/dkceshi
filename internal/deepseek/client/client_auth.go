@@ -15,32 +15,72 @@ import (
 	dsprotocol "ds2api/internal/deepseek/protocol"
 )
 
+// realRiskRotationLimit bounds how many times one Login call may regenerate
+// an SDK device id after RISK_DEVICE_DETECTED. Each rotation costs a full
+// collection round (10~25s plus the report), so the budget stays small; the
+// store retains the last generated id either way, and repeatedly flagged
+// fresh ids usually mean the egress or the account is the problem, not the id.
+const realRiskRotationLimit = 2
+
 func (c *Client) Login(ctx context.Context, acc config.Account) (string, error) {
-	if c.Store != nil {
-		if profile, ok := c.Store.EnsureAccountDeviceProfile(acc.Identifier()); ok {
-			acc.DeviceID = profile.DeviceID
-			acc.DeviceIDType = profile.DeviceIDType
-			acc.InstallationID = profile.InstallationID
-			acc.AndroidID = profile.AndroidID
-			acc.DeviceBrand = profile.DeviceBrand
-			acc.Timezone = profile.Timezone
-			acc.HIFDliq, acc.HIFDliqExpiresAt = profile.HIFDliq, profile.HIFDliqExpiresAt
-			acc.HIFLeim, acc.HIFLeimExpiresAt = profile.HIFLeim, profile.HIFLeimExpiresAt
-			acc.DeviceModel = profile.DeviceModel
-			acc.AndroidAPILevel = profile.AndroidAPILevel
-			if acc.RangersID == "" {
-				acc.RangersID = profile.RangersID
-			}
-			if acc.Locale == "" {
-				acc.Locale = profile.Locale
-			}
+	acc = c.loadAccountDeviceProfile(acc)
+	rotations := 0
+	for {
+		var err error
+		acc, err = c.ensureRiskDeviceID(ctx, acc)
+		if err != nil {
+			return "", err
+		}
+		token, err := c.loginOnce(ctx, acc)
+		if err == nil {
+			return token, nil
+		}
+		// SDK 签发的 id 被风控拒绝时自动换一台“新设备”重试：没有这条路径，
+		// 一个被降权的 device_id 会永久不可用，只能人工重建档案。
+		if !c.shouldRegenerateLoginDeviceID(acc, err) || rotations >= realRiskRotationLimit {
+			return "", err
+		}
+		rotations++
+		config.Logger.Warn("[device_id] regenerating real device id after RISK_DEVICE_DETECTED",
+			"account", acc.Identifier(), "rotation", rotations)
+		if _, rotErr := c.RefreshRealDeviceID(ctx, acc.Identifier(), true); rotErr != nil {
+			// 档案没删掉就会算出同一个 id，重试没有意义：如实上报风控报错。
+			config.Logger.Error("[device_id] real device id rotation failed",
+				"account", acc.Identifier(), "error", rotErr)
+			return "", err
+		}
+		acc = c.loadAccountDeviceProfile(acc)
+	}
+}
+
+// loadAccountDeviceProfile 把账号在存储里的设备档案同步到本次登录用的账号副本。
+func (c *Client) loadAccountDeviceProfile(acc config.Account) config.Account {
+	if c.Store == nil {
+		return acc
+	}
+	if profile, ok := c.Store.EnsureAccountDeviceProfile(acc.Identifier()); ok {
+		acc.DeviceID = profile.DeviceID
+		acc.DeviceIDType = profile.DeviceIDType
+		acc.InstallationID = profile.InstallationID
+		acc.AndroidID = profile.AndroidID
+		acc.DeviceBrand = profile.DeviceBrand
+		acc.Timezone = profile.Timezone
+		acc.HIFDliq, acc.HIFDliqExpiresAt = profile.HIFDliq, profile.HIFDliqExpiresAt
+		acc.HIFLeim, acc.HIFLeimExpiresAt = profile.HIFLeim, profile.HIFLeimExpiresAt
+		acc.DeviceModel = profile.DeviceModel
+		acc.AndroidAPILevel = profile.AndroidAPILevel
+		if acc.RangersID == "" {
+			acc.RangersID = profile.RangersID
+		}
+		if acc.Locale == "" {
+			acc.Locale = profile.Locale
 		}
 	}
-	var err error
-	acc, err = c.ensureRiskDeviceID(ctx, acc)
-	if err != nil {
-		return "", err
-	}
+	return acc
+}
+
+// loginOnce 用账号当前携带的 device_id 执行一次登录。
+func (c *Client) loginOnce(ctx context.Context, acc config.Account) (string, error) {
 	clients := c.requestClientsForAccount(acc)
 	payload := map[string]any{
 		"password":  strings.TrimSpace(acc.Password),

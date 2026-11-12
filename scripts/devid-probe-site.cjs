@@ -2,7 +2,7 @@
 /*
  * devid-probe-site.cjs — 一次性站点配置抓取（此后运行时不再需要浏览器）。
  *
- * 用真实 Chromium 打开 chat.deepseek.com/sign_in，抓三样东西：
+ * 用真实 Chromium 打开 DeepSeek 新前端登录页（platform.deepseek.com/sign_up），抓三样东西：
  *   1. window._smConf（数美 SDK 初始化参数：appId/organization/publicKey/apiHost/apiPath）
  *   2. fp-it-acc.portal101.cn/deviceprofile/v4 上报的真实请求体与响应（协议样本）
  *   3. localStorage 里的 smidV2 等键（档案复用参考）
@@ -71,7 +71,7 @@ async function main() {
     });
 
     log('打开 sign_in …');
-    try { await page.goto('https://chat.deepseek.com/sign_in', { waitUntil: 'domcontentloaded' }); }
+    try { await page.goto('https://platform.deepseek.com/sign_up', { waitUntil: 'domcontentloaded' }); }
     catch (e) { log('goto:', e.message.split('\n')[0]); }
 
     log('等待 SMSdk …');

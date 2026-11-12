@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"ds2api/internal/config"
+	trans "ds2api/internal/deepseek/transport"
 )
 
 // defaultTimeout 是单次指纹生成的总超时。正常路径 10~25 秒（WAF 挑战 + SDK
@@ -36,6 +37,11 @@ type Options struct {
 	// Reporter routes captured SDK traffic through the account's own network
 	// policy. Nil retains the standalone script's normal network path.
 	Reporter Reporter
+	// ChromeMajor 是浏览器环境应声称的 Chrome 主版本。留空时取
+	// trans.SDKReportChromeMajor()（httpcloak 预设代）；调用方（deviceReporter）
+	// 会按本次提交实际拨号的 ClientHello 传入对应代—— legacy 代理路径传
+	// trans.LegacySDKReportChromeMajor()，绝不让 UA 与握手在同一请求里错开。
+	ChromeMajor string
 	// Script 是生成脚本路径。空串时按 LocateScript() 解析。
 	Script string
 	// Node 是 node 可执行文件。空串时使用 PATH 上的 node。
@@ -122,6 +128,24 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 
 	cmd := exec.CommandContext(runCtx, node, args...)
 	cmd.Env = append(os.Environ(), "DS2API_DEVID_DIR="+config.DevidDir())
+	// 版本号的唯一定义在传输层：SDK 上报用哪个 ClientHello 拨号，浏览器
+	// 环境声称的 Chrome 主版本就必须与它同源，否则“UA 说一个版本、TLS 握手是
+	// 另一个版本”的矛盾会留在同一个请求里。ChromeMajor 由 deviceReporter
+	// 按实际选中的传输传入（httpcloak 代或 legacy 代），留空时默认 httpcloak 代。
+	major := strings.TrimSpace(opts.ChromeMajor)
+	if major == "" {
+		major = trans.SDKReportChromeMajor()
+	}
+	if major != "" {
+		cmd.Env = append(cmd.Env, "DS2API_DEVID_CHROME_MAJOR="+major)
+	}
+	// sec-ch-ua 的 GREASE 元组（品牌顺序、占位品牌名）每个大版本都变，只有
+	// 与声称主版本同源的抓包元组才作数；非该代时不传，让扩展包按主版本自建。
+	if major == trans.SDKReportChromeMajor() {
+		if sec := trans.SDKReportSecChUa(); sec != "" {
+			cmd.Env = append(cmd.Env, "DS2API_DEVID_SEC_CH_UA="+sec)
+		}
+	}
 	cmd.Env = append(cmd.Env, opts.ExtraEnv...)
 	// stdout 只承载结果 JSON；stderr 的过程日志转发到服务日志。
 	var stdout, stderr strings.Builder

@@ -21,7 +21,14 @@ const { ANDROID_FONTS } = require('./devid-android-profile.cjs');
 const DEVID_DIR = path.resolve(String(process.env.DS2API_DEVID_DIR || '').trim() || path.join(__dirname, '..', 'data', 'devid'));
 const FINISH_T0 = Date.now();
 
-/* 数美站点配置（2026-10 探针自 chat.deepseek.com 实抓，与扩展包 public_key 一致） */
+/* 数美站点配置（2026-10 探针自 DeepSeek 新前端实抓，与扩展包 public_key 一致）。
+ * 站点身份跟随 DeepSeek 新前端迁移：SDK 上报的 Origin/Referer/host 从
+ * chat.deepseek.com 迁到 platform.deepseek.com（旧站身份在新前端的交叉校验里
+ * 已被拒：上游按 _smConf 所在页面验签发身份）。主路径（capture 模式）的版本
+ * 声明由 Go 侧传入（DS2API_DEVID_CHROME_MAJOR / DS2API_DEVID_SEC_CH_UA，
+ * 与 httpcloak chrome-150-android 预设同源）；两者都缺席的独立运行保持
+ * 扩展包自身的抓包默认（153 代）——绝不各自落一个不同的版本。
+ * API 端点（登录/completion）仍在 chat.deepseek.com，与此无关。 */
 const SM_CONF = {
     appId: 'default',
     organization: 'P9usCUBauxft8eAmUXaZ',
@@ -29,12 +36,12 @@ const SM_CONF = {
     apiPath: '/deviceprofile/v4',
     protocol: 'https',
     publicKeyFile: path.join(DEVID_DIR, 'public_key'),
-    /* 上报身份：对齐 chat.deepseek.com（要登录的站点） */
+    /* 上报身份：对齐新前端 platform.deepseek.com（SDK 所在页面） */
     siteOverride: {
-        site: 'chat.deepseek.com',
-        origin: 'https://chat.deepseek.com',
-        pageUrl: 'https://chat.deepseek.com/sign_in',
-        pageReferrer: 'https://chat.deepseek.com/',
+        site: 'platform.deepseek.com',
+        origin: 'https://platform.deepseek.com',
+        pageUrl: 'https://platform.deepseek.com/sign_up',
+        pageReferrer: 'https://platform.deepseek.com/',
     },
 };
 
@@ -107,6 +114,8 @@ async function mainVm(o) {
         var __START = ${Date.now() - 2500 - Math.floor(Math.random() * 2000)};
         var __TZ_OFFSET = ${Number(profile.tzOffset)};
         var __SELFTEST = ${o.selftest ? 'true' : 'false'};
+        var __chromeMajor = ${JSON.stringify(String(process.env.DS2API_DEVID_CHROME_MAJOR || '').trim())};
+        var __secChUaOverride = ${JSON.stringify(String(process.env.DS2API_DEVID_SEC_CH_UA || '').trim())};
         var __siteOverride = ${JSON.stringify(SM_CONF.siteOverride)};
         var __smAppId = ${JSON.stringify(SM_CONF.appId)};
         var __smOrg = ${JSON.stringify(SM_CONF.organization)};

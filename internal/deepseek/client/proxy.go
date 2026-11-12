@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -225,4 +228,62 @@ func (d failedProxyDoer) Do(*http.Request) (*http.Response, error) { return nil,
 func failedProxyClients(err error) requestClients {
 	d := failedProxyDoer{err}
 	return requestClients{regular: d, stream: d, fallback: d, fallbackS: d}
+}
+
+// httpCloakProxyURL renders an account proxy as the URL httpcloak's TCP proxy
+// option accepts. httpcloak only dials http/https/socks5 egress, so socks4 /
+// socks4a / sstp / turn / turns report false and their accounts keep the
+// legacy uTLS SDK report transport through proxydial (a generation behind on
+// the fingerprint, but never a broken or Go-stdlib handshake).
+//
+// socks5h maps onto socks5: both hand the hostname to the proxy for remote
+// resolution, which is also what a browser configured with the proxy would do.
+func httpCloakProxyURL(p config.Proxy) (string, bool) {
+	p = config.NormalizeProxy(p)
+	scheme := strings.ToLower(strings.TrimSpace(p.Type))
+	switch scheme {
+	case "socks5h":
+		scheme = "socks5"
+	case "http", "https", "socks5":
+	default:
+		return "", false
+	}
+	if strings.TrimSpace(p.Host) == "" || p.Port <= 0 {
+		return "", false
+	}
+	u := &url.URL{
+		Scheme: scheme,
+		Host:   net.JoinHostPort(strings.TrimSpace(p.Host), strconv.Itoa(p.Port)),
+	}
+	if strings.TrimSpace(p.Username) != "" {
+		u.User = url.UserPassword(p.Username, p.Password)
+	}
+	return u.String(), true
+}
+
+// cloakEnvProxy reports the environment proxy relevant to the SDK report path.
+// present distinguishes "no env proxy configured" (caller may dial direct)
+// from "a proxy is configured but httpcloak cannot dial its scheme" (caller
+// must keep the env-aware legacy transport so the deployment keeps working).
+//
+// https_proxy/HTTPS_PROXY match the standard library's precedence; ALL_PROXY
+// (curl convention) is honored as a secondary source.
+func cloakEnvProxy() (proxyURL string, compatible bool, present bool) {
+	for _, name := range []string{"HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"} {
+		raw := strings.TrimSpace(os.Getenv(name))
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil {
+			return "", false, true
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https", "socks5":
+			return u.String(), true, true
+		default:
+			return "", false, true
+		}
+	}
+	return "", false, false
 }

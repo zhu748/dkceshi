@@ -68,12 +68,14 @@ func (c *Client) RefreshRealDeviceID(ctx context.Context, identifier string, res
 	if generator == nil {
 		generator = devid.Generate
 	}
-	reporter, closeReporter, err := c.deviceReporter(acc)
+	report, err := c.deviceReporter(acc)
 	if err != nil {
 		return "", err
 	}
-	defer closeReporter()
-	deviceID, err := generator(genCtx, devid.Options{ProfilePath: update.Path, AnchorPath: anchorPath, Reporter: reporter})
+	defer report.release()
+	// ChromeMajor 跟随本次上报实际选中的传输（httpcloak 代或 legacy 代），
+	// 保证浏览器环境声称的版本与提交路径的 ClientHello 同源。
+	deviceID, err := generator(genCtx, devid.Options{ProfilePath: update.Path, AnchorPath: anchorPath, Reporter: report.report, ChromeMajor: report.chromeMajor})
 	if err != nil {
 		return "", err
 	}

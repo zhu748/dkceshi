@@ -80,7 +80,7 @@ async function runVm() {
         var __START = ${Date.now() - 3000};
         var __TZ_OFFSET = ${Number(profile.tzOffset)};
         var __SELFTEST = false;
-        var __siteOverride = {"site":"chat.deepseek.com","origin":"https://chat.deepseek.com","pageUrl":"https://chat.deepseek.com/sign_in","pageReferrer":"https://chat.deepseek.com/"};
+        var __siteOverride = {"site":"platform.deepseek.com","origin":"https://platform.deepseek.com","pageUrl":"https://platform.deepseek.com/sign_up","pageReferrer":"https://platform.deepseek.com/"};
         var __smAppId='default'; var __smOrg='P9usCUBauxft8eAmUXaZ';
         var __smPubKey=${JSON.stringify(fs.readFileSync(path.join(DEVID_DIR, 'public_key'), 'utf8').trim())};
         var __smProtocol='https'; var __smApiHost='fp-it-acc.portal101.cn'; var __smApiPath='/deviceprofile/v4';
@@ -114,7 +114,7 @@ async function runReal() {
             locale: 'zh-CN', timezoneId: 'Asia/Shanghai',
         });
         const page = await ctx2.newPage();
-        try { await page.goto('https://chat.deepseek.com/sign_in', { waitUntil: 'domcontentloaded' }); } catch (e) { log('goto:', e.message.split('\n')[0]); }
+        try { await page.goto('https://platform.deepseek.com/sign_up', { waitUntil: 'domcontentloaded' }); } catch (e) { log('goto:', e.message.split('\n')[0]); }
         return await page.evaluate(PROBE);
     } finally { await browser.close().catch(() => {}); }
 }

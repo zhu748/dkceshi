@@ -12,6 +12,7 @@ require (
 	github.com/refraction-networking/utls v1.8.2
 	github.com/router-for-me/CLIProxyAPI/v6 v6.9.14
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	github.com/sardanioss/httpcloak v1.6.8
 	golang.org/x/image v0.24.0
 )
 
@@ -19,11 +20,22 @@ require (
 	github.com/bogdanfinn/utls v1.7.7-barnius // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
+	github.com/kr/text v0.2.0 // indirect
+	github.com/miekg/dns v1.1.69 // indirect
+	github.com/sardanioss/http v1.2.0 // indirect
+	github.com/sardanioss/net v1.2.6 // indirect
+	github.com/sardanioss/qpack v0.6.3 // indirect
+	github.com/sardanioss/quic-go v1.2.25 // indirect
+	github.com/sardanioss/udpbara v1.1.0 // indirect
+	github.com/sardanioss/utls v1.10.3 // indirect
+	golang.org/x/mod v0.33.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/tools v0.42.0 // indirect
 )
 
 require (
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.5
 	github.com/pion/opus v0.1.0
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect

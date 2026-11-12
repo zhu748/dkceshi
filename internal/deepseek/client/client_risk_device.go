@@ -10,6 +10,33 @@ import (
 	"ds2api/internal/devid"
 )
 
+// isRiskDeviceDetected reports whether a login failure carries the upstream
+// risk-control verdict for the submitted device id.
+func isRiskDeviceDetected(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToUpper(err.Error()), "RISK_DEVICE_DETECTED")
+}
+
+// shouldRegenerateLoginDeviceID reports whether a login rejection should
+// trigger regenerating the SDK device id. Only ids this deployment actually
+// generated (device_id_type=auto under the auto mode) can be rotated: manual
+// pool ids have no archive to drop, and a stored id this deployment never
+// generated has nothing to rebuild either.
+func (c *Client) shouldRegenerateLoginDeviceID(acc config.Account, err error) bool {
+	if !isRiskDeviceDetected(err) {
+		return false
+	}
+	if c.Store == nil {
+		return false
+	}
+	if c.Store.RuntimeDeviceIDMode() != config.DeviceIDTypeAuto {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(acc.DeviceIDType), config.DeviceIDTypeAuto)
+}
+
 // Keep the SDK-generated login ID independent from the Android installation ID.
 // An old untyped 44-character local profile is not an SDK result.
 func (c *Client) ensureRiskDeviceID(ctx context.Context, acc config.Account) (config.Account, error) {
