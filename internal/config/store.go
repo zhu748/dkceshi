@@ -164,7 +164,7 @@ func bootstrapConfigFromExample(path string) bool {
 		}
 		return false
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	if err := os.WriteFile(path, content, 0o600); err != nil {
 		Logger.Warn("[config] copy config.example.json -> config.json failed", "path", path, "error", err)
 		return false
 	}
@@ -238,37 +238,6 @@ func (s *Store) UpdateAccountToken(identifier, token string) error {
 	if newID != "" {
 		s.accMap[newID] = idx
 	}
-	return s.saveLocked()
-}
-
-func (s *Store) Replace(cfg Config) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cfg.NormalizeCredentials()
-	InvalidateChangedDeviceIDs(s.cfg, &cfg)
-	s.reconcileDeviceVersions(s.cfg, cfg)
-	s.cfg = cfg.Clone()
-	s.rebuildIndexes()
-	s.cfgDirty = true
-	s.mihomoDirty = true
-	return s.saveLocked()
-}
-
-func (s *Store) Update(mutator func(*Config) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	base := s.cfg.Clone()
-	cfg := base.Clone()
-	if err := mutator(&cfg); err != nil {
-		return err
-	}
-	cfg.ReconcileCredentials(base)
-	cfg.NormalizeCredentials()
-	InvalidateChangedDeviceIDs(base, &cfg)
-	s.reconcileDeviceVersions(base, cfg)
-	s.cfg = cfg
-	s.rebuildIndexes()
-	s.markDirty(base, cfg)
 	return s.saveLocked()
 }
 

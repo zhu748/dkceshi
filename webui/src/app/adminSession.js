@@ -20,7 +20,14 @@ export function readStoredAdminSession(local = browserStorage('localStorage'), s
     return null
 }
 
+export function clearStoredConfigDraft(local = browserStorage('localStorage'), session = browserStorage('sessionStorage')) {
+    for (const storage of [local, session]) {
+        try { storage?.removeItem('ds2api_env_config_draft_v1') } catch { /* Storage can be unavailable. */ }
+    }
+}
+
 export function clearStoredAdminSession(local = browserStorage('localStorage'), session = browserStorage('sessionStorage')) {
+    clearStoredConfigDraft(local, session)
     for (const storage of [local, session]) {
         for (const key of [TOKEN_KEY, EXPIRY_KEY]) {
             try { storage?.removeItem(key) } catch { /* In-memory logout must still work. */ }

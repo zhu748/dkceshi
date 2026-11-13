@@ -8,6 +8,7 @@ import (
 )
 
 type Handler struct {
+	logins      loginLimiter
 	Store       adminshared.ConfigStore
 	Pool        adminshared.PoolController
 	DS          adminshared.DeepSeekCaller

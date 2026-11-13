@@ -1533,3 +1533,8 @@ Binding requires an explicit `proxy_id` (empty string means direct) or `mode: "a
 `mihomo-` IDs are reserved: manual create rejects them (400), and manual update/delete of bridge-managed proxies returns 409.
 A saved proxy test accepts only `proxy_id`; mixing temporary override fields is rejected.
 Full config imports refresh proxy client pools when proxy settings change.
+
+
+### Credential lifecycle and request limits
+
+Managed API keys and direct tokens use separate Responses cache domains. A deleted managed key cannot retrieve or continue its stored responses (404). Admin login has a 16 KiB body limit and per-IP attempt budget (burst 10, one refill every 30 seconds); throttling returns 429 with Retry-After. New passwords require at least 8 Unicode characters and use salted bcrypt-SHA256; legacy hashes remain readable. Config export sanitizes all three representations consistently. POST /api/show has a 64 KiB body limit regardless of Content-Type. See [runtime guide](docs/security-and-runtime.md) for local Vercel stream control and instance boundaries.

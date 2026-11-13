@@ -27,7 +27,9 @@ const {
   setCorsHeaders,
   readRawBody,
   asString,
+  setInternalGoOrigin,
 } = require('./http_internal');
+const { localControlOrigin } = require('./local_control');
 const {
   proxyToGo,
 } = require('./proxy_go');
@@ -85,6 +87,13 @@ async function handler(req, res) {
     return;
   }
 
+  try {
+    setInternalGoOrigin(req, await localControlOrigin());
+  } catch (error) {
+    console.error('[vercel_stream] local control unavailable', error.message);
+    writeOpenAIError(res, 503, 'stream control runtime is unavailable');
+    return;
+  }
   await handleVercelStream(req, res, rawBody, payload);
 }
 

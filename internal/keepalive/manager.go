@@ -3,6 +3,7 @@ package keepalive
 import (
 	"context"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -34,9 +35,9 @@ func ParseIntervalRange(s string) (minDur, maxDur time.Duration) {
 	defaultMax := 4 * time.Hour
 
 	raw := strings.TrimSpace(strings.ToLower(s))
-	raw = strings.TrimSuffix(raw, "h")
 	raw = strings.TrimSuffix(raw, "hours")
 	raw = strings.TrimSuffix(raw, "hour")
+	raw = strings.TrimSuffix(raw, "h")
 	raw = strings.TrimSpace(raw)
 
 	if raw == "" {
@@ -51,23 +52,19 @@ func ParseIntervalRange(s string) (minDur, maxDur time.Duration) {
 		maxStr := strings.TrimSpace(parts[1])
 		minVal, err1 := strconv.ParseFloat(minStr, 64)
 		maxVal, err2 := strconv.ParseFloat(maxStr, 64)
-		if err1 != nil || err2 != nil || minVal <= 0 || maxVal <= 0 {
+		if err1 != nil || err2 != nil || math.IsNaN(minVal) || math.IsNaN(maxVal) || math.IsInf(minVal, 0) || math.IsInf(maxVal, 0) || minVal <= 0 || maxVal <= 0 {
 			return defaultMin, defaultMax
 		}
 		if minVal > maxVal {
 			minVal, maxVal = maxVal, minVal
 		}
-		if minVal < minHours {
-			minVal = minHours
-		}
-		if maxVal > maxHours {
-			maxVal = maxHours
-		}
+		minVal = min(max(minVal, minHours), maxHours)
+		maxVal = min(max(maxVal, minHours), maxHours)
 		return time.Duration(minVal * float64(time.Hour)), time.Duration(maxVal * float64(time.Hour))
 	}
 
 	val, err := strconv.ParseFloat(raw, 64)
-	if err != nil || val <= 0 {
+	if err != nil || math.IsNaN(val) || math.IsInf(val, 0) || val <= 0 {
 		return defaultMin, defaultMax
 	}
 	if val < minHours {

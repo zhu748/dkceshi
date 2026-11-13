@@ -77,6 +77,14 @@ func validationSizeLimit(r *http.Request) int64 {
 	if r == nil || r.URL == nil {
 		return maxJSONUTF8ValidationSize
 	}
+	switch strings.TrimSpace(r.URL.Path) {
+	case "/admin/login":
+		return 16 << 10
+	case "/api/show":
+		return 64 << 10
+	case "/v1/audio/speech", "/audio/speech":
+		return 1 << 20
+	}
 	if strings.HasPrefix(strings.TrimSpace(r.URL.Path), "/admin/") {
 		return maxAdminJSONUTF8ValidationSize
 	}

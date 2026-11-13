@@ -352,9 +352,9 @@ api/index.go  api/chat-stream.js
 
 1. `api/chat-stream.js` 收到 `/v1/chat/completions` 请求
 2. Node 调用 Go 内部 prepare 接口（`?__stream_prepare=1`），获取会话 ID、PoW、token 等
-3. Go prepare 创建 stream lease，锁定账号
+3. Node 启动或复用同一实例内的 Go 控制进程，通过回环地址 prepare 创建 stream lease，锁定账号
 4. Node 直连 DeepSeek 上游，实时流式转发 SSE 给客户端（含 OpenAI chunk 封装与 tools 防泄漏筛分）
-5. 流结束后 Node 调用 Go release 接口（`?__stream_release=1`），释放账号
+5. 流结束后 Node 调用同一控制进程的 release 接口（`?__stream_release=1`），释放账号
 
 > 该适配**仅在 Vercel 环境生效**；本地与 Docker 仍走纯 Go 链路。
 
@@ -657,3 +657,8 @@ go run ./cmd/ds2api-tests \
 - ✅ 全量请求与响应日志落盘（用于故障复盘）
 
 详细测试集说明参阅 [TESTING.md](TESTING.md)。PR 前的固定本地门禁以 [TESTING.md](TESTING.md#pr-门禁--pr-gates) 为准。
+
+
+### 运行时安全与实例状态
+
+本地 Go 控制进程的打包、生命周期、多实例边界及登录限流说明见 [安全与运行时约定](security-and-runtime.md)。构建需要额外生成 `internal/runtime/vercel-control`，请保留 `vercel.json` 中的构建命令与 `includeFiles`。

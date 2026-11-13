@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -39,7 +40,11 @@ func main() {
 		if genErr != nil {
 			config.Logger.Warn("failed to generate initial admin password", "error", genErr)
 		} else if updErr := app.Store.Update(func(c *config.Config) error {
-			c.Admin.PasswordHash = auth.HashAdminPassword(pwd)
+			hash := auth.HashAdminPassword(pwd)
+			if hash == "" {
+				return errors.New("password hashing failed")
+			}
+			c.Admin.PasswordHash = hash
 			return nil
 		}); updErr != nil {
 			config.Logger.Warn("failed to persist initial admin password", "error", updErr)
@@ -56,6 +61,7 @@ func main() {
 		Addr:              "0.0.0.0:" + port,
 		Handler:           app.Router,
 		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       90 * time.Second,
 	}
 	localURL := fmt.Sprintf("http://127.0.0.1:%s", port)
 	lanIP := detectLANIPv4()

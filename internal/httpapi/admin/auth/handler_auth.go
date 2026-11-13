@@ -1,9 +1,12 @@
 package auth
 
 import (
+	"ds2api/internal/httpapi/clientaddr"
+	"ds2api/internal/httpapi/requestbody"
 	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,7 +15,20 @@ import (
 
 func (h *Handler) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := authn.VerifyAdminRequestWithStore(r, h.Store); err != nil {
+		header := strings.TrimSpace(r.Header.Get("Authorization"))
+		signed := false
+		if strings.HasPrefix(strings.ToLower(header), "bearer ") {
+			_, err := authn.VerifyJWTWithStore(strings.TrimSpace(header[7:]), h.Store)
+			signed = err == nil
+		}
+		var authErr error
+		if !signed {
+			if header != "" && !h.allowPasswordAttempt(w, r) {
+				return
+			}
+			authErr = authn.VerifyAdminRequestWithStore(r, h.Store)
+		}
+		if err := authErr; err != nil {
 			if h.WebUIFallback != nil && shouldServeSPAForBrowserNavigation(r) {
 				if h.WebUIFallback(w, r) {
 					return
@@ -20,6 +36,9 @@ func (h *Handler) requireAdmin(next http.Handler) http.Handler {
 			}
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"detail": err.Error()})
 			return
+		}
+		if !signed && header != "" {
+			h.logins.reset(clientaddr.IP(r))
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -46,8 +65,19 @@ func shouldServeSPAForBrowserNavigation(r *http.Request) bool {
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	if !h.allowPasswordAttempt(w, r) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	var req map[string]any
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		status := http.StatusBadRequest
+		if requestbody.IsTooLarge(err) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeJSON(w, status, map[string]any{"detail": "invalid login request"})
+		return
+	}
 	adminKey, _ := req["admin_key"].(string)
 	expireHours := intFrom(req["expire_hours"])
 	if !authn.VerifyAdminCredential(adminKey, h.Store) {
@@ -61,6 +91,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	if expireHours > maxExpireHours {
 		expireHours = maxExpireHours
 	}
+	h.logins.reset(clientaddr.IP(r))
 	token, err := authn.CreateJWTWithStore(expireHours, h.Store)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
@@ -123,4 +154,13 @@ func firstConfiguredValue(values ...[2]string) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+func (h *Handler) allowPasswordAttempt(w http.ResponseWriter, r *http.Request) bool {
+	if ok, retry := h.logins.allow(clientaddr.IP(r), time.Now()); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(retry))
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"detail": "Too many login attempts; retry later"})
+		return false
+	}
+	return true
 }

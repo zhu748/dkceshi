@@ -119,3 +119,52 @@ test('account polling replaces its request source and ignores late old responses
  }finally{act(()=>renderer.unmount())}
  assert.equal(intervals.size,0)
 })
+
+
+test('temporary admin config stays in memory and erases legacy stored keys',async t=>{
+ const {useAdminConfig}=await server.ssrLoadModule('/src/app/useAdminConfig.js')
+ const items=new Map([['ds2api_env_config_draft_v1','{"keys":["old-secret"]}']])
+ const previous=global.localStorage
+ global.localStorage={getItem:k=>items.get(k)??null,setItem:(k,v)=>items.set(k,v),removeItem:k=>items.delete(k)}
+ t.mock.method(global,'fetch',async()=>({ok:true,json:async()=>({env_backed:true,keys:['current-key']})}))
+ let current,renderer
+ function Harness(){current=useAdminConfig({token:'session-token',showMessage:noop,t:translate});return null}
+ try{
+  await act(async()=>{renderer=create(React.createElement(Harness))})
+  assert.deepEqual(current.config.keys,['current-key'])
+  assert.equal(items.has('ds2api_env_config_draft_v1'),false)
+ }finally{act(()=>renderer?.unmount());if(previous===undefined)delete global.localStorage;else global.localStorage=previous}
+})
+
+test('TTS unmount aborts synthesis and discards late audio without creating a blob URL',async t=>{
+ const {default:TtsTester}=await server.ssrLoadModule('/src/features/tts/TtsTesterContainer.jsx')
+ const synthesis=deferred();let signal,renderer,operation,blobReads=0
+ t.mock.method(global,'fetch',(_url,options)=>{signal=options.signal;return synthesis.promise})
+ const authFetch=async()=>({ok:true,json:async()=>({tts:{enabled:true}})})
+ try{
+  await act(async()=>{renderer=create(React.createElement(TtsTester,{config:{keys:['test-key']},authFetch}))})
+  act(()=>renderer.root.findByType('textarea').props.onChange({target:{value:'test synthesis'}}))
+  act(()=>{operation=renderer.root.findByType('button').props.onClick()})
+  act(()=>renderer.unmount())
+  assert.equal(signal.aborted,true)
+  await act(async()=>{synthesis.resolve({ok:true,blob:async()=>{blobReads++;return new Blob(['audio'])}});await operation})
+  assert.equal(blobReads,0)
+ }finally{if(renderer)act(()=>renderer.unmount())}
+})
+
+test('late password updates cannot log out a replacement session',async()=>{
+ const pending=deferred(),messages=[];let current,renderer,operation,signal,logouts=0
+ const apiFetch=async(url,options)=>{
+  if(url.endsWith('/password')){signal=options.signal;return pending.promise}
+  return settingsResponse()
+ }
+ function Harness(){current=useSettingsForm({apiFetch,t:translate,onMessage:(...args)=>messages.push(args),onForceLogout:()=>{logouts++}});return null}
+ await act(async()=>{renderer=create(React.createElement(Harness))})
+ act(()=>current.setNewPassword('new-password'))
+ act(()=>{operation=current.updatePassword()})
+ act(()=>renderer.unmount())
+ assert.equal(signal.aborted,true)
+ await act(async()=>{pending.resolve(settingsResponse());await operation})
+ assert.equal(logouts,0)
+ assert.deepEqual(messages,[])
+})

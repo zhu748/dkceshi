@@ -109,6 +109,8 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
     useEffect(() => {
         paused.current = false
         setSaving(false)
+        setChangingPassword(false)
+        setImporting(false)
         loadSettings()
         return () => { reads.cancel(); writes.cancel() }
     }, [loadSettings, reads, writes])
@@ -144,6 +146,7 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
                 onMessage('error', data.detail || t('settings.saveFailed'))
                 return
             }
+            setExportData(null)
             currentUI.current.onMessage('success', currentUI.current.t('settings.saveSuccess'))
             currentUI.current.onRefresh?.()
             await loadSettings()
@@ -159,13 +162,16 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
     }, [apiFetch, form, loadSettings, onMessage, reads, sectionSpecs, settingSpecs, t, writes])
 
     const updatePassword = useCallback(async () => {
-        if (String(newPassword || '').trim().length < 4) {
+        if (Array.from(String(newPassword || '').trim()).length < 8) {
             onMessage('error', t('settings.passwordTooShort'))
             return
         }
+        if (writes.has('password')) return
+        const request = writes.start('password')
         setChangingPassword(true)
         try {
-            const { res, data } = await postPassword(apiFetch, newPassword.trim())
+            const { res, data } = await postPassword(apiFetch, newPassword.trim(), request.signal)
+            if (!request.isCurrent()) return
             if (!res.ok) {
                 onMessage('error', data.detail || t('settings.passwordUpdateFailed'))
                 return
@@ -176,15 +182,20 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
                 onForceLogout()
             }
         } catch (_e) {
+            if (!request.isCurrent()) return
             onMessage('error', t('settings.passwordUpdateFailed'))
         } finally {
-            setChangingPassword(false)
+            if (request.isCurrent()) setChangingPassword(false)
+            request.finish()
         }
-    }, [apiFetch, newPassword, onForceLogout, onMessage, t])
+    }, [apiFetch, newPassword, onForceLogout, onMessage, t, writes])
 
     const loadExportData = useCallback(async () => {
+        if (writes.has('export')) return null
+        const request = writes.start('export')
         try {
-            const { res, data } = await getExportData(apiFetch)
+            const { res, data } = await getExportData(apiFetch, request.signal)
+            if (!request.isCurrent()) return null
             if (!res.ok) {
                 onMessage('error', data.detail || t('settings.exportFailed'))
                 return null
@@ -193,10 +204,11 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
             onMessage('success', t('settings.exportLoaded'))
             return data
         } catch (_e) {
+            if (!request.isCurrent()) return null
             onMessage('error', t('settings.exportFailed'))
             return null
-        }
-    }, [apiFetch, onMessage, t])
+        } finally { request.finish() }
+    }, [apiFetch, onMessage, t, writes])
 
     const downloadExportFile = useCallback(async () => {
         let latest = exportData
@@ -253,24 +265,30 @@ export function useSettingsForm({ apiFetch, t, onMessage, onRefresh, onForceLogo
             onMessage('error', t('settings.importInvalidJson'))
             return
         }
+        if (writes.has('import')) return
+        const request = writes.start('import')
         setImporting(true)
         try {
-            const { res, data } = await postImportData(apiFetch, importMode, parsed)
+            const { res, data } = await postImportData(apiFetch, importMode, parsed, request.signal)
+            if (!request.isCurrent()) return
             if (!res.ok) {
                 onMessage('error', data.detail || t('settings.importFailed'))
                 return
             }
+            setExportData(null)
             onMessage('success', t('settings.importSuccess', { mode: importMode }))
             if (typeof onRefresh === 'function') {
                 onRefresh()
             }
             await loadSettings()
         } catch (_e) {
+            if (!request.isCurrent()) return
             onMessage('error', t('settings.importFailed'))
         } finally {
-            setImporting(false)
+            if (request.isCurrent()) setImporting(false)
+            request.finish()
         }
-    }, [apiFetch, importMode, importText, loadSettings, onMessage, onRefresh, t])
+    }, [apiFetch, importMode, importText, loadSettings, onMessage, onRefresh, t, writes])
 
     const syncHintVisible = useMemo(
         () => settingsMeta.env_backed || settingsMeta.needs_vercel_sync,

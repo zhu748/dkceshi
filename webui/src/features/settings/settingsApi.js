@@ -23,9 +23,10 @@ export async function putSettings(apiFetch, payload, signal) {
     return { res, data }
 }
 
-export async function postPassword(apiFetch, newPassword) {
+export async function postPassword(apiFetch, newPassword, signal) {
     const res = await apiFetch('/admin/settings/password', {
         method: 'POST',
+        signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ new_password: newPassword }),
     })
@@ -33,15 +34,16 @@ export async function postPassword(apiFetch, newPassword) {
     return { res, data }
 }
 
-export async function getExportData(apiFetch) {
-    const res = await apiFetch('/admin/config/export')
+export async function getExportData(apiFetch, signal) {
+    const res = await apiFetch('/admin/config/export', { signal })
     const data = await res.json()
     return { res, data }
 }
 
-export async function postImportData(apiFetch, mode, config) {
+export async function postImportData(apiFetch, mode, config, signal) {
     const res = await apiFetch(`/admin/config/import?mode=${encodeURIComponent(mode)}`, {
         method: 'POST',
+        signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config, mode }),
     })

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	authn "ds2api/internal/auth"
 	"ds2api/internal/config"
@@ -134,13 +135,17 @@ func (h *Handler) updateSettingsPassword(w http.ResponseWriter, r *http.Request)
 	if newPassword == "" {
 		newPassword = strings.TrimSpace(fieldString(req, "password"))
 	}
-	if len(newPassword) < 4 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "new password must be at least 4 characters"})
+	if utf8.RuneCountInString(newPassword) < 8 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "new password must be at least 8 characters"})
 		return
 	}
 
 	now := time.Now().Unix()
 	hash := authn.HashAdminPassword(newPassword)
+	if hash == "" {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": "password hashing failed"})
+		return
+	}
 	if err := h.Store.Update(func(c *config.Config) error {
 		c.Admin.PasswordHash = hash
 		c.Admin.JWTValidAfterUnix = now

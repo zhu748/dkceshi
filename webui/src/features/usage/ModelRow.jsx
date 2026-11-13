@@ -1,10 +1,11 @@
-import { useCallback, useMemo } from 'react'
+import { Suspense, lazy, useCallback, useMemo } from 'react'
 import { useI18n } from '../../i18n'
-import EChart from './EChart'
 import { buildLineOption, buildStackedOption } from './chartOptions'
 import { fmtCompact, fmtMoney, fmtNumber } from './usageUtils'
 import { splitCacheHitTokens } from './usagePricing'
 import { useEntranceAnimation } from './useEntranceAnimation'
+
+const EChart = lazy(() => import('./EChart'))
 
 // ModelRow renders the per-model breakdown: an API-requests line chart plus a
 // stacked chart that shows tokens (tokens mode) or daily cost (cost mode).
@@ -99,7 +100,9 @@ export default function ModelRow({ row, dark, costMode, cacheHit }) {
                             <span className="usage-model-card-value">{fmt(row.calls)}</span>
                         </div>
                         <div className="usage-model-card-chart">
-                            <EChart option={requestsOption} height={272} />
+                            <Suspense fallback={<div style={{ height: 272 }} aria-busy="true" />}>
+                                <EChart option={requestsOption} height={272} />
+                            </Suspense>
                         </div>
                     </div>
                     <div className="usage-model-card">
@@ -108,7 +111,9 @@ export default function ModelRow({ row, dark, costMode, cacheHit }) {
                             <span className="usage-model-card-value">{costMode ? fmtMoneyLocal(row.cost) : fmt(row.total)}</span>
                         </div>
                         <div className="usage-model-card-chart">
-                            <EChart option={chartOption} height={272} />
+                            <Suspense fallback={<div style={{ height: 272 }} aria-busy="true" />}>
+                                <EChart option={chartOption} height={272} />
+                            </Suspense>
                         </div>
                     </div>
                 </div>

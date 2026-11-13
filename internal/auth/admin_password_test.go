@@ -34,3 +34,21 @@ func TestGenerateAdminPassword_Randomness(t *testing.T) {
 		t.Fatalf("two generated passwords identical")
 	}
 }
+
+func TestPasswordsAreSaltedAndLegacyHashesStillVerify(t *testing.T) {
+	a, b := HashAdminPassword("correct-password"), HashAdminPassword("correct-password")
+	if a == b || !strings.HasPrefix(a, passwordHashPrefix) {
+		t.Fatal("new hashes must use a random salt")
+	}
+	if !verifyAdminPasswordHash("correct-password", a) || verifyAdminPasswordHash("wrong", a) {
+		t.Fatal("salted verification failed")
+	}
+	// SHA-256("password"), used by existing installations.
+	if !verifyAdminPasswordHash("password", "sha256:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8") {
+		t.Fatal("legacy password stopped working")
+	}
+	long := strings.Repeat("长密码", 40)
+	if !verifyAdminPasswordHash(long, HashAdminPassword(long)) {
+		t.Fatal("long UTF-8 passwords were truncated")
+	}
+}

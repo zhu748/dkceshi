@@ -7,12 +7,14 @@ import (
 )
 
 type RequestAuth struct {
-	UseConfigToken bool
-	DeepSeekToken  string
-	CallerID       string
-	UserAgent      string
-	AccountID      string
-	TargetAccount  string
+	// ManagedCredential identifies a configured key even before acquiring a slot.
+	ManagedCredential bool
+	UseConfigToken    bool
+	DeepSeekToken     string
+	CallerID          string
+	UserAgent         string
+	AccountID         string
+	TargetAccount     string
 	// FileAccountID binds references whose source bytes cannot be replayed.
 	FileAccountID        string
 	accountPins          int

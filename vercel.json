@@ -1,10 +1,11 @@
 {
   "version": 2,
-  "buildCommand": "npm ci --prefix webui && npm run build --prefix webui",
+  "buildCommand": "npm ci --prefix webui && npm run build --prefix webui && node scripts/build-vercel-control.mjs",
   "outputDirectory": "static",
   "functions": {
     "api/chat-stream.js": {
-      "maxDuration": 300
+      "maxDuration": 300,
+      "includeFiles": "internal/runtime/vercel-control"
     },
     "api/index.go": {
       "maxDuration": 300

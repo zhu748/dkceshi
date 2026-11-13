@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 ./tests/scripts/check-node-split-syntax.sh
+node --test tests/node/local-control.test.cjs
 node --test tests/node/upstream-usage.test.cjs webui/src/features/chatHistory/historyUsage.test.mjs
 node --test tests/node/terminal-batch.test.cjs
 node --test tests/node/stream-delivery.test.cjs

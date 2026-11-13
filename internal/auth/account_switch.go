@@ -107,10 +107,7 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 			}
 			continue
 		}
-		a.markAccountUsed()
-		if r.OnAccountUsed != nil {
-			r.OnAccountUsed(a.AccountID)
-		}
+		r.completeAccountAcquisition(a)
 		return true
 	}
 }

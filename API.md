@@ -1544,3 +1544,8 @@ Binding requires an explicit `proxy_id` (empty string means direct) or `mode: "a
 `mihomo-` IDs are reserved: manual create rejects them (400), and manual update/delete of bridge-managed proxies returns 409.
 A saved proxy test accepts only `proxy_id`; mixing temporary override fields is rejected.
 Full config imports refresh proxy client pools when proxy settings change.
+
+
+### 凭据生命周期与请求限制
+
+托管 Key 与直连 Token 使用独立的 Responses 缓存命名空间；已删除的托管 Key 无法再读取或续接缓存响应（404）。管理员登录正文上限 16 KiB；按连接 IP 初始允许 10 次尝试，每 30 秒补充一次，超限返回 429 与 Retry-After。新密码至少 8 个 Unicode 字符并使用加盐 bcrypt-SHA256，旧哈希仍可验证。配置导出的三种表示统一脱敏。POST /api/show 正文上限 64 KiB，与 Content-Type 无关。Vercel 本地流式控制及实例边界见 [运行时约定](docs/security-and-runtime.md)。

@@ -1,6 +1,9 @@
 'use strict';
 const { streamLimit } = require('./stream_limits');
 const { readRawBody } = require('./request_body');
+const controlOrigins = new WeakMap();
+
+function setInternalGoOrigin(req, origin) { controlOrigins.set(req, origin); }
 
 const {
   writeOpenAIError,
@@ -126,9 +129,10 @@ function internalSecret() {
 function buildInternalGoURL(req) {
   const proto = asString(header(req, 'x-forwarded-proto')) || 'https';
   const host = asString(header(req, 'host'));
-  const url = new URL(`${proto}://${host}${req.url || '/v1/chat/completions'}`);
+  const origin = controlOrigins.get(req) || `${proto}://${host}`;
+  const url = new URL(`${origin}${req.url || '/v1/chat/completions'}`);
   url.searchParams.set('__go', '1');
-  const protectionBypass = resolveProtectionBypass(req);
+  const protectionBypass = controlOrigins.has(req) ? '' : resolveProtectionBypass(req);
   if (protectionBypass) {
     url.searchParams.set('x-vercel-protection-bypass', protectionBypass);
   }
@@ -139,6 +143,9 @@ function buildInternalGoHeaders(req, opts = {}) {
   const headers = {
     authorization: asString(header(req, 'authorization')),
     'x-api-key': asString(header(req, 'x-api-key')),
+    'x-goog-api-key': asString(header(req, 'x-goog-api-key')),
+    'user-agent': asString(header(req, 'user-agent')),
+    'x-ds2-source': asString(header(req, 'x-ds2-source')),
     'x-ds2-target-account': asString(header(req, 'x-ds2-target-account')),
     'x-vercel-protection-bypass': resolveProtectionBypass(req),
   };
@@ -236,6 +243,7 @@ module.exports = {
   relayPreparedFailure,
   safeReadText,
   buildInternalGoURL,
+  setInternalGoOrigin,
   buildInternalGoHeaders,
   createLeaseReleaser,
   releaseStreamLease,

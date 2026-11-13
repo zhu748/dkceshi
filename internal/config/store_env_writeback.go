@@ -45,7 +45,7 @@ func writeConfigFile(path string, cfg Config) error {
 // the Vercel token, so a crash mid-write must never leave a truncated file
 // behind: readers either see the complete old content or the complete new one.
 // The temp file is created with 0o600 (CreateTemp default) and the promoted
-// file keeps 0o644 to match the historical on-disk mode.
+// file keeps owner-only permissions for new configurations.
 func writeConfigBytes(path string, b []byte) error {
 	dir := filepath.Dir(path)
 	if dir == "." || dir == "" {
@@ -85,8 +85,8 @@ func writeConfigBytes(path string, b []byte) error {
 	// Preserve the destination's existing permission bits when the file is
 	// already there: operators may have tightened config.json (it holds account
 	// passwords) to 0600, and forcing 0644 on every save would silently widen
-	// it again. New files keep the historical 0644 default.
-	mode := os.FileMode(0o644)
+	// it again. New files default to 0600.
+	mode := os.FileMode(0o600)
 	if info, statErr := os.Stat(path); statErr == nil {
 		mode = info.Mode().Perm()
 	}

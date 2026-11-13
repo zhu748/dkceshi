@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -145,6 +144,11 @@ func VerifyJWTWithStore(token string, store AdminConfigReader) (map[string]any, 
 	if len(parts) != 3 {
 		return nil, errors.New("invalid token format")
 	}
+	headerBytes, headerErr := rawB64Decode(parts[0])
+	var header map[string]any
+	if headerErr != nil || json.Unmarshal(headerBytes, &header) != nil || header["alg"] != "HS256" {
+		return nil, errors.New("invalid token header")
+	}
 	msg := parts[0] + "." + parts[1]
 	expected := signHS256(msg, store)
 	actual, err := rawB64Decode(parts[2])
@@ -163,7 +167,7 @@ func VerifyJWTWithStore(token string, store AdminConfigReader) (map[string]any, 
 		return nil, errors.New("invalid payload")
 	}
 	exp, _ := payload["exp"].(float64)
-	if int64(exp) < time.Now().Unix() {
+	if payload["role"] != "admin" || int64(exp) <= time.Now().Unix() {
 		return nil, errors.New("token expired")
 	}
 	if store != nil {
@@ -191,10 +195,10 @@ func VerifyAdminRequestWithStore(r *http.Request, store AdminConfigReader) error
 	if token == "" {
 		return errors.New("authentication required")
 	}
-	if VerifyAdminCredential(token, store) {
+	if _, err := VerifyJWTWithStore(token, store); err == nil {
 		return nil
 	}
-	if _, err := VerifyJWTWithStore(token, store); err == nil {
+	if VerifyAdminCredential(token, store) {
 		return nil
 	}
 	return errors.New("invalid credentials")
@@ -223,29 +227,6 @@ func UsingDefaultAdminKey(store AdminConfigReader) bool {
 		return false
 	}
 	return strings.TrimSpace(os.Getenv("DS2API_ADMIN_KEY")) == ""
-}
-
-func HashAdminPassword(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(raw))
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func verifyAdminPasswordHash(candidate, encoded string) bool {
-	encoded = strings.TrimSpace(strings.ToLower(encoded))
-	if encoded == "" {
-		return false
-	}
-	if strings.HasPrefix(encoded, "sha256:") {
-		want := strings.TrimPrefix(encoded, "sha256:")
-		sum := sha256.Sum256([]byte(candidate))
-		got := hex.EncodeToString(sum[:])
-		return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
-	}
-	return subtle.ConstantTimeCompare([]byte(candidate), []byte(encoded)) == 1
 }
 
 func signHS256(msg string, store AdminConfigReader) []byte {

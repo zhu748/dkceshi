@@ -607,7 +607,7 @@
     "newPasswordPlaceholder": "Enter new password (min 4 chars)",
     "updatePassword": "Update password",
     "updating": "Updating...",
-    "passwordTooShort": "Password must be at least 4 characters.",
+    "passwordTooShort": "Password must be at least 8 characters.",
     "passwordUpdated": "Password updated. Please sign in again.",
     "passwordUpdateFailed": "Failed to update password.",
     "runtimeTitle": "Runtime",

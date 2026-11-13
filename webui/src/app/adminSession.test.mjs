@@ -114,3 +114,13 @@ test('an in-memory login can be reverified when browser storage is unavailable',
         assert.deepEqual(tokens, ['memory-only', 'memory-only'])
     }
 })
+
+test('logout clears legacy credential drafts from both storage backends', () => {
+    const local = storage(), tab = storage()
+    local.setItem('ds2api_env_config_draft_v1', JSON.stringify({ keys: ['private-key'] }))
+    tab.setItem('ds2api_env_config_draft_v1', JSON.stringify({ keys: ['private-key'] }))
+    const session = createAdminSession({ local, session: tab, onToken: () => {}, onChecking: () => {} })
+    session.logout()
+    assert.equal(local.getItem('ds2api_env_config_draft_v1'), null)
+    assert.equal(tab.getItem('ds2api_env_config_draft_v1'), null)
+})

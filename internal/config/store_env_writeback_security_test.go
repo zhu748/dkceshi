@@ -21,7 +21,7 @@ func TestWriteConfigBytesCreatesFile(t *testing.T) {
 		// already verified above.
 		return
 	}
-	if got := info.Mode().Perm(); got != 0o644 {
-		t.Fatalf("expected config mode 0644, got %o", got)
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("expected config mode 0600, got %o", got)
 	}
 }

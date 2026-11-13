@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -151,7 +152,7 @@ func ValidateKeepAliveInterval(v any) error {
 	parts := strings.Split(raw, "-")
 	if len(parts) == 1 {
 		val, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
-		if err != nil || val <= 0 {
+		if err != nil || math.IsNaN(val) || math.IsInf(val, 0) || val <= 0 {
 			return fmt.Errorf("keep_alive.interval 格式无效: %q，支持格式如 \"3\" 或 \"2-4\"（单位：小时）", s)
 		}
 		if val < minHours || val > maxHours {
@@ -165,7 +166,7 @@ func ValidateKeepAliveInterval(v any) error {
 		maxStr := strings.TrimSpace(parts[1])
 		minVal, err1 := strconv.ParseFloat(minStr, 64)
 		maxVal, err2 := strconv.ParseFloat(maxStr, 64)
-		if err1 != nil || err2 != nil || minVal <= 0 || maxVal <= 0 {
+		if err1 != nil || err2 != nil || math.IsNaN(minVal) || math.IsNaN(maxVal) || math.IsInf(minVal, 0) || math.IsInf(maxVal, 0) || minVal <= 0 || maxVal <= 0 {
 			return fmt.Errorf("keep_alive.interval 范围格式无效: %q，支持格式如 \"2-4\"（单位：小时）", s)
 		}
 		if minVal < minHours || maxVal > maxHours {

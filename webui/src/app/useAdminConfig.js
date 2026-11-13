@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { clearStoredConfigDraft } from './adminSession.js'
 import { createLatestRequest } from '../utils/latestRequest.js'
-
-const ENV_DRAFT_KEY = 'ds2api_env_config_draft_v1'
 
 export function useAdminConfig({ token, showMessage, t }) {
     const [config, setConfig] = useState({ keys: [], accounts: [] })
@@ -18,10 +17,6 @@ export function useAdminConfig({ token, showMessage, t }) {
                 const data = await res.json()
                 if (!request.isCurrent()) return
                 setConfig(data)
-                try {
-                    if (data?.env_backed) localStorage.setItem(ENV_DRAFT_KEY, JSON.stringify(data))
-                    else localStorage.removeItem(ENV_DRAFT_KEY)
-                } catch { /* Optional draft persistence must not discard a successful fetch. */ }
             }
         } catch (e) {
             if (!request.isCurrent()) return
@@ -31,16 +26,8 @@ export function useAdminConfig({ token, showMessage, t }) {
     }, [showMessage, t, token, requests])
 
     useEffect(() => {
+        clearStoredConfigDraft()
         if (token) {
-            try {
-                const rawDraft = localStorage.getItem(ENV_DRAFT_KEY)
-                if (rawDraft) {
-                    const draft = JSON.parse(rawDraft)
-                    if (draft?.env_backed) {
-                        setConfig(draft)
-                    }
-                }
-            } catch { /* A missing or inaccessible draft is non-fatal. */ }
             fetchConfig()
         } else {
             setConfig({ keys: [], accounts: [] })

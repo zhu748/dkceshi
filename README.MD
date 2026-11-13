@@ -466,3 +466,6 @@ npm run build --prefix webui
 请勿将本项目用于违反服务条款、协议、法律法规或平台规则的场景。商业使用前请自行确认 `LICENSE`、相关协议以及你是否获得了作者的书面许可。
 
 - Android App 2.7.1 HAR alignment: [headers, devices and uploads](docs/android-har-alignment.md).
+
+
+凭据撤销、配置事务、管理台会话与 Vercel 控制进程说明：[安全与运行时约定](docs/security-and-runtime.md)。

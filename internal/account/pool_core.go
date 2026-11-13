@@ -117,12 +117,7 @@ func (p *Pool) Reset() {
 	for _, acc := range accounts {
 		configured[acc.Identifier()] = true
 	}
-	for id, count := range p.inUse {
-		if !configured[id] {
-			delete(p.inUse, id)
-			p.inUseTotal -= count
-		}
-	}
+	// Removed accounts cannot be scheduled, but their live requests still count.
 	for id, entry := range p.rateLimits {
 		if !configured[id] {
 			if entry.timer != nil {

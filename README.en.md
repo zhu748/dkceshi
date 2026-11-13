@@ -424,3 +424,6 @@ The author and repository maintainers are not responsible for any direct or indi
 Do not use this project in ways that violate service terms, agreements, laws, or platform rules. Before any commercial use, review the `LICENSE`, the relevant terms, and confirm that you have the author's written permission.
 
 - Android App 2.7.1 HAR alignment: [headers, devices and uploads](docs/android-har-alignment.md).
+
+
+Security and runtime changes, including local Vercel stream control and credential lifecycle: [runtime guide](docs/security-and-runtime.md).

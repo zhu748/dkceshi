@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2, Play } from 'lucide-react'
 
+import { createLatestRequest } from '../../utils/latestRequest.js'
 import { useI18n } from '../../i18n'
 
 const MAX_INPUT = 4096
@@ -42,12 +43,14 @@ export default function TtsTesterContainer({ config, authFetch }) {
     const [audioURL, setAudioURL] = useState('')
     const [recitedText, setRecitedText] = useState('')
     const objectURLRef = useRef('')
+    const requests = useRef(createLatestRequest()).current
 
     useEffect(() => {
         let disposed = false
+        const controller = new AbortController()
         async function load() {
             try {
-                const res = await apiFetch('/admin/settings')
+                const res = await apiFetch('/admin/settings', { signal: controller.signal })
                 const data = await res.json()
                 if (!res.ok) {
                     throw new Error(data?.detail || t('settings.loadFailed'))
@@ -69,14 +72,16 @@ export default function TtsTesterContainer({ config, authFetch }) {
         load()
         return () => {
             disposed = true
+            controller.abort()
         }
     }, [apiFetch, t])
 
     useEffect(() => () => {
+        requests.cancel()
         if (objectURLRef.current) {
             URL.revokeObjectURL(objectURLRef.current)
         }
-    }, [])
+    }, [requests])
 
     const submit = useCallback(async () => {
         const input = text.trim()
@@ -89,17 +94,20 @@ export default function TtsTesterContainer({ config, authFetch }) {
             setError(t('tts.noApiKey'))
             return
         }
+        const request = requests.start()
         setSubmitting(true)
         setError('')
         try {
             const res = await fetch('/v1/audio/speech', {
                 method: 'POST',
+                signal: request.signal,
                 headers: {
                     'Authorization': `Bearer ${key}`,
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({ input, voice, response_format: 'wav' }),
             })
+            if (!request.isCurrent()) return
             if (!res.ok) {
                 let message = res.statusText
                 try {
@@ -111,6 +119,7 @@ export default function TtsTesterContainer({ config, authFetch }) {
                 throw new Error(message)
             }
             const blob = await res.blob()
+            if (!request.isCurrent()) return
             const url = URL.createObjectURL(blob)
             if (objectURLRef.current) {
                 URL.revokeObjectURL(objectURLRef.current)
@@ -119,11 +128,12 @@ export default function TtsTesterContainer({ config, authFetch }) {
             setAudioURL(url)
             setRecitedText(decodeBase64URL(res.headers.get('X-Ds2-Tts-Text-Base64') || ''))
         } catch (e) {
+            if (!request.isCurrent()) return
             setError(t('tts.requestFailed', { message: e?.message || '' }))
         } finally {
-            setSubmitting(false)
+            if (request.isCurrent()) setSubmitting(false)
         }
-    }, [configuredKeys, t, text, voice])
+    }, [configuredKeys, requests, t, text, voice])
 
     const inputLength = Array.from(text).length
     const canSubmit = enabled && !settingsLoading && !submitting && inputLength > 0 && inputLength <= MAX_INPUT

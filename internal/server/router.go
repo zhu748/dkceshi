@@ -22,6 +22,7 @@ import (
 	dsclient "ds2api/internal/deepseek/client"
 	"ds2api/internal/httpapi/admin"
 	"ds2api/internal/httpapi/claude"
+	"ds2api/internal/httpapi/clientaddr"
 	"ds2api/internal/httpapi/gemini"
 	"ds2api/internal/httpapi/ollama"
 	"ds2api/internal/httpapi/openai/audio"
@@ -101,6 +102,7 @@ func NewApp() (*App, error) {
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	r.Use(clientaddr.Capture)
 	r.Use(middleware.RealIP)
 	r.Use(filteredLogger())
 	r.Use(middleware.Recoverer)
@@ -331,7 +333,7 @@ func isSensitiveQueryParam(name string) bool {
 	// into the access log in plaintext.
 	return strings.EqualFold(name, "key") ||
 		strings.EqualFold(name, "api_key") ||
-		strings.EqualFold(name, "token")
+		strings.EqualFold(name, "token") || strings.EqualFold(name, "x-vercel-protection-bypass")
 }
 
 var defaultCORSAllowHeaders = []string{

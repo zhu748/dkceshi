@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"ds2api/internal/config"
 )
@@ -84,5 +86,27 @@ func TestVerifyJWTWithStoreSameSecondInvalidationAndRelogin(t *testing.T) {
 	}
 	if _, err := VerifyJWTWithStore(newToken, store); err != nil {
 		t.Fatalf("expected new token valid after invalidation cutoff: %v", err)
+	}
+}
+
+func TestJWTRejectsWrongAlgorithmRoleAndExpirationBoundary(t *testing.T) {
+	t.Setenv("DS2API_ADMIN_KEY", "jwt-validation-test")
+	for _, tc := range []struct {
+		name, algorithm, role string
+		exp                   int64
+	}{
+		{"wrong algorithm", "HS512", "admin", time.Now().Add(time.Hour).Unix()},
+		{"wrong role", "HS256", "user", time.Now().Add(time.Hour).Unix()},
+		{"expires now", "HS256", "admin", time.Now().Unix()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			header, _ := json.Marshal(map[string]any{"alg": tc.algorithm, "typ": "JWT"})
+			payload, _ := json.Marshal(map[string]any{"role": tc.role, "exp": tc.exp})
+			message := rawB64Encode(header) + "." + rawB64Encode(payload)
+			token := message + "." + rawB64Encode(signHS256(message, nil))
+			if _, err := VerifyJWT(token); err == nil {
+				t.Fatal("accepted invalid JWT claims or header")
+			}
+		})
 	}
 }

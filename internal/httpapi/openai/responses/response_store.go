@@ -41,10 +41,13 @@ func responseStoreKey(owner, id string) string {
 }
 
 func responseStoreOwner(a *auth.RequestAuth) string {
-	if a == nil {
+	if a == nil || a.CallerID == "" {
 		return ""
 	}
-	return a.CallerID
+	if a.ManagedCredential || a.UseConfigToken {
+		return "managed:" + a.CallerID
+	}
+	return "direct:" + a.CallerID
 }
 
 func (s *responseStore) put(owner, id string, value map[string]any) bool {

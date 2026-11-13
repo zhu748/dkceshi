@@ -1,6 +1,7 @@
 package configmgmt
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -93,7 +94,6 @@ func (h *Handler) exportConfig(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) configExport(w http.ResponseWriter, _ *http.Request) {
-	snap := h.Store.Snapshot()
 	jsonStr, b64, err := h.Store.ExportJSONAndBase64()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
@@ -101,7 +101,7 @@ func (h *Handler) configExport(w http.ResponseWriter, _ *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
-		"config":  snap,
+		"config":  json.RawMessage(jsonStr),
 		"json":    jsonStr,
 		"base64":  b64,
 	})

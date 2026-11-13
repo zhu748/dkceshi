@@ -106,6 +106,9 @@ async function proxyToGo(req, res, rawBody) {
       if (!isAbortError(err) && !res.writableEnded) {
         res.end();
       }
+    } finally {
+      try { await reader.cancel?.(); } catch (error) { console.warn('[proxy_go] reader cleanup failed', error.message); }
+      reader.releaseLock?.();
     }
   } finally {
     req.removeListener('aborted', onReqAborted);

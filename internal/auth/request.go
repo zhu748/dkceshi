@@ -173,15 +173,16 @@ func (r *Resolver) acquireManagedRequestAuthCore(ctx context.Context, callerID, 
 		}
 
 		a := &RequestAuth{
-			UseConfigToken: true,
-			CallerID:       callerID,
-			AccountID:      acc.Identifier(),
-			TargetAccount:  target,
-			Account:        acc,
-			TriedAccounts:  tried,
-			ToolsPresent:   toolsPresent,
-			ToolMarker:     toolMarkerFor(r, callerID),
-			resolver:       r,
+			ManagedCredential: true,
+			UseConfigToken:    true,
+			CallerID:          callerID,
+			AccountID:         acc.Identifier(),
+			TargetAccount:     target,
+			Account:           acc,
+			TriedAccounts:     tried,
+			ToolsPresent:      toolsPresent,
+			ToolMarker:        toolMarkerFor(r, callerID),
+			resolver:          r,
 		}
 
 		if err := r.ensureManagedToken(ctx, a); err != nil {
@@ -200,10 +201,7 @@ func (r *Resolver) acquireManagedRequestAuthCore(ctx context.Context, callerID, 
 			}
 			continue
 		}
-		a.markAccountUsed()
-		if r.OnAccountUsed != nil {
-			r.OnAccountUsed(a.AccountID)
-		}
+		r.completeAccountAcquisition(a)
 		return a, nil
 	}
 }
@@ -250,28 +248,6 @@ func (r *Resolver) GlobalMaxInflight() int {
 		return 0
 	}
 	return r.Pool.GlobalMaxInflight()
-}
-
-// DetermineCaller resolves caller identity without acquiring any pooled account.
-// Use this for local-cache lookup routes that only need tenant isolation.
-func (r *Resolver) DetermineCaller(req *http.Request) (*RequestAuth, error) {
-	callerKey := extractCallerToken(req)
-	if callerKey == "" {
-		return nil, ErrUnauthorized
-	}
-	callerID := callerTokenID(callerKey)
-	a := &RequestAuth{
-		UseConfigToken: false,
-		CallerID:       callerID,
-		UserAgent:      callerUserAgent(req),
-		ToolMarker:     toolMarkerFor(r, callerID),
-		resolver:       r,
-		TriedAccounts:  map[string]bool{},
-	}
-	if r == nil || r.Store == nil || !r.Store.HasAPIKey(callerKey) {
-		a.DeepSeekToken = callerKey
-	}
-	return a, nil
 }
 
 func WithAuth(ctx context.Context, a *RequestAuth) context.Context {

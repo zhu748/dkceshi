@@ -76,3 +76,6 @@ yarn-error.log*
 # 其他
 .DS_Store
 Thumbs.db
+
+# Vercel control binaries are built for the Node function, not Docker.
+internal/runtime/vercel-control

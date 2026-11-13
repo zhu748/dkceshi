@@ -72,3 +72,6 @@ data/
 
 # Local patch payloads
 dkceshi-align-changed-files.zip
+
+# Built control executable packaged by the Vercel build command
+/internal/runtime/vercel-control
