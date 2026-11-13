@@ -16,8 +16,8 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/CJackHwang/ds2api.git
-cd ds2api
+git clone https://github.com/zhu748/dkceshi.git
+cd dkceshi
 
 # 2. 配置
 cp config.example.json config.json
@@ -108,7 +108,7 @@ npm run build --prefix webui
 
 ## 问题反馈
 
-请使用 [GitHub Issues](https://github.com/CJackHwang/ds2api/issues) 并附上：
+请使用 [GitHub Issues](https://github.com/zhu748/dkceshi/issues) 并附上：
 
 - 复现步骤
 - 相关日志输出

@@ -241,7 +241,7 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
                         {versionInfo?.has_update && (
                             <a
                                 className="inline-flex mt-1 text-[10px] font-medium text-primary hover:underline"
-                                href={versionInfo?.release_url || 'https://github.com/CJackHwang/ds2api/releases/latest'}
+                                href={versionInfo?.release_url || 'https://github.com/zhu748/dkceshi/releases/latest'}
                                 target="_blank"
                                 rel="noreferrer"
                             >

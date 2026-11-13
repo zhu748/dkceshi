@@ -8,7 +8,7 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const vm = require('node:vm');
 const { adaptBrowserEnv, VERSION } = require('../../scripts/devid-android-env.cjs');
-const { VIVO_SPECS, mobileHardware, localeSettings } = require('../../scripts/devid-android-profile.cjs');
+const { DEVICE_SPECS, mobileHardware, localeSettings } = require('../../scripts/devid-android-profile.cjs');
 const { selectAnchoredArchive } = require('../../scripts/devid-generate.cjs');
 
 const root = path.resolve(__dirname, '../..');
@@ -48,7 +48,8 @@ test('no-anchor generation chooses multiple Android models and reuses a saved ch
         models.add(next.profile.deviceModel);
         assert.equal(next.profile.osFamily, 'android');
     }
-    assert.equal(models.size, 19);
+    assert.equal(models.size, Math.min(60, DEVICE_SPECS.length));
+    assert.ok(DEVICE_SPECS.length >= 50);
     const first = fresh(null);
     const next = selectAnchoredArchive({ ...first, smidV2: 'same' }, null, {}, {}, 999);
     assert.deepEqual(next, { ...first, smidV2: 'same' });
@@ -83,13 +84,13 @@ test('clock probes accept integer precision but reject invalid clock values', ()
     assert.ok(run(NaN, -1).every(value => value === false));
 });
 
-test('supplied SDK environment passes real VM checks across model/GPU families and locales', { skip: !fs.existsSync(path.join(assets, 'browser_env.js')), timeout: 30000 }, () => {
+test('supplied SDK environment passes real VM checks across model/GPU families and locales', { skip: !fs.existsSync(path.join(assets, 'browser_env.js')), timeout: 90000 }, () => {
     const source = fs.readFileSync(path.join(assets, 'browser_env.js'), 'utf8');
     const adapted = adaptBrowserEnv(source);
     assert.equal(adaptBrowserEnv(adapted), adapted);
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'android-env-'));
     try {
-        const cases = [...VIVO_SPECS.map((d) => ({ ...anchor, device_model: d[0], android_version: d[1] })),
+        const cases = [...DEVICE_SPECS.map((d) => ({ ...anchor, device_model: d[0], android_version: d[1] })),
             { ...anchor, device_model: 'Pixel 9', android_version: 16, locale: 'en-US', tz: 'America/Los_Angeles', tz_offset: 420 },
             { ...anchor, locale: 'ja-JP', tz: 'Asia/Tokyo', tz_offset: -540 }];
         for (const a of cases) {

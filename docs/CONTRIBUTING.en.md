@@ -16,8 +16,8 @@ Thanks for your interest in contributing to DS2API!
 
 ```bash
 # 1. Clone
-git clone https://github.com/CJackHwang/ds2api.git
-cd ds2api
+git clone https://github.com/zhu748/dkceshi.git
+cd dkceshi
 
 # 2. Configure
 cp config.example.json config.json
@@ -108,7 +108,7 @@ Before contributing, review the architecture doc sections for request flow and `
 
 ## Reporting Issues
 
-Please use [GitHub Issues](https://github.com/CJackHwang/ds2api/issues) and include:
+Please use [GitHub Issues](https://github.com/zhu748/dkceshi/issues) and include:
 
 - Steps to reproduce
 - Relevant log output

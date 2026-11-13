@@ -54,8 +54,8 @@ node scripts/devid-generate.cjs --profile data/devid/profiles/test-device.json -
 ```
 
 stdout 只有一行结果 JSON，成功时包含 `device_id`、`smid_v2`、`environment=android-web-sdk`。
-同一 `--profile` 复用设备种子和 smid；`--reset` 会重建。没有锚定文件时从 19 个 vivo 模板中
-随机选择并保存，不设置固定 V2507A。账号已有型号继续优先使用，不会被独立示例覆盖。
+同一 `--profile` 复用设备种子和 smid；`--reset` 会重建。没有锚定文件时从 54 个机型模板
+（vivo/iQOO/小米/Redmi/OPPO/一加/荣耀）中随机选择并保存，不设置固定 V2507A。账号已有型号继续优先使用，不会被独立示例覆盖。
 `android_version` 是 Android 版本（如 15），不是 API level（如 35）。
 重复上报可能得到不同的 `device_id`；项目在成功生成后保存并复用该 ID，不会在每次请求时重新生成。
 上述适配和校验针对默认 VM 路径；旧 `--browser` / `--via-chromium` 实验通道未进行同等 Android 验证。
@@ -77,8 +77,8 @@ stdout 只有一行结果 JSON，成功时包含 `device_id`、`smid_v2`、`envi
 - 重置不会预先删除旧档案。生成先写私有临时文件，确认账号设备、路由和账号版本未变化后
   替换档案并保存 ID；配置保存失败会回滚。这个回滚处理返回错误，不宣称两个文件具备
   跨进程崩溃的原子事务。设备资料变更会清除未显式替换的旧自动 ID。
-- 不支持的 Android API level 明确报错；当前支持 24–37。已知 vivo 规格统一维护在
-  `internal/config/android_device_specs.json`，由 Go 和 Node 共用。无显式时区偏移时按 IANA
+- 不支持的 Android API level 明确报错；当前支持 24–37。已知机型规格统一维护在
+  `internal/config/android_device_specs.json`（含 brand/来源字段），由 Go 和 Node 共用。无显式时区偏移时按 IANA
   时区计算当前偏移；校准屏幕、GPU 覆盖值更新复用档案，并清除旧 smid。
 - 账号时区锚定支持整小时偏移（Etc/GMT 构造）与常见固定偏移的非整小时时区
   （UTC+3:30/+4:30/+5:30/+5:45/+6:30/+9:30）。带夏令时的非整小时地区（如
@@ -121,15 +121,17 @@ docker compose -f docker-compose.yml -f docker-compose.sdk.yml up -d --build
 
 ## 数据精度
 
-19 个 vivo 型号代码的物理分辨率和 GPU 芯片名来自 vivo 官方参数页：X90/X100/X200 系列及
-S19/S20 系列。来源链接和映射保存在 `scripts/devid-android-profile.cjs`。
+54 个机型代码的物理分辨率和 GPU 芯片名：vivo 条目来自 vivo 官方参数页（X90/X100/X200/X300 系列及
+S19/S20 系列），其余品牌来自厂商公开规格页；型号代码均经 Google Play 设备目录核验。
+来源链接和映射保存在 `internal/config/android_device_specs.json` 的 `source` 字段。
 这是公开规格模板；DPR、CSS 屏幕尺寸、完整 WebGL 驱动字符串、字体宽度、Canvas、存储配额、
 电池和网络参数仍是模拟值，尚未用这些机型的真实 Android Chrome 抓包校准。
 
 池外型号及尚无硬件表的型号（包括 V2507A、Pixel/Samsung）保留型号和 Android 版本，
 使用明确标记的 `generic-mobile-template`，日志会提示，结果 `hardware_approximate=true`。
-generic 档案的 GPU 驱动串从常见移动 GPU（Adreno 660/730/740/750、Immortalis-G715、
-Mali-G615）按档案种子挑选并随档案稳定，vendor 为 Qualcomm/ARM；不再回退到真实
+generic 档案的 GPU 驱动串从常见移动 GPU（Adreno 660/730/740/750/830、
+Immortalis-G715/-G720/-G925、Mali-G610/G615/G710）按档案种子挑选并随档案稳定，
+vendor 为 Qualcomm/ARM；不再回退到真实
 设备上几乎不出现的 `Generic Android OpenGL ES`。独立锚定 JSON 可用
 `screen: [CSS宽,CSS高,DPR]`、`gpu: {vendor,renderer}` 覆盖；
 也可以在扩展包 `profiles.json.modelScreens`、`gpus.json.modelGpus` 中补充真机参数。

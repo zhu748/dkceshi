@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { VERSION } = require('./devid-android-env.cjs');
-const { VIVO_SPECS, localeSettings, buildAndroidProfile } = require('./devid-android-profile.cjs');
+const { DEVICE_SPECS, localeSettings, buildAndroidProfile } = require('./devid-android-profile.cjs');
 
 function loadArchive(opts, log = () => {}) {
     /* 返回 {profile, smidV2} 或全新档案 */
@@ -55,7 +55,7 @@ function selectAnchoredArchive(arch, anchor, profilesSpec, gpuPool, seed) {
             const saved = arch.profile;
             anchor = { device_model: saved.deviceModel, android_version: saved.androidVersion, locale: saved.locale, tz: saved.tzName };
         }
-        const device = VIVO_SPECS[seed % VIVO_SPECS.length];
+        const device = DEVICE_SPECS[seed % DEVICE_SPECS.length];
         if (!anchor) anchor = { device_model: device[0], android_version: device[1], locale: 'zh-CN', tz: 'Asia/Shanghai', tz_offset: -480 };
     }
     const old = arch.profile;

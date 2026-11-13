@@ -40,6 +40,9 @@ func AndroidInstallationID(acc Account) string {
 }
 
 func AndroidBrandForModel(model string) string {
+	if brand, ok := androidBrandByModel[model]; ok {
+		return brand
+	}
 	switch {
 	case strings.HasPrefix(model, "Pixel"):
 		return "google"
@@ -47,6 +50,13 @@ func AndroidBrandForModel(model string) string {
 		return "samsung"
 	case strings.HasPrefix(model, "V"):
 		return "vivo"
+	case len(model) > 0 && model[0] >= '0' && model[0] <= '9':
+		// Xiaomi and Redmi China model codes are numeric-leading.
+		return "xiaomi"
+	case strings.HasPrefix(model, "P"):
+		// OPPO and OnePlus China codes share the P prefix; exact pool models
+		// are resolved by the brand map above.
+		return "oppo"
 	default:
 		return "android"
 	}

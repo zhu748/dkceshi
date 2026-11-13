@@ -44,7 +44,8 @@ UA、平台、Client Hints/mobile、高熵型号/版本、GPU、语言、时区�
 Android/站点检查中有 14 项失败。现在由 `scripts/devid-android-env.cjs` 按已知原文件
 SHA-256 适配，在运行时加入 Android 平台、移动 Client Hints/高熵型号版本、触屏、
 移动插件/MIME 模板、GPU 和 chat 站点覆盖；不再加载原 Windows 字体度量。
-`scripts/devid-android-profile.cjs` 提供 19 个 vivo 公开硬件规格模板与其他型号的通用移动模板。
+`scripts/devid-android-profile.cjs` 提供 54 个机型公开硬件规格模板（vivo/小米/OPPO/一加/荣耀/Redmi/iQOO）
+与其他型号的通用移动模板。
 原始 SDK 的字节不变；这仍是 Web SDK 浏览器模拟，不等价于 APK 原生 SDK。
 
 Android vivo X200 Pro 和 X100 Ultra 路径均已真实上报成功：HTTP 200、`code=1100`、
@@ -60,7 +61,8 @@ SDK 资源仍由部署方提供，未加入公开仓库；Go 编译本身不会�
 
 ## 头部与时区
 
-型号不再设置固定默认值；新账号自动分配后保存。vivo 已扩充为 20 种型号代码，
+型号不再设置固定默认值；新账号自动分配后保存。机型池已扩充到 87 种型号、117 组型号/API 预设，
+覆盖 vivo、iQOO、小米/Redmi、OPPO、一加、荣耀、Google Pixel 与 Samsung，
 完整列表、API 预设及来源见 [Android 设备型号池](android-device-models.md)。
 
 UA 使用 `DeepSeek/2.7.1 Android/{android_api_level}`；API level 是设备运行值，不能由 targetSdk 自动推定。

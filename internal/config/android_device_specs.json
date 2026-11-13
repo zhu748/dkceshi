@@ -1,173 +1,596 @@
 [
   {
     "model": "V2241A",
+    "brand": "vivo",
     "android_version": 13,
     "api_level": "33",
     "product": "x90",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G715"
+    "gpu": "Immortalis-G715",
+    "source": "https://www.vivo.com.cn/vivo/param/x90"
   },
   {
     "model": "V2242A",
+    "brand": "vivo",
     "android_version": 13,
     "api_level": "33",
     "product": "x90pro",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G715"
+    "gpu": "Immortalis-G715",
+    "source": "https://www.vivo.com.cn/vivo/param/x90pro"
   },
   {
     "model": "V2227A",
+    "brand": "vivo",
     "android_version": 13,
     "api_level": "33",
     "product": "x90proplus",
     "width": 1440,
     "height": 3200,
-    "gpu": "Adreno 740"
+    "gpu": "Adreno 740",
+    "source": "https://www.vivo.com.cn/vivo/param/x90proplus"
   },
   {
     "model": "V2309A",
+    "brand": "vivo",
     "android_version": 14,
     "api_level": "34",
     "product": "x100",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G720"
+    "gpu": "Immortalis-G720",
+    "source": "https://www.vivo.com.cn/vivo/param/x100"
   },
   {
     "model": "V2324A",
+    "brand": "vivo",
     "android_version": 14,
     "api_level": "34",
     "product": "x100pro",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G720"
+    "gpu": "Immortalis-G720",
+    "source": "https://www.vivo.com.cn/vivo/param/x100pro"
   },
   {
     "model": "V2359A",
+    "brand": "vivo",
     "android_version": 14,
     "api_level": "34",
     "product": "x100s",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G720"
+    "gpu": "Immortalis-G720",
+    "source": "https://www.vivo.com.cn/vivo/param/x100s"
   },
   {
     "model": "V2324HA",
+    "brand": "vivo",
     "android_version": 14,
     "api_level": "34",
     "product": "x100spro",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G720"
+    "gpu": "Immortalis-G720",
+    "source": "https://www.vivo.com.cn/vivo/param/x100spro"
   },
   {
     "model": "V2366GA",
+    "brand": "vivo",
     "android_version": 14,
     "api_level": "34",
     "product": "x100ultra",
     "width": 1440,
     "height": 3200,
-    "gpu": "Adreno 750"
+    "gpu": "Adreno 750",
+    "source": "https://www.vivo.com.cn/vivo/param/x100ultra"
   },
   {
     "model": "V2366HA",
+    "brand": "vivo",
     "android_version": 14,
     "api_level": "34",
     "product": "x100ultra",
     "width": 1440,
     "height": 3200,
-    "gpu": "Adreno 750"
+    "gpu": "Adreno 750",
+    "source": "https://www.vivo.com.cn/vivo/param/x100ultra"
   },
   {
     "model": "V2415A",
+    "brand": "vivo",
     "android_version": 15,
     "api_level": "35",
     "product": "x200",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G925"
+    "gpu": "Immortalis-G925",
+    "source": "https://www.vivo.com.cn/vivo/param/x200"
   },
   {
     "model": "V2405A",
+    "brand": "vivo",
     "android_version": 15,
     "api_level": "35",
     "product": "x200pro",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G925"
+    "gpu": "Immortalis-G925",
+    "source": "https://www.vivo.com.cn/vivo/param/x200pro"
   },
   {
     "model": "V2405DA",
+    "brand": "vivo",
     "android_version": 15,
     "api_level": "35",
     "product": "x200pro",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G925"
+    "gpu": "Immortalis-G925",
+    "source": "https://www.vivo.com.cn/vivo/param/x200pro"
   },
   {
     "model": "V2419A",
+    "brand": "vivo",
     "android_version": 15,
     "api_level": "35",
     "product": "x200promini",
     "width": 1216,
     "height": 2640,
-    "gpu": "Immortalis-G925"
+    "gpu": "Immortalis-G925",
+    "source": "https://www.vivo.com.cn/vivo/param/x200promini"
   },
   {
     "model": "V2454A",
+    "brand": "vivo",
     "android_version": 15,
     "api_level": "35",
     "product": "x200ultra",
     "width": 1440,
     "height": 3168,
-    "gpu": "Adreno 830"
+    "gpu": "Adreno 830",
+    "source": "https://www.vivo.com.cn/vivo/param/x200ultra"
   },
   {
     "model": "V2454DA",
+    "brand": "vivo",
     "android_version": 15,
     "api_level": "35",
     "product": "x200ultra",
     "width": 1440,
     "height": 3168,
-    "gpu": "Adreno 830"
+    "gpu": "Adreno 830",
+    "source": "https://www.vivo.com.cn/vivo/param/x200ultra"
   },
   {
     "model": "V2364A",
+    "brand": "vivo",
     "android_version": 14,
     "api_level": "34",
     "product": "s19",
     "width": 1260,
     "height": 2800,
-    "gpu": "Adreno 720"
+    "gpu": "Adreno 720",
+    "source": "https://www.vivo.com.cn/vivo/param/s19"
   },
   {
     "model": "V2362A",
+    "brand": "vivo",
     "android_version": 14,
     "api_level": "34",
     "product": "s19pro",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G715"
+    "gpu": "Immortalis-G715",
+    "source": "https://www.vivo.com.cn/vivo/param/s19pro"
   },
   {
     "model": "V2429A",
+    "brand": "vivo",
     "android_version": 15,
     "api_level": "35",
     "product": "s20",
     "width": 1260,
     "height": 2800,
-    "gpu": "Adreno 720"
+    "gpu": "Adreno 720",
+    "source": "https://www.vivo.com.cn/vivo/param/s20"
   },
   {
     "model": "V2430A",
+    "brand": "vivo",
     "android_version": 15,
     "api_level": "35",
     "product": "s20pro",
     "width": 1260,
     "height": 2800,
-    "gpu": "Immortalis-G720"
+    "gpu": "Immortalis-G720",
+    "source": "https://www.vivo.com.cn/vivo/param/s20pro"
+  },
+  {
+    "model": "V2458A",
+    "brand": "vivo",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "x200s",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Immortalis-G925",
+    "source": "https://www.vivo.com.cn/vivo/param/x200s"
+  },
+  {
+    "model": "V2509A",
+    "brand": "vivo",
+    "android_version": 16,
+    "api_level": "36",
+    "product": "x300",
+    "width": 1216,
+    "height": 2640,
+    "gpu": "Mali-G1-Ultra",
+    "source": "https://www.vivo.com.cn/vivo/param/x300"
+  },
+  {
+    "model": "V2502A",
+    "brand": "vivo",
+    "android_version": 16,
+    "api_level": "36",
+    "product": "x300pro",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Mali-G1-Ultra",
+    "source": "https://www.vivo.com.cn/vivo/param/x300pro"
+  },
+  {
+    "model": "V2307A",
+    "brand": "vivo",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "iqoo12",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "V2408A",
+    "brand": "vivo",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "iqoo13",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 830",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "V2338A",
+    "brand": "vivo",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "iqooneo9",
+    "width": 1260,
+    "height": 2800,
+    "gpu": "Adreno 740",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "2201123C",
+    "brand": "xiaomi",
+    "android_version": 12,
+    "api_level": "31",
+    "product": "xiaomi12",
+    "width": 1080,
+    "height": 2400,
+    "gpu": "Adreno 730",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "2201122C",
+    "brand": "xiaomi",
+    "android_version": 12,
+    "api_level": "31",
+    "product": "xiaomi12pro",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 730",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "2211133C",
+    "brand": "xiaomi",
+    "android_version": 13,
+    "api_level": "33",
+    "product": "xiaomi13",
+    "width": 1080,
+    "height": 2400,
+    "gpu": "Adreno 740",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "2210132C",
+    "brand": "xiaomi",
+    "android_version": 13,
+    "api_level": "33",
+    "product": "xiaomi13pro",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 740",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "23127PN0CC",
+    "brand": "xiaomi",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "xiaomi14",
+    "width": 1200,
+    "height": 2670,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "23116PN5BC",
+    "brand": "xiaomi",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "xiaomi14pro",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "24031PN0DC",
+    "brand": "xiaomi",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "xiaomi14ultra",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "24129PN74C",
+    "brand": "xiaomi",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "xiaomi15",
+    "width": 1200,
+    "height": 2670,
+    "gpu": "Adreno 830",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "2410DPN6CC",
+    "brand": "xiaomi",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "xiaomi15pro",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 830",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "25010PN30C",
+    "brand": "xiaomi",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "xiaomi15ultra",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 830",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "23113RKC6C",
+    "brand": "redmi",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "redmik70",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 740",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "23117RK66C",
+    "brand": "redmi",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "redmik70pro",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "24117RK2CC",
+    "brand": "redmi",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "redmik80",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "24122RKC7C",
+    "brand": "redmi",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "redmik80pro",
+    "width": 1440,
+    "height": 3200,
+    "gpu": "Adreno 830",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PHZ110",
+    "brand": "oppo",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "findx7",
+    "width": 1264,
+    "height": 2780,
+    "gpu": "Immortalis-G720",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PHY110",
+    "brand": "oppo",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "findx7ultra",
+    "width": 1440,
+    "height": 3168,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PKB110",
+    "brand": "oppo",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "findx8",
+    "width": 1264,
+    "height": 2780,
+    "gpu": "Immortalis-G925",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PKC110",
+    "brand": "oppo",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "findx8pro",
+    "width": 1264,
+    "height": 2780,
+    "gpu": "Immortalis-G925",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PKJ110",
+    "brand": "oppo",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "findx8ultra",
+    "width": 1440,
+    "height": 3168,
+    "gpu": "Adreno 830",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PJD110",
+    "brand": "oneplus",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "oneplus12",
+    "width": 1440,
+    "height": 3168,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PJZ110",
+    "brand": "oneplus",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "oneplus13",
+    "width": 1440,
+    "height": 3168,
+    "gpu": "Adreno 830",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PJE110",
+    "brand": "oneplus",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "oneplusace3",
+    "width": 1264,
+    "height": 2780,
+    "gpu": "Adreno 740",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "BVL-AN00",
+    "brand": "honor",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "magic6",
+    "width": 1280,
+    "height": 2800,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "BVL-AN16",
+    "brand": "honor",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "magic6pro",
+    "width": 1280,
+    "height": 2800,
+    "gpu": "Adreno 750",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PTP-N29",
+    "brand": "honor",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "magic7",
+    "width": 1280,
+    "height": 2800,
+    "gpu": "Adreno 830",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "PTP-N49",
+    "brand": "honor",
+    "android_version": 15,
+    "api_level": "35",
+    "product": "magic7pro",
+    "width": 1280,
+    "height": 2880,
+    "gpu": "Adreno 830",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "MAA-AN00",
+    "brand": "honor",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "honor100",
+    "width": 1200,
+    "height": 2664,
+    "gpu": "Adreno 720",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "ELI-AN00",
+    "brand": "honor",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "honor200",
+    "width": 1200,
+    "height": 2664,
+    "gpu": "Adreno 720",
+    "source": "vendor-public-spec-sheet"
+  },
+  {
+    "model": "ELP-AN00",
+    "brand": "honor",
+    "android_version": 14,
+    "api_level": "34",
+    "product": "honor200pro",
+    "width": 1224,
+    "height": 2700,
+    "gpu": "Adreno 735",
+    "source": "vendor-public-spec-sheet"
   }
 ]

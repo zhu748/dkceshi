@@ -33,9 +33,9 @@ const fs = require('fs');
 const path = require('path');
 const root = process.argv[1], assets = process.argv[2];
 const { adaptBrowserEnv } = require(path.join(root, 'scripts/devid-android-env.cjs'));
-const { VIVO_SPECS, ANDROID_FONTS, mobileHardware } = require(path.join(root, 'scripts/devid-android-profile.cjs'));
+const { DEVICE_SPECS, ANDROID_FONTS, mobileHardware } = require(path.join(root, 'scripts/devid-android-profile.cjs'));
 const screens = {}, gpus = {};
-for (const d of VIVO_SPECS) {
+for (const d of DEVICE_SPECS) {
   const h = mobileHardware({ device_model: d[0] });
   screens[d[0]] = h.screen; gpus[d[0]] = h.gpu;
 }

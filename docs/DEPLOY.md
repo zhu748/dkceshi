@@ -442,8 +442,8 @@ DS2API_CHAT_HISTORY_PATH=/tmp/chat_history.json
 
 ```bash
 # 克隆仓库
-git clone https://github.com/CJackHwang/ds2api.git
-cd ds2api
+git clone https://github.com/zhu748/dkceshi.git
+cd dkceshi
 
 # 复制并编辑配置
 cp config.example.json config.json

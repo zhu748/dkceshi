@@ -429,8 +429,8 @@ DS2API_CHAT_HISTORY_PATH=/tmp/chat_history.json
 
 ```bash
 # Clone
-git clone https://github.com/CJackHwang/ds2api.git
-cd ds2api
+git clone https://github.com/zhu748/dkceshi.git
+cd dkceshi
 
 # Copy and edit config
 cp config.example.json config.json

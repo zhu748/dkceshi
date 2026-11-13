@@ -18,15 +18,15 @@ type androidProfile struct{ model, api string }
 
 // androidProfilePresets is package-level: fillAndroidProfile runs on every
 // upstream request via StableAndroidProfile (BaseHeadersForAuth) and used to
-// rebuild this ~63-element slice on each call.
+// rebuild this ~117-element slice on each call.
 var androidProfilePresets = androidProfiles()
 
 func androidProfiles() []androidProfile {
 	out := []androidProfile{{"V2507A", "36"}, {"Pixel 6a", "36"}, {"Pixel 9a", "36"}}
-	for _, spec := range androidVivoSpecs {
+	for _, spec := range androidDeviceSpecs {
 		out = append(out, androidProfile{spec.Model, spec.APILevel})
 	}
-	models := []string{"Pixel 6", "Pixel 6 Pro", "Pixel 7", "Pixel 7 Pro", "Pixel 7a", "Pixel Fold", "Pixel 8", "Pixel 8 Pro", "Pixel 8a", "Pixel 9", "Pixel 9 Pro", "Pixel 9 Pro XL", "Pixel 9 Pro Fold", "SM-S911B", "SM-S916B", "SM-S918B", "SM-S921B", "SM-S926B", "SM-S928B", "SM-S931B", "SM-S936B", "SM-S938B"}
+	models := []string{"Pixel 6", "Pixel 6 Pro", "Pixel 7", "Pixel 7 Pro", "Pixel 7a", "Pixel Fold", "Pixel 8", "Pixel 8 Pro", "Pixel 8a", "Pixel 9", "Pixel 9 Pro", "Pixel 9 Pro XL", "Pixel 9 Pro Fold", "Pixel 10", "Pixel 10 Pro", "Pixel 10 Pro XL", "SM-S911B", "SM-S916B", "SM-S918B", "SM-S921B", "SM-S9210", "SM-S926B", "SM-S928B", "SM-S931B", "SM-S9310", "SM-S936B", "SM-S938B", "SM-S731B", "SM-S937B", "SM-A556B"}
 	for _, model := range models {
 		for _, api := range []string{"35", "36"} {
 			out = append(out, androidProfile{model, api})

@@ -2,10 +2,12 @@
 
 const { VERSION } = require('./devid-android-env.cjs');
 
-// Resolution and GPU chip names: vivo official parameter pages, checked 2026-10-29.
-// DPR, browser renderer spelling and font metrics remain simulation presets.
-const VIVO_SPECS = require('../internal/config/android_device_specs.json').map(d =>
-    [d.model, d.android_version, d.product, d.width, d.height, d.gpu]);
+// Resolution and GPU chip names: vivo entries follow vivo official parameter
+// pages; other brands use vendor public spec sheets. Codes cross-checked with
+// the Google Play supported-device catalog, checked 2026-11-13. DPR, browser
+// renderer spelling and font metrics remain simulation presets.
+const DEVICE_SPECS = require('../internal/config/android_device_specs.json').map(d =>
+    [d.model, d.android_version, d.product, d.width, d.height, d.gpu, d.brand, d.source]);
 
 const ANDROID_FONTS = {
     _comment: 'Android font-name compatibility template; no Windows measured metrics. Widths use the simulator approximation.',
@@ -37,8 +39,9 @@ function localeSettings(anchor, spec = {}, at = new Date()) {
 }
 
 const GENERIC_GPU_CHIPS = [
-    'Adreno 660', 'Adreno 730', 'Adreno 740', 'Adreno 750',
-    'Immortalis-G715', 'Mali-G615',
+    'Adreno 660', 'Adreno 730', 'Adreno 740', 'Adreno 750', 'Adreno 830',
+    'Immortalis-G715', 'Immortalis-G720', 'Immortalis-G925',
+    'Mali-G610', 'Mali-G615', 'Mali-G710',
 ];
 
 // 池外型号没有官方参数表；从常见移动 GPU 驱动串中按档案种子挑选（同档案稳定），
@@ -61,7 +64,7 @@ function genericGpuChip(model, rand) {
 
 function mobileHardware(anchor, spec = {}, gpuPool = {}, rand = null) {
     const model = String(anchor.device_model || '').trim();
-    const known = VIVO_SPECS.find((d) => d[0] === model);
+    const known = DEVICE_SPECS.find((d) => d[0] === model);
     const screen = anchor.screen || (spec.modelScreens || {})[model]
         || (known ? [Math.round(known[3] / 3), Math.round(known[4] / 3), 3] : [360, 800, 3]);
     if (!Array.isArray(screen) || screen.length !== 3 || !screen.every((n) => Number.isFinite(n) && n > 0)
@@ -74,7 +77,7 @@ function mobileHardware(anchor, spec = {}, gpuPool = {}, rand = null) {
     if (!gpu || typeof gpu.vendor !== 'string' || typeof gpu.renderer !== 'string' || !gpu.renderer
         || /Direct3D|D3D11|D3D12/i.test(gpu.renderer)) throw new Error('非法 Android GPU 模板');
     return { screen, gpu: { vendor: gpu.vendor, renderer: gpu.renderer }, hardwareSource: known
-        ? 'https://www.vivo.com.cn/vivo/param/' + known[2] : 'generic-mobile-template',
+        ? (known[7] || 'vendor-public-spec-sheet') : 'generic-mobile-template',
         hardwareApproximate: true };
 }
 
@@ -101,4 +104,4 @@ function buildAndroidProfile(anchor, spec, gpuPool, seed, rand) {
     };
 }
 
-module.exports = { ANDROID_FONTS, VIVO_SPECS, localeSettings, mobileHardware, buildAndroidProfile };
+module.exports = { ANDROID_FONTS, DEVICE_SPECS, localeSettings, mobileHardware, buildAndroidProfile };

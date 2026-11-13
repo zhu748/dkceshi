@@ -29,7 +29,8 @@ Regular bugs like crashes (without exploit potential), incorrect return values, 
 
 If you believe you have found a security vulnerability, **please do NOT open a public issue**.
 
-Instead, send an email to: **cjackhwang@qq.com**
+Instead, use GitHub's private vulnerability reporting for this repository:
+**https://github.com/zhu748/dkceshi/security/advisories/new**
 
 Please include as much as possible:
 - A clear description of the issue

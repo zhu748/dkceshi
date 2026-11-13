@@ -6,15 +6,13 @@ Proxy IP supports HTTP/HTTPS, SOCKS4/4A/5/5H, TURN/TURNS and SSTP, with automati
 
 # DS2API
 
-<a href="https://trendshift.io/repositories/24508" target="_blank"><img src="https://trendshift.io/api/badge/repositories/24508" alt="CJackHwang%2Fds2api | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
-[![License](https://img.shields.io/github/license/CJackHwang/ds2api.svg)](LICENSE)
-![Stars](https://img.shields.io/github/stars/CJackHwang/ds2api.svg)
-![Forks](https://img.shields.io/github/forks/CJackHwang/ds2api.svg)
+[![License](https://img.shields.io/github/license/zhu748/dkceshi.svg)](LICENSE)
+![Stars](https://img.shields.io/github/stars/zhu748/dkceshi.svg)
+![Forks](https://img.shields.io/github/forks/zhu748/dkceshi.svg)
 [![Release](https://img.shields.io/github/v/release/zhu748/dkceshi?display_name=tag)](https://github.com/zhu748/dkceshi/releases)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](docs/DEPLOY.en.md)
 [![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/L4CFHP)
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/CJackHwang/ds2api)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zhu748/dkceshi)
 
 Language: [中文](README.MD) | [English](README.en.md)
 
@@ -24,11 +22,11 @@ Documentation entry: [Docs Index](docs/README.md) / [Architecture](docs/ARCHITEC
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=cjackhwang%2Fds2api&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=zhu748%2Fdkceshi&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=cjackhwang/ds2api&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=cjackhwang/ds2api&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=cjackhwang/ds2api&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=zhu748/dkceshi&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=zhu748/dkceshi&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=zhu748/dkceshi&type=date&legend=top-left" />
  </picture>
 </a>
 
@@ -278,8 +276,8 @@ For detailed deployment instructions, see the [Deployment Guide](docs/DEPLOY.en.
 
 ```bash
 # 1. Clone
-git clone https://github.com/CJackHwang/ds2api.git
-cd ds2api
+git clone https://github.com/zhu748/dkceshi.git
+cd dkceshi
 
 # 2. Configure
 cp config.example.json config.json
