@@ -22,10 +22,19 @@ var androidVersionByAPI = map[string]int{
 }
 
 // tzNameByOffset 把 x-client-timezone-offset（秒）映射成 IANA 时区名。
-// 覆盖 DeepSeek 实际常见地区；未列出的偏移兜底 Asia/Shanghai。
+// 覆盖 DeepSeek 实际常见地区；整小时偏移走下方 Etc/GMT 构造，未列出的偏移兜底报错。
+// 只收录固定偏移（无夏令时）的非整小时时区：带 DST 的半时区（如 Australia/Adelaide、
+// America/St_Johns）在夏令时切换前后与账号当刻的 offset 头不一致，锚定时区必须与
+// 账号声称的偏移同源；这类地区应在账号设置里显式配置 IANA 时区。
 var tzNameByOffset = map[int]string{
+	12600: "Asia/Tehran",    // UTC+3:30
+	16200: "Asia/Kabul",     // UTC+4:30
+	19800: "Asia/Kolkata",   // UTC+5:30（含 Asia/Colombo 同偏移）
+	20700: "Asia/Kathmandu", // UTC+5:45
+	23400: "Asia/Yangon",    // UTC+6:30
 	28800: "Asia/Shanghai",
 	32400: "Asia/Tokyo",
+	34200: "Australia/Darwin", // UTC+9:30（北领地无 DST）
 	0:     "Etc/UTC",
 }
 
@@ -77,7 +86,7 @@ func buildDevidAnchor(identifier string, acc config.Account) (string, error) {
 		// Etc/GMT names have the opposite sign; they carry no DST.
 		tzName = fmt.Sprintf("Etc/GMT%+d", -tzOffsetSec/3600)
 	} else {
-		return "", fmt.Errorf("devid: timezone is required for offset %d", tzOffsetSec)
+		return "", fmt.Errorf("devid: 偏移 %d 秒无法映射到固定 IANA 时区（带夏令时的非整小时地区请为账号显式配置 timezone）", tzOffsetSec)
 	}
 	// JS getTimezoneOffset 语义：分钟，东经为负（UTC+8 → -480）
 	jsTZOffset := -tzOffsetSec / 60

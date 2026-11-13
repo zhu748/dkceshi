@@ -36,18 +36,41 @@ function localeSettings(anchor, spec = {}, at = new Date()) {
         acceptLanguage: loc.acceptLanguage || langs.map((l, i) => l + (i ? ';q=' + Math.max(0.1, 1 - i / 10).toFixed(1) : '')).join(','), tzName, tzOffset };
 }
 
-function mobileHardware(anchor, spec = {}, gpuPool = {}) {
+const GENERIC_GPU_CHIPS = [
+    'Adreno 660', 'Adreno 730', 'Adreno 740', 'Adreno 750',
+    'Immortalis-G715', 'Mali-G615',
+];
+
+// 池外型号没有官方参数表；从常见移动 GPU 驱动串中按档案种子挑选（同档案稳定），
+// 避免所有 generic 机型共用一个在真实 Android Chrome 上几乎不出现的字符串。
+// 无随机源时按型号哈希确定性映射：同一型号始终对应同一 GPU。
+function genericGpuChip(model, rand) {
+    let chip;
+    if (typeof rand === 'function') {
+        chip = GENERIC_GPU_CHIPS[Math.floor(rand() * GENERIC_GPU_CHIPS.length)];
+    } else {
+        let h = 0;
+        for (let i = 0; i < model.length; i++) h = (h * 31 + model.charCodeAt(i)) >>> 0;
+        chip = GENERIC_GPU_CHIPS[h % GENERIC_GPU_CHIPS.length];
+    }
+    return {
+        vendor: chip.startsWith('Adreno') ? 'Qualcomm' : 'ARM',
+        renderer: chip.startsWith('Adreno') ? chip.replace('Adreno ', 'Adreno (TM) ') : chip,
+    };
+}
+
+function mobileHardware(anchor, spec = {}, gpuPool = {}, rand = null) {
     const model = String(anchor.device_model || '').trim();
     const known = VIVO_SPECS.find((d) => d[0] === model);
     const screen = anchor.screen || (spec.modelScreens || {})[model]
         || (known ? [Math.round(known[3] / 3), Math.round(known[4] / 3), 3] : [360, 800, 3]);
     if (!Array.isArray(screen) || screen.length !== 3 || !screen.every((n) => Number.isFinite(n) && n > 0)
         || screen[0] > 4000 || screen[1] > 4000 || screen[2] > 8) throw new Error('非法 Android screen [CSS宽,CSS高,DPR]');
-    const chip = known ? known[5] : 'Generic Android OpenGL ES';
-    const gpu = anchor.gpu || (gpuPool.modelGpus || {})[model] || {
-        vendor: chip.startsWith('Adreno') ? 'Qualcomm' : known ? 'ARM' : 'Android',
+    const chip = known ? known[5] : null;
+    const gpu = anchor.gpu || (gpuPool.modelGpus || {})[model] || (known ? {
+        vendor: chip.startsWith('Adreno') ? 'Qualcomm' : 'ARM',
         renderer: chip.startsWith('Adreno') ? chip.replace('Adreno ', 'Adreno (TM) ') : chip,
-    };
+    } : genericGpuChip(model, rand));
     if (!gpu || typeof gpu.vendor !== 'string' || typeof gpu.renderer !== 'string' || !gpu.renderer
         || /Direct3D|D3D11|D3D12/i.test(gpu.renderer)) throw new Error('非法 Android GPU 模板');
     return { screen, gpu: { vendor: gpu.vendor, renderer: gpu.renderer }, hardwareSource: known
@@ -61,7 +84,7 @@ function buildAndroidProfile(anchor, spec, gpuPool, seed, rand) {
     if (!model || !Number.isInteger(androidVersion) || androidVersion < 7 || androidVersion > 100) {
         throw new Error('Android 锚定必须提供 device_model 和 android_version（Android 主版本，非 API level）');
     }
-    const hardware = mobileHardware(anchor, spec, gpuPool);
+    const hardware = mobileHardware(anchor, spec, gpuPool, rand);
     const [screenW, screenH, dpr] = hardware.screen;
     const pick = (a) => a[Math.floor(rand() * a.length)];
     const innerH = Math.max(1, screenH - 80);

@@ -18,6 +18,9 @@ type Reporter func(context.Context, ReportRequest) (int, []byte, error)
 
 // ValidateReport restricts captured SDK traffic to the configured SDK service;
 // browser metadata is never allowed to choose an arbitrary network target.
+// The endpoint below is the same one the Node generator dials: keep it in sync
+// with SM_CONF.apiHost/apiPath in scripts/devid-generate.cjs (both must change
+// together if the SDK service host or path ever moves).
 func ValidateReport(report ReportRequest) error {
 	u, err := url.Parse(report.URL)
 	if err != nil || u.Scheme != "https" || u.Host != "fp-it-acc.portal101.cn" || u.Path != "/deviceprofile/v4" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {

@@ -80,6 +80,10 @@ stdout 只有一行结果 JSON，成功时包含 `device_id`、`smid_v2`、`envi
 - 不支持的 Android API level 明确报错；当前支持 24–37。已知 vivo 规格统一维护在
   `internal/config/android_device_specs.json`，由 Go 和 Node 共用。无显式时区偏移时按 IANA
   时区计算当前偏移；校准屏幕、GPU 覆盖值更新复用档案，并清除旧 smid。
+- 账号时区锚定支持整小时偏移（Etc/GMT 构造）与常见固定偏移的非整小时时区
+  （UTC+3:30/+4:30/+5:30/+5:45/+6:30/+9:30）。带夏令时的非整小时地区（如
+  Australia/Adelaide、America/St_Johns）无法从偏移头唯一还原时区，请在账号上显式
+  配置 IANA 时区；缺省偏移映射见 `client_devid_anchor.go` 的 `tzNameByOffset`。
 
 ## Docker SDK 镜像
 
@@ -124,7 +128,10 @@ S19/S20 系列。来源链接和映射保存在 `scripts/devid-android-profile.c
 
 池外型号及尚无硬件表的型号（包括 V2507A、Pixel/Samsung）保留型号和 Android 版本，
 使用明确标记的 `generic-mobile-template`，日志会提示，结果 `hardware_approximate=true`。
-独立锚定 JSON 可用 `screen: [CSS宽,CSS高,DPR]`、`gpu: {vendor,renderer}` 覆盖；
+generic 档案的 GPU 驱动串从常见移动 GPU（Adreno 660/730/740/750、Immortalis-G715、
+Mali-G615）按档案种子挑选并随档案稳定，vendor 为 Qualcomm/ARM；不再回退到真实
+设备上几乎不出现的 `Generic Android OpenGL ES`。独立锚定 JSON 可用
+`screen: [CSS宽,CSS高,DPR]`、`gpu: {vendor,renderer}` 覆盖；
 也可以在扩展包 `profiles.json.modelScreens`、`gpus.json.modelGpus` 中补充真机参数。
 
 参考：
